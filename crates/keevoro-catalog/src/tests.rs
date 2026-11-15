@@ -205,3 +205,39 @@ fn a_file_that_is_not_a_database_gives_a_plain_error() {
     let err = Catalog::open(&file).err().unwrap();
     assert!(err.to_string().starts_with("Couldn't open the library's catalog"));
 }
+
+#[test]
+fn gathered_files_are_remembered() {
+    let c = Catalog::in_memory().unwrap();
+    assert_eq!(c.collected_path("aa").unwrap(), None);
+    assert_eq!(c.collected_totals().unwrap(), (0, 0));
+    c.mark_collected("aa", "originals/Undated/a.jpg", 100).unwrap();
+    c.mark_collected("bb", "originals/Undated/b.jpg", 50).unwrap();
+    // Recording the same file twice is harmless.
+    c.mark_collected("aa", "originals/Undated/a.jpg", 100).unwrap();
+    assert_eq!(
+        c.collected_path("aa").unwrap().as_deref(),
+        Some("originals/Undated/a.jpg")
+    );
+    assert_eq!(c.collected_totals().unwrap(), (2, 150));
+}
+
+#[test]
+fn an_older_catalog_is_upgraded_in_place() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("catalog.sqlite");
+    {
+        let conn = Connection::open(&file).unwrap();
+        conn.execute_batch(MIGRATIONS[0]).unwrap();
+        conn.pragma_update(None, "user_version", 1).unwrap();
+        conn.execute("INSERT INTO choices (blake3, keep) VALUES ('abc', 0)", [])
+            .unwrap();
+    }
+    let c = Catalog::open(&file).unwrap();
+    assert_eq!(
+        c.choice("abc").unwrap(),
+        Some(false),
+        "existing data survives the upgrade"
+    );
+    c.mark_collected("abc", "originals/Undated/a.jpg", 1).unwrap();
+}

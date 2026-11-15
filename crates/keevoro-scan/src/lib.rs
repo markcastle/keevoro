@@ -109,7 +109,8 @@ pub fn scan(root: &Path, opts: &ScanOptions, on_progress: &mut dyn FnMut(&ScanPr
         ..Default::default()
     };
     let mut progress = ScanProgress::default();
-    let mut walk = WalkDir::new(root).follow_links(false).into_iter();
+    // Sorted, so the same drive always gives the same report.
+    let mut walk = WalkDir::new(root).follow_links(false).sort_by_file_name().into_iter();
 
     while let Some(entry) = walk.next() {
         let entry = match entry {

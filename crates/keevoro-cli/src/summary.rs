@@ -4,7 +4,7 @@
 use keevoro_core::{group_into_collections, Collection, CollectionInput, DateSource, JunkReason, MediaKind};
 use keevoro_scan::{FoundItem, ScanReport};
 use serde::Serialize;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
 
 #[derive(Debug, Serialize)]
@@ -32,24 +32,48 @@ pub struct Duplicates {
     pub bytes: u64,
 }
 
-/// Keeps the first copy of each file across every source.
+/// Keeps one copy of each file across every source: the one that says the
+/// most about itself. A photo sitting in `Holidays/Cornwall` on one drive
+/// and loose in a backup folder on another belongs in Cornwall, whichever
+/// drive was scanned first.
 pub fn unique_items(reports: &[ScanReport]) -> (Vec<&FoundItem>, Option<Duplicates>) {
     let all: Vec<&FoundItem> = reports.iter().flat_map(|r| &r.items).collect();
     if all.iter().any(|i| i.blake3.is_none()) {
         return (all, None);
     }
-    let mut seen = HashSet::new();
-    let mut unique = Vec::new();
+    let mut place: HashMap<Option<&str>, usize> = HashMap::new();
+    let mut unique: Vec<&FoundItem> = Vec::new();
     let mut dup = Duplicates { copies: 0, bytes: 0 };
     for item in all {
-        if seen.insert(item.blake3.as_deref()) {
-            unique.push(item);
-        } else {
-            dup.copies += 1;
-            dup.bytes += item.bytes;
+        match place.get(&item.blake3.as_deref()) {
+            Some(&at) => {
+                dup.copies += 1;
+                dup.bytes += item.bytes;
+                if how_well_described(item) < how_well_described(unique[at]) {
+                    unique[at] = item;
+                }
+            }
+            None => {
+                place.insert(item.blake3.as_deref(), unique.len());
+                unique.push(item);
+            }
         }
     }
     (unique, Some(dup))
+}
+
+/// Ranks copies of the same file; lowest is best. A copy filed deeper in
+/// named folders beats a shallower or loose one (`Holidays/Cornwall` says
+/// more than `Old stuff`), then a stronger date clue beats a weaker one. A
+/// copy in a junk folder is the last resort. Ties keep the first found.
+fn how_well_described(item: &FoundItem) -> (bool, std::cmp::Reverse<usize>, bool, Option<DateSource>) {
+    let source = item.date.map(|d| d.source);
+    (
+        item.junk.is_some(),
+        std::cmp::Reverse(item.folder.album.len()),
+        source.is_none(),
+        source,
+    )
 }
 
 /// Sums up what was found. The items returned are the ones worth keeping
@@ -300,6 +324,51 @@ mod tests {
         );
         assert_eq!(s.collections.len(), 1);
         assert_eq!(s.collections[0].photos, 2);
+    }
+
+    #[test]
+    fn the_best_described_copy_of_a_duplicate_is_the_one_kept() {
+        let loose = found("copy.jpg", Some("aa"), &[], None, MediaKind::Photo);
+        let filename_dated = found(
+            "IMG_20080801.jpg",
+            Some("aa"),
+            &[],
+            Some((DateSource::Filename, PartialDate::day(2008, 8, 1).unwrap())),
+            MediaKind::Photo,
+        );
+        let shallow = found("0.jpg", Some("aa"), &["Old stuff"], aug(1), MediaKind::Photo);
+        let in_album = found("1.jpg", Some("aa"), &["Holidays", "Cornwall"], None, MediaKind::Photo);
+        let mut cached = found("f_00a1", Some("aa"), &["Cornwall"], aug(1), MediaKind::Photo);
+        cached.junk = Some(JunkReason::BrowserCache);
+        let other = found("2.jpg", Some("bb"), &[], None, MediaKind::Photo);
+
+        let reports = [
+            ScanReport {
+                items: vec![loose.clone(), other, filename_dated.clone()],
+                ..Default::default()
+            },
+            ScanReport {
+                items: vec![cached, shallow, in_album],
+                ..Default::default()
+            },
+        ];
+        let (unique, dup) = unique_items(&reports);
+        let names: Vec<_> = unique.iter().map(|i| i.path.to_string_lossy().to_string()).collect();
+        assert_eq!(
+            names,
+            ["1.jpg", "2.jpg"],
+            "the album copy wins and keeps its place in the list"
+        );
+        assert_eq!(dup.unwrap().copies, 4);
+
+        let dated_wins = [ScanReport {
+            items: vec![loose, filename_dated],
+            ..Default::default()
+        }];
+        assert_eq!(
+            unique_items(&dated_wins).0[0].path.to_string_lossy(),
+            "IMG_20080801.jpg"
+        );
     }
 
     #[test]

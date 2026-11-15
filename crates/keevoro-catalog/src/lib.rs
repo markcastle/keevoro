@@ -72,6 +72,12 @@ const MIGRATIONS: &[&str] = &[
          blake3 TEXT PRIMARY KEY,
          keep   INTEGER NOT NULL
      );",
+    // 2: which files are safely in the library, so gathering can resume.
+    "CREATE TABLE collected (
+         blake3 TEXT PRIMARY KEY,
+         path   TEXT NOT NULL,
+         bytes  INTEGER NOT NULL
+     );",
 ];
 
 #[derive(Debug, thiserror::Error)]
@@ -334,6 +340,38 @@ impl Catalog {
             .conn
             .query_row("SELECT keep FROM choices WHERE blake3 = ?1", [blake3], |r| r.get(0))
             .optional()?)
+    }
+}
+
+impl Catalog {
+    /// Records that a file has been copied into the library and verified.
+    /// `path` is relative to the library folder, with `/` between folders.
+    pub fn mark_collected(&self, blake3: &str, path: &str, bytes: u64) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO collected (blake3, path, bytes) VALUES (?1, ?2, ?3)
+             ON CONFLICT(blake3) DO UPDATE SET path = excluded.path, bytes = excluded.bytes",
+            params![blake3, path, to_i64(bytes)],
+        )?;
+        Ok(())
+    }
+
+    /// Where in the library a file with this content was put, if it has
+    /// been gathered already.
+    pub fn collected_path(&self, blake3: &str) -> Result<Option<String>> {
+        Ok(self
+            .conn
+            .query_row("SELECT path FROM collected WHERE blake3 = ?1", [blake3], |r| r.get(0))
+            .optional()?)
+    }
+
+    /// How many files are in the library, and their total size in bytes.
+    pub fn collected_totals(&self) -> Result<(u64, u64)> {
+        let (n, bytes): (i64, i64) =
+            self.conn
+                .query_row("SELECT COUNT(*), COALESCE(SUM(bytes), 0) FROM collected", [], |r| {
+                    Ok((r.get(0)?, r.get(1)?))
+                })?;
+        Ok((u64::try_from(n).unwrap_or(0), u64::try_from(bytes).unwrap_or(0)))
     }
 }
 

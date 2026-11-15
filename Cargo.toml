@@ -11,6 +11,7 @@ repository = "https://github.com/markcastle/keevoro"
 
 [workspace.dependencies]
 keevoro-catalog = { path = "crates/keevoro-catalog" }
+keevoro-collect = { path = "crates/keevoro-collect" }
 keevoro-core = { path = "crates/keevoro-core" }
 keevoro-scan = { path = "crates/keevoro-scan" }
 keevoro-storage = { path = "crates/keevoro-storage" }
@@ -20,6 +21,7 @@ anyhow = "1"
 async-trait = "0.1"
 blake3 = "1"
 clap = { version = "4", features = ["derive"] }
+fs4 = "1"
 futures = "0.3"
 imagesize = "0.14"
 infer = "0.19"

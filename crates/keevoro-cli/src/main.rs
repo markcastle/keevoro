@@ -10,6 +10,8 @@ mod summary;
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use keevoro_catalog::Catalog;
+use keevoro_collect::{free_space, gather, GatherError};
+use keevoro_scan::FoundItem;
 use keevoro_scan::{scan, ScanOptions, ScanReport};
 use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
@@ -71,6 +73,29 @@ enum Command {
         #[arg(long)]
         library: PathBuf,
     },
+    /// Leave one or more collections out of the library.
+    /// Nothing is deleted, and `keep` changes your mind.
+    Skip {
+        #[arg(long)]
+        library: PathBuf,
+        /// Collection names as shown by `collections`, like "Cornwall".
+        #[arg(required = true)]
+        collections: Vec<String>,
+    },
+    /// Put collections back after `skip`.
+    Keep {
+        #[arg(long)]
+        library: PathBuf,
+        /// Collection names as shown by `collections`, like "Cornwall".
+        #[arg(required = true)]
+        collections: Vec<String>,
+    },
+    /// Copy everything you are keeping into the library and check every
+    /// copy. Your old drives are only read. Safe to stop and run again.
+    Gather {
+        #[arg(long)]
+        library: PathBuf,
+    },
 }
 
 fn main() -> Result<()> {
@@ -97,13 +122,24 @@ fn run(cli: Cli, out: &mut dyn Write) -> Result<()> {
             print_reports(out, &reports, json, show)
         }
         Command::Collections { library, json, show } => {
-            let reports = open_existing(&library)?.load_reports()?;
+            let catalog = open_existing(&library)?;
+            let reports = catalog.load_reports()?;
             if reports.is_empty() {
                 writeln!(out, "Nothing has been scanned into this library yet.")?;
                 return Ok(());
             }
-            print_reports(out, &reports, json, show)
+            print_reports(out, &reports, json, show)?;
+            if !json {
+                let skipped = skipped_collections(&catalog, &reports)?;
+                if !skipped.is_empty() {
+                    writeln!(out, "Not keeping: {}.", skipped.join(", "))?;
+                }
+            }
+            Ok(())
         }
+        Command::Skip { library, collections } => choose(out, &library, &collections, false),
+        Command::Keep { library, collections } => choose(out, &library, &collections, true),
+        Command::Gather { library } => run_gather(out, &library),
         Command::Sources { library } => {
             let sources = open_existing(&library)?.sources()?;
             if sources.is_empty() {
@@ -134,6 +170,125 @@ fn open_existing(library: &Path) -> Result<Catalog> {
         );
     }
     Ok(Catalog::open_in_library(library)?)
+}
+
+/// Records the user's decision for every file in the named collections.
+fn choose(out: &mut dyn Write, library: &Path, names: &[String], keep: bool) -> Result<()> {
+    let catalog = open_existing(library)?;
+    let reports = catalog.load_reports()?;
+    let (summary, items) = summary::summarise(&reports);
+    for name in names {
+        let matches: Vec<_> = summary
+            .collections
+            .iter()
+            .filter(|c| c.title.eq_ignore_ascii_case(name.trim()))
+            .collect();
+        if matches.is_empty() {
+            bail!("There is no collection called \"{name}\". Run `keevoro collections` to see the names.");
+        }
+        for c in matches {
+            for hash in c.members.iter().filter_map(|&m| items.get(m)?.blake3.as_deref()) {
+                catalog.set_choice(hash, keep)?;
+            }
+            let verb = if keep { "Keeping" } else { "Not keeping" };
+            writeln!(out, "{verb} {} ({}).", c.title, c.summary())?;
+        }
+    }
+    Ok(())
+}
+
+/// Did the user say no to this file? Undecided files follow the default:
+/// keep, unless it looks like junk.
+fn wanted(catalog: &Catalog, item: &FoundItem) -> Result<bool> {
+    let choice = match &item.blake3 {
+        Some(hash) => catalog.choice(hash)?,
+        None => None,
+    };
+    Ok(choice.unwrap_or(item.junk.is_none()))
+}
+
+/// Titles of collections the user has skipped entirely.
+fn skipped_collections(catalog: &Catalog, reports: &[ScanReport]) -> Result<Vec<String>> {
+    let (summary, items) = summary::summarise(reports);
+    let mut skipped = Vec::new();
+    for c in &summary.collections {
+        let mut any_wanted = false;
+        for item in c.members.iter().filter_map(|&m| items.get(m)) {
+            any_wanted |= wanted(catalog, item)?;
+        }
+        if !any_wanted {
+            skipped.push(c.title.clone());
+        }
+    }
+    Ok(skipped)
+}
+
+fn run_gather(out: &mut dyn Write, library: &Path) -> Result<()> {
+    let catalog = open_existing(library)?;
+    let reports = catalog.load_reports()?;
+    // Rule one: never write to a source. A library inside a scanned folder
+    // would do exactly that.
+    let home = std::fs::canonicalize(library).unwrap_or_else(|_| library.to_path_buf());
+    if let Some(r) = reports.iter().find(|r| home.starts_with(&r.root)) {
+        bail!(
+            "The library is inside {}, which is one of the places being gathered from. \
+             Keevoro never writes to those. Choose a library folder somewhere else.",
+            r.root.display()
+        );
+    }
+
+    let (unique, _) = summary::unique_items(&reports);
+    let mut chosen = Vec::new();
+    for item in unique {
+        if wanted(&catalog, item)? {
+            chosen.push(item);
+        }
+    }
+    if chosen.is_empty() {
+        writeln!(out, "There is nothing to gather yet.")?;
+        return Ok(());
+    }
+
+    let live = std::io::stderr().is_terminal();
+    let n = summary::thousands;
+    let result = gather(library, &catalog, &chosen, free_space(library), &mut |p| {
+        if live {
+            eprint!("\r\x1b[2K  {} of {} safely copied", n(p.done), n(p.total));
+            let _ = std::io::stderr().flush();
+        }
+    });
+    if live {
+        eprint!("\r\x1b[2K");
+    }
+    let report = match result {
+        Ok(r) => r,
+        Err(GatherError::NotEnoughRoom { needed, free }) => bail!(
+            "There isn't enough room for your library. It needs {} and the disk has {} free.",
+            summary::bytes(needed),
+            summary::bytes(free)
+        ),
+        Err(e) => return Err(e.into()),
+    };
+
+    if report.copied > 0 {
+        writeln!(
+            out,
+            "Safely copied {} ({}) into your library.",
+            summary::count(report.copied, "file"),
+            summary::bytes(report.copied_bytes)
+        )?;
+    }
+    if report.already_there > 0 {
+        writeln!(out, "{} already there.", summary::count(report.already_there, "file"))?;
+    }
+    if !report.failed.is_empty() {
+        writeln!(out, "Couldn't copy {}:", summary::count(report.failed.len(), "file"))?;
+        for f in &report.failed {
+            writeln!(out, "  {}: {}.", f.path.display(), f.reason)?;
+        }
+        writeln!(out, "Nothing was lost. Run `keevoro gather` again to retry.")?;
+    }
+    Ok(())
 }
 
 fn run_scan(paths: &[PathBuf], no_hash: bool, for_library: bool) -> Vec<ScanReport> {
@@ -336,6 +491,88 @@ mod tests {
         assert!(
             keevoro(&["scan", "--name", "x", "a"]).is_err(),
             "--name needs --library"
+        );
+    }
+
+    #[test]
+    fn skip_keep_and_gather_tell_the_whole_story() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = dir.path().join("Keevoro Library");
+        let lib = library.to_string_lossy().to_string();
+        let dell = drive(dir.path(), "dell");
+        fs::write(Path::new(&dell).join("IMG_20120304_153012.jpg"), jpeg(7)).unwrap();
+        keevoro(&["scan", "--library", &lib, &dell]).unwrap();
+
+        // Leave Cornwall out, gather, and only the loose photo arrives.
+        let said = keevoro(&["skip", "--library", &lib, "cornwall"]).unwrap();
+        assert!(said.starts_with("Not keeping Cornwall (August 2008"), "{said}");
+        assert!(keevoro(&["collections", "--library", &lib])
+            .unwrap()
+            .ends_with("Not keeping: Cornwall.\n"));
+        let said = keevoro(&["gather", "--library", &lib]).unwrap();
+        assert!(said.starts_with("Safely copied 1 file ("), "{said}");
+        assert!(library
+            .join("originals/By date/2012/2012-03/IMG_20120304_153012.jpg")
+            .is_file());
+        assert!(!library.join("originals/Holidays").exists());
+
+        // Change of heart: Cornwall comes too, and nothing is copied twice.
+        let said = keevoro(&["keep", "--library", &lib, "Cornwall"]).unwrap();
+        assert!(said.starts_with("Keeping Cornwall"), "{said}");
+        let said = keevoro(&["gather", "--library", &lib]).unwrap();
+        assert!(said.starts_with("Safely copied 2 files ("), "{said}");
+        assert!(said.contains("1 file already there."), "{said}");
+        assert!(library
+            .join("originals/Holidays/Cornwall/IMG_20080812_101500.jpg")
+            .is_file());
+
+        let said = keevoro(&["gather", "--library", &lib]).unwrap();
+        assert_eq!(said, "3 files already there.\n");
+    }
+
+    #[test]
+    fn gather_reports_what_it_could_not_copy() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib = dir.path().join("lib").to_string_lossy().to_string();
+        let dell = drive(dir.path(), "dell");
+        keevoro(&["scan", "--library", &lib, &dell]).unwrap();
+        fs::remove_dir_all(Path::new(&dell).join("Holidays")).unwrap();
+        fs::remove_dir_all(Path::new(&dell).join("Backup")).unwrap();
+        let said = keevoro(&["gather", "--library", &lib]).unwrap();
+        assert!(said.starts_with("Couldn't copy 2 files:"), "{said}");
+        assert!(said.contains("Couldn't read it from the old drive"), "{said}");
+        assert!(
+            said.ends_with("Nothing was lost. Run `keevoro gather` again to retry.\n"),
+            "{said}"
+        );
+    }
+
+    #[test]
+    fn gather_refuses_a_library_inside_a_source() {
+        let dir = tempfile::tempdir().unwrap();
+        let dell = drive(dir.path(), "dell");
+        let lib = Path::new(&dell).join("Keevoro Library").to_string_lossy().to_string();
+        keevoro(&["scan", "--library", &lib, &dell]).unwrap();
+        let err = keevoro(&["gather", "--library", &lib]).unwrap_err();
+        assert!(err.to_string().contains("Keevoro never writes to those"), "{err}");
+        assert!(!Path::new(&lib).join("originals").exists());
+    }
+
+    #[test]
+    fn choosing_and_gathering_need_something_to_work_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib = dir.path().join("lib").to_string_lossy().to_string();
+        keevoro(&["scan", "--library", &lib, &drive(dir.path(), "dell")]).unwrap();
+        let err = keevoro(&["skip", "--library", &lib, "Narnia"]).unwrap_err();
+        assert!(
+            err.to_string().starts_with("There is no collection called \"Narnia\"."),
+            "{err}"
+        );
+
+        keevoro(&["skip", "--library", &lib, "Cornwall"]).unwrap();
+        assert_eq!(
+            keevoro(&["gather", "--library", &lib]).unwrap(),
+            "There is nothing to gather yet.\n"
         );
     }
 

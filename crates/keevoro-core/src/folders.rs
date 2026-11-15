@@ -61,6 +61,8 @@ const NOISE: &[&str] = &[
     "removable disk",
     "mobile",
     "phone",
+    "backup",
+    "backups",
 ];
 
 /// Folders whose own name and the next folder (a user account name) are noise.

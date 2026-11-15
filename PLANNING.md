@@ -73,9 +73,9 @@ A Rust workspace of small crates. The core has no I/O, and storage sits behind n
 | `keevoro-scan` | Built | Walk a source, detect media by content, read EXIF and video dates and pixel sizes, hash with BLAKE3. Read-only. |
 | `keevoro-storage` | Built | Storage traits, errors, keys, and the shared conformance suite. |
 | `keevoro-storage-folder` | Built | Local folder, external drive or NAS target. Reference provider. |
-| `keevoro-cli` | Built | `keevoro scan`, `collections` and `sources`: the engine without a UI. |
+| `keevoro-cli` | Built | `keevoro scan`, `collections`, `sources`, `keep`, `skip` and `gather`: the engine without a UI. |
 | `keevoro-catalog` | Built | SQLite catalog (`rusqlite`, bundled): sources, what was found, keep choices. The job queue arrives with `keevoro-collect`. |
-| `keevoro-collect` | Next | Copy and verify into the library. |
+| `keevoro-collect` | Built | Copy and verify into the library (`fs4` for the free-space check). Renditions and conversion are separate, in `keevoro-media`. |
 | `keevoro-media` | Planned | Thumbnails, display copies, video posters, MP4 conversion, blurhash. |
 | `keevoro-storage-s3` | Planned | One S3-compatible adapter with presets for R2, AWS S3, B2, Wasabi and MinIO. |
 | `keevoro-index` | Planned | v2 index writer and v1 gallery.json export. |
