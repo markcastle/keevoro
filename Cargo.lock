@@ -1645,6 +1645,7 @@ name = "keevoro-publish"
 version = "0.2.0"
 dependencies = [
  "async-trait",
+ "blake3",
  "keevoro-catalog",
  "keevoro-storage",
  "keevoro-storage-folder",

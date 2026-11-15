@@ -119,16 +119,37 @@ enum Command {
         #[arg(long)]
         library: PathBuf,
         /// Collection names as shown by `collections`, like "Cornwall".
-        #[arg(required = true)]
+        #[arg(required_unless_present = "photo")]
         collections: Vec<String>,
+        /// A single photo or video to leave out, by the code shown by
+        /// `keevoro photos`. Can be given more than once.
+        #[arg(long, value_name = "CODE")]
+        photo: Vec<String>,
     },
-    /// Put collections back after `skip`.
+    /// Put collections or single photos back after `skip`, or keep a
+    /// picture that was set aside as junk.
     Keep {
         #[arg(long)]
         library: PathBuf,
         /// Collection names as shown by `collections`, like "Cornwall".
-        #[arg(required = true)]
+        #[arg(required_unless_present = "photo")]
         collections: Vec<String>,
+        /// A single photo or video to keep, by the code shown by
+        /// `keevoro photos`. Can be given more than once.
+        #[arg(long, value_name = "CODE")]
+        photo: Vec<String>,
+    },
+    /// List the photos and videos in a collection, each with a short code
+    /// for `keep --photo` and `skip --photo`.
+    Photos {
+        #[arg(long)]
+        library: PathBuf,
+        /// The collection to list, as shown by `collections`.
+        #[arg(required_unless_present = "junk")]
+        collection: Option<String>,
+        /// List the pictures set aside as junk instead, with the reason.
+        #[arg(long, conflicts_with = "collection")]
+        junk: bool,
     },
     /// Copy everything you are keeping into the library and check every
     /// copy. Your old drives are only read. Safe to stop and run again.
@@ -157,6 +178,22 @@ enum Command {
         /// name and remove the old one, so the old link stops working.
         #[arg(long)]
         new_link: bool,
+    },
+    /// Make sure the library, and optionally its backup, are still intact.
+    /// Every original is read again and compared with how it was when it
+    /// was gathered. Nothing is changed.
+    Check {
+        #[arg(long)]
+        library: PathBuf,
+        /// Also check that every original is in the backup.
+        #[arg(long)]
+        backup: bool,
+        /// With --backup: download each original and compare it exactly.
+        /// Certain, but as slow as downloading the whole backup.
+        #[arg(long, requires = "backup")]
+        read_back: bool,
+        #[command(flatten)]
+        to: DestinationArgs,
     },
     /// Set up where this library is backed up to, once. Checks the
     /// storage works, saves the keys in this computer's keychain, and
@@ -214,7 +251,7 @@ fn run(cli: Cli, out: &mut dyn Write, world: &connect::World<'_>) -> Result<()> 
             if let Some(library) = &library {
                 remember(library, name.as_deref(), &reports)?;
             }
-            print_reports(out, &reports, json, show)
+            print_reports(out, &reports, &std::collections::HashSet::new(), json, show)
         }
         Command::Collections { library, json, show } => {
             let catalog = open_existing(&library)?;
@@ -223,7 +260,7 @@ fn run(cli: Cli, out: &mut dyn Write, world: &connect::World<'_>) -> Result<()> 
                 writeln!(out, "Nothing has been scanned into this library yet.")?;
                 return Ok(());
             }
-            print_reports(out, &reports, json, show)?;
+            print_reports(out, &reports, &catalog.kept_hashes()?, json, show)?;
             if !json {
                 let skipped = skipped_collections(&catalog, &reports)?;
                 if !skipped.is_empty() {
@@ -232,8 +269,21 @@ fn run(cli: Cli, out: &mut dyn Write, world: &connect::World<'_>) -> Result<()> 
             }
             Ok(())
         }
-        Command::Skip { library, collections } => choose(out, &library, &collections, false),
-        Command::Keep { library, collections } => choose(out, &library, &collections, true),
+        Command::Skip {
+            library,
+            collections,
+            photo,
+        } => choose(out, &library, &collections, &photo, false),
+        Command::Keep {
+            library,
+            collections,
+            photo,
+        } => choose(out, &library, &collections, &photo, true),
+        Command::Photos {
+            library,
+            collection,
+            junk,
+        } => list_photos(out, &library, collection.as_deref(), junk),
         Command::Gather {
             library,
             convert_videos,
@@ -295,6 +345,30 @@ fn run(cli: Cli, out: &mut dyn Write, world: &connect::World<'_>) -> Result<()> 
                 .with_context(|| format!("Couldn't use {} as a library", library.display()))?;
             connect::connect(out, &catalog, &saved, world)
         }
+        Command::Check {
+            library,
+            backup,
+            read_back,
+            to,
+        } => {
+            let catalog = open_existing(&library)?;
+            let destination = if backup {
+                let flags = to.flags();
+                let saved = match connect::Saved::from_flags(&flags) {
+                    Some(given) => given,
+                    None => connect::Saved::load(&catalog)?.ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "Say which backup to check: --to-folder, --to-r2, --to-s3 or --to-endpoint. \
+                             Or run `keevoro connect` once and it will be remembered."
+                        )
+                    })?,
+                };
+                Some(saved.open(world)?)
+            } else {
+                None
+            };
+            publish::check(out, &catalog, &library, destination, read_back)
+        }
         Command::Disconnect { library } => connect::disconnect(out, &open_existing(&library)?, world),
         Command::Sources { library } => {
             let sources = open_existing(&library)?.sources()?;
@@ -329,10 +403,24 @@ fn open_existing(library: &Path) -> Result<Catalog> {
 }
 
 /// Records the user's decision for every file in the named collections.
-fn choose(out: &mut dyn Write, library: &Path, names: &[String], keep: bool) -> Result<()> {
+fn choose(out: &mut dyn Write, library: &Path, names: &[String], photos: &[String], keep: bool) -> Result<()> {
     let catalog = open_existing(library)?;
     let reports = catalog.load_reports()?;
-    let (summary, items) = summary::summarise(&reports);
+    let verb = if keep { "Keeping" } else { "Not keeping" };
+
+    // Single photos first, so keeping a junk picture and then naming its
+    // collection in the same command sees it there.
+    let (everything, _) = summary::unique_items(&reports);
+    for code in photos {
+        let item = find_by_code(&everything, code)?;
+        if let Some(hash) = &item.blake3 {
+            catalog.set_choice(hash, keep)?;
+        }
+        writeln!(out, "{verb} {}.", file_name(item))?;
+    }
+
+    let rescued = catalog.kept_hashes()?;
+    let (summary, items) = summary::summarise_with(&reports, &rescued);
     for name in names {
         let matches: Vec<_> = summary
             .collections
@@ -346,8 +434,85 @@ fn choose(out: &mut dyn Write, library: &Path, names: &[String], keep: bool) -> 
             for hash in c.members.iter().filter_map(|&m| items.get(m)?.blake3.as_deref()) {
                 catalog.set_choice(hash, keep)?;
             }
-            let verb = if keep { "Keeping" } else { "Not keeping" };
             writeln!(out, "{verb} {} ({}).", c.title, c.summary())?;
+        }
+    }
+    Ok(())
+}
+
+fn file_name(item: &FoundItem) -> String {
+    item.path
+        .file_name()
+        .map_or_else(|| item.path.display().to_string(), |n| n.to_string_lossy().to_string())
+}
+
+/// The shortest code shown for a file: the start of its content id. Long
+/// enough to be unique in any real library, short enough to type.
+const CODE_LEN: usize = 8;
+
+/// Finds the one file whose content id starts with `code`.
+fn find_by_code<'a>(items: &[&'a FoundItem], code: &str) -> Result<&'a FoundItem> {
+    let code = code.trim().to_lowercase();
+    if code.len() < 4 || !code.chars().all(|c| c.is_ascii_hexdigit()) {
+        bail!("\"{code}\" isn't a photo code. Run `keevoro photos` to see the codes; they look like 9f2c4be1.");
+    }
+    let mut matches = items
+        .iter()
+        .filter(|i| i.blake3.as_deref().is_some_and(|h| h.starts_with(&code)));
+    match (matches.next(), matches.next()) {
+        (Some(one), None) => Ok(one),
+        (None, _) => bail!("No photo or video has the code {code}. Run `keevoro photos` to see the codes."),
+        (Some(_), Some(_)) => bail!("More than one photo starts with {code}. Give a few more characters of the code."),
+    }
+}
+
+/// Lists a collection's files, or everything set aside as junk.
+fn list_photos(out: &mut dyn Write, library: &Path, collection: Option<&str>, junk: bool) -> Result<()> {
+    let catalog = open_existing(library)?;
+    let reports = catalog.load_reports()?;
+    let rescued = catalog.kept_hashes()?;
+    let line = |item: &FoundItem, note: &str| -> Result<String> {
+        let code = item
+            .blake3
+            .as_deref()
+            .map_or("--------", |h| &h[..h.len().min(CODE_LEN)]);
+        let date = item.date.map_or_else(|| "undated".to_string(), |d| d.date.to_string());
+        let kept = if wanted(&catalog, item)? { "" } else { "  (not keeping)" };
+        Ok(format!("  {code}  {}  {date}{note}{kept}", file_name(item)))
+    };
+
+    if junk {
+        let (everything, _) = summary::unique_items(&reports);
+        let set_aside: Vec<_> = everything
+            .into_iter()
+            .filter(|i| i.junk.is_some() && !i.blake3.as_ref().is_some_and(|h| rescued.contains(h)))
+            .collect();
+        if set_aside.is_empty() {
+            writeln!(out, "Nothing has been set aside as junk.")?;
+            return Ok(());
+        }
+        writeln!(out, "Set aside as junk. To keep one: keevoro keep --photo <code>")?;
+        for item in set_aside {
+            let reason = item.junk.map(|r| format!("  [{}]", r.describe())).unwrap_or_default();
+            writeln!(out, "{}", line(item, &reason)?)?;
+        }
+        return Ok(());
+    }
+
+    let name = collection.unwrap_or_default();
+    let (summary, items) = summary::summarise_with(&reports, &rescued);
+    let matches: Vec<_> = summary
+        .collections
+        .iter()
+        .filter(|c| c.title.eq_ignore_ascii_case(name.trim()))
+        .collect();
+    if matches.is_empty() {
+        bail!("There is no collection called \"{name}\". Run `keevoro collections` to see the names.");
+    }
+    for c in matches {
+        writeln!(out, "{} ({})", c.title, c.summary())?;
+        for item in c.members.iter().filter_map(|&m| items.get(m)) {
+            writeln!(out, "{}", line(item, "")?)?;
         }
     }
     Ok(())
@@ -365,7 +530,8 @@ pub(crate) fn wanted(catalog: &Catalog, item: &FoundItem) -> Result<bool> {
 
 /// Titles of collections the user has skipped entirely.
 fn skipped_collections(catalog: &Catalog, reports: &[ScanReport]) -> Result<Vec<String>> {
-    let (summary, items) = summary::summarise(reports);
+    let rescued = catalog.kept_hashes()?;
+    let (summary, items) = summary::summarise_with(reports, &rescued);
     let mut skipped = Vec::new();
     for c in &summary.collections {
         let mut any_wanted = false;
@@ -613,8 +779,14 @@ fn remember(library: &Path, name: Option<&str>, reports: &[ScanReport]) -> Resul
     Ok(())
 }
 
-fn print_reports(out: &mut dyn Write, reports: &[ScanReport], json: bool, show: usize) -> Result<()> {
-    let (summary, unique) = summary::summarise(reports);
+fn print_reports(
+    out: &mut dyn Write,
+    reports: &[ScanReport],
+    rescued: &std::collections::HashSet<String>,
+    json: bool,
+    show: usize,
+) -> Result<()> {
+    let (summary, unique) = summary::summarise_with(reports, rescued);
     if json {
         #[derive(serde::Serialize)]
         struct JsonOut<'a> {
@@ -1565,6 +1737,255 @@ mod tests {
         assert!(said.contains("1 photo has no preview yet."), "{said}");
         let said = keevoro(&["gather", "--library", &lib, "--retry-previews"]).unwrap();
         assert!(said.contains("Made previews for 1 photo."), "{said}");
+    }
+
+    /// A PNG header claiming the given size; enough for the scanner.
+    fn png(width: u32, height: u32, salt: u8) -> Vec<u8> {
+        let mut p = b"\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR".to_vec();
+        p.extend_from_slice(&width.to_be_bytes());
+        p.extend_from_slice(&height.to_be_bytes());
+        p.extend_from_slice(&[8, 2, 0, 0, 0, salt, salt, salt, salt]);
+        p
+    }
+
+    /// The code `keevoro photos` shows next to a file name.
+    fn code_for(listing: &str, name: &str) -> String {
+        let line = listing
+            .lines()
+            .find(|l| l.contains(name))
+            .unwrap_or_else(|| panic!("{name} not in:\n{listing}"));
+        line.split_whitespace().next().unwrap().to_string()
+    }
+
+    #[test]
+    fn single_photos_can_be_left_out_and_put_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib_dir = dir.path().join("lib");
+        let lib = lib_dir.to_string_lossy().to_string();
+        let dell = dir.path().join("dell");
+        fs::create_dir_all(dell.join("Cornwall")).unwrap();
+        fs::write(dell.join("Cornwall/beach.png"), png(3000, 2000, 1)).unwrap();
+        fs::write(dell.join("Cornwall/blurry.png"), png(3000, 2000, 2)).unwrap();
+        keevoro(&["scan", "--library", &lib, &dell.to_string_lossy()]).unwrap();
+
+        let listing = keevoro(&["photos", "--library", &lib, "cornwall"]).unwrap();
+        assert!(listing.starts_with("Cornwall (2 photos)\n"), "{listing}");
+        let blurry = code_for(&listing, "blurry.png");
+        assert_eq!(blurry.len(), 8);
+
+        let said = keevoro(&["skip", "--library", &lib, "--photo", &blurry]).unwrap();
+        assert_eq!(said, "Not keeping blurry.png.\n");
+        let listing = keevoro(&["photos", "--library", &lib, "Cornwall"]).unwrap();
+        assert!(
+            listing
+                .lines()
+                .any(|l| l.contains("blurry.png") && l.ends_with("(not keeping)")),
+            "{listing}"
+        );
+        assert!(
+            listing
+                .lines()
+                .any(|l| l.contains("beach.png") && !l.contains("not keeping")),
+            "{listing}"
+        );
+
+        let said = keevoro(&["gather", "--library", &lib]).unwrap();
+        assert!(said.starts_with("Safely copied 1 file ("), "{said}");
+        assert!(lib_dir.join("originals/Cornwall/beach.png").is_file());
+        assert!(!lib_dir.join("originals/Cornwall/blurry.png").exists());
+
+        // A longer code works too, and so does changing your mind.
+        let said = keevoro(&["keep", "--library", &lib, "--photo", &blurry.to_uppercase()]).unwrap();
+        assert_eq!(said, "Keeping blurry.png.\n");
+        let said = keevoro(&["gather", "--library", &lib]).unwrap();
+        assert!(said.starts_with("Safely copied 1 file ("), "{said}");
+        assert!(lib_dir.join("originals/Cornwall/blurry.png").is_file());
+    }
+
+    #[test]
+    fn a_picture_set_aside_as_junk_can_be_kept_after_all() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib_dir = dir.path().join("lib");
+        let lib = lib_dir.to_string_lossy().to_string();
+        let dell = dir.path().join("dell");
+        fs::create_dir_all(dell.join("Grandad")).unwrap();
+        fs::write(dell.join("Grandad/portrait.png"), png(3000, 2000, 1)).unwrap();
+        // A tiny scan of an old print: small, but the only copy there is.
+        fs::write(dell.join("Grandad/1952.png"), png(240, 180, 2)).unwrap();
+        keevoro(&["scan", "--library", &lib, &dell.to_string_lossy()]).unwrap();
+
+        assert_eq!(
+            keevoro(&["photos", "--library", &lib, "Grandad"])
+                .unwrap()
+                .lines()
+                .count(),
+            2,
+            "junk is not listed"
+        );
+        let junk = keevoro(&["photos", "--library", &lib, "--junk"]).unwrap();
+        assert!(
+            junk.starts_with("Set aside as junk. To keep one: keevoro keep --photo <code>\n"),
+            "{junk}"
+        );
+        assert!(
+            junk.contains("1952.png") && junk.contains("[Tiny images (under 300 px)]"),
+            "{junk}"
+        );
+
+        let code = code_for(&junk, "1952.png");
+        keevoro(&["keep", "--library", &lib, "--photo", &code]).unwrap();
+        assert_eq!(
+            keevoro(&["photos", "--library", &lib, "--junk"]).unwrap(),
+            "Nothing has been set aside as junk.\n"
+        );
+        // It is back in its album, in the summary, and gets gathered.
+        let listing = keevoro(&["photos", "--library", &lib, "Grandad"]).unwrap();
+        assert!(
+            listing.starts_with("Grandad (2 photos)\n") && listing.contains("1952.png"),
+            "{listing}"
+        );
+        assert!(keevoro(&["collections", "--library", &lib])
+            .unwrap()
+            .starts_with("Found 2 photos"));
+        keevoro(&["gather", "--library", &lib]).unwrap();
+        assert!(lib_dir.join("originals/Grandad/1952.png").is_file());
+    }
+
+    #[test]
+    fn photo_codes_that_do_not_fit_get_plain_answers() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib = dir.path().join("lib").to_string_lossy().to_string();
+        keevoro(&["scan", "--library", &lib, &drive(dir.path(), "dell")]).unwrap();
+        for (code, expected) in [
+            ("zz", "isn't a photo code"),
+            ("ab", "isn't a photo code"),
+            ("0000000000", "No photo or video has the code"),
+        ] {
+            let err = keevoro(&["skip", "--library", &lib, "--photo", code]).unwrap_err();
+            assert!(err.to_string().contains(expected), "{code}: {err}");
+        }
+        assert!(
+            keevoro(&["skip", "--library", &lib]).is_err(),
+            "something must be named"
+        );
+        assert!(
+            keevoro(&["photos", "--library", &lib]).is_err(),
+            "a collection or --junk is needed"
+        );
+        let err = keevoro(&["photos", "--library", &lib, "Narnia"]).unwrap_err();
+        assert!(err.to_string().starts_with("There is no collection called \"Narnia\"."));
+        // Two files sharing the start of a code must be told apart.
+        let a = keevoro_scan::FoundItem {
+            path: "a.jpg".into(),
+            kind: keevoro_core::MediaKind::Photo,
+            mime: "image/jpeg".into(),
+            bytes: 1,
+            blake3: Some("abcd1111".into()),
+            date: None,
+            folder: Default::default(),
+            width: None,
+            height: None,
+            junk: None,
+        };
+        let mut b = a.clone();
+        b.blake3 = Some("abcd2222".into());
+        let err = find_by_code(&[&a, &b], "abcd").unwrap_err();
+        assert!(
+            err.to_string().starts_with("More than one photo starts with abcd"),
+            "{err}"
+        );
+        assert_eq!(find_by_code(&[&a, &b], "abcd2").unwrap().blake3, b.blake3);
+    }
+
+    #[test]
+    fn check_confirms_a_healthy_library_and_backup_and_finds_damage() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib_dir = dir.path().join("lib");
+        let lib = lib_dir.to_string_lossy().to_string();
+        let backup = dir.path().join("backup");
+        let to = backup.to_string_lossy().to_string();
+        let dell = dir.path().join("dell");
+        fs::create_dir_all(dell.join("Family")).unwrap();
+        for (name, shade) in [("a.jpg", 10), ("b.jpg", 120), ("c.jpg", 240)] {
+            fs::write(dell.join("Family").join(name), real_jpeg(shade)).unwrap();
+        }
+        keevoro(&["scan", "--library", &lib, &dell.to_string_lossy()]).unwrap();
+        assert!(keevoro(&["check", "--library", &lib])
+            .unwrap()
+            .starts_with("There is nothing in the library to check yet."));
+        keevoro(&["gather", "--library", &lib]).unwrap();
+        keevoro(&["connect", "--library", &lib, "--to-folder", &to]).unwrap();
+        keevoro(&["publish", "--library", &lib]).unwrap();
+
+        assert_eq!(
+            keevoro(&["check", "--library", &lib]).unwrap(),
+            "Your library: all 3 files are intact.\n"
+        );
+        let said = keevoro(&["check", "--library", &lib, "--backup", "--read-back"]).unwrap();
+        assert_eq!(
+            said,
+            "Your library: all 3 files are intact.\n\
+             Your backup: all 3 originals are there, and each one was read back and matches exactly.\n"
+        );
+        assert!(
+            keevoro(&["check", "--library", &lib, "--read-back"]).is_err(),
+            "--read-back needs --backup"
+        );
+
+        // A file rots in the library, and one goes missing from the backup.
+        let mut rotted = fs::read(lib_dir.join("originals/Family/a.jpg")).unwrap();
+        let middle = rotted.len() / 2;
+        rotted[middle] ^= 0xFF;
+        fs::write(lib_dir.join("originals/Family/a.jpg"), rotted).unwrap();
+        fs::remove_file(backup.join("originals/Family/b.jpg")).unwrap();
+
+        let mut out = Vec::new();
+        let secrets = connect::testing::MemorySecrets::default();
+        let err = keevoro_with(&["check", "--library", &lib, "--backup"], &secrets, &mut out).unwrap_err();
+        assert_eq!(err.to_string(), "2 files need attention.");
+        let said = String::from_utf8(out).unwrap();
+        assert!(said.contains("Your library: 2 intact, 1 with a problem:"), "{said}");
+        assert!(
+            said.contains("a.jpg: Its contents have changed, so it is damaged or was edited."),
+            "{said}"
+        );
+        assert!(said.contains("Your backup: 2 fine, 1 with a problem:"), "{said}");
+        assert!(
+            said.contains("originals/Family/b.jpg: It is missing from the backup."),
+            "{said}"
+        );
+
+        // The backup still has a good copy of the rotted file: the check
+        // that reads it back says so.
+        let mut out = Vec::new();
+        let _ = keevoro_with(
+            &["check", "--library", &lib, "--backup", "--read-back"],
+            &secrets,
+            &mut out,
+        );
+        let said = String::from_utf8(out).unwrap();
+        assert!(said.contains("Your backup: 2 fine, 1 with a problem:"), "{said}");
+        assert!(
+            !said.contains("a.jpg: The backup's copy"),
+            "the backup's a.jpg is still good: {said}"
+        );
+    }
+
+    #[test]
+    fn checking_a_backup_needs_to_know_which_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib = dir.path().join("lib").to_string_lossy().to_string();
+        let dell = dir.path().join("dell");
+        fs::create_dir_all(&dell).unwrap();
+        fs::write(dell.join("a.jpg"), real_jpeg(1)).unwrap();
+        keevoro(&["scan", "--library", &lib, &dell.to_string_lossy()]).unwrap();
+        keevoro(&["gather", "--library", &lib]).unwrap();
+        let err = keevoro(&["check", "--library", &lib, "--backup"]).unwrap_err();
+        assert!(err.to_string().starts_with("Say which backup to check"), "{err}");
+        // An empty folder named on the command line: everything is missing.
+        let empty = dir.path().join("empty").to_string_lossy().to_string();
+        let err = keevoro(&["check", "--library", &lib, "--backup", "--to-folder", &empty]).unwrap_err();
+        assert_eq!(err.to_string(), "1 file needs attention.");
     }
 
     #[test]

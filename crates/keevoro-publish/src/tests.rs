@@ -475,3 +475,85 @@ async fn a_large_upload_refused_at_the_last_step_is_tidied_away() {
 fn reading_part_of_a_missing_file_is_an_error_not_a_panic() {
     assert!(read_range(Path::new("/definitely/not/here.mov"), 0, 10).is_err());
 }
+
+fn expected(upload: &Upload) -> Expected {
+    Expected {
+        key: upload.key.clone(),
+        bytes: upload.bytes,
+        blake3: blake3_hex(&std::fs::read(&upload.file).unwrap()),
+    }
+}
+
+#[tokio::test]
+async fn a_good_backup_checks_out_and_reading_back_proves_it() {
+    let w = World::new().await;
+    let uploads = [
+        w.file("originals/a.jpg", b"photo a", true),
+        w.file("originals/b.jpg", b"photo b", true),
+    ];
+    w.publish(&uploads, &quick()).await;
+    let want: Vec<Expected> = uploads.iter().map(expected).collect();
+
+    let mut seen = Vec::new();
+    let quick_check = check_backup(&w.store, &want, false, &quick(), &mut |p| seen.push(*p)).await;
+    assert_eq!(
+        (quick_check.present, quick_check.read_back, quick_check.problems.len()),
+        (2, 0, 0)
+    );
+    assert_eq!(seen.last(), Some(&PublishProgress { done: 2, total: 2 }));
+
+    let deep = check_backup(&w.store, &want, true, &quick(), &mut |_| {}).await;
+    assert_eq!((deep.present, deep.read_back, deep.problems.len()), (2, 2, 0));
+}
+
+#[tokio::test]
+async fn missing_and_altered_backup_copies_are_found() {
+    let w = World::new().await;
+    let uploads = [
+        w.file("originals/gone.jpg", b"photo one", true),
+        w.file("originals/shrunk.jpg", b"photo two", true),
+        w.file("originals/swapped.jpg", b"photo 333", true),
+        w.file("originals/fine.jpg", b"photo four", true),
+    ];
+    w.publish(&uploads, &quick()).await;
+    let want: Vec<Expected> = uploads.iter().map(expected).collect();
+    let key = |k: &str| ObjectKey::new(k).unwrap();
+    w.store.delete(&key("originals/gone.jpg")).await.unwrap();
+    let overwrite = PutOptions::default();
+    w.store
+        .inner
+        .put(
+            &key("originals/shrunk.jpg"),
+            ByteSource::Bytes(b"x".to_vec()),
+            &overwrite,
+        )
+        .await
+        .unwrap();
+    // Same size, different contents: only reading it back can tell.
+    w.store
+        .inner
+        .put(
+            &key("originals/swapped.jpg"),
+            ByteSource::Bytes(b"PHOTO 333".to_vec()),
+            &overwrite,
+        )
+        .await
+        .unwrap();
+
+    let quick_check = check_backup(&w.store, &want, false, &quick(), &mut |_| {}).await;
+    assert_eq!(quick_check.present, 2, "a quick check cannot see a same-size swap");
+    let reasons: Vec<&str> = quick_check.problems.iter().map(|p| p.reason.as_str()).collect();
+    assert_eq!(
+        reasons,
+        [
+            "It is missing from the backup",
+            "The backup's copy is a different size from the one in your library"
+        ]
+    );
+
+    let deep = check_backup(&w.store, &want, true, &quick(), &mut |_| {}).await;
+    assert_eq!((deep.present, deep.read_back), (1, 1));
+    assert_eq!(deep.problems.len(), 3);
+    assert_eq!(deep.problems[2].key, "originals/swapped.jpg");
+    assert_eq!(deep.problems[2].reason, "The backup's copy does not match the original");
+}

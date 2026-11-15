@@ -96,6 +96,20 @@ cargo run --release -p keevoro-cli -- skip --library "D:\Keevoro Library" "Stuff
 cargo run --release -p keevoro-cli -- keep --library "D:\Keevoro Library" "Stuff"
 ```
 
+To choose photo by photo, list a collection. Each line starts with a short code:
+
+```sh
+cargo run --release -p keevoro-cli -- photos --library "D:\Keevoro Library" "Cornwall"
+```
+
+```text
+Cornwall (August 2008 · 83 photos · 6 videos)
+  9f2c4be1  IMG_1234.jpg  2008-08-12T10:15:00
+  41aa09cd  IMG_1235.jpg  2008-08-12T10:16:41
+```
+
+Give a code to `skip --photo` or `keep --photo` to leave one out or put it back. `photos --junk` lists the pictures Keevoro set aside as junk, with the reason; `keep --photo` on one of those brings it back into its album. A tiny scan of an old print is small, but it may be the only copy there is.
+
 Then, with the old drive plugged in, gather the keepers into the library:
 
 ```sh
@@ -146,6 +160,21 @@ Your private index: file:///F:/Family%20Backup/index/q7Zp4xKm2Tf9LwR3bN8vYc.kvx
 The backup has the same folders as the library, so what you see on one is what is on the other. An original that is already in the backup is never replaced, large videos are sent in pieces so an interruption only costs the piece in flight, and running it again sends only what is new.
 
 The last thing written is the index: one JSON file listing every album and photo, with sizes, dates and where each thumbnail lives. Its name is long and random, so it can't be guessed. A second file, `index/gallery.json`, is the older format the current gallery site reads. If the backup will be served from a web address, add `--base-url https://photos.example.com` so the links inside the index point there. If you have shared the index's address and want it to stop working, add `--new-link`: the index is written under a new name and the old one is removed.
+
+### Checking nothing has gone wrong
+
+Disks fail quietly, and a photo that copied perfectly years ago can have rotted since. To be sure:
+
+```sh
+cargo run --release -p keevoro-cli -- check --library "D:\Keevoro Library" --backup
+```
+
+```text
+Your library: all 9,870 files are intact.
+Your backup: all 9,870 originals are there.
+```
+
+Every original in the library is read again and compared with how it was when it was gathered. With `--backup`, each one is also looked up in the backup. Adding `--read-back` downloads each original and compares it exactly, which is the only way to be certain and takes as long as downloading the whole backup. Nothing is changed; if something is wrong, Keevoro lists the files and says how to put them right.
 
 ### Backing up to Cloudflare R2 or Amazon S3
 

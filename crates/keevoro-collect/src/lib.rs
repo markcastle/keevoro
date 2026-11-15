@@ -20,9 +20,11 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 mod previews;
+mod verify;
 mod videos;
 
 pub use previews::{make_previews, PreviewReport};
+pub use verify::{verify_library, Problem, VerifyReport};
 pub use videos::{make_video_previews, VideoReport};
 
 use keevoro_catalog::{Catalog, CatalogError};
@@ -294,7 +296,7 @@ fn link_new(from: &Path, to: &Path) -> io::Result<()> {
     }
 }
 
-fn hash_file(path: &Path) -> io::Result<String> {
+pub(crate) fn hash_file(path: &Path) -> io::Result<String> {
     let mut file = File::open(path)?;
     let mut hasher = blake3::Hasher::new();
     let mut buf = vec![0u8; READ_CHUNK];
