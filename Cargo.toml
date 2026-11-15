@@ -44,7 +44,7 @@ sha2 = "0.11"
 tempfile = "3"
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "io-util"] }
-ureq = "3"
+ureq = { version = "3", features = ["platform-verifier"] }
 walkdir = "2"
 webp = { version = "0.3", default-features = false }
 

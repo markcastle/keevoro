@@ -6,7 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **`keevoro update` works behind office and school networks.** Some networks pass traffic through a proxy that uses its own security certificate. Keevoro now trusts the same certificates your computer does, so updating no longer fails there with a certificate error.
+- **Problems are reported once, in plain words.** A failed command no longer prints "Error:" followed by a technical trace.
 
 ## [0.1.0] - 2026-11-15
 

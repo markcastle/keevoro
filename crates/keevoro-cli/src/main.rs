@@ -134,8 +134,13 @@ enum Command {
     },
 }
 
-fn main() -> Result<()> {
-    run(Cli::parse(), &mut std::io::stdout().lock())
+fn main() {
+    // Problems are said once, in plain words, with no "Error:" prefix or
+    // stack trace: the messages are written for people, not debuggers.
+    if let Err(e) = run(Cli::parse(), &mut std::io::stdout().lock()) {
+        eprintln!("{e:#}");
+        std::process::exit(1);
+    }
 }
 
 fn run(cli: Cli, out: &mut dyn Write) -> Result<()> {
