@@ -78,6 +78,7 @@ fn how_well_described(item: &FoundItem) -> (bool, std::cmp::Reverse<usize>, bool
 
 /// Sums up what was found. The items returned are the ones worth keeping
 /// (unique and not junk); collection `members` and `cover` index into them.
+#[cfg(test)]
 pub fn summarise(reports: &[ScanReport]) -> (Summary, Vec<&FoundItem>) {
     summarise_with(reports, &HashSet::new())
 }
