@@ -35,12 +35,16 @@ impl Flaky {
         if self.deny {
             return Err(StorageError::AccessDenied("no".into()));
         }
-        if self
-            .drop_next
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
-            .is_ok()
-        {
-            return Err(StorageError::Network("connection reset".into()));
+        // Use up one planned failure, if any are left.
+        let mut left = self.drop_next.load(Ordering::SeqCst);
+        while left > 0 {
+            match self
+                .drop_next
+                .compare_exchange(left, left - 1, Ordering::SeqCst, Ordering::SeqCst)
+            {
+                Ok(_) => return Err(StorageError::Network("connection reset".into())),
+                Err(now) => left = now,
+            }
         }
         Ok(())
     }

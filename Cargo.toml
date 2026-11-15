@@ -26,7 +26,6 @@ blake3 = "1"
 blurhash = { version = "0.2", default-features = false }
 clap = { version = "4", features = ["derive"] }
 fs4 = "1"
-futures = "0.3"
 getrandom = "0.3"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "bmp", "tiff", "webp"] }
 imagesize = "0.14"
