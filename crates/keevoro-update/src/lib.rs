@@ -205,8 +205,16 @@ pub struct GitHub {
 
 impl GitHub {
     pub fn new(token: Option<String>) -> Self {
+        // Trust what the operating system trusts, not a list baked into the
+        // program. Offices and schools often route traffic through a proxy
+        // that presents its own certificate, installed on their computers;
+        // a built-in list would reject it and the update would fail.
+        let tls = ureq::tls::TlsConfig::builder()
+            .root_certs(ureq::tls::RootCerts::PlatformVerifier)
+            .build();
         let agent = ureq::Agent::config_builder()
             .timeout_global(Some(Duration::from_secs(15 * 60)))
+            .tls_config(tls)
             .build()
             .into();
         Self {

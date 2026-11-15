@@ -74,7 +74,9 @@ Modelled on Task Rail's. See [docs/developing.md](docs/developing.md#cutting-a-r
 - [x] Roll back workflow: withdraw the bad release, restore the good code, release it under a higher number
 - [x] One-line installers (`install.ps1`, `install.sh`) that check the download and need no administrator
 - [x] `keevoro update` and `keevoro update --check`
-- [ ] First real release from the button (the workflows can only run once they are on main)
+- [x] First real release (0.1.0), installed on Windows with the one-line installer
+- [ ] Try the Roll back workflow once, on a release that does not matter
+- [ ] Replace the design mockup: it still says KeepSweep
 - [ ] Windows code signing and Apple notarisation, when certificates exist
 - [ ] A short address for the install lines, if a domain is bought
 

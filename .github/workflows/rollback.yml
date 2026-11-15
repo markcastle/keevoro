@@ -14,6 +14,9 @@ name: Roll back
 #    update to the good code too. Installed copies only ever move to a higher
 #    version, which is why rolling back is a release and not a deletion.
 #
+# Rehearse it first if unsure: there is no dry run here, but the Release
+# workflow's Rehearse option shows what the roll-forward number would be.
+#
 # The release tooling (.github, .cargo, crates/xtask, the install scripts and
 # CHANGELOG.md) stays at its current state. Work on main that landed after
 # the good version is gone from main after this; bring it back with git
