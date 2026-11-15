@@ -1,0 +1,26 @@
+[package]
+name = "keevoro-engine"
+description = "What Keevoro does, as plain function calls: the layer the command line and the desktop app both sit on."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+keevoro-catalog.workspace = true
+keevoro-collect.workspace = true
+keevoro-core.workspace = true
+keevoro-index.workspace = true
+keevoro-media.workspace = true
+keevoro-scan.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+image.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

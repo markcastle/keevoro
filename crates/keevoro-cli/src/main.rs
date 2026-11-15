@@ -7,12 +7,12 @@
 
 mod connect;
 mod publish;
-mod summary;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use keevoro_catalog::Catalog;
-use keevoro_collect::{free_space, gather, make_previews, make_video_previews, GatherError};
+pub(crate) use keevoro_engine::wanted;
+use keevoro_engine::{gather_everything, summary, GatherStep};
 use keevoro_scan::FoundItem;
 use keevoro_scan::{scan, ScanOptions, ScanReport};
 use std::io::{IsTerminal, Write};
@@ -518,16 +518,6 @@ fn list_photos(out: &mut dyn Write, library: &Path, collection: Option<&str>, ju
     Ok(())
 }
 
-/// Did the user say no to this file? Undecided files follow the default:
-/// keep, unless it looks like junk.
-pub(crate) fn wanted(catalog: &Catalog, item: &FoundItem) -> Result<bool> {
-    let choice = match &item.blake3 {
-        Some(hash) => catalog.choice(hash)?,
-        None => None,
-    };
-    Ok(choice.unwrap_or(item.junk.is_none()))
-}
-
 /// Titles of collections the user has skipped entirely.
 fn skipped_collections(catalog: &Catalog, reports: &[ScanReport]) -> Result<Vec<String>> {
     let rescued = catalog.kept_hashes()?;
@@ -552,51 +542,30 @@ fn run_gather(
     video_tools: Option<&keevoro_media::VideoTools>,
 ) -> Result<()> {
     let catalog = open_existing(library)?;
-    let reports = catalog.load_reports()?;
-    // Rule one: never write to a source. A library inside a scanned folder
-    // would do exactly that.
-    let home = std::fs::canonicalize(library).unwrap_or_else(|_| library.to_path_buf());
-    if let Some(r) = reports.iter().find(|r| home.starts_with(&r.root)) {
-        bail!(
-            "The library is inside {}, which is one of the places being gathered from. \
-             Keevoro never writes to those. Choose a library folder somewhere else.",
-            r.root.display()
-        );
-    }
-
-    let (unique, _) = summary::unique_items(&reports);
-    let mut chosen = Vec::new();
-    for item in unique {
-        if wanted(&catalog, item)? {
-            chosen.push(item);
-        }
-    }
-    if chosen.is_empty() {
-        writeln!(out, "There is nothing to gather yet.")?;
-        return Ok(());
-    }
-
     let live = std::io::stderr().is_terminal();
     let n = summary::thousands;
-    let result = gather(library, &catalog, &chosen, free_space(library), &mut |p| {
-        if live {
-            eprint!("\r\x1b[2K  {} of {} safely copied", n(p.done), n(p.total));
-            let _ = std::io::stderr().flush();
+    // One line on the terminal, rewritten as each part of the work moves on.
+    let outcome = gather_everything(library, &catalog, convert_videos, video_tools, &mut |step| {
+        if !live {
+            return;
         }
+        let line = match step {
+            GatherStep::Copying { done, total } => format!("{} of {} safely copied", n(done), n(total)),
+            GatherStep::MakingPreviews { done, total } => format!("Making previews: {} of {}", n(done), n(total)),
+            GatherStep::WorkingOnVideos { done, total } => format!("Working on videos: {} of {}", n(done), n(total)),
+        };
+        eprint!("\r\x1b[2K  {line}");
+        let _ = std::io::stderr().flush();
     });
     if live {
         eprint!("\r\x1b[2K");
     }
-    let report = match result {
-        Ok(r) => r,
-        Err(GatherError::NotEnoughRoom { needed, free }) => bail!(
-            "There isn't enough room for your library. It needs {} and the disk has {} free.",
-            summary::bytes(needed),
-            summary::bytes(free)
-        ),
-        Err(e) => return Err(e.into()),
+    let Some(outcome) = outcome? else {
+        writeln!(out, "There is nothing to gather yet.")?;
+        return Ok(());
     };
 
+    let report = &outcome.copied;
     if report.copied > 0 {
         writeln!(
             out,
@@ -616,17 +585,7 @@ fn run_gather(
         writeln!(out, "Nothing was lost. Run `keevoro gather` again to retry.")?;
     }
 
-    // Previews come from the library's own copies, so they are made for
-    // everything gathered so far, including on earlier runs.
-    let previews = make_previews(library, &catalog, &chosen, &mut |done, total| {
-        if live {
-            eprint!("\r\x1b[2K  Making previews: {} of {}", n(done), n(total));
-            let _ = std::io::stderr().flush();
-        }
-    })?;
-    if live {
-        eprint!("\r\x1b[2K");
-    }
+    let previews = &outcome.previews;
     if previews.made > 0 {
         writeln!(out, "Made previews for {}.", summary::count(previews.made, "photo"))?;
     }
@@ -641,56 +600,43 @@ fn run_gather(
         )?;
     }
 
-    let has_videos = chosen.iter().any(|i| i.kind == keevoro_core::MediaKind::Video);
-    match video_tools {
-        Some(tools) if has_videos => {
-            let videos = make_video_previews(library, &catalog, &chosen, tools, convert_videos, &mut |done, total| {
-                if live {
-                    eprint!("\r\x1b[2K  Working on videos: {} of {}", n(done), n(total));
-                    let _ = std::io::stderr().flush();
-                }
-            })?;
-            if live {
-                eprint!("\r\x1b[2K");
-            }
-            if videos.posters > 0 {
-                writeln!(out, "Made posters for {}.", summary::count(videos.posters, "video"))?;
-            }
-            let made = videos.converted + videos.repackaged;
-            if made > 0 {
-                let how = match videos.repackaged {
-                    0 => String::new(),
-                    r if r == made => " (repackaged without re-encoding, so nothing was lost)".to_string(),
-                    r => format!(" ({} of them repackaged without re-encoding)", n(r)),
-                };
-                writeln!(
-                    out,
-                    "Made MP4 copies of {}{how}. The originals are kept.",
-                    summary::count(made, "video")
-                )?;
-            }
-            if !videos.problems.is_empty() {
-                writeln!(
-                    out,
-                    "{} a problem:",
-                    match videos.problems.len() {
-                        1 => "1 video had".to_string(),
-                        many => format!("{} videos had", n(many)),
-                    }
-                )?;
-                for p in &videos.problems {
-                    writeln!(out, "  {}: {}.", p.path.display(), p.reason.trim_end_matches('.'))?;
-                }
-            }
+    if let Some(videos) = &outcome.videos {
+        if videos.posters > 0 {
+            writeln!(out, "Made posters for {}.", summary::count(videos.posters, "video"))?;
         }
-        None if has_videos => {
+        let made = videos.converted + videos.repackaged;
+        if made > 0 {
+            let how = match videos.repackaged {
+                0 => String::new(),
+                r if r == made => " (repackaged without re-encoding, so nothing was lost)".to_string(),
+                r => format!(" ({} of them repackaged without re-encoding)", n(r)),
+            };
             writeln!(
                 out,
-                "Your videos are safe in the library, but they have no posters{}: that needs ffmpeg, which isn't installed.",
-                if convert_videos { " or MP4 copies" } else { "" }
+                "Made MP4 copies of {}{how}. The originals are kept.",
+                summary::count(made, "video")
             )?;
         }
-        _ => {}
+        if !videos.problems.is_empty() {
+            writeln!(
+                out,
+                "{} a problem:",
+                match videos.problems.len() {
+                    1 => "1 video had".to_string(),
+                    many => format!("{} videos had", n(many)),
+                }
+            )?;
+            for p in &videos.problems {
+                writeln!(out, "  {}: {}.", p.path.display(), p.reason.trim_end_matches('.'))?;
+            }
+        }
+    }
+    if outcome.videos_need_ffmpeg {
+        writeln!(
+            out,
+            "Your videos are safe in the library, but they have no posters{}: that needs ffmpeg, which isn't installed.",
+            if convert_videos { " or MP4 copies" } else { "" }
+        )?;
     }
     Ok(())
 }

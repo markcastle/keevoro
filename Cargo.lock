@@ -1575,6 +1575,7 @@ dependencies = [
  "keevoro-catalog",
  "keevoro-collect",
  "keevoro-core",
+ "keevoro-engine",
  "keevoro-index",
  "keevoro-media",
  "keevoro-publish",
@@ -1615,6 +1616,23 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "keevoro-engine"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "image",
+ "keevoro-catalog",
+ "keevoro-collect",
+ "keevoro-core",
+ "keevoro-index",
+ "keevoro-media",
+ "keevoro-scan",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
