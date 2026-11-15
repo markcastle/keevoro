@@ -7,3 +7,4 @@ node_modules
 /dist
 /ui/tests/screens
 /src-tauri/gen
+/installers

@@ -6,8 +6,9 @@ name: Release
 # blank and the changelog decides it: a minor release if anything is listed
 # as Added or Removed under Unreleased, otherwise a patch. Type one to choose
 # yourself. This workflow then dates the changelog, sets the version,
-# commits, tags, builds Keevoro for Windows, macOS and Linux and publishes
-# the GitHub Release. Only people with write access to the repository can
+# commits, tags, builds the command-line program for Windows, macOS and
+# Linux and the desktop app's installers for Windows and macOS, and
+# publishes the GitHub Release. Only people with write access to the repository can
 # press it. Tick "Rehearse" to see what it would do without pushing, building
 # or publishing anything.
 #
@@ -307,9 +308,60 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "v${{ needs.prepare.outputs.version }}" "${{ matrix.asset }}" --clobber
 
+  # The desktop app's installers, built the same way CI builds them.
+  app:
+    name: Installer (${{ matrix.name }})
+    needs: prepare
+    if: ${{ !inputs.dry_run }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            os: windows-latest
+            args: ''
+            asset: Keevoro-windows-x64-setup.exe
+          - name: macOS universal
+            os: macos-latest
+            args: '--target universal-apple-darwin'
+            asset: Keevoro-macos-universal.dmg
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/v${{ needs.prepare.outputs.version }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: installer
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build the installer
+        env:
+          KEEVORO_VERSION: ${{ needs.prepare.outputs.version }}
+        run: scripts/build-installer.sh ${{ matrix.args }}
+
+      - name: Upload to the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "v${{ needs.prepare.outputs.version }}" "installers/${{ matrix.asset }}" --clobber
+
   publish:
     name: Publish
-    needs: [prepare, build]
+    needs: [prepare, build, app]
     runs-on: ubuntu-latest
     steps:
       - name: Add checksums and open the release
@@ -319,8 +371,8 @@ jobs:
         run: |
           version="${{ needs.prepare.outputs.version }}"
           mkdir assets && cd assets
-          gh release download "v$version" --pattern 'keevoro-*'
-          for needed in keevoro-windows-x64.exe keevoro-macos-universal keevoro-linux-x64; do
+          gh release download "v$version" --pattern 'keevoro-*' --pattern 'Keevoro-*'
+          for needed in keevoro-windows-x64.exe keevoro-macos-universal keevoro-linux-x64 Keevoro-windows-x64-setup.exe Keevoro-macos-universal.dmg; do
             if [ ! -s "$needed" ]; then
               echo "::error::v$version has no $needed on it, so it stays a draft. Check the build jobs."
               exit 1
@@ -328,7 +380,7 @@ jobs:
           done
           # The installers and `keevoro update` refuse a download that does
           # not match this file, so it goes up before the release is opened.
-          sha256sum keevoro-* > SHA256SUMS
+          sha256sum keevoro-* Keevoro-* > SHA256SUMS
           cat SHA256SUMS
           gh release upload "v$version" SHA256SUMS --clobber
           if ! gh release edit "v$version" --draft=false --latest; then
