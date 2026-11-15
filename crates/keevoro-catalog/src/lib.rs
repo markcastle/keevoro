@@ -408,6 +408,22 @@ impl Catalog {
             .optional()?)
     }
 
+    /// Every file gathered into the library: its content hash, its
+    /// library-relative path and its size, in path order.
+    pub fn collected(&self) -> Result<Vec<Collected>> {
+        let mut q = self
+            .conn
+            .prepare("SELECT blake3, path, bytes FROM collected ORDER BY path")?;
+        let rows = q.query_map([], |r| {
+            Ok(Collected {
+                blake3: r.get(0)?,
+                path: r.get(1)?,
+                bytes: u64::try_from(r.get::<_, i64>(2)?).unwrap_or(0),
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     /// How many files are in the library, and their total size in bytes.
     pub fn collected_totals(&self) -> Result<(u64, u64)> {
         let (n, bytes): (i64, i64) =
@@ -417,6 +433,15 @@ impl Catalog {
                 })?;
         Ok((u64::try_from(n).unwrap_or(0), u64::try_from(bytes).unwrap_or(0)))
     }
+}
+
+/// One file in the library, as recorded when it was gathered.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Collected {
+    pub blake3: String,
+    /// Relative to the library folder, with `/` between folders.
+    pub path: String,
+    pub bytes: u64,
 }
 
 /// What is known about one video and the copies made of it.

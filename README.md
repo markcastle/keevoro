@@ -161,6 +161,21 @@ The backup has the same folders as the library, so what you see on one is what i
 
 The last thing written is the index: one JSON file listing every album and photo, with sizes, dates and where each thumbnail lives. Its name is long and random, so it can't be guessed. A second file, `index/gallery.json`, is the older format the current gallery site reads. If the backup will be served from a web address, add `--base-url https://photos.example.com` so the links inside the index point there. If you have shared the index's address and want it to stop working, add `--new-link`: the index is written under a new name and the old one is removed.
 
+### Checking nothing has gone wrong
+
+Disks fail quietly, and a photo that copied perfectly years ago can have rotted since. To be sure:
+
+```sh
+cargo run --release -p keevoro-cli -- check --library "D:\Keevoro Library" --backup
+```
+
+```text
+Your library: all 9,870 files are intact.
+Your backup: all 9,870 originals are there.
+```
+
+Every original in the library is read again and compared with how it was when it was gathered. With `--backup`, each one is also looked up in the backup. Adding `--read-back` downloads each original and compares it exactly, which is the only way to be certain and takes as long as downloading the whole backup. Nothing is changed; if something is wrong, Keevoro lists the files and says how to put them right.
+
 ### Backing up to Cloudflare R2 or Amazon S3
 
 The same command backs up to a bucket. First make a key that can read and write **that one bucket and nothing else** (in Cloudflare: R2, Manage API tokens, Object Read & Write, limited to the bucket). Put it where Keevoro will find it; keys are deliberately not accepted on the command line, where they would end up in your shell history:

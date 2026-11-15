@@ -179,6 +179,22 @@ enum Command {
         #[arg(long)]
         new_link: bool,
     },
+    /// Make sure the library, and optionally its backup, are still intact.
+    /// Every original is read again and compared with how it was when it
+    /// was gathered. Nothing is changed.
+    Check {
+        #[arg(long)]
+        library: PathBuf,
+        /// Also check that every original is in the backup.
+        #[arg(long)]
+        backup: bool,
+        /// With --backup: download each original and compare it exactly.
+        /// Certain, but as slow as downloading the whole backup.
+        #[arg(long, requires = "backup")]
+        read_back: bool,
+        #[command(flatten)]
+        to: DestinationArgs,
+    },
     /// Set up where this library is backed up to, once. Checks the
     /// storage works, saves the keys in this computer's keychain, and
     /// remembers the destination so `publish` needs nothing more. Keys are
@@ -328,6 +344,30 @@ fn run(cli: Cli, out: &mut dyn Write, world: &connect::World<'_>) -> Result<()> 
             let catalog = Catalog::open_in_library(&library)
                 .with_context(|| format!("Couldn't use {} as a library", library.display()))?;
             connect::connect(out, &catalog, &saved, world)
+        }
+        Command::Check {
+            library,
+            backup,
+            read_back,
+            to,
+        } => {
+            let catalog = open_existing(&library)?;
+            let destination = if backup {
+                let flags = to.flags();
+                let saved = match connect::Saved::from_flags(&flags) {
+                    Some(given) => given,
+                    None => connect::Saved::load(&catalog)?.ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "Say which backup to check: --to-folder, --to-r2, --to-s3 or --to-endpoint. \
+                             Or run `keevoro connect` once and it will be remembered."
+                        )
+                    })?,
+                };
+                Some(saved.open(world)?)
+            } else {
+                None
+            };
+            publish::check(out, &catalog, &library, destination, read_back)
         }
         Command::Disconnect { library } => connect::disconnect(out, &open_existing(&library)?, world),
         Command::Sources { library } => {
@@ -1855,6 +1895,97 @@ mod tests {
             "{err}"
         );
         assert_eq!(find_by_code(&[&a, &b], "abcd2").unwrap().blake3, b.blake3);
+    }
+
+    #[test]
+    fn check_confirms_a_healthy_library_and_backup_and_finds_damage() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib_dir = dir.path().join("lib");
+        let lib = lib_dir.to_string_lossy().to_string();
+        let backup = dir.path().join("backup");
+        let to = backup.to_string_lossy().to_string();
+        let dell = dir.path().join("dell");
+        fs::create_dir_all(dell.join("Family")).unwrap();
+        for (name, shade) in [("a.jpg", 10), ("b.jpg", 120), ("c.jpg", 240)] {
+            fs::write(dell.join("Family").join(name), real_jpeg(shade)).unwrap();
+        }
+        keevoro(&["scan", "--library", &lib, &dell.to_string_lossy()]).unwrap();
+        assert!(keevoro(&["check", "--library", &lib])
+            .unwrap()
+            .starts_with("There is nothing in the library to check yet."));
+        keevoro(&["gather", "--library", &lib]).unwrap();
+        keevoro(&["connect", "--library", &lib, "--to-folder", &to]).unwrap();
+        keevoro(&["publish", "--library", &lib]).unwrap();
+
+        assert_eq!(
+            keevoro(&["check", "--library", &lib]).unwrap(),
+            "Your library: all 3 files are intact.\n"
+        );
+        let said = keevoro(&["check", "--library", &lib, "--backup", "--read-back"]).unwrap();
+        assert_eq!(
+            said,
+            "Your library: all 3 files are intact.\n\
+             Your backup: all 3 originals are there, and each one was read back and matches exactly.\n"
+        );
+        assert!(
+            keevoro(&["check", "--library", &lib, "--read-back"]).is_err(),
+            "--read-back needs --backup"
+        );
+
+        // A file rots in the library, and one goes missing from the backup.
+        let mut rotted = fs::read(lib_dir.join("originals/Family/a.jpg")).unwrap();
+        let middle = rotted.len() / 2;
+        rotted[middle] ^= 0xFF;
+        fs::write(lib_dir.join("originals/Family/a.jpg"), rotted).unwrap();
+        fs::remove_file(backup.join("originals/Family/b.jpg")).unwrap();
+
+        let mut out = Vec::new();
+        let secrets = connect::testing::MemorySecrets::default();
+        let err = keevoro_with(&["check", "--library", &lib, "--backup"], &secrets, &mut out).unwrap_err();
+        assert_eq!(err.to_string(), "2 files need attention.");
+        let said = String::from_utf8(out).unwrap();
+        assert!(said.contains("Your library: 2 intact, 1 with a problem:"), "{said}");
+        assert!(
+            said.contains("a.jpg: Its contents have changed, so it is damaged or was edited."),
+            "{said}"
+        );
+        assert!(said.contains("Your backup: 2 fine, 1 with a problem:"), "{said}");
+        assert!(
+            said.contains("originals/Family/b.jpg: It is missing from the backup."),
+            "{said}"
+        );
+
+        // The backup still has a good copy of the rotted file: the check
+        // that reads it back says so.
+        let mut out = Vec::new();
+        let _ = keevoro_with(
+            &["check", "--library", &lib, "--backup", "--read-back"],
+            &secrets,
+            &mut out,
+        );
+        let said = String::from_utf8(out).unwrap();
+        assert!(said.contains("Your backup: 2 fine, 1 with a problem:"), "{said}");
+        assert!(
+            !said.contains("a.jpg: The backup's copy"),
+            "the backup's a.jpg is still good: {said}"
+        );
+    }
+
+    #[test]
+    fn checking_a_backup_needs_to_know_which_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib = dir.path().join("lib").to_string_lossy().to_string();
+        let dell = dir.path().join("dell");
+        fs::create_dir_all(&dell).unwrap();
+        fs::write(dell.join("a.jpg"), real_jpeg(1)).unwrap();
+        keevoro(&["scan", "--library", &lib, &dell.to_string_lossy()]).unwrap();
+        keevoro(&["gather", "--library", &lib]).unwrap();
+        let err = keevoro(&["check", "--library", &lib, "--backup"]).unwrap_err();
+        assert!(err.to_string().starts_with("Say which backup to check"), "{err}");
+        // An empty folder named on the command line: everything is missing.
+        let empty = dir.path().join("empty").to_string_lossy().to_string();
+        let err = keevoro(&["check", "--library", &lib, "--backup", "--to-folder", &empty]).unwrap_err();
+        assert_eq!(err.to_string(), "1 file needs attention.");
     }
 
     #[test]

@@ -634,3 +634,67 @@ mod videos {
         assert_eq!(run(&w, &report, &tools, false).posters, 1);
     }
 }
+
+mod verify {
+    use super::*;
+    use crate::verify_library;
+
+    #[test]
+    fn an_untouched_library_is_intact_and_damage_is_found() {
+        let w = World::new();
+        w.add("Family/a.jpg", &jpeg(1, 500));
+        w.add("Family/b.jpg", &jpeg(2, 500));
+        w.add("Family/c.jpg", &jpeg(3, 500));
+        w.add("Family/d.jpg", &jpeg(4, 500));
+        w.gather(&w.scan());
+
+        let mut seen = Vec::new();
+        let fine = verify_library(&w.library(), &w.catalog, &mut |d, t| seen.push((d, t))).unwrap();
+        assert_eq!((fine.intact, fine.problems.len()), (4, 0));
+        assert_eq!(seen.last(), Some(&(4, 4)));
+
+        let lib = w.library().join("originals/Family");
+        // One byte flipped, same size: only reading it all can tell.
+        let mut rotted = fs::read(lib.join("a.jpg")).unwrap();
+        rotted[100] ^= 0xFF;
+        fs::write(lib.join("a.jpg"), rotted).unwrap();
+        fs::write(lib.join("b.jpg"), b"cut short").unwrap();
+        fs::remove_file(lib.join("c.jpg")).unwrap();
+
+        let r = verify_library(&w.library(), &w.catalog, &mut |_, _| {}).unwrap();
+        assert_eq!(r.intact, 1);
+        let reasons: Vec<(String, &str)> = r
+            .problems
+            .iter()
+            .map(|p| {
+                (
+                    p.path.file_name().unwrap().to_string_lossy().to_string(),
+                    p.reason.as_str(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            reasons,
+            [
+                (
+                    "a.jpg".to_string(),
+                    "Its contents have changed, so it is damaged or was edited"
+                ),
+                (
+                    "b.jpg".to_string(),
+                    "It has changed size, so it is damaged or was edited"
+                ),
+                ("c.jpg".to_string(), "It is missing from the library"),
+            ]
+        );
+        // Checking changes nothing.
+        assert_eq!(fs::read(lib.join("b.jpg")).unwrap(), b"cut short");
+    }
+
+    #[test]
+    fn an_empty_library_has_nothing_to_check() {
+        let w = World::new();
+        let r = verify_library(&w.library(), &w.catalog, &mut |_, _| {}).unwrap();
+        assert_eq!((r.intact, r.problems.len()), (0, 0));
+    }
+}

@@ -404,3 +404,17 @@ fn the_files_explicitly_kept_can_be_listed() {
     assert_eq!(kept.len(), 2);
     assert!(kept.contains("aa") && kept.contains("cc") && !kept.contains("bb"));
 }
+
+#[test]
+fn everything_gathered_can_be_listed_for_checking() {
+    let c = Catalog::in_memory().unwrap();
+    assert!(c.collected().unwrap().is_empty());
+    c.mark_collected("bb", "originals/b.jpg", 50).unwrap();
+    c.mark_collected("aa", "originals/a.jpg", 100).unwrap();
+    let all = c.collected().unwrap();
+    assert_eq!(all.len(), 2);
+    assert_eq!(
+        (all[0].path.as_str(), all[0].blake3.as_str(), all[0].bytes),
+        ("originals/a.jpg", "aa", 100)
+    );
+}

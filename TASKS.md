@@ -66,6 +66,7 @@ Done when the CLI can publish the current gallery's photos to R2 and the existin
 - [x] `keevoro publish --to-r2 / --to-s3 / --to-endpoint`, keys from the environment, connection checked before anything is sent
 - [x] Bucket listing check with a plain warning
 - [x] `keevoro-index`: v2 index with JSON Schema; unguessable name (`index/<random>.kvx`); v1 `gallery.json` export
+- [x] "Check my backup": `keevoro check` re-reads the library; `--backup` confirms every original is stored; `--read-back` downloads and compares
 - [ ] Split the index into per-album files above about 5,000 items
 - [x] "Change my private link": `keevoro publish --new-link` writes the index under a new name and removes the old one
 - [x] Secrets in the OS keychain via `keyring`: `keevoro connect` and `keevoro disconnect`; the destination is remembered in the library

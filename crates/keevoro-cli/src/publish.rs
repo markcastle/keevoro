@@ -260,6 +260,125 @@ pub fn run(
     Ok(())
 }
 
+/// `keevoro check`: re-read the library, and optionally the backup, and
+/// say plainly whether everything is still as it was. Fails (so scripts
+/// notice) when anything is wrong.
+pub fn check(
+    out: &mut dyn Write,
+    catalog: &Catalog,
+    library: &Path,
+    backup: Option<Destination>,
+    read_back: bool,
+) -> Result<()> {
+    let live = std::io::stderr().is_terminal();
+    let n = summary::thousands;
+    let files = catalog.collected()?;
+    if files.is_empty() {
+        writeln!(
+            out,
+            "There is nothing in the library to check yet. Run `keevoro gather` first."
+        )?;
+        return Ok(());
+    }
+
+    let report = keevoro_collect::verify_library(library, catalog, &mut |done, total| {
+        if live {
+            eprint!("\r\x1b[2K  Checking your library: {} of {}", n(done), n(total));
+            let _ = std::io::stderr().flush();
+        }
+    })?;
+    if live {
+        eprint!("\r\x1b[2K");
+    }
+    let mut wrong = report.problems.len();
+    if report.problems.is_empty() {
+        writeln!(
+            out,
+            "Your library: all {} are intact.",
+            summary::count(report.intact, "file")
+        )?;
+    } else {
+        writeln!(
+            out,
+            "Your library: {} intact, {} with a problem:",
+            n(report.intact),
+            n(report.problems.len())
+        )?;
+        for p in &report.problems {
+            writeln!(out, "  {}: {}.", p.path.display(), p.reason)?;
+        }
+        writeln!(
+            out,
+            "To put these right, plug in the drive they came from and run `keevoro gather`, or copy them back from your backup."
+        )?;
+    }
+
+    if let Some(destination) = backup {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+        let (store, _, _) = open(out, &runtime, destination)?;
+        let expected = files
+            .iter()
+            .map(|f| {
+                Ok(keevoro_publish::Expected {
+                    key: ObjectKey::new(f.path.clone())?,
+                    bytes: f.bytes,
+                    blake3: f.blake3.clone(),
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let opts = PublishOptions::default();
+        let result = runtime.block_on(keevoro_publish::check_backup(
+            store.as_ref(),
+            &expected,
+            read_back,
+            &opts,
+            &mut |p| {
+                if live {
+                    eprint!("\r\x1b[2K  Checking your backup: {} of {}", n(p.done), n(p.total));
+                    let _ = std::io::stderr().flush();
+                }
+            },
+        ));
+        if live {
+            eprint!("\r\x1b[2K");
+        }
+        wrong += result.problems.len();
+        if result.problems.is_empty() {
+            let how = if read_back && result.read_back == result.present {
+                ", and each one was read back and matches exactly"
+            } else if read_back {
+                ", and all but the largest were read back and match exactly"
+            } else {
+                ""
+            };
+            writeln!(
+                out,
+                "Your backup: all {} are there{how}.",
+                summary::count(result.present, "original")
+            )?;
+        } else {
+            writeln!(
+                out,
+                "Your backup: {} fine, {} with a problem:",
+                n(result.present),
+                n(result.problems.len())
+            )?;
+            for p in &result.problems {
+                writeln!(out, "  {}: {}.", p.key, p.reason)?;
+            }
+            writeln!(out, "Run `keevoro publish` to send anything that is missing.")?;
+        }
+    }
+    if wrong > 0 {
+        anyhow::bail!(
+            "{} {} attention.",
+            summary::count(wrong, "file"),
+            if wrong == 1 { "needs" } else { "need" }
+        );
+    }
+    Ok(())
+}
+
 /// Originals first, then previews.
 fn uploads_for(library: &Path, kept: &[Kept<'_>]) -> Result<Vec<Upload>> {
     let local = |relative: &str| relative.split('/').fold(library.to_path_buf(), |p, s| p.join(s));

@@ -159,6 +159,80 @@ pub async fn put_document(
     Ok(())
 }
 
+/// Reading a file back means holding it in memory. Files larger than this
+/// (long videos) are checked by presence and size only.
+pub const MAX_READ_BACK_BYTES: u64 = 512 * 1024 * 1024;
+
+/// One original as it should be in the storage.
+#[derive(Debug, Clone)]
+pub struct Expected {
+    pub key: ObjectKey,
+    pub bytes: u64,
+    /// Full BLAKE3 hash, hex.
+    pub blake3: String,
+}
+
+#[derive(Debug, Default, Serialize)]
+pub struct BackupCheck {
+    /// Originals found with the right size.
+    pub present: usize,
+    /// Of those, how many were also downloaded and matched exactly.
+    pub read_back: usize,
+    pub problems: Vec<FailedUpload>,
+}
+
+/// Checks that originals are really in the storage. Every one is looked up
+/// and its size compared. With `read_back`, each is also downloaded and its
+/// contents compared with the hash from when it was gathered, which is the
+/// only way to be certain and costs a full download.
+pub async fn check_backup(
+    store: &dyn ObjectStore,
+    expected: &[Expected],
+    read_back: bool,
+    opts: &PublishOptions,
+    on_progress: &mut dyn FnMut(&PublishProgress),
+) -> BackupCheck {
+    let mut check = BackupCheck::default();
+    let mut progress = PublishProgress {
+        done: 0,
+        total: expected.len(),
+    };
+    for want in expected {
+        let problem = match with_retries(opts, || store.head(&want.key)).await {
+            Ok(None) => Some("It is missing from the backup".to_string()),
+            Ok(Some(found)) if found.bytes != want.bytes => {
+                Some("The backup's copy is a different size from the one in your library".to_string())
+            }
+            Ok(Some(_)) if read_back && want.bytes <= MAX_READ_BACK_BYTES => {
+                match with_retries(opts, || store.get(&want.key)).await {
+                    Ok(bytes) if blake3_hex(&bytes) == want.blake3 => {
+                        check.read_back += 1;
+                        None
+                    }
+                    Ok(_) => Some("The backup's copy does not match the original".to_string()),
+                    Err(e) => Some(plain_reason(&e)),
+                }
+            }
+            Ok(Some(_)) => None,
+            Err(e) => Some(plain_reason(&e)),
+        };
+        match problem {
+            None => check.present += 1,
+            Some(reason) => check.problems.push(FailedUpload {
+                key: want.key.to_string(),
+                reason,
+            }),
+        }
+        progress.done += 1;
+        on_progress(&progress);
+    }
+    check
+}
+
+fn blake3_hex(bytes: &[u8]) -> String {
+    blake3::hash(bytes).to_hex().to_string()
+}
+
 /// Says a storage problem in words a non-technical person can act on.
 pub fn plain_reason(e: &StorageError) -> String {
     match e {
