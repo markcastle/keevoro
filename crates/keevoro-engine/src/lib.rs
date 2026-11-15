@@ -20,9 +20,11 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 pub mod discover;
+pub mod preview;
 pub mod summary;
 
 pub use discover::{discover, set_collection_kept, CollectionView, Discover, PhotoView, SourceView};
+pub use preview::preview;
 
 use anyhow::{bail, Context, Result};
 use keevoro_catalog::Catalog;
@@ -85,6 +87,47 @@ pub struct GatherOutcome {
     /// True when there were videos but ffmpeg is not installed, so they
     /// have no posters or MP4 copies. They are still safely gathered.
     pub videos_need_ffmpeg: bool,
+}
+
+impl GatherOutcome {
+    /// What happened, as sentences to show the user when gathering ends.
+    /// Good news first; anything needing attention last.
+    pub fn sentences(&self) -> Vec<String> {
+        let mut said = Vec::new();
+        let c = &self.copied;
+        if c.copied > 0 {
+            said.push(format!(
+                "Safely copied {} ({}) into your library.",
+                summary::count(c.copied, "file"),
+                summary::bytes(c.copied_bytes)
+            ));
+        } else if c.failed.is_empty() {
+            said.push("Everything you're keeping was already safely in your library.".to_string());
+        }
+        let converted = self.videos.as_ref().map_or(0, |v| v.converted + v.repackaged);
+        if converted > 0 {
+            said.push(format!(
+                "Made MP4 copies of {} so they play everywhere. The originals are kept.",
+                summary::count(converted, "old video")
+            ));
+        }
+        if !c.failed.is_empty() {
+            said.push(format!(
+                "{} couldn't be copied. Nothing was lost: plug the drive in and gather again to retry.",
+                summary::count(c.failed.len(), "file")
+            ));
+        }
+        if !self.previews.no_preview.is_empty() {
+            said.push(format!(
+                "{} can't be previewed yet. The originals are safe in your library.",
+                summary::count(self.previews.no_preview.len(), "photo")
+            ));
+        }
+        if self.videos_need_ffmpeg {
+            said.push("Your videos are safe, but have no preview pictures because ffmpeg isn't installed.".to_string());
+        }
+        said
+    }
 }
 
 /// Copies everything the user is keeping into the library, verifies each

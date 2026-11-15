@@ -313,11 +313,62 @@ mod tests {
         assert!(library.join(thumb).is_file());
         assert_eq!(d.collections[0].gathered, 0);
 
+        let said = outcome.sentences();
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(said[0].starts_with("Safely copied 2 files ("), "{said:?}");
+        let again = gather_everything(&library, &catalog, false, None, &mut |_| {})
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            again.sentences(),
+            ["Everything you're keeping was already safely in your library."]
+        );
+
         // Nothing kept means nothing to do.
         set_collection_kept(&catalog, "Holidays / Cornwall", false).unwrap();
         assert!(gather_everything(&library, &catalog, false, None, &mut |_| {})
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn the_end_of_a_gather_is_explained_including_what_needs_attention() {
+        let dir = tempfile::tempdir().unwrap();
+        let drive = dir.path().join("drive");
+        fs::create_dir_all(&drive).unwrap();
+        fs::write(drive.join("good.jpg"), real_jpeg(10)).unwrap();
+        fs::write(drive.join("gone.jpg"), real_jpeg(200)).unwrap();
+        // Recognised as a photo by its first bytes, but not a real picture.
+        let mut odd = vec![
+            0xFF, 0xD8, 0xFF, 0xE0, 0, 16, b'J', b'F', b'I', b'F', 0, 1, 1, 0, 0, 1, 0, 1, 0, 0,
+        ];
+        odd.extend([7u8; 64]);
+        fs::write(drive.join("odd.jpg"), odd).unwrap();
+        fs::write(
+            drive.join("clip.mp4"),
+            b"\0\0\0\x18ftypisom\0\0\x02\0isomiso2 pretend video",
+        )
+        .unwrap();
+        let library = dir.path().join("library");
+        let mut catalog = Catalog::open_in_library(&library).unwrap();
+        scan_into(&mut catalog, &drive, None, &mut |_| {}).unwrap();
+        fs::remove_file(drive.join("gone.jpg")).unwrap();
+
+        let outcome = gather_everything(&library, &catalog, true, None, &mut |_| {})
+            .unwrap()
+            .unwrap();
+        let said = outcome.sentences();
+        assert_eq!(said.len(), 4, "{said:?}");
+        assert!(said[0].starts_with("Safely copied 3 files ("), "{said:?}");
+        assert!(
+            said[1].starts_with("1 file couldn't be copied. Nothing was lost"),
+            "{said:?}"
+        );
+        assert_eq!(
+            said[2],
+            "1 photo can't be previewed yet. The originals are safe in your library."
+        );
+        assert!(said[3].contains("ffmpeg isn't installed"), "{said:?}");
     }
 
     #[test]

@@ -1,0 +1,142 @@
+// Everything the screens ask of the engine, in one place.
+//
+// The screens never talk to Tauri directly. They call the functions here,
+// which reach the Rust side when the app is running for real, and a
+// stand-in (demo.ts) when the screens are opened in an ordinary browser.
+// That is what lets the screens be developed and tested with `npm run
+// ui:dev` and no desktop shell at all.
+//
+// The shapes below mirror the Rust structs in crates/keevoro-engine
+// (discover.rs) and src-tauri/src/commands.rs. If one changes, change both.
+
+import { demoBackend } from './demo'
+
+export type Photo = {
+  id: string
+  isVideo: boolean
+  name: string
+  sourcePath: string
+  thumbnail: string | null
+}
+
+export type Collection = {
+  key: string
+  title: string
+  summary: string
+  parents: string[]
+  photos: number
+  videos: number
+  kept: boolean
+  gathered: number
+  cover: Photo
+  previews: Photo[]
+}
+
+export type Source = { id: number; name: string; root: string; items: number }
+
+export type Discover = {
+  photos: number
+  videos: number
+  bytes: number
+  duplicates: number
+  junk: number
+  waitingToGather: number
+  sources: Source[]
+  collections: Collection[]
+}
+
+export type AppState = {
+  /** Where the library lives, or null until the user has chosen. */
+  library: string | null
+  /** A sensible place to suggest for a new library. */
+  suggestedLibrary: string
+  version: string
+}
+
+/** Sent while a drive is being looked through, and once more when done. */
+export type ScanEvent = { name: string; photos: number; videos: number; finished: boolean; problem?: string }
+
+/** Sent while photos are being gathered, and once more when done. */
+export type GatherEvent = {
+  step: 'copying' | 'previews' | 'videos' | 'finished'
+  done: number
+  total: number
+  /** On the last event: what happened, as sentences to show. */
+  summary?: string[]
+  problem?: string
+}
+
+export interface Backend {
+  state(): Promise<AppState>
+  /** Asks the user to pick a folder for the library. Null if they cancel. */
+  chooseLibrary(): Promise<AppState | null>
+  useLibrary(path: string): Promise<AppState>
+  discover(): Promise<Discover>
+  /** Asks for a drive or folder and starts looking through it. False if cancelled. */
+  addPlace(): Promise<boolean>
+  keepCollection(key: string, keep: boolean): Promise<void>
+  /** An address for a small picture of this file, usable in an <img>. */
+  preview(id: string): Promise<string>
+  gather(): Promise<void>
+  onScan(listener: (event: ScanEvent) => void): () => void
+  onGather(listener: (event: GatherEvent) => void): () => void
+}
+
+const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+
+async function tauriBackend(): Promise<Backend> {
+  const { invoke } = await import('@tauri-apps/api/core')
+  const { listen } = await import('@tauri-apps/api/event')
+  const { open } = await import('@tauri-apps/plugin-dialog')
+
+  // Listening is asynchronous in Tauri; hand back a way to stop that works
+  // even if it is called before the listener has finished attaching.
+  const subscribe = <T,>(event: string, listener: (payload: T) => void) => {
+    const stop = listen<T>(event, (e) => listener(e.payload))
+    return () => void stop.then((unlisten) => unlisten())
+  }
+  const pickFolder = async (title: string) => {
+    const picked = await open({ directory: true, multiple: false, title })
+    return typeof picked === 'string' ? picked : null
+  }
+  const previews = new Map<string, Promise<string>>()
+
+  return {
+    state: () => invoke('app_state'),
+    useLibrary: (path) => invoke('use_library', { path }),
+    async chooseLibrary() {
+      const path = await pickFolder('Choose where your library will live')
+      return path ? invoke<AppState>('use_library', { path }) : null
+    },
+    discover: () => invoke('discover'),
+    async addPlace() {
+      const path = await pickFolder('Choose a drive or folder to look through')
+      if (!path) return false
+      await invoke('scan_place', { path })
+      return true
+    },
+    keepCollection: (key, keep) => invoke('keep_collection', { key, keep }),
+    preview(id) {
+      // Each picture is fetched once and reused; the bytes come back raw.
+      let url = previews.get(id)
+      if (!url) {
+        url = invoke<ArrayBuffer>('preview', { id }).then((bytes) =>
+          URL.createObjectURL(new Blob([bytes], { type: 'image/webp' })),
+        )
+        url.catch(() => previews.delete(id))
+        previews.set(id, url)
+      }
+      return url
+    },
+    gather: () => invoke('gather'),
+    onScan: (listener) => subscribe('scan', listener),
+    onGather: (listener) => subscribe('gather', listener),
+  }
+}
+
+let ready: Promise<Backend> | undefined
+
+export function backend(): Promise<Backend> {
+  ready ??= inTauri ? tauriBackend() : Promise.resolve(demoBackend())
+  return ready
+}

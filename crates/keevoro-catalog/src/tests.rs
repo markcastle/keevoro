@@ -418,3 +418,18 @@ fn everything_gathered_can_be_listed_for_checking() {
         ("originals/a.jpg", "aa", 100)
     );
 }
+
+#[test]
+fn a_file_can_be_found_by_the_start_of_its_content_id() {
+    let mut c = Catalog::in_memory().unwrap();
+    c.save_scan("Dell", &report("/media/dell"), 100).unwrap();
+    let (path, kind, hash) = c.find_item(&"a".repeat(16)).unwrap().unwrap();
+    assert!(path.ends_with("IMG_1234.jpg"));
+    assert_eq!((kind, hash.len()), (MediaKind::Photo, 64));
+    assert!(c.find_item(&"A".repeat(16)).unwrap().is_some(), "case does not matter");
+    assert_eq!(c.find_item("ffff").unwrap(), None);
+    // Not hex, so it cannot be an id, and must not match everything.
+    for odd in ["", "%", "a%", "_", "zz"] {
+        assert_eq!(c.find_item(odd).unwrap(), None, "{odd:?}");
+    }
+}
