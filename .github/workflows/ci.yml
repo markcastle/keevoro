@@ -46,9 +46,20 @@ jobs:
       # These are throwaway credentials for a server that lives for one job.
       - name: Start MinIO (local S3-compatible server)
         run: |
-          docker run -d --name minio -p 9000:9000 \
-            -e MINIO_ROOT_USER=keevoro -e MINIO_ROOT_PASSWORD=keevoro-test-secret \
-            minio/minio:RELEASE.2025-04-22T22-12-26Z server /data
+          # MinIO's own image is no longer on Docker Hub, so try the places
+          # it can still be had, in order, and use the first that starts.
+          for image in \
+            quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z \
+            ghcr.io/coollabsio/minio:latest \
+            cgr.dev/chainguard/minio:latest; do
+            if docker run -d --name minio -p 9000:9000 \
+              -e MINIO_ROOT_USER=keevoro -e MINIO_ROOT_PASSWORD=keevoro-test-secret \
+              "$image" server /data; then
+              echo "Using $image"
+              break
+            fi
+            docker rm -f minio >/dev/null 2>&1 || true
+          done
           for i in $(seq 1 30); do
             curl -sf http://127.0.0.1:9000/minio/health/live && break
             sleep 1
