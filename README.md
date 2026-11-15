@@ -112,6 +112,23 @@ It is safe to stop halfway, unplug the drive or run it twice. It carries on wher
 
 Gathering also makes a thumbnail and a larger viewing copy of each photo, stored under `renditions/`. These are what a gallery shows, so pages load quickly. They are built from the picture alone: the location and camera details inside your originals are never copied into them. Some formats (HEIC from newer iPhones, camera RAW) can't be previewed yet; Keevoro says how many, and the originals are kept all the same.
 
+### Videos
+
+Each video gets a poster, a still picture for a gallery to show. Old camcorder and phone videos often will not play on a modern phone or in a browser, so you can also ask for an MP4 copy of those:
+
+```sh
+cargo run --release -p keevoro-cli -- gather --library "D:\Keevoro Library" --convert-videos
+```
+
+```text
+Made posters for 140 videos.
+Made MP4 copies of 96 videos (31 of them repackaged without re-encoding). The originals are kept.
+```
+
+Only videos that need it are converted; a modern MP4 is left exactly as it is. Where the video inside is already a modern kind in an old wrapper, it is repackaged rather than re-encoded, which takes seconds and loses nothing. Every MP4 is checked against its original (same length, plays through without errors) before it is kept, and the original always stays in the library.
+
+This part needs [ffmpeg](https://ffmpeg.org/download.html) to be installed. Without it, videos are still found, gathered and backed up; Keevoro just says that posters and conversion were skipped.
+
 ### Backing up
 
 To copy the library to an external drive or a network share:
@@ -128,7 +145,7 @@ Your private index: file:///F:/Family%20Backup/index/q7Zp4xKm2Tf9LwR3bN8vYc.kvx
 
 The backup has the same folders as the library, so what you see on one is what is on the other. An original that is already in the backup is never replaced, large videos are sent in pieces so an interruption only costs the piece in flight, and running it again sends only what is new.
 
-The last thing written is the index: one JSON file listing every album and photo, with sizes, dates and where each thumbnail lives. Its name is long and random, so it can't be guessed. A second file, `index/gallery.json`, is the older format the current gallery site reads. If the backup will be served from a web address, add `--base-url https://photos.example.com` so the links inside the index point there.
+The last thing written is the index: one JSON file listing every album and photo, with sizes, dates and where each thumbnail lives. Its name is long and random, so it can't be guessed. A second file, `index/gallery.json`, is the older format the current gallery site reads. If the backup will be served from a web address, add `--base-url https://photos.example.com` so the links inside the index point there. If you have shared the index's address and want it to stop working, add `--new-link`: the index is written under a new name and the old one is removed.
 
 ### Backing up to Cloudflare R2 or Amazon S3
 

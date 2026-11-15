@@ -6,7 +6,7 @@
 
 use crate::summary;
 use anyhow::{bail, Context, Result};
-use keevoro_catalog::{Catalog, RenditionState};
+use keevoro_catalog::{Catalog, RenditionState, VideoState};
 use keevoro_core::{group_into_collections, CollectionInput, DateSource};
 use keevoro_index::{build_index, gallery_v1, index_key, rendition_path, AlbumInput, ItemInput, Rendition};
 use keevoro_publish::{publish, put_document, PublishOptions, Upload};
@@ -26,6 +26,7 @@ struct Kept<'a> {
     /// Library-relative path of the original, also its storage key.
     path: String,
     preview: Option<RenditionState>,
+    video: Option<VideoState>,
 }
 
 impl Kept<'_> {
@@ -33,10 +34,19 @@ impl Kept<'_> {
         &self.hash[..self.hash.len().min(16)]
     }
     fn renditions(&self) -> Vec<Rendition> {
-        match self.preview {
-            Some(RenditionState::Made { .. }) => vec![Rendition::Thumb, Rendition::Display],
-            _ => Vec::new(),
+        let mut made = Vec::new();
+        if let Some(RenditionState::Made { .. }) = self.preview {
+            made.extend([Rendition::Thumb, Rendition::Display]);
         }
+        if let Some(VideoState::Known { poster, mp4, .. }) = self.video {
+            if poster {
+                made.push(Rendition::Poster);
+            }
+            if mp4 {
+                made.push(Rendition::Video);
+            }
+        }
+        made
     }
 }
 
@@ -108,6 +118,7 @@ pub fn run(
     library: &Path,
     destination: Destination,
     base_url: Option<&str>,
+    new_link: bool,
 ) -> Result<()> {
     let reports = catalog.load_reports()?;
     let (unique, _) = summary::unique_items(&reports);
@@ -125,6 +136,7 @@ pub fn run(
                 hash,
                 path,
                 preview: catalog.rendition(hash)?,
+                video: catalog.video(hash)?,
             });
         }
     }
@@ -162,15 +174,18 @@ pub fn run(
             stored.push(k);
         }
     }
-    let key = match catalog.setting(&format!("index_key:{target}"))? {
-        Some(key) => key,
-        None => {
-            let mut random = [0u8; 16];
-            getrandom::fill(&mut random).map_err(|e| anyhow::anyhow!("Couldn't get random numbers ({e})"))?;
-            let key = index_key(random);
-            catalog.set_setting(&format!("index_key:{target}"), &key)?;
-            key
-        }
+    let setting = format!("index_key:{target}");
+    let fresh_key = || -> Result<String> {
+        let mut random = [0u8; 16];
+        getrandom::fill(&mut random).map_err(|e| anyhow::anyhow!("Couldn't get random numbers ({e})"))?;
+        Ok(index_key(random))
+    };
+    let previous = catalog.setting(&setting)?;
+    // The old index is only removed once the new one is safely written.
+    let (key, retired) = match previous {
+        Some(old) if new_link => (fresh_key()?, Some(old)),
+        Some(current) => (current, None),
+        None => (fresh_key()?, None),
     };
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -200,6 +215,17 @@ pub fn run(
                 &opts,
             ))
             .map_err(|e| anyhow::anyhow!("Couldn't write the index. {}.", keevoro_publish::plain_reason(&e)))?;
+    }
+
+    catalog.set_setting(&setting, &key)?;
+    if let Some(old) = retired {
+        runtime.block_on(store.delete(&ObjectKey::new(old)?)).map_err(|e| {
+            anyhow::anyhow!(
+                "The new link works, but the old index couldn't be removed. {}.",
+                keevoro_publish::plain_reason(&e)
+            )
+        })?;
+        writeln!(out, "Your private link has changed. The old one no longer works.")?;
     }
 
     if report.uploaded > 0 {
@@ -256,7 +282,14 @@ fn uploads_for(library: &Path, kept: &[Kept<'_>]) -> Result<Vec<Upload>> {
                 file,
                 bytes: meta.len(),
                 write_once: false,
-                content_type: Some("image/webp".to_string()),
+                content_type: Some(
+                    if kind == Rendition::Video {
+                        "video/mp4"
+                    } else {
+                        "image/webp"
+                    }
+                    .to_string(),
+                ),
                 metadata: BTreeMap::new(),
             });
         }
@@ -274,6 +307,16 @@ fn item_for(k: &Kept<'_>) -> ItemInput {
         // No preview, but the scan may still have read the size.
         _ => (k.item.width, k.item.height, None),
     };
+    // For a video the size and length come from reading the video itself.
+    let (width, height, duration) = match &k.video {
+        Some(VideoState::Known {
+            duration_secs,
+            width,
+            height,
+            ..
+        }) => (Some(*width), Some(*height), Some(*duration_secs)),
+        _ => (width, height, None),
+    };
     ItemInput {
         id: k.id().to_string(),
         kind: k.item.kind,
@@ -284,6 +327,7 @@ fn item_for(k: &Kept<'_>) -> ItemInput {
         bytes: k.item.bytes,
         mime: k.item.mime.clone(),
         blurhash,
+        duration,
         renditions: k.renditions(),
     }
 }

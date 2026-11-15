@@ -15,6 +15,7 @@ fn item(id: &str, path: &str, taken: Option<(&str, DateSource)>) -> ItemInput {
         bytes: 2_483_312,
         mime: "image/jpeg".into(),
         blurhash: Some("LKO2?U%2Tw=w]~RBVZRi};RPxuwH".into()),
+        duration: None,
         renditions: vec![Rendition::Thumb, Rendition::Display],
     }
 }
@@ -35,7 +36,8 @@ fn spain() -> Index {
     video.kind = MediaKind::Video;
     video.mime = "video/quicktime".into();
     video.blurhash = None;
-    video.renditions = vec![];
+    video.duration = Some(37.4004);
+    video.renditions = vec![Rendition::Poster, Rendition::Video];
     build_index(
         "https://photos.example.com",
         1_794_749_400,
@@ -85,7 +87,8 @@ fn matches_the_planned_shape() {
     let video = &v["items"]["41aa09cd7e5b2f10"];
     assert_eq!(video["type"], "video");
     assert!(video.get("blurhash").is_none());
-    assert_eq!(video["renditions"], serde_json::json!([]));
+    assert_eq!(video["renditions"], serde_json::json!(["poster", "video"]));
+    assert_eq!(video["duration"], 37.4);
 }
 
 #[test]

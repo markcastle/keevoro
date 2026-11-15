@@ -165,6 +165,8 @@ pub struct ItemInput {
     pub bytes: u64,
     pub mime: String,
     pub blurhash: Option<String>,
+    /// Seconds, for videos that could be read.
+    pub duration: Option<f64>,
     pub renditions: Vec<Rendition>,
 }
 
@@ -222,7 +224,8 @@ pub fn build_index(base_url: &str, generated_at_unix: i64, albums: &[AlbumInput]
                 date_source: i.date.map(|d| d.source.into()),
                 w: i.width,
                 h: i.height,
-                duration: None,
+                // Milliseconds are plenty, and keep the file tidy.
+                duration: i.duration.map(|d| (d * 1000.0).round() / 1000.0),
                 bytes: i.bytes,
                 mime: i.mime,
                 blurhash: i.blurhash,

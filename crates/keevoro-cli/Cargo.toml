@@ -18,6 +18,7 @@ keevoro-catalog.workspace = true
 keevoro-collect.workspace = true
 keevoro-core.workspace = true
 keevoro-index.workspace = true
+keevoro-media.workspace = true
 keevoro-publish.workspace = true
 keevoro-storage.workspace = true
 keevoro-storage-folder.workspace = true
