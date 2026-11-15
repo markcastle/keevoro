@@ -1,0 +1,22 @@
+[package]
+name = "keevoro-publish"
+description = "The upload engine: sends a library to a storage provider, resumably, without ever overwriting an original."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+keevoro-catalog.workspace = true
+keevoro-storage.workspace = true
+serde.workspace = true
+tokio = { workspace = true, features = ["time"] }
+
+[dev-dependencies]
+async-trait.workspace = true
+keevoro-storage-folder.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

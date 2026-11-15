@@ -4,7 +4,7 @@ Find every photo and video on your old drives, keep the ones that matter, and ba
 
 Keevoro looks through old laptops, USB sticks and backup disks, finds your photos and videos, ignores the junk and the duplicates, and gathers everything into one library that you can back up to cloud storage such as Cloudflare R2 or Amazon S3. It never changes anything on your old drives.
 
-It is in early development. The engine and a command-line tool work today; the desktop app for Windows and macOS comes next.
+It is in early development. The engine and a command-line tool work today, from scanning a drive through to a verified backup on another disk; the desktop app for Windows and macOS comes next.
 
 ## Try the engine
 
@@ -80,6 +80,28 @@ Gathering copies each file, reads the copy back and compares it with the origina
 
 It is safe to stop halfway, unplug the drive or run it twice. It carries on where it left off and never copies a file it already has. If a file can't be read, the rest still go through and the problem is listed at the end. It checks there is enough room before it starts.
 
+Gathering also makes a thumbnail and a larger viewing copy of each photo, stored under `renditions/`. These are what a gallery shows, so pages load quickly. They are built from the picture alone: the location and camera details inside your originals are never copied into them. Some formats (HEIC from newer iPhones, camera RAW) can't be previewed yet; Keevoro says how many, and the originals are kept all the same.
+
+### Backing up
+
+To copy the library to an external drive or a network share:
+
+```sh
+cargo run --release -p keevoro-cli -- publish --library "D:\Keevoro Library" --to-folder "F:\Family Backup"
+```
+
+```text
+Safely backed up 29,610 files (43.2 GB).
+Index written for 9,870 files in 212 albums.
+Your private index: file:///F:/Family%20Backup/index/q7Zp4xKm2Tf9LwR3bN8vYc.kvx
+```
+
+The backup has the same folders as the library, so what you see on one is what is on the other. An original that is already in the backup is never replaced, large videos are sent in pieces so an interruption only costs the piece in flight, and running it again sends only what is new.
+
+The last thing written is the index: one JSON file listing every album and photo, with sizes, dates and where each thumbnail lives. Its name is long and random, so it can't be guessed. A second file, `index/gallery.json`, is the older format the current gallery site reads. If the backup will be served from a web address, add `--base-url https://photos.example.com` so the links inside the index point there.
+
+Backing up straight to Cloudflare R2 or Amazon S3 is the next piece of work; the upload engine is already written against the same interface the folder backup uses.
+
 When the same photo turns up in several places, the copy that was filed most carefully (the deepest named folder, then the best date) decides where it goes.
 
 What Keevoro remembers lives in one file, `.keevoro/catalog.sqlite`, inside the library folder. It is only working notes: it is safe to delete, and scanning again rebuilds it. Your old drives are never written to.
@@ -91,6 +113,9 @@ What Keevoro remembers lives in one file, `.keevoro/catalog.sqlite`, inside the 
 | `keevoro-core` | The rules: what counts as a photo, how dates and album names are worked out, what to skip, what looks like junk, how collections are formed. No file access. |
 | `keevoro-scan` | Looks through a drive or folder. Read-only. |
 | `keevoro-collect` | Copies what you kept into the library and proves each copy is exact. |
+| `keevoro-media` | Makes the thumbnails and viewing copies. |
+| `keevoro-publish` | Sends the library to storage: resumable, and never replaces an original. |
+| `keevoro-index` | Writes the index that describes a backup, and the JSON Schema other tools can check it against. |
 | `keevoro-catalog` | Remembers what was found on each drive and what you chose to keep, in a small SQLite file inside the library. |
 | `keevoro-storage` | The plug-in interface every storage provider implements, and the tests they must all pass. |
 | `keevoro-storage-folder` | Stores the library on a local disk, external drive or NAS. |

@@ -115,7 +115,11 @@ async fn create_only_refuses_overwrite(store: &dyn MultipartStore, p: &str) {
 }
 
 async fn put_from_file(store: &dyn MultipartStore, p: &str) {
-    let path = std::env::temp_dir().join(format!("keevoro-conformance-{}.bin", std::process::id()));
+    // Unique per call, not just per process: two providers are often checked
+    // by two tests in the same process, and they must not share this file.
+    static CALLS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let call = CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let path = std::env::temp_dir().join(format!("keevoro-conformance-{}-{call}.bin", std::process::id()));
     let body: Vec<u8> = (0..=255u8).cycle().take(70_000).collect();
     std::fs::write(&path, &body).expect("write temp file");
     let k = key(p, "from-file.bin");

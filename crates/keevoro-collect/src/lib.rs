@@ -19,6 +19,10 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
+mod previews;
+
+pub use previews::{make_previews, PreviewReport};
+
 use keevoro_catalog::{Catalog, CatalogError};
 use keevoro_core::{library_folder, numbered_name, safe_name};
 use keevoro_scan::FoundItem;
@@ -161,6 +165,11 @@ pub fn gather(
     Ok(report)
 }
 
+/// Turns a library-relative path (`a/b/c.jpg`) into a real path.
+pub(crate) fn in_library(library: &Path, relative: &str) -> PathBuf {
+    relative.split('/').fold(library.to_path_buf(), |p, s| p.join(s))
+}
+
 /// True when the catalog says this file was gathered and it is still there.
 fn is_gathered(library: &Path, catalog: &Catalog, item: &FoundItem) -> Result<bool, CatalogError> {
     let Some(hash) = &item.blake3 else {
@@ -168,7 +177,7 @@ fn is_gathered(library: &Path, catalog: &Catalog, item: &FoundItem) -> Result<bo
     };
     Ok(catalog
         .collected_path(hash)?
-        .is_some_and(|rel| rel.split('/').fold(library.to_path_buf(), |p, s| p.join(s)).is_file()))
+        .is_some_and(|rel| in_library(library, &rel).is_file()))
 }
 
 fn gather_one(library: &Path, item: &FoundItem) -> Result<(Placed, String), CopyError> {

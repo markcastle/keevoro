@@ -5,12 +5,13 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
+mod publish;
 mod summary;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use keevoro_catalog::Catalog;
-use keevoro_collect::{free_space, gather, GatherError};
+use keevoro_collect::{free_space, gather, make_previews, GatherError};
 use keevoro_scan::FoundItem;
 use keevoro_scan::{scan, ScanOptions, ScanReport};
 use std::io::{IsTerminal, Write};
@@ -96,6 +97,19 @@ enum Command {
         #[arg(long)]
         library: PathBuf,
     },
+    /// Back the library up to storage and write its index. Safe to stop
+    /// and run again; originals already stored are never replaced.
+    Publish {
+        #[arg(long)]
+        library: PathBuf,
+        /// A folder to back up to: an external drive or a NAS share.
+        #[arg(long)]
+        to_folder: PathBuf,
+        /// The web address the storage is served from, if it is.
+        /// Used for links inside the index.
+        #[arg(long)]
+        base_url: Option<String>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -140,6 +154,17 @@ fn run(cli: Cli, out: &mut dyn Write) -> Result<()> {
         Command::Skip { library, collections } => choose(out, &library, &collections, false),
         Command::Keep { library, collections } => choose(out, &library, &collections, true),
         Command::Gather { library } => run_gather(out, &library),
+        Command::Publish {
+            library,
+            to_folder,
+            base_url,
+        } => publish::run(
+            out,
+            &open_existing(&library)?,
+            &library,
+            &to_folder,
+            base_url.as_deref(),
+        ),
         Command::Sources { library } => {
             let sources = open_existing(&library)?.sources()?;
             if sources.is_empty() {
@@ -199,7 +224,7 @@ fn choose(out: &mut dyn Write, library: &Path, names: &[String], keep: bool) -> 
 
 /// Did the user say no to this file? Undecided files follow the default:
 /// keep, unless it looks like junk.
-fn wanted(catalog: &Catalog, item: &FoundItem) -> Result<bool> {
+pub(crate) fn wanted(catalog: &Catalog, item: &FoundItem) -> Result<bool> {
     let choice = match &item.blake3 {
         Some(hash) => catalog.choice(hash)?,
         None => None,
@@ -287,6 +312,31 @@ fn run_gather(out: &mut dyn Write, library: &Path) -> Result<()> {
             writeln!(out, "  {}: {}.", f.path.display(), f.reason)?;
         }
         writeln!(out, "Nothing was lost. Run `keevoro gather` again to retry.")?;
+    }
+
+    // Previews come from the library's own copies, so they are made for
+    // everything gathered so far, including on earlier runs.
+    let previews = make_previews(library, &catalog, &chosen, &mut |done, total| {
+        if live {
+            eprint!("\r\x1b[2K  Making previews: {} of {}", n(done), n(total));
+            let _ = std::io::stderr().flush();
+        }
+    })?;
+    if live {
+        eprint!("\r\x1b[2K");
+    }
+    if previews.made > 0 {
+        writeln!(out, "Made previews for {}.", summary::count(previews.made, "photo"))?;
+    }
+    if !previews.no_preview.is_empty() {
+        writeln!(
+            out,
+            "{} no preview yet. The originals are safe in your library.",
+            match previews.no_preview.len() {
+                1 => "1 photo has".to_string(),
+                many => format!("{} photos have", n(many)),
+            }
+        )?;
     }
     Ok(())
 }
@@ -527,7 +577,11 @@ mod tests {
             .is_file());
 
         let said = keevoro(&["gather", "--library", &lib]).unwrap();
-        assert_eq!(said, "3 files already there.\n");
+        assert!(said.starts_with("3 files already there.\n"), "{said}");
+        assert!(
+            said.ends_with("3 photos have no preview yet. The originals are safe in your library.\n"),
+            "{said}"
+        );
     }
 
     #[test]
@@ -574,6 +628,171 @@ mod tests {
             keevoro(&["gather", "--library", &lib]).unwrap(),
             "There is nothing to gather yet.\n"
         );
+    }
+
+    fn real_jpeg(shade: u8) -> Vec<u8> {
+        let img = image::RgbImage::from_pixel(640, 480, image::Rgb([shade, 120, 60]));
+        let mut bytes = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Jpeg)
+            .unwrap();
+        bytes
+    }
+
+    /// Every file under `root`, as sorted relative paths.
+    fn files(root: &Path) -> Vec<String> {
+        fn walk(dir: &Path, root: &Path, out: &mut Vec<String>) {
+            for e in fs::read_dir(dir).unwrap() {
+                let p = e.unwrap().path();
+                if p.is_dir() {
+                    walk(&p, root, out);
+                } else {
+                    out.push(p.strip_prefix(root).unwrap().to_string_lossy().replace('\\', "/"));
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(root, root, &mut out);
+        out.sort();
+        out
+    }
+
+    #[test]
+    fn from_an_old_drive_to_a_backup_with_an_index() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib_dir = dir.path().join("Keevoro Library");
+        let lib = lib_dir.to_string_lossy().to_string();
+        let backup = dir.path().join("backup disk");
+        let to = backup.to_string_lossy().to_string();
+        let dell = dir.path().join("dell");
+        for (rel, bytes) in [
+            ("Holidays/Spain 2009/IMG_20090714_210311.jpg", real_jpeg(10)),
+            ("Holidays/Spain 2009/IMG_20090715_090000.jpg", real_jpeg(20)),
+            ("DCIM/100CANON/IMG_20120304_153012.jpg", real_jpeg(30)),
+            ("DCIM/100CANON/odd.jpg", jpeg(4)),
+        ] {
+            fs::create_dir_all(dell.join(rel).parent().unwrap()).unwrap();
+            fs::write(dell.join(rel), bytes).unwrap();
+        }
+        let dell = dell.to_string_lossy().to_string();
+
+        assert!(
+            keevoro(&["publish", "--library", &lib, "--to-folder", &to]).is_err(),
+            "no library yet"
+        );
+        keevoro(&["scan", "--library", &lib, &dell]).unwrap();
+        let early = keevoro(&["publish", "--library", &lib, "--to-folder", &to]).unwrap();
+        assert!(
+            early.starts_with("There is nothing in the library to back up yet."),
+            "{early}"
+        );
+
+        let gathered = keevoro(&["gather", "--library", &lib]).unwrap();
+        assert!(gathered.contains("Made previews for 3 photos."), "{gathered}");
+        assert!(gathered.contains("1 photo has no preview yet."), "{gathered}");
+
+        let said = keevoro(&[
+            "publish",
+            "--library",
+            &lib,
+            "--to-folder",
+            &to,
+            "--base-url",
+            "https://photos.example.com",
+        ])
+        .unwrap();
+        // Four originals, and a thumbnail and display copy for three of them.
+        assert!(said.starts_with("Safely backed up 10 files ("), "{said}");
+        assert!(said.contains("Index written for 4 files in 4 albums."), "{said}");
+        let link = said.lines().last().unwrap();
+        let key = link
+            .strip_prefix("Your private index: https://photos.example.com/")
+            .unwrap();
+        assert!(
+            key.starts_with("index/") && key.ends_with(".kvx") && key.len() == 32,
+            "{key}"
+        );
+
+        // The backup mirrors the library, minus the catalog.
+        let stored: Vec<String> = files(&backup)
+            .into_iter()
+            .filter(|f| !f.starts_with("index/"))
+            .collect();
+        let local: Vec<String> = files(&lib_dir)
+            .into_iter()
+            .filter(|f| !f.starts_with(".keevoro/"))
+            .collect();
+        assert_eq!(stored, local);
+        assert!(stored.contains(&"originals/Holidays/Spain 2009/IMG_20090714_210311.jpg".to_string()));
+
+        let index: serde_json::Value = serde_json::from_slice(&fs::read(backup.join(key)).unwrap()).unwrap();
+        assert_eq!(index["schema"], "keevoro.index/2");
+        assert_eq!(index["baseUrl"], "https://photos.example.com/");
+        let spain = index["albums"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|a| a["id"] == "holidays-spain-2009")
+            .unwrap();
+        assert_eq!(spain["parent"], "holidays");
+        assert_eq!(spain["dateRange"], serde_json::json!(["2009-07-14", "2009-07-15"]));
+        let cover = &index["items"][spain["cover"].as_str().unwrap()];
+        assert_eq!((cover["w"].as_u64(), cover["h"].as_u64()), (Some(640), Some(480)));
+        assert_eq!(cover["renditions"], serde_json::json!(["thumb", "display"]));
+        assert!(cover["blurhash"].is_string());
+        let odd = index["items"]
+            .as_object()
+            .unwrap()
+            .values()
+            .find(|i| i["path"] == "originals/Undated/odd.jpg")
+            .unwrap();
+        assert_eq!(odd["renditions"], serde_json::json!([]));
+
+        let gallery: serde_json::Value =
+            serde_json::from_slice(&fs::read(backup.join("index/gallery.json")).unwrap()).unwrap();
+        let album = gallery["albums"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|a| a["title"] == "Holidays / Spain 2009")
+            .unwrap();
+        assert_eq!(album["photos"].as_array().unwrap().len(), 2);
+        let thumb = album["photos"][0]["thumbnail"].as_str().unwrap();
+        assert!(
+            thumb.starts_with("https://photos.example.com/renditions/thumb/"),
+            "{thumb}"
+        );
+
+        // Again: nothing new to send, and the private link stays the same.
+        let again = keevoro(&[
+            "publish",
+            "--library",
+            &lib,
+            "--to-folder",
+            &to,
+            "--base-url",
+            "https://photos.example.com",
+        ])
+        .unwrap();
+        assert!(again.starts_with("10 files already there.\n"), "{again}");
+        assert_eq!(again.lines().last().unwrap(), link);
+        assert_eq!(files(&backup).iter().filter(|f| f.ends_with(".kvx")).count(), 1);
+
+        // Skipping an album afterwards takes it out of the index, but
+        // nothing already backed up is deleted.
+        keevoro(&["skip", "--library", &lib, "Spain 2009"]).unwrap();
+        let after = keevoro(&["publish", "--library", &lib, "--to-folder", &to]).unwrap();
+        assert!(after.contains("Index written for 2 files in 2 albums."), "{after}");
+        assert!(
+            after
+                .lines()
+                .last()
+                .unwrap()
+                .starts_with("Your private index: file:///"),
+            "{after}"
+        );
+        assert!(backup
+            .join("originals/Holidays/Spain 2009/IMG_20090714_210311.jpg")
+            .is_file());
     }
 
     #[test]
