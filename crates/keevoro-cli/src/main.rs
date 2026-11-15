@@ -125,6 +125,13 @@ enum Command {
         #[arg(long)]
         base_url: Option<String>,
     },
+    /// Update Keevoro itself to the newest version. This is the only time
+    /// Keevoro contacts the internet without being given a storage address.
+    Update {
+        /// Only say whether a newer version exists; change nothing.
+        #[arg(long)]
+        check: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -169,6 +176,13 @@ fn run(cli: Cli, out: &mut dyn Write) -> Result<()> {
         Command::Skip { library, collections } => choose(out, &library, &collections, false),
         Command::Keep { library, collections } => choose(out, &library, &collections, true),
         Command::Gather { library } => run_gather(out, &library),
+        Command::Update { check } => run_update(
+            out,
+            &keevoro_update::GitHub::from_env(),
+            env!("CARGO_PKG_VERSION"),
+            check,
+            &keevoro_update::install,
+        ),
         Command::Publish {
             library,
             to_folder,
@@ -378,6 +392,38 @@ fn run_gather(out: &mut dyn Write, library: &Path) -> Result<()> {
             }
         )?;
     }
+    Ok(())
+}
+
+/// Checks for a newer release and, unless only checking, installs it.
+/// `install` is passed in so tests can stand in for replacing the program.
+fn run_update(
+    out: &mut dyn Write,
+    web: &dyn keevoro_update::Web,
+    current: &str,
+    check_only: bool,
+    install: &dyn Fn(&[u8]) -> Result<(), keevoro_update::UpdateError>,
+) -> Result<()> {
+    let plain = |e: keevoro_update::UpdateError| anyhow::anyhow!("{e}.");
+    let release = match keevoro_update::check(web, current).map_err(plain)? {
+        keevoro_update::Check::UpToDate => {
+            writeln!(out, "Keevoro {current} is the newest version.")?;
+            return Ok(());
+        }
+        keevoro_update::Check::Available(release) => release,
+    };
+    if check_only {
+        writeln!(out, "Keevoro {} is available (you have {current}).", release.version)?;
+        writeln!(out, "What's new: {}", release.page)?;
+        writeln!(out, "Run `keevoro update` to install it.")?;
+        return Ok(());
+    }
+    writeln!(out, "Updating Keevoro {current} to {} ...", release.version)?;
+    let program =
+        keevoro_update::download(web, &release, std::env::consts::OS, std::env::consts::ARCH).map_err(plain)?;
+    install(&program).map_err(plain)?;
+    writeln!(out, "Keevoro {} is installed.", release.version)?;
+    writeln!(out, "What's new: {}", release.page)?;
     Ok(())
 }
 
@@ -954,6 +1000,85 @@ mod tests {
         ];
         let err = keevoro(&wrong).unwrap_err();
         assert!(err.to_string().starts_with("Couldn't connect to the storage."), "{err}");
+    }
+
+    /// A pretend GitHub with one release, built the way the Release
+    /// workflow builds a real one.
+    struct FakeGitHub {
+        tag: &'static str,
+        program: Vec<u8>,
+        sums_for: Vec<u8>,
+    }
+
+    impl keevoro_update::Web for FakeGitHub {
+        fn text(&self, _url: &str) -> Result<String, keevoro_update::UpdateError> {
+            let asset = keevoro_update::asset_for(std::env::consts::OS, std::env::consts::ARCH).unwrap();
+            Ok(serde_json::json!({
+                "tag_name": self.tag,
+                "html_url": format!("https://github.com/markcastle/keevoro/releases/tag/{}", self.tag),
+                "assets": [{ "name": asset, "url": "program" }, { "name": "SHA256SUMS", "url": "sums" }],
+            })
+            .to_string())
+        }
+        fn bytes(&self, url: &str) -> Result<Vec<u8>, keevoro_update::UpdateError> {
+            let asset = keevoro_update::asset_for(std::env::consts::OS, std::env::consts::ARCH).unwrap();
+            Ok(match url {
+                "program" => self.program.clone(),
+                _ => format!("{}  {asset}\n", keevoro_update::sha256_hex(&self.sums_for)).into_bytes(),
+            })
+        }
+    }
+
+    fn update(web: &FakeGitHub, current: &str, check: bool) -> (Result<String>, Vec<Vec<u8>>) {
+        let installed = std::cell::RefCell::new(Vec::new());
+        let mut out = Vec::new();
+        let result = run_update(&mut out, web, current, check, &|program| {
+            installed.borrow_mut().push(program.to_vec());
+            Ok(())
+        });
+        (result.map(|()| String::from_utf8(out).unwrap()), installed.into_inner())
+    }
+
+    #[test]
+    fn update_installs_a_newer_version_and_says_what_is_new() {
+        let web = FakeGitHub {
+            tag: "v0.3.0",
+            program: b"new keevoro".to_vec(),
+            sums_for: b"new keevoro".to_vec(),
+        };
+        let (said, installed) = update(&web, "0.2.0", false);
+        assert_eq!(
+            said.unwrap(),
+            "Updating Keevoro 0.2.0 to 0.3.0 ...\nKeevoro 0.3.0 is installed.\n\
+             What's new: https://github.com/markcastle/keevoro/releases/tag/v0.3.0\n"
+        );
+        assert_eq!(installed, [b"new keevoro".to_vec()]);
+
+        // Only looking changes nothing.
+        let (said, installed) = update(&web, "0.2.0", true);
+        assert!(said
+            .unwrap()
+            .starts_with("Keevoro 0.3.0 is available (you have 0.2.0)."));
+        assert!(installed.is_empty());
+
+        // Already there, or ahead of it: nothing to do.
+        for current in ["0.3.0", "0.4.0"] {
+            let (said, installed) = update(&web, current, false);
+            assert_eq!(said.unwrap(), format!("Keevoro {current} is the newest version.\n"));
+            assert!(installed.is_empty());
+        }
+    }
+
+    #[test]
+    fn update_never_installs_a_download_that_fails_its_checksum() {
+        let web = FakeGitHub {
+            tag: "v0.3.0",
+            program: b"damaged on the way".to_vec(),
+            sums_for: b"new keevoro".to_vec(),
+        };
+        let (said, installed) = update(&web, "0.2.0", false);
+        assert!(said.unwrap_err().to_string().contains("Nothing was changed"));
+        assert!(installed.is_empty());
     }
 
     #[test]

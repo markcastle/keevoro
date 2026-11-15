@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -19,6 +20,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      # The installers are not Rust, so they get their own checks: the
+      # shell one is linted and the PowerShell one must at least parse.
+      - run: shellcheck install.sh
+      - name: install.ps1 parses
+        shell: pwsh
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path install.ps1), [ref]$null, [ref]$errors) | Out-Null
+          if ($errors) { $errors | ForEach-Object { Write-Error $_.Message }; exit 1 }
 
   test:
     strategy:
