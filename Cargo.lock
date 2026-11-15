@@ -1566,6 +1566,7 @@ dependencies = [
  "keevoro-collect",
  "keevoro-core",
  "keevoro-index",
+ "keevoro-media",
  "keevoro-publish",
  "keevoro-scan",
  "keevoro-storage",
@@ -1620,6 +1621,7 @@ version = "0.1.1"
 dependencies = [
  "blurhash",
  "image",
+ "serde_json",
  "tempfile",
  "thiserror",
  "webp",

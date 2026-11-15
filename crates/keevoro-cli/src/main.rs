@@ -11,7 +11,7 @@ mod summary;
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use keevoro_catalog::Catalog;
-use keevoro_collect::{free_space, gather, make_previews, GatherError};
+use keevoro_collect::{free_space, gather, make_previews, make_video_previews, GatherError};
 use keevoro_scan::FoundItem;
 use keevoro_scan::{scan, ScanOptions, ScanReport};
 use std::io::{IsTerminal, Write};
@@ -96,6 +96,11 @@ enum Command {
     Gather {
         #[arg(long)]
         library: PathBuf,
+        /// Also make an MP4 copy of videos in older formats (AVI, WMV, MPG,
+        /// 3GP and the like) so they play on any phone, TV or browser. The
+        /// originals are always kept. Needs ffmpeg to be installed.
+        #[arg(long)]
+        convert_videos: bool,
     },
     /// Back the library up to storage and write its index. Safe to stop
     /// and run again; originals already stored are never replaced.
@@ -124,6 +129,10 @@ enum Command {
         /// Used for links inside the index.
         #[arg(long)]
         base_url: Option<String>,
+        /// Change the private link: write the index under a new random
+        /// name and remove the old one, so the old link stops working.
+        #[arg(long)]
+        new_link: bool,
     },
     /// Update Keevoro itself to the newest version. This is the only time
     /// Keevoro contacts the internet without being given a storage address.
@@ -180,7 +189,15 @@ fn run(cli: Cli, out: &mut dyn Write) -> Result<()> {
         }
         Command::Skip { library, collections } => choose(out, &library, &collections, false),
         Command::Keep { library, collections } => choose(out, &library, &collections, true),
-        Command::Gather { library } => run_gather(out, &library),
+        Command::Gather {
+            library,
+            convert_videos,
+        } => run_gather(
+            out,
+            &library,
+            convert_videos,
+            keevoro_media::VideoTools::find().as_ref(),
+        ),
         Command::Update { check } => run_update(
             out,
             &keevoro_update::GitHub::from_env(),
@@ -196,6 +213,7 @@ fn run(cli: Cli, out: &mut dyn Write) -> Result<()> {
             to_endpoint,
             bucket,
             base_url,
+            new_link,
         } => {
             let preset = if let Some(account_id) = to_r2 {
                 Some(keevoro_storage_s3::Preset::CloudflareR2 { account_id })
@@ -222,6 +240,7 @@ fn run(cli: Cli, out: &mut dyn Write) -> Result<()> {
                 &library,
                 destination,
                 base_url.as_deref(),
+                new_link,
             )
         }
         Command::Sources { library } => {
@@ -307,7 +326,12 @@ fn skipped_collections(catalog: &Catalog, reports: &[ScanReport]) -> Result<Vec<
     Ok(skipped)
 }
 
-fn run_gather(out: &mut dyn Write, library: &Path) -> Result<()> {
+fn run_gather(
+    out: &mut dyn Write,
+    library: &Path,
+    convert_videos: bool,
+    video_tools: Option<&keevoro_media::VideoTools>,
+) -> Result<()> {
     let catalog = open_existing(library)?;
     let reports = catalog.load_reports()?;
     // Rule one: never write to a source. A library inside a scanned folder
@@ -396,6 +420,58 @@ fn run_gather(out: &mut dyn Write, library: &Path) -> Result<()> {
                 many => format!("{} photos have", n(many)),
             }
         )?;
+    }
+
+    let has_videos = chosen.iter().any(|i| i.kind == keevoro_core::MediaKind::Video);
+    match video_tools {
+        Some(tools) if has_videos => {
+            let videos = make_video_previews(library, &catalog, &chosen, tools, convert_videos, &mut |done, total| {
+                if live {
+                    eprint!("\r\x1b[2K  Working on videos: {} of {}", n(done), n(total));
+                    let _ = std::io::stderr().flush();
+                }
+            })?;
+            if live {
+                eprint!("\r\x1b[2K");
+            }
+            if videos.posters > 0 {
+                writeln!(out, "Made posters for {}.", summary::count(videos.posters, "video"))?;
+            }
+            let made = videos.converted + videos.repackaged;
+            if made > 0 {
+                let how = match videos.repackaged {
+                    0 => String::new(),
+                    r if r == made => " (repackaged without re-encoding, so nothing was lost)".to_string(),
+                    r => format!(" ({} of them repackaged without re-encoding)", n(r)),
+                };
+                writeln!(
+                    out,
+                    "Made MP4 copies of {}{how}. The originals are kept.",
+                    summary::count(made, "video")
+                )?;
+            }
+            if !videos.problems.is_empty() {
+                writeln!(
+                    out,
+                    "{} a problem:",
+                    match videos.problems.len() {
+                        1 => "1 video had".to_string(),
+                        many => format!("{} videos had", n(many)),
+                    }
+                )?;
+                for p in &videos.problems {
+                    writeln!(out, "  {}: {}.", p.path.display(), p.reason.trim_end_matches('.'))?;
+                }
+            }
+        }
+        None if has_videos => {
+            writeln!(
+                out,
+                "Your videos are safe in the library, but they have no posters{}: that needs ffmpeg, which isn't installed.",
+                if convert_videos { " or MP4 copies" } else { "" }
+            )?;
+        }
+        _ => {}
     }
     Ok(())
 }
@@ -1084,6 +1160,164 @@ mod tests {
         let (said, installed) = update(&web, "0.2.0", false);
         assert!(said.unwrap_err().to_string().contains("Nothing was changed"));
         assert!(installed.is_empty());
+    }
+
+    /// A one-second test video, or `None` (with a note) without ffmpeg.
+    fn test_video(name: &str, codec_args: &[&str]) -> Option<Vec<u8>> {
+        let Some(tools) = keevoro_media::VideoTools::find() else {
+            eprintln!("skipped: ffmpeg is not installed");
+            return None;
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join(name);
+        let ok = std::process::Command::new(&tools.ffmpeg)
+            .args([
+                "-v",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc=duration=1:size=320x240:rate=25",
+            ])
+            .args(["-f", "lavfi", "-i", "sine=frequency=440:duration=1"])
+            .args(codec_args)
+            .arg(&out)
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok);
+        Some(fs::read(out).unwrap())
+    }
+
+    #[test]
+    fn old_videos_get_posters_mp4_copies_and_a_place_in_the_index() {
+        let Some(avi) = test_video("old.avi", &["-c:v", "mpeg4", "-c:a", "mp3"]) else {
+            return;
+        };
+        let mov = test_video("c.mov", &["-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac"]).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let lib_dir = dir.path().join("lib");
+        let lib = lib_dir.to_string_lossy().to_string();
+        let backup = dir.path().join("backup");
+        let to = backup.to_string_lossy().to_string();
+        let dell = dir.path().join("dell");
+        fs::create_dir_all(dell.join("Wedding")).unwrap();
+        fs::write(dell.join("Wedding/speech.avi"), avi).unwrap();
+        fs::write(dell.join("Wedding/dance.mov"), mov).unwrap();
+        keevoro(&["scan", "--library", &lib, &dell.to_string_lossy()]).unwrap();
+
+        // Without asking for conversion: posters only.
+        let said = keevoro(&["gather", "--library", &lib]).unwrap();
+        assert!(said.contains("Made posters for 2 videos."), "{said}");
+        assert!(!said.contains("MP4"), "{said}");
+        assert!(!lib_dir.join("renditions/video").exists());
+
+        let said = keevoro(&["gather", "--library", &lib, "--convert-videos"]).unwrap();
+        assert!(
+            said.contains(
+                "Made MP4 copies of 2 videos (1 of them repackaged without re-encoding). The originals are kept."
+            ),
+            "{said}"
+        );
+        assert!(lib_dir.join("originals/Wedding/speech.avi").is_file());
+
+        let said = keevoro(&["publish", "--library", &lib, "--to-folder", &to]).unwrap();
+        // Two originals, two posters, two MP4 copies.
+        assert!(said.starts_with("Safely backed up 6 files ("), "{said}");
+        let key = said.lines().last().unwrap().rsplit("/index/").next().unwrap();
+        let index: serde_json::Value =
+            serde_json::from_slice(&fs::read(backup.join("index").join(key)).unwrap()).unwrap();
+        let speech = index["items"]
+            .as_object()
+            .unwrap()
+            .iter()
+            .find(|(_, item)| item["path"] == "originals/Wedding/speech.avi")
+            .unwrap();
+        assert_eq!(speech.1["type"], "video");
+        assert_eq!(speech.1["renditions"], serde_json::json!(["poster", "video"]));
+        assert_eq!((speech.1["w"].as_u64(), speech.1["h"].as_u64()), (Some(320), Some(240)));
+        assert!(
+            (speech.1["duration"].as_f64().unwrap() - 1.0).abs() < 0.2,
+            "{}",
+            speech.1["duration"]
+        );
+        assert!(backup.join(format!("renditions/video/{}.mp4", speech.0)).is_file());
+        assert!(backup.join(format!("renditions/poster/{}.webp", speech.0)).is_file());
+    }
+
+    #[test]
+    fn without_ffmpeg_videos_are_still_gathered_and_the_gap_is_explained() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib_dir = dir.path().join("lib");
+        let lib = lib_dir.to_string_lossy().to_string();
+        let dell = dir.path().join("dell");
+        fs::create_dir_all(&dell).unwrap();
+        fs::write(
+            dell.join("clip.mp4"),
+            b"\0\0\0\x18ftypisom\0\0\x02\0isomiso2 pretend video",
+        )
+        .unwrap();
+        keevoro(&["scan", "--library", &lib, &dell.to_string_lossy()]).unwrap();
+
+        let mut out = Vec::new();
+        run_gather(&mut out, &lib_dir, true, None).unwrap();
+        let said = String::from_utf8(out).unwrap();
+        assert!(said.starts_with("Safely copied 1 file ("), "{said}");
+        assert!(
+            said.ends_with("they have no posters or MP4 copies: that needs ffmpeg, which isn't installed.\n"),
+            "{said}"
+        );
+        let mut out = Vec::new();
+        run_gather(&mut out, &lib_dir, false, None).unwrap();
+        assert!(String::from_utf8(out)
+            .unwrap()
+            .contains("no posters: that needs ffmpeg"));
+    }
+
+    #[test]
+    fn the_private_link_can_be_changed() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib = dir.path().join("lib").to_string_lossy().to_string();
+        let backup = dir.path().join("backup");
+        let to = backup.to_string_lossy().to_string();
+        let dell = dir.path().join("dell");
+        fs::create_dir_all(&dell).unwrap();
+        fs::write(dell.join("a.jpg"), real_jpeg(1)).unwrap();
+        keevoro(&["scan", "--library", &lib, &dell.to_string_lossy()]).unwrap();
+        keevoro(&["gather", "--library", &lib]).unwrap();
+
+        let index_files = || {
+            let mut names: Vec<String> = fs::read_dir(backup.join("index"))
+                .unwrap()
+                .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+                .filter(|n| n.ends_with(".kvx"))
+                .collect();
+            names.sort();
+            names
+        };
+        let first = keevoro(&["publish", "--library", &lib, "--to-folder", &to]).unwrap();
+        assert!(
+            !first.contains("link has changed"),
+            "nothing to change the first time: {first}"
+        );
+        let old = index_files();
+        assert_eq!(old.len(), 1);
+
+        let said = keevoro(&["publish", "--library", &lib, "--to-folder", &to, "--new-link"]).unwrap();
+        assert!(
+            said.contains("Your private link has changed. The old one no longer works."),
+            "{said}"
+        );
+        let new = index_files();
+        assert_eq!(new.len(), 1, "the old index is gone");
+        assert_ne!(new, old);
+        assert!(said.lines().last().unwrap().ends_with(&new[0]));
+
+        // And the new link is the one that sticks.
+        let again = keevoro(&["publish", "--library", &lib, "--to-folder", &to]).unwrap();
+        assert!(again.lines().last().unwrap().ends_with(&new[0]));
+        assert_eq!(index_files(), new);
     }
 
     #[test]

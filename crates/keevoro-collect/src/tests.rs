@@ -428,3 +428,209 @@ mod previews {
         assert!(!w.library().join("renditions").exists());
     }
 }
+
+mod videos {
+    use super::*;
+    use crate::make_video_previews;
+    use keevoro_catalog::VideoState;
+    use keevoro_media::VideoTools;
+    use std::process::Command;
+
+    fn tools() -> Option<VideoTools> {
+        let found = VideoTools::find();
+        if found.is_none() {
+            eprintln!("skipped: ffmpeg is not installed");
+        }
+        found
+    }
+
+    /// A one-second test video in the given format.
+    fn video(tools: &VideoTools, name: &str, codec_args: &[&str]) -> Vec<u8> {
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join(name);
+        let ok = Command::new(&tools.ffmpeg)
+            .args([
+                "-v",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc=duration=1:size=320x240:rate=25",
+            ])
+            .args(["-f", "lavfi", "-i", "sine=frequency=440:duration=1"])
+            .args(codec_args)
+            .arg(&out)
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok);
+        fs::read(out).unwrap()
+    }
+
+    fn run(w: &World, report: &ScanReport, tools: &VideoTools, convert: bool) -> crate::VideoReport {
+        let items: Vec<&FoundItem> = report.items.iter().collect();
+        make_video_previews(&w.library(), &w.catalog, &items, tools, convert, &mut |_, _| {}).unwrap()
+    }
+
+    fn id_of<'a>(report: &'a ScanReport, name: &str) -> &'a FoundItem {
+        report.items.iter().find(|i| i.path.ends_with(name)).unwrap()
+    }
+
+    #[test]
+    fn every_video_gets_a_poster_and_only_old_ones_are_converted_when_asked() {
+        let Some(tools) = tools() else { return };
+        let w = World::new();
+        w.add(
+            "Holiday/old.avi",
+            &video(&tools, "old.avi", &["-c:v", "mpeg4", "-c:a", "mp3"]),
+        );
+        w.add(
+            "Holiday/camcorder.mov",
+            &video(
+                &tools,
+                "c.mov",
+                &["-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac"],
+            ),
+        );
+        w.add(
+            "Holiday/phone.mp4",
+            &video(
+                &tools,
+                "p.mp4",
+                &["-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac"],
+            ),
+        );
+        w.add("Holiday/photo.jpg", &jpeg(1, 100));
+        let report = w.scan();
+        w.gather(&report);
+        fs::remove_dir_all(w.drive()).unwrap();
+
+        // Conversion off: posters only.
+        let first = run(&w, &report, &tools, false);
+        assert_eq!(
+            (first.posters, first.converted, first.repackaged, first.problems.len()),
+            (3, 0, 0, 0)
+        );
+        assert!(!w.library().join("renditions/video").exists());
+        let old = id_of(&report, "old.avi");
+        let state = w.catalog.video(old.blake3.as_deref().unwrap()).unwrap().unwrap();
+        assert!(
+            matches!(
+                state,
+                VideoState::Known {
+                    width: 320,
+                    height: 240,
+                    poster: true,
+                    mp4: false,
+                    ..
+                }
+            ),
+            "{state:?}"
+        );
+        assert!(w
+            .library()
+            .join(format!("renditions/poster/{}.webp", old.id().unwrap()))
+            .is_file());
+
+        let again = run(&w, &report, &tools, false);
+        assert_eq!((again.posters, again.already_there), (0, 3));
+
+        // Conversion on: the AVI is re-encoded, the MOV repackaged, the
+        // modern MP4 left alone.
+        let converted = run(&w, &report, &tools, true);
+        assert_eq!(
+            (converted.posters, converted.converted, converted.repackaged),
+            (0, 1, 1)
+        );
+        assert_eq!((converted.already_there, converted.problems.len()), (1, 0));
+        for (name, expect_mp4) in [("old.avi", true), ("camcorder.mov", true), ("phone.mp4", false)] {
+            let item = id_of(&report, name);
+            let mp4 = w.library().join(format!("renditions/video/{}.mp4", item.id().unwrap()));
+            assert_eq!(mp4.is_file(), expect_mp4, "{name}");
+        }
+        // The originals are all still there, untouched.
+        assert_eq!(
+            fs::read(w.library().join("originals/Holiday/old.avi")).unwrap().len() as u64,
+            old.bytes
+        );
+
+        let settled = run(&w, &report, &tools, true);
+        assert_eq!(
+            (settled.converted, settled.repackaged, settled.already_there),
+            (0, 0, 3)
+        );
+    }
+
+    #[test]
+    fn a_file_that_only_claims_to_be_a_video_is_remembered_not_retried() {
+        let Some(tools) = tools() else { return };
+        let w = World::new();
+        // Looks like an MP4 to the scanner, but holds no video.
+        w.add(
+            "Holiday/fake.mp4",
+            b"\0\0\0\x18ftypisom\0\0\x02\0isomiso2 nothing else here at all",
+        );
+        let report = w.scan();
+        w.gather(&report);
+
+        let first = run(&w, &report, &tools, true);
+        assert_eq!((first.posters, first.problems.len()), (0, 1));
+        assert!(first.problems[0].path.ends_with("originals/Holiday/fake.mp4"));
+        let hash = report.items[0].blake3.as_deref().unwrap();
+        assert!(matches!(
+            w.catalog.video(hash).unwrap(),
+            Some(VideoState::Unreadable { .. })
+        ));
+
+        let mut calls = 0;
+        let items: Vec<&FoundItem> = report.items.iter().collect();
+        let second =
+            make_video_previews(&w.library(), &w.catalog, &items, &tools, true, &mut |_, _| calls += 1).unwrap();
+        assert_eq!(
+            (calls, second.problems.len()),
+            (0, 1),
+            "still reported, not attempted again"
+        );
+    }
+
+    #[test]
+    fn a_deleted_poster_is_made_again_and_ungathered_videos_are_left_alone() {
+        let Some(tools) = tools() else { return };
+        let w = World::new();
+        w.add(
+            "Holiday/old.avi",
+            &video(&tools, "old.avi", &["-c:v", "mpeg4", "-c:a", "mp3"]),
+        );
+        let report = w.scan();
+        let before = run(&w, &report, &tools, true);
+        assert_eq!((before.posters, before.already_there, before.problems.len()), (0, 0, 0));
+
+        w.gather(&report);
+        run(&w, &report, &tools, false);
+        fs::remove_dir_all(w.library().join("renditions/poster")).unwrap();
+        assert_eq!(run(&w, &report, &tools, false).posters, 1);
+    }
+
+    #[test]
+    fn a_video_missing_from_the_library_is_retried_next_time() {
+        let Some(tools) = tools() else { return };
+        let w = World::new();
+        w.add(
+            "Holiday/old.avi",
+            &video(&tools, "old.avi", &["-c:v", "mpeg4", "-c:a", "mp3"]),
+        );
+        let report = w.scan();
+        w.gather(&report);
+        let original = w.library().join("originals/Holiday/old.avi");
+        let bytes = fs::read(&original).unwrap();
+        fs::remove_file(&original).unwrap();
+        assert_eq!(run(&w, &report, &tools, false).problems.len(), 1);
+        assert_eq!(
+            w.catalog.video(report.items[0].blake3.as_deref().unwrap()).unwrap(),
+            None
+        );
+        fs::write(&original, bytes).unwrap();
+        assert_eq!(run(&w, &report, &tools, false).posters, 1);
+    }
+}

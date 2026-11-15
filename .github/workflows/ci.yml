@@ -54,6 +54,10 @@ jobs:
       # The S3 adapter is only really tested against a real S3-compatible
       # server. MinIO runs here so those tests count towards coverage.
       # These are throwaway credentials for a server that lives for one job.
+      # The video tests make and convert real videos, and skip themselves
+      # where ffmpeg is missing. Installing it here is what makes them count.
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
       - name: Start MinIO (local S3-compatible server)
         run: |
           # MinIO's own image is no longer on Docker Hub, so try the places

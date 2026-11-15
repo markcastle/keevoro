@@ -25,6 +25,10 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
+pub mod video;
+
+pub use video::{Conversion, VideoInfo, VideoTools};
+
 use image::imageops::FilterType;
 use image::{DynamicImage, ImageDecoder, ImageReader};
 use std::io::Write;
@@ -117,7 +121,7 @@ pub fn write_rendition(file: &Path, bytes: &[u8]) -> std::io::Result<()> {
 
 /// Fits the picture inside `edge` x `edge`, keeping its shape and never
 /// making it bigger.
-fn shrink(picture: &DynamicImage, edge: u32) -> DynamicImage {
+pub(crate) fn shrink(picture: &DynamicImage, edge: u32) -> DynamicImage {
     if picture.width().max(picture.height()) <= edge {
         picture.clone()
     } else {
@@ -125,7 +129,7 @@ fn shrink(picture: &DynamicImage, edge: u32) -> DynamicImage {
     }
 }
 
-fn to_webp(picture: &DynamicImage) -> Result<Vec<u8>, MediaError> {
+pub(crate) fn to_webp(picture: &DynamicImage) -> Result<Vec<u8>, MediaError> {
     // The encoder takes 8-bit RGB or RGBA; anything else is converted.
     let rgba = picture.to_rgba8();
     let has_transparency = rgba.pixels().any(|p| p.0[3] != 255);
@@ -155,3 +159,5 @@ fn decode_error(e: image::ImageError) -> MediaError {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod video_tests;

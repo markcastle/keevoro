@@ -20,8 +20,10 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 mod previews;
+mod videos;
 
 pub use previews::{make_previews, PreviewReport};
+pub use videos::{make_video_previews, VideoReport};
 
 use keevoro_catalog::{Catalog, CatalogError};
 use keevoro_core::{library_folder, numbered_name, safe_name};

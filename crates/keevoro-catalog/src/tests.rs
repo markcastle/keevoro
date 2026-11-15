@@ -309,3 +309,36 @@ fn settings_are_small_named_values() {
     c.set_setting("index_key", "index/def.kvx").unwrap();
     assert_eq!(c.setting("index_key").unwrap().as_deref(), Some("index/def.kvx"));
 }
+
+#[test]
+fn videos_are_remembered_with_what_was_made_of_them() {
+    let c = Catalog::in_memory().unwrap();
+    assert_eq!(c.video("aa").unwrap(), None);
+    let known = VideoState::Known {
+        duration_secs: 37.4,
+        width: 640,
+        height: 480,
+        poster: true,
+        mp4: false,
+        conversion_problem: Some("The picture seems to be damaged".into()),
+    };
+    c.set_video("aa", &known).unwrap();
+    assert_eq!(c.video("aa").unwrap(), Some(known));
+
+    let unreadable = VideoState::Unreadable {
+        reason: "The picture seems to be damaged".into(),
+    };
+    c.set_video("bb", &unreadable).unwrap();
+    assert_eq!(c.video("bb").unwrap(), Some(unreadable));
+    // Later success replaces it.
+    let fine = VideoState::Known {
+        duration_secs: 2.0,
+        width: 320,
+        height: 240,
+        poster: true,
+        mp4: true,
+        conversion_problem: None,
+    };
+    c.set_video("bb", &fine).unwrap();
+    assert_eq!(c.video("bb").unwrap(), Some(fine));
+}

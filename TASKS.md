@@ -51,7 +51,11 @@ Done when the CLI can publish the current gallery's photos to R2 and the existin
 - [x] `keevoro gather` makes previews from the library's own copies and remembers which files cannot be previewed
 - [x] Strip GPS and camera serials from published renditions (they are built from pixels only; a test checks no EXIF survives)
 - [ ] `keevoro-media`: previews for HEIC (libheif) and RAW (embedded JPEG)
-- [ ] `keevoro-media`: video posters and opt-in MP4 conversion (remux when already H.264 and AAC; deinterlace; verify duration)
+- [x] `keevoro-media`: video posters and opt-in MP4 conversion (remux when already H.264 and AAC; deinterlace; verify duration and a clean decode), using the ffmpeg found on the computer
+- [x] `keevoro gather --convert-videos`; videos carry duration, size, poster and MP4 in the index
+- [ ] Ship ffmpeg beside Keevoro, or use the OS encoders, so video features need no separate install (see the open question on licensing)
+- [ ] Hardware encoders (NVENC, Quick Sync, VideoToolbox) and an honest time estimate for conversion
+- [ ] "Keep only the MP4" option, with a clear warning
 - [x] `keevoro-storage-s3`: S3-compatible adapter on `aws-sdk-s3`, with presets for R2 and AWS S3; checksums only when required for compatibility
 - [x] Run the conformance suite against MinIO in Docker in CI
 - [ ] Run the conformance suite against real R2 and S3 buckets on demand (needs a throwaway bucket and a scoped key)
@@ -61,7 +65,7 @@ Done when the CLI can publish the current gallery's photos to R2 and the existin
 - [x] Bucket listing check with a plain warning
 - [x] `keevoro-index`: v2 index with JSON Schema; unguessable name (`index/<random>.kvx`); v1 `gallery.json` export
 - [ ] Split the index into per-album files above about 5,000 items
-- [ ] "Change my private link": write the index under a new name and remove the old one
+- [x] "Change my private link": `keevoro publish --new-link` writes the index under a new name and removes the old one
 - [ ] Secrets in the OS keychain via `keyring`
 
 ## Releases and installing

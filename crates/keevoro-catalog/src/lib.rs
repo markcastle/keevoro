@@ -103,6 +103,17 @@ const MIGRATIONS: &[&str] = &[
          key   TEXT PRIMARY KEY,
          value TEXT NOT NULL
      );",
+    // 4: what is known about each video and the copies made of it.
+    "CREATE TABLE videos (
+         blake3   TEXT PRIMARY KEY,
+         ok       INTEGER NOT NULL,
+         duration REAL,
+         width    INTEGER,
+         height   INTEGER,
+         poster   INTEGER NOT NULL DEFAULT 0,
+         mp4      INTEGER NOT NULL DEFAULT 0,
+         reason   TEXT
+     );",
 ];
 
 #[derive(Debug, thiserror::Error)]
@@ -397,6 +408,87 @@ impl Catalog {
                     Ok((r.get(0)?, r.get(1)?))
                 })?;
         Ok((u64::try_from(n).unwrap_or(0), u64::try_from(bytes).unwrap_or(0)))
+    }
+}
+
+/// What is known about one video and the copies made of it.
+#[derive(Debug, Clone, PartialEq)]
+pub enum VideoState {
+    /// The video could be read.
+    Known {
+        duration_secs: f64,
+        /// Size as shown, after any rotation.
+        width: u32,
+        height: u32,
+        /// A poster picture exists.
+        poster: bool,
+        /// A converted MP4 exists.
+        mp4: bool,
+        /// Why conversion was tried and given up on, so it is not tried
+        /// again on every run.
+        conversion_problem: Option<String>,
+    },
+    /// The video could not be read at all, with the plain reason.
+    Unreadable { reason: String },
+}
+
+impl Catalog {
+    pub fn set_video(&self, blake3: &str, state: &VideoState) -> Result<()> {
+        match state {
+            VideoState::Known {
+                duration_secs,
+                width,
+                height,
+                poster,
+                mp4,
+                conversion_problem,
+            } => self.conn.execute(
+                "INSERT OR REPLACE INTO videos (blake3, ok, duration, width, height, poster, mp4, reason)
+                 VALUES (?1, 1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![blake3, duration_secs, width, height, poster, mp4, conversion_problem],
+            )?,
+            VideoState::Unreadable { reason } => self.conn.execute(
+                "INSERT OR REPLACE INTO videos (blake3, ok, reason) VALUES (?1, 0, ?2)",
+                params![blake3, reason],
+            )?,
+        };
+        Ok(())
+    }
+
+    pub fn video(&self, blake3: &str) -> Result<Option<VideoState>> {
+        let row = self
+            .conn
+            .query_row(
+                "SELECT ok, duration, width, height, poster, mp4, reason FROM videos WHERE blake3 = ?1",
+                [blake3],
+                |r| {
+                    Ok((
+                        r.get::<_, bool>(0)?,
+                        r.get::<_, Option<f64>>(1)?,
+                        r.get::<_, Option<u32>>(2)?,
+                        r.get::<_, Option<u32>>(3)?,
+                        r.get::<_, bool>(4)?,
+                        r.get::<_, bool>(5)?,
+                        r.get::<_, Option<String>>(6)?,
+                    ))
+                },
+            )
+            .optional()?;
+        Ok(row.map(|row| match row {
+            (true, Some(duration_secs), Some(width), Some(height), poster, mp4, conversion_problem) => {
+                VideoState::Known {
+                    duration_secs,
+                    width,
+                    height,
+                    poster,
+                    mp4,
+                    conversion_problem,
+                }
+            }
+            (_, _, _, _, _, _, reason) => VideoState::Unreadable {
+                reason: reason.unwrap_or_default(),
+            },
+        }))
     }
 }
 
