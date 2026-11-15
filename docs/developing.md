@@ -71,6 +71,8 @@ cargo xtask release
 git push --follow-tags
 ```
 
+If the release commit reaches main but the tag does not (some environments may push commits but not tags), finish it from the button: run **Release** and type that version. The workflow sees the version is already cut, tags it and builds.
+
 The first command fetches the tags, works out the number the same way and says which it chose; `cargo xtask release 0.3.0` chooses for it. It is exactly what the button runs, so the two routes cannot drift. The tag push starts the Release workflow at the build step. The terminal route does not check CI for you.
 
 `cargo xtask` is the project's own tooling, in `crates/xtask`. It is written in Rust so it behaves the same on every platform with nothing else to install. `cargo xtask` on its own lists what it can do.

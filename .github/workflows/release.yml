@@ -12,7 +12,9 @@ name: Release
 # or publishing anything.
 #
 # The terminal: cargo xtask release and a tag push, which lands here at the
-# build step with the commit and tag already made.
+# build step with the commit and tag already made. If the commit reached main
+# but the tag did not, press the button and type that version: the workflow
+# sees it is already cut, tags it and builds.
 #
 # The Roll back workflow calls this one for the roll-forward release.
 #
@@ -119,7 +121,16 @@ jobs:
               echo "::error::$version is not higher than $highest. Installed copies only ever move to a higher version, so a release must go up."
               exit 1
             fi
-            echo "cut=true" >> "$GITHUB_OUTPUT"
+            # A release that was cut on main (changelog dated, version set)
+            # but never tagged, for instance from a machine that may not push
+            # tags. There is nothing left to commit: tag it and carry on.
+            if [ "$version" = "$(cargo xtask version)" ] && [ -n "$(cargo xtask changelog section "$version")" ]; then
+              echo "cut=false" >> "$GITHUB_OUTPUT"
+              echo "resume=true" >> "$GITHUB_OUTPUT"
+              why="already cut on main, tagging it now"
+            else
+              echo "cut=true" >> "$GITHUB_OUTPUT"
+            fi
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Releasing Keevoro $version${why:+ ($why)}"
@@ -130,7 +141,7 @@ jobs:
       # so it can run from any branch; a roll back skips it because the tree
       # it releases was released before.
       - name: CI must be green on this commit
-        if: steps.version.outputs.cut == 'true' && !inputs.dry_run && !inputs.skip_ci_check
+        if: (steps.version.outputs.cut == 'true' || steps.version.outputs.resume == 'true') && !inputs.dry_run && !inputs.skip_ci_check
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -161,6 +172,15 @@ jobs:
         run: |
           git push origin HEAD:main
           git push origin "v${{ steps.version.outputs.version }}"
+
+      - name: Tag the release that was already cut
+        if: steps.version.outputs.resume == 'true' && !inputs.dry_run
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          version="${{ steps.version.outputs.version }}"
+          git tag -a "v$version" -m "Keevoro v$version"
+          git push origin "v$version"
 
       - name: Rehearsal only
         if: inputs.dry_run
