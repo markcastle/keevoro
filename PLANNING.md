@@ -78,7 +78,7 @@ A Rust workspace of small crates. The core has no I/O, and storage sits behind n
 | `keevoro-collect` | Built | Copy and verify into the library (`fs4` for the free-space check). Renditions and conversion are separate, in `keevoro-media`. |
 | `keevoro-media` | Part built | Thumbnails and display copies as WebP (`image`, `webp`), blurhash, rotation baked in, no metadata carried over. Video posters and MP4 conversion to come. |
 | `keevoro-publish` | Built | The upload engine: write-once originals, resumable multipart, retries. Depends only on the storage traits. |
-| `keevoro-storage-s3` | Planned | One S3-compatible adapter with presets for R2, AWS S3, B2, Wasabi and MinIO. |
+| `keevoro-storage-s3` | Built | One S3-compatible adapter (`aws-sdk-s3`) with presets for R2, AWS S3 and any custom endpoint. Checked against MinIO in CI. B2 and Wasabi presets to come. |
 | `keevoro-index` | Built | v2 index writer, its JSON Schema (`schemars`), and v1 gallery.json export. |
 | `keevoro-platform` | Planned | Drive events, volume ids, keychain, per-OS differences. |
 | `keevoro-app` | Planned | Tauri 2 desktop app. |

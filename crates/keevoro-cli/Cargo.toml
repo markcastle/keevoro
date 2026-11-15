@@ -21,6 +21,7 @@ keevoro-index.workspace = true
 keevoro-publish.workspace = true
 keevoro-storage.workspace = true
 keevoro-storage-folder.workspace = true
+keevoro-storage-s3.workspace = true
 getrandom.workspace = true
 tokio = { workspace = true, features = ["time"] }
 keevoro-scan.workspace = true

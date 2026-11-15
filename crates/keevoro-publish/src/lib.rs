@@ -170,6 +170,10 @@ pub fn plain_reason(e: &StorageError) -> String {
             "A different file is already stored under this name, and Keevoro never replaces an original".into()
         }
         StorageError::Io(io) => format!("Couldn't read it from the library ({io})"),
+        // Messages already written for the user, such as a mistyped
+        // account ID, are passed on as they are.
+        StorageError::Provider(said) if said.starts_with("That doesn't look like") => said.clone(),
+        StorageError::Provider(said) if said.starts_with("The storage address") => said.clone(),
         other => format!("The storage reported a problem ({other})"),
     }
 }

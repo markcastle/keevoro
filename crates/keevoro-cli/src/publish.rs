@@ -5,17 +5,18 @@
 //! files that are confirmed stored are listed in it.
 
 use crate::summary;
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use keevoro_catalog::{Catalog, RenditionState};
 use keevoro_core::{group_into_collections, CollectionInput, DateSource};
 use keevoro_index::{build_index, gallery_v1, index_key, rendition_path, AlbumInput, ItemInput, Rendition};
 use keevoro_publish::{publish, put_document, PublishOptions, Upload};
 use keevoro_scan::FoundItem;
-use keevoro_storage::ObjectKey;
+use keevoro_storage::{MultipartStore, ObjectKey, ObjectStore};
 use keevoro_storage_folder::FolderStore;
+use keevoro_storage_s3::{Preset, S3Settings, S3Store};
 use std::collections::BTreeMap;
 use std::io::{IsTerminal, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// A gathered file and everything known about its copies in the library.
@@ -39,11 +40,73 @@ impl Kept<'_> {
     }
 }
 
+/// Where a backup goes.
+pub enum Destination {
+    /// An external drive or a network share.
+    Folder(PathBuf),
+    /// An S3-compatible bucket. The keys come from the environment so they
+    /// never appear in shell history or a process list.
+    Bucket { preset: Preset, bucket: String },
+}
+
+pub const ACCESS_KEY_VAR: &str = "KEEVORO_ACCESS_KEY_ID";
+pub const SECRET_KEY_VAR: &str = "KEEVORO_SECRET_ACCESS_KEY";
+
+/// An opened destination: the store, a stable name for it, and the address
+/// to use in the index when the user gives none.
+type Opened = (Box<dyn MultipartStore>, String, String);
+
+fn open(out: &mut dyn Write, runtime: &tokio::runtime::Runtime, destination: Destination) -> Result<Opened> {
+    match destination {
+        Destination::Folder(folder) => {
+            let store = runtime
+                .block_on(FolderStore::open(&folder))
+                .with_context(|| format!("Couldn't use {} as a backup folder", folder.display()))?;
+            let home = std::fs::canonicalize(&folder).unwrap_or(folder);
+            Ok((Box::new(store), format!("folder:{}", home.display()), file_url(&home)))
+        }
+        Destination::Bucket { preset, bucket } => {
+            let key = |name: &str| std::env::var(name).ok().filter(|v| !v.trim().is_empty());
+            let (Some(access_key_id), Some(secret_access_key)) = (key(ACCESS_KEY_VAR), key(SECRET_KEY_VAR)) else {
+                bail!(
+                    "Keevoro needs the storage keys. Set {ACCESS_KEY_VAR} and {SECRET_KEY_VAR} \
+                     to a key that can read and write this one bucket, then run this again."
+                );
+            };
+            let store = S3Store::connect(&S3Settings {
+                preset,
+                bucket,
+                access_key_id,
+                secret_access_key,
+            })
+            .map_err(|e| anyhow::anyhow!("{}.", keevoro_publish::plain_reason(&e)))?;
+            // Find out now whether the keys work, not 9,000 files in.
+            let check = runtime.block_on(store.check_connection()).map_err(|e| {
+                anyhow::anyhow!(
+                    "Couldn't connect to the storage. {}.",
+                    keevoro_publish::plain_reason(&e)
+                )
+            })?;
+            if check.publicly_listable == Some(true) {
+                writeln!(
+                    out,
+                    "Warning: anyone can see the list of your files in this bucket. \
+                     Turn off public listing in your storage settings."
+                )?;
+            }
+            let name = store.target_name().to_string();
+            // Until a web address is given, links are relative to wherever
+            // the bucket is served from.
+            Ok((Box::new(store), name, "/".to_string()))
+        }
+    }
+}
+
 pub fn run(
     out: &mut dyn Write,
     catalog: &Catalog,
     library: &Path,
-    folder: &Path,
+    destination: Destination,
     base_url: Option<&str>,
 ) -> Result<()> {
     let reports = catalog.load_reports()?;
@@ -73,19 +136,16 @@ pub fn run(
         return Ok(());
     }
 
-    let runtime = tokio::runtime::Builder::new_current_thread().enable_time().build()?;
-    let store = runtime
-        .block_on(FolderStore::open(folder))
-        .with_context(|| format!("Couldn't use {} as a backup folder", folder.display()))?;
-    let home = std::fs::canonicalize(folder).unwrap_or_else(|_| folder.to_path_buf());
-    let target = format!("folder:{}", home.display());
-    let base_url = base_url.map_or_else(|| file_url(&home), str::to_string);
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    let (store, target, default_url) = open(out, &runtime, destination)?;
+    let store = store.as_ref();
+    let base_url = base_url.map_or(default_url, str::to_string);
 
     let uploads = uploads_for(library, &kept)?;
     let live = std::io::stderr().is_terminal();
     let n = summary::thousands;
     let opts = PublishOptions::default();
-    let report = runtime.block_on(publish(&store, catalog, &target, &uploads, &opts, &mut |p| {
+    let report = runtime.block_on(publish(store, catalog, &target, &uploads, &opts, &mut |p| {
         if live {
             eprint!("\r\x1b[2K  {} of {} safely backed up", n(p.done), n(p.total));
             let _ = std::io::stderr().flush();
@@ -133,7 +193,7 @@ pub fn run(
     for (name, body) in documents {
         runtime
             .block_on(put_document(
-                &store,
+                store,
                 &ObjectKey::new(name)?,
                 body,
                 "application/json",

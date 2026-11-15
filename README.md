@@ -100,7 +100,29 @@ The backup has the same folders as the library, so what you see on one is what i
 
 The last thing written is the index: one JSON file listing every album and photo, with sizes, dates and where each thumbnail lives. Its name is long and random, so it can't be guessed. A second file, `index/gallery.json`, is the older format the current gallery site reads. If the backup will be served from a web address, add `--base-url https://photos.example.com` so the links inside the index point there.
 
-Backing up straight to Cloudflare R2 or Amazon S3 is the next piece of work; the upload engine is already written against the same interface the folder backup uses.
+### Backing up to Cloudflare R2 or Amazon S3
+
+The same command backs up to a bucket. First make a key that can read and write **that one bucket and nothing else** (in Cloudflare: R2, Manage API tokens, Object Read & Write, limited to the bucket). Put it where Keevoro will find it; keys are deliberately not accepted on the command line, where they would end up in your shell history:
+
+```sh
+export KEEVORO_ACCESS_KEY_ID="..."
+```
+
+```sh
+export KEEVORO_SECRET_ACCESS_KEY="..."
+```
+
+Then, for R2, give your Cloudflare account ID and the bucket name:
+
+```sh
+cargo run --release -p keevoro-cli -- publish --library "D:\Keevoro Library" --to-r2 0123456789abcdef0123456789abcdef --bucket family-photos
+```
+
+For Amazon S3 use `--to-s3 eu-west-2` instead, and for MinIO or a NAS that speaks S3 use `--to-endpoint https://nas.local:9000`.
+
+Keevoro checks the keys work before sending anything, and warns you if strangers are able to list the bucket's contents. The bucket itself is told never to replace an original, so even two computers backing up at once cannot overwrite one another. On a bucket the index's links are relative until you add `--base-url` with the address the bucket is served from.
+
+This has been tested against MinIO, a stand-in that speaks the same language as R2 and S3. It has not yet been run against a real R2 or S3 bucket, so try it on a spare bucket first.
 
 When the same photo turns up in several places, the copy that was filed most carefully (the deepest named folder, then the best date) decides where it goes.
 
@@ -119,6 +141,7 @@ What Keevoro remembers lives in one file, `.keevoro/catalog.sqlite`, inside the 
 | `keevoro-catalog` | Remembers what was found on each drive and what you chose to keep, in a small SQLite file inside the library. |
 | `keevoro-storage` | The plug-in interface every storage provider implements, and the tests they must all pass. |
 | `keevoro-storage-folder` | Stores the library on a local disk, external drive or NAS. |
+| `keevoro-storage-s3` | Stores it in Cloudflare R2, Amazon S3 or anything else that speaks S3. |
 | `keevoro-cli` | The `keevoro` command. |
 
 ## Contributing
