@@ -19,12 +19,14 @@
 //!   first, and the reported width and height are the upright ones.
 //! - **Nothing is ever enlarged.** A 300 px picture stays 300 px.
 //!
-//! Formats the decoder cannot read (HEIC, camera RAW) return
-//! [`MediaError::Unsupported`]. That is not a failure of the library: the
+//! Camera RAW files are previewed from the finished picture the camera
+//! embeds in them (see [`raw`]). Formats the decoder cannot read at all
+//! (HEIC) return [`MediaError::Unsupported`]. That is not a failure of the library: the
 //! original is still safe, it simply has no preview yet.
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
+pub mod raw;
 pub mod video;
 
 pub use video::{Conversion, VideoInfo, VideoTools};
@@ -41,7 +43,7 @@ pub const DISPLAY_EDGE: u32 = 2048;
 const QUALITY: f32 = 80.0;
 /// Pictures larger than this (in pixels) are refused rather than risk
 /// running the machine out of memory on a damaged or hostile file.
-const MAX_PIXELS: u64 = 400_000_000;
+pub(crate) const MAX_PIXELS: u64 = 400_000_000;
 
 #[derive(Debug, thiserror::Error)]
 pub enum MediaError {
@@ -68,18 +70,14 @@ pub struct PhotoRenditions {
 /// Makes the thumbnail, display copy and blurhash for the photo at `path`.
 /// The file is only read.
 pub fn render_photo(path: &Path) -> Result<PhotoRenditions, MediaError> {
-    let reader = ImageReader::open(path)?.with_guessed_format()?;
-    if reader.format().is_none() {
-        return Err(MediaError::Unsupported);
-    }
-    let mut decoder = reader.into_decoder().map_err(decode_error)?;
-    let (w, h) = decoder.dimensions();
-    if u64::from(w) * u64::from(h) > MAX_PIXELS || w == 0 || h == 0 {
-        return Err(MediaError::Damaged);
-    }
-    let orientation = decoder.orientation().map_err(decode_error)?;
-    let mut picture = DynamicImage::from_decoder(decoder).map_err(decode_error)?;
-    picture.apply_orientation(orientation);
+    let picture = match decode_upright(path) {
+        Ok(picture) => picture,
+        // A camera RAW file cannot be decoded directly, but it carries a
+        // finished picture inside it. A missing file stays a missing file.
+        Err(MediaError::Io(e)) => return Err(MediaError::Io(e)),
+        Err(e) if raw::is_raw(path) => raw::embedded_preview(path).ok_or(e)?,
+        Err(e) => return Err(e),
+    };
     let (width, height) = (picture.width(), picture.height());
 
     let display = shrink(&picture, DISPLAY_EDGE);
@@ -97,6 +95,23 @@ pub fn render_photo(path: &Path) -> Result<PhotoRenditions, MediaError> {
         thumb: to_webp(&thumb)?,
         display: to_webp(&display)?,
     })
+}
+
+/// Decodes an ordinary picture file and turns it the right way up.
+fn decode_upright(path: &Path) -> Result<DynamicImage, MediaError> {
+    let reader = ImageReader::open(path)?.with_guessed_format()?;
+    if reader.format().is_none() {
+        return Err(MediaError::Unsupported);
+    }
+    let mut decoder = reader.into_decoder().map_err(decode_error)?;
+    let (w, h) = decoder.dimensions();
+    if u64::from(w) * u64::from(h) > MAX_PIXELS || w == 0 || h == 0 {
+        return Err(MediaError::Damaged);
+    }
+    let orientation = raw::orientation_of(&mut decoder);
+    let mut picture = DynamicImage::from_decoder(decoder).map_err(decode_error)?;
+    picture.apply_orientation(orientation);
+    Ok(picture)
 }
 
 /// Writes rendition bytes to `file`, replacing any earlier version in one

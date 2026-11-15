@@ -521,6 +521,17 @@ impl Catalog {
         Ok(())
     }
 
+    /// Forgets every "couldn't be previewed" and "couldn't be converted"
+    /// note, so those files are tried again. Worth doing after Keevoro
+    /// learns a new format or ffmpeg is installed. Returns how many.
+    pub fn forget_preview_problems(&self) -> Result<usize> {
+        let photos = self.conn.execute("DELETE FROM renditions WHERE ok = 0", [])?;
+        let videos = self
+            .conn
+            .execute("DELETE FROM videos WHERE ok = 0 OR reason IS NOT NULL", [])?;
+        Ok(photos + videos)
+    }
+
     pub fn rendition(&self, blake3: &str) -> Result<Option<RenditionState>> {
         let row = self
             .conn

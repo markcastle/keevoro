@@ -5,6 +5,7 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
+mod connect;
 mod publish;
 mod summary;
 
@@ -27,6 +28,44 @@ use std::time::{SystemTime, UNIX_EPOCH};
 struct Cli {
     #[command(subcommand)]
     command: Command,
+}
+
+/// Where to back up to. Shared by `connect` and `publish`.
+#[derive(clap::Args, Debug, Default)]
+struct DestinationArgs {
+    /// A folder to back up to: an external drive or a NAS share.
+    #[arg(long, group = "destination")]
+    to_folder: Option<PathBuf>,
+    /// Back up to Cloudflare R2. Give your Cloudflare account ID.
+    #[arg(long, group = "destination", requires = "bucket", value_name = "ACCOUNT_ID")]
+    to_r2: Option<String>,
+    /// Back up to Amazon S3. Give the region, like eu-west-2.
+    #[arg(long, group = "destination", requires = "bucket", value_name = "REGION")]
+    to_s3: Option<String>,
+    /// Back up to another S3-compatible server (MinIO, a NAS).
+    /// Give its address, like https://nas.local:9000.
+    #[arg(long, group = "destination", requires = "bucket", value_name = "URL")]
+    to_endpoint: Option<String>,
+    /// The bucket to use with --to-r2, --to-s3 or --to-endpoint.
+    #[arg(long)]
+    bucket: Option<String>,
+    /// The web address the storage is served from, if it is.
+    /// Used for links inside the index.
+    #[arg(long)]
+    base_url: Option<String>,
+}
+
+impl DestinationArgs {
+    fn flags(self) -> connect::Flags {
+        connect::Flags {
+            to_folder: self.to_folder,
+            to_r2: self.to_r2,
+            to_s3: self.to_s3,
+            to_endpoint: self.to_endpoint,
+            bucket: self.bucket,
+            base_url: self.base_url,
+        }
+    }
 }
 
 #[derive(Subcommand)]
@@ -101,38 +140,40 @@ enum Command {
         /// originals are always kept. Needs ffmpeg to be installed.
         #[arg(long)]
         convert_videos: bool,
+        /// Try again to make previews for files that had none. Useful
+        /// after updating Keevoro, which may have learned a new format,
+        /// or after installing ffmpeg.
+        #[arg(long)]
+        retry_previews: bool,
     },
     /// Back the library up to storage and write its index. Safe to stop
     /// and run again; originals already stored are never replaced.
     Publish {
         #[arg(long)]
         library: PathBuf,
-        /// A folder to back up to: an external drive or a NAS share.
-        #[arg(long, group = "destination")]
-        to_folder: Option<PathBuf>,
-        /// Back up to Cloudflare R2. Give your Cloudflare account ID.
-        #[arg(long, group = "destination", requires = "bucket", value_name = "ACCOUNT_ID")]
-        to_r2: Option<String>,
-        /// Back up to Amazon S3. Give the region, like eu-west-2.
-        #[arg(long, group = "destination", requires = "bucket", value_name = "REGION")]
-        to_s3: Option<String>,
-        /// Back up to another S3-compatible server (MinIO, a NAS).
-        /// Give its address, like https://nas.local:9000.
-        #[arg(long, group = "destination", requires = "bucket", value_name = "URL")]
-        to_endpoint: Option<String>,
-        /// The bucket to use with --to-r2, --to-s3 or --to-endpoint.
-        /// The keys are read from KEEVORO_ACCESS_KEY_ID and
-        /// KEEVORO_SECRET_ACCESS_KEY, never from the command line.
-        #[arg(long)]
-        bucket: Option<String>,
-        /// The web address the storage is served from, if it is.
-        /// Used for links inside the index.
-        #[arg(long)]
-        base_url: Option<String>,
+        #[command(flatten)]
+        to: DestinationArgs,
         /// Change the private link: write the index under a new random
         /// name and remove the old one, so the old link stops working.
         #[arg(long)]
         new_link: bool,
+    },
+    /// Set up where this library is backed up to, once. Checks the
+    /// storage works, saves the keys in this computer's keychain, and
+    /// remembers the destination so `publish` needs nothing more. Keys are
+    /// read from KEEVORO_ACCESS_KEY_ID and KEEVORO_SECRET_ACCESS_KEY, or
+    /// asked for (the secret is not shown as you paste it).
+    Connect {
+        #[arg(long)]
+        library: PathBuf,
+        #[command(flatten)]
+        to: DestinationArgs,
+    },
+    /// Forget this library's backup destination and remove its keys from
+    /// the keychain. Nothing already backed up is touched.
+    Disconnect {
+        #[arg(long)]
+        library: PathBuf,
     },
     /// Update Keevoro itself to the newest version. This is the only time
     /// Keevoro contacts the internet without being given a storage address.
@@ -146,13 +187,17 @@ enum Command {
 fn main() {
     // Problems are said once, in plain words, with no "Error:" prefix or
     // stack trace: the messages are written for people, not debuggers.
-    if let Err(e) = run(Cli::parse(), &mut std::io::stdout().lock()) {
+    let world = connect::World {
+        secrets: &connect::Keychain,
+        ask: &connect::ask_at_terminal,
+    };
+    if let Err(e) = run(Cli::parse(), &mut std::io::stdout().lock(), &world) {
         eprintln!("{e:#}");
         std::process::exit(1);
     }
 }
 
-fn run(cli: Cli, out: &mut dyn Write) -> Result<()> {
+fn run(cli: Cli, out: &mut dyn Write, world: &connect::World<'_>) -> Result<()> {
     match cli.command {
         Command::Scan {
             paths,
@@ -192,12 +237,18 @@ fn run(cli: Cli, out: &mut dyn Write) -> Result<()> {
         Command::Gather {
             library,
             convert_videos,
-        } => run_gather(
-            out,
-            &library,
-            convert_videos,
-            keevoro_media::VideoTools::find().as_ref(),
-        ),
+            retry_previews,
+        } => {
+            if retry_previews {
+                open_existing(&library)?.forget_preview_problems()?;
+            }
+            run_gather(
+                out,
+                &library,
+                convert_videos,
+                keevoro_media::VideoTools::find().as_ref(),
+            )
+        }
         Command::Update { check } => run_update(
             out,
             &keevoro_update::GitHub::from_env(),
@@ -205,44 +256,46 @@ fn run(cli: Cli, out: &mut dyn Write) -> Result<()> {
             check,
             &keevoro_update::install,
         ),
-        Command::Publish {
-            library,
-            to_folder,
-            to_r2,
-            to_s3,
-            to_endpoint,
-            bucket,
-            base_url,
-            new_link,
-        } => {
-            let preset = if let Some(account_id) = to_r2 {
-                Some(keevoro_storage_s3::Preset::CloudflareR2 { account_id })
-            } else if let Some(region) = to_s3 {
-                Some(keevoro_storage_s3::Preset::AmazonS3 { region })
-            } else {
-                to_endpoint.map(|endpoint| keevoro_storage_s3::Preset::Custom {
-                    endpoint,
-                    region: None,
-                    path_style: true,
-                })
-            };
-            let destination = match (to_folder, preset) {
-                (Some(folder), _) => publish::Destination::Folder(folder),
-                (None, Some(preset)) => publish::Destination::Bucket {
-                    preset,
-                    bucket: bucket.unwrap_or_default(),
+        Command::Publish { library, to, new_link } => {
+            let catalog = open_existing(&library)?;
+            // What was asked for on the command line wins; otherwise the
+            // destination this library was connected to.
+            let flags = to.flags();
+            let saved = match connect::Saved::from_flags(&flags) {
+                Some(given) => given,
+                None => match connect::Saved::load(&catalog)? {
+                    Some(mut remembered) => {
+                        if flags.base_url.is_some() {
+                            remembered.base_url = flags.base_url;
+                        }
+                        remembered
+                    }
+                    None => bail!(
+                        "Say where to back up to: --to-folder, --to-r2, --to-s3 or --to-endpoint. \
+                         Or run `keevoro connect` once and it will be remembered."
+                    ),
                 },
-                (None, None) => bail!("Say where to back up to: --to-folder, --to-r2, --to-s3 or --to-endpoint."),
             };
+            let destination = saved.open(world)?;
             publish::run(
                 out,
-                &open_existing(&library)?,
+                &catalog,
                 &library,
                 destination,
-                base_url.as_deref(),
+                saved.base_url.as_deref(),
                 new_link,
             )
         }
+        Command::Connect { library, to } => {
+            let Some(saved) = connect::Saved::from_flags(&to.flags()) else {
+                bail!("Say where to back up to: --to-folder, --to-r2, --to-s3 or --to-endpoint.");
+            };
+            // Connecting may be the first thing done with a new library.
+            let catalog = Catalog::open_in_library(&library)
+                .with_context(|| format!("Couldn't use {} as a library", library.display()))?;
+            connect::connect(out, &catalog, &saved, world)
+        }
+        Command::Disconnect { library } => connect::disconnect(out, &open_existing(&library)?, world),
         Command::Sources { library } => {
             let sources = open_existing(&library)?.sources()?;
             if sources.is_empty() {
@@ -599,9 +652,20 @@ mod tests {
 
     fn keevoro(args: &[&str]) -> Result<String> {
         let mut out = Vec::new();
-        let cli = Cli::try_parse_from(std::iter::once("keevoro").chain(args.iter().copied()))?;
-        run(cli, &mut out)?;
+        let secrets = connect::testing::MemorySecrets::default();
+        keevoro_with(args, &secrets, &mut out)?;
         Ok(String::from_utf8(out).unwrap())
+    }
+
+    /// Runs a command against a keychain the test controls, with nobody at
+    /// the keyboard to answer questions.
+    fn keevoro_with(args: &[&str], secrets: &connect::testing::MemorySecrets, out: &mut Vec<u8>) -> Result<()> {
+        let cli = Cli::try_parse_from(std::iter::once("keevoro").chain(args.iter().copied()))?;
+        let world = connect::World {
+            secrets,
+            ask: &connect::testing::nobody_to_ask,
+        };
+        run(cli, out, &world)
     }
 
     /// A pretend old drive with one album, one duplicate and a system folder.
@@ -1318,6 +1382,189 @@ mod tests {
         let again = keevoro(&["publish", "--library", &lib, "--to-folder", &to]).unwrap();
         assert!(again.lines().last().unwrap().ends_with(&new[0]));
         assert_eq!(index_files(), new);
+    }
+
+    #[test]
+    fn connect_once_then_publish_needs_no_destination() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib = dir.path().join("lib").to_string_lossy().to_string();
+        let backup = dir.path().join("backup");
+        let to = backup.to_string_lossy().to_string();
+        let dell = dir.path().join("dell");
+        fs::create_dir_all(&dell).unwrap();
+        fs::write(dell.join("a.jpg"), real_jpeg(1)).unwrap();
+
+        // Connecting can be the very first thing done with a library.
+        let said = keevoro(&[
+            "connect",
+            "--library",
+            &lib,
+            "--to-folder",
+            &to,
+            "--base-url",
+            "https://photos.example.com",
+        ])
+        .unwrap();
+        assert!(said.starts_with(&format!("Connected to the folder {to}.")), "{said}");
+        assert!(!said.contains("keychain"), "a folder has no keys: {said}");
+
+        keevoro(&["scan", "--library", &lib, &dell.to_string_lossy()]).unwrap();
+        keevoro(&["gather", "--library", &lib]).unwrap();
+        let said = keevoro(&["publish", "--library", &lib]).unwrap();
+        assert!(said.starts_with("Safely backed up 3 files ("), "{said}");
+        assert!(backup.join("originals/Undated/a.jpg").is_file());
+        assert!(
+            said.lines()
+                .last()
+                .unwrap()
+                .starts_with("Your private index: https://photos.example.com/index/"),
+            "the web address was remembered too: {said}"
+        );
+
+        // A destination given on the command line still wins, once.
+        let elsewhere = dir.path().join("elsewhere").to_string_lossy().to_string();
+        let said = keevoro(&["publish", "--library", &lib, "--to-folder", &elsewhere]).unwrap();
+        assert!(said.starts_with("Safely backed up 3 files ("), "{said}");
+
+        let said = keevoro(&["disconnect", "--library", &lib]).unwrap();
+        assert!(said.starts_with("Disconnected from the folder"), "{said}");
+        assert!(said.contains("Nothing stored there was changed."));
+        assert!(backup.join("originals/Undated/a.jpg").is_file());
+        let err = keevoro(&["publish", "--library", &lib]).unwrap_err();
+        assert!(err.to_string().contains("run `keevoro connect` once"), "{err}");
+        assert_eq!(
+            keevoro(&["disconnect", "--library", &lib]).unwrap(),
+            "This library isn't connected to a backup destination.\n"
+        );
+        assert!(
+            keevoro(&["connect", "--library", &lib]).is_err(),
+            "connect needs a destination"
+        );
+    }
+
+    #[test]
+    fn connecting_to_a_bucket_asks_for_keys_and_saves_nothing_if_they_do_not_work() {
+        if std::env::var_os(publish::ACCESS_KEY_VAR).is_some() {
+            return; // CI has keys in the environment; nobody would be asked.
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let lib = dir.path().join("lib").to_string_lossy().to_string();
+        let args = [
+            "connect",
+            "--library",
+            &lib,
+            "--to-endpoint",
+            "http://127.0.0.1:9",
+            "--bucket",
+            "family",
+        ];
+
+        // Nobody at the keyboard and nothing in the environment.
+        let err = keevoro(&args).unwrap_err();
+        assert!(err.to_string().contains("KEEVORO_ACCESS_KEY_ID"), "{err}");
+
+        // Someone pastes keys, but nothing answers at that address.
+        let asked = std::cell::RefCell::new(Vec::new());
+        let secrets = connect::testing::MemorySecrets::default();
+        let world = connect::World {
+            secrets: &secrets,
+            ask: &|question, hidden| {
+                asked.borrow_mut().push((question.to_string(), hidden));
+                Ok("pasted".to_string())
+            },
+        };
+        let cli = Cli::try_parse_from(std::iter::once("keevoro").chain(args)).unwrap();
+        let err = run(cli, &mut Vec::new(), &world).unwrap_err();
+        assert!(err.to_string().starts_with("Couldn't connect to the storage."), "{err}");
+        let asked = asked.into_inner();
+        assert_eq!(asked.len(), 2);
+        assert_eq!((asked[0].1, asked[1].1), (false, true), "only the secret is hidden");
+        assert!(secrets.0.borrow().is_empty(), "keys that don't work are not kept");
+        let catalog = Catalog::open_in_library(Path::new(&lib)).unwrap();
+        assert_eq!(connect::Saved::load(&catalog).unwrap(), None, "nor is the destination");
+    }
+
+    /// Runs only where a test S3 server is configured (CI starts MinIO).
+    #[test]
+    fn a_connected_bucket_is_backed_up_to_with_keys_from_the_keychain() {
+        let (Ok(endpoint), Ok(bucket)) = (
+            std::env::var("KEEVORO_S3_TEST_ENDPOINT"),
+            std::env::var("KEEVORO_S3_TEST_BUCKET"),
+        ) else {
+            eprintln!("skipped: no KEEVORO_S3_TEST_* server configured");
+            return;
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let lib = dir.path().join("lib").to_string_lossy().to_string();
+        let album = format!("Keychain test {}", std::process::id());
+        let dell = dir.path().join("dell");
+        fs::create_dir_all(dell.join(&album)).unwrap();
+        fs::write(dell.join(&album).join("a.jpg"), real_jpeg(7)).unwrap();
+
+        let secrets = connect::testing::MemorySecrets::default();
+        let mut out = Vec::new();
+        keevoro_with(
+            &[
+                "connect",
+                "--library",
+                &lib,
+                "--to-endpoint",
+                &endpoint,
+                "--bucket",
+                &bucket,
+            ],
+            &secrets,
+            &mut out,
+        )
+        .unwrap();
+        let said = String::from_utf8(out).unwrap();
+        assert!(
+            said.contains("The keys are saved in this computer's keychain, not in the library."),
+            "{said}"
+        );
+        assert_eq!(secrets.0.borrow().len(), 1);
+        // Nothing secret is in the library's catalog.
+        let catalog_bytes = fs::read(Path::new(&lib).join(".keevoro/catalog.sqlite")).unwrap();
+        let secret = std::env::var("KEEVORO_S3_TEST_SECRET_KEY").unwrap();
+        assert!(!catalog_bytes.windows(secret.len()).any(|w| w == secret.as_bytes()));
+
+        let mut out = Vec::new();
+        keevoro_with(
+            &["scan", "--library", &lib, &dell.to_string_lossy()],
+            &secrets,
+            &mut out,
+        )
+        .unwrap();
+        keevoro_with(&["gather", "--library", &lib], &secrets, &mut out).unwrap();
+        let mut out = Vec::new();
+        keevoro_with(&["publish", "--library", &lib], &secrets, &mut out).unwrap();
+        assert!(String::from_utf8(out)
+            .unwrap()
+            .starts_with("Safely backed up 3 files ("));
+
+        let mut out = Vec::new();
+        keevoro_with(&["disconnect", "--library", &lib], &secrets, &mut out).unwrap();
+        assert!(secrets.0.borrow().is_empty(), "disconnecting removes the keys");
+    }
+
+    #[test]
+    fn previews_that_failed_can_be_tried_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib_dir = dir.path().join("lib");
+        let lib = lib_dir.to_string_lossy().to_string();
+        let dell = dir.path().join("dell");
+        fs::create_dir_all(&dell).unwrap();
+        fs::write(dell.join("odd.jpg"), jpeg(4)).unwrap();
+        keevoro(&["scan", "--library", &lib, &dell.to_string_lossy()]).unwrap();
+        keevoro(&["gather", "--library", &lib]).unwrap();
+
+        // The library's copy is repaired (standing in for Keevoro learning
+        // a format). An ordinary gather does not look again; a retry does.
+        fs::write(lib_dir.join("originals/Undated/odd.jpg"), real_jpeg(9)).unwrap();
+        let said = keevoro(&["gather", "--library", &lib]).unwrap();
+        assert!(said.contains("1 photo has no preview yet."), "{said}");
+        let said = keevoro(&["gather", "--library", &lib, "--retry-previews"]).unwrap();
+        assert!(said.contains("Made previews for 1 photo."), "{said}");
     }
 
     #[test]

@@ -50,7 +50,9 @@ Done when the CLI can publish the current gallery's photos to R2 and the existin
 - [x] `keevoro-media`: thumbnails (400 px) and display copies (2048 px) as WebP, named by item id, with blurhash and upright rotation
 - [x] `keevoro gather` makes previews from the library's own copies and remembers which files cannot be previewed
 - [x] Strip GPS and camera serials from published renditions (they are built from pixels only; a test checks no EXIF survives)
-- [ ] `keevoro-media`: previews for HEIC (libheif) and RAW (embedded JPEG)
+- [x] `keevoro-media`: previews for RAW files from the largest embedded JPEG, turned upright
+- [x] `keevoro gather --retry-previews` for files that had no preview before
+- [ ] `keevoro-media`: previews for HEIC (needs libheif, or a newer ffmpeg)
 - [x] `keevoro-media`: video posters and opt-in MP4 conversion (remux when already H.264 and AAC; deinterlace; verify duration and a clean decode), using the ffmpeg found on the computer
 - [x] `keevoro gather --convert-videos`; videos carry duration, size, poster and MP4 in the index
 - [ ] Ship ffmpeg beside Keevoro, or use the OS encoders, so video features need no separate install (see the open question on licensing)
@@ -66,7 +68,7 @@ Done when the CLI can publish the current gallery's photos to R2 and the existin
 - [x] `keevoro-index`: v2 index with JSON Schema; unguessable name (`index/<random>.kvx`); v1 `gallery.json` export
 - [ ] Split the index into per-album files above about 5,000 items
 - [x] "Change my private link": `keevoro publish --new-link` writes the index under a new name and removes the old one
-- [ ] Secrets in the OS keychain via `keyring`
+- [x] Secrets in the OS keychain via `keyring`: `keevoro connect` and `keevoro disconnect`; the destination is remembered in the library
 
 ## Releases and installing
 

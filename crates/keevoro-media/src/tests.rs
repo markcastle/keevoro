@@ -192,3 +192,112 @@ fn renditions_are_written_whole_and_can_be_replaced() {
     // The destination folder cannot be made because a file is in the way.
     assert!(write_rendition(&file.join("x.webp"), b"no").is_err());
 }
+
+mod raw_files {
+    use super::*;
+    use crate::raw::{embedded_preview, is_raw};
+
+    fn jpeg_bytes(img: &RgbImage) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut bytes), ImageFormat::Jpeg)
+            .unwrap();
+        bytes
+    }
+
+    /// Something shaped like a RAW file: a TIFF-style header (with an
+    /// orientation tag when asked), sensor data that is not a picture, a
+    /// small embedded thumbnail and a large embedded preview.
+    fn pretend_raw(orientation: Option<u8>) -> Vec<u8> {
+        let mut raw = b"II*\0\x08\0\0\0".to_vec();
+        match orientation {
+            // IFD0 with one entry: Orientation (0x0112), SHORT, count 1.
+            Some(o) => raw.extend_from_slice(&[1, 0, 0x12, 0x01, 3, 0, 1, 0, 0, 0, o, 0, 0, 0, 0, 0, 0, 0]),
+            None => raw.extend_from_slice(&[0, 0, 0, 0, 0, 0]),
+        }
+        raw.extend(std::iter::repeat_n(0x5Au8, 4000));
+        raw.extend_from_slice(&jpeg_bytes(&red_left_blue_right(160, 120)));
+        // Sensor data in a JPEG-like wrapper that is not a decodable
+        // picture, claiming to be enormous.
+        raw.extend_from_slice(&[0xFF, 0xD8, 0xFF, 0xC3, 0, 11, 14, 0x40, 0, 0x60, 0, 1, 1, 0x11, 0]);
+        raw.extend(std::iter::repeat_n(0xA5u8, 3000));
+        raw.extend_from_slice(&jpeg_bytes(&red_left_blue_right(1600, 1200)));
+        raw.extend(std::iter::repeat_n(0x11u8, 500));
+        raw
+    }
+
+    #[test]
+    fn raw_files_are_known_by_their_names() {
+        for name in ["IMG_0001.CR2", "dsc_0042.nef", "a.ARW", "scan.dng", "x.Cr3"] {
+            assert!(is_raw(Path::new(name)), "{name}");
+        }
+        for name in ["photo.jpg", "notes.raw.txt", "CR2", "clip.mov"] {
+            assert!(!is_raw(Path::new(name)), "{name}");
+        }
+    }
+
+    #[test]
+    fn a_raw_file_is_previewed_from_the_largest_picture_inside_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("IMG_0001.CR2");
+        std::fs::write(&path, pretend_raw(None)).unwrap();
+        let before = std::fs::read(&path).unwrap();
+
+        let r = render_photo(&path).unwrap();
+        assert_eq!(
+            (r.width, r.height),
+            (1600, 1200),
+            "the full preview, not the 160 px thumbnail"
+        );
+        let thumb = decode(&r.thumb);
+        assert_eq!(thumb.dimensions(), (400, 300));
+        assert!(is_red(thumb.get_pixel(50, 150)) && is_blue(thumb.get_pixel(350, 150)));
+        assert_eq!(std::fs::read(&path).unwrap(), before, "the RAW file is only read");
+    }
+
+    #[test]
+    fn a_raw_photo_taken_sideways_comes_out_upright() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("portrait.NEF");
+        // 6 = "turn 90 degrees clockwise to view".
+        std::fs::write(&path, pretend_raw(Some(6))).unwrap();
+        let r = render_photo(&path).unwrap();
+        assert_eq!((r.width, r.height), (1200, 1600));
+        let thumb = decode(&r.thumb);
+        assert_eq!(thumb.dimensions(), (300, 400));
+        assert!(is_red(thumb.get_pixel(150, 40)) && is_blue(thumb.get_pixel(150, 360)));
+    }
+
+    #[test]
+    fn a_raw_file_with_nothing_usable_inside_has_no_preview() {
+        let dir = tempfile::tempdir().unwrap();
+        let empty = dir.path().join("empty.ARW");
+        std::fs::write(&empty, b"II*\0\x08\0\0\0\0\0\0\0\0\0 only sensor data here").unwrap();
+        assert!(render_photo(&empty).is_err());
+        assert!(embedded_preview(&empty).is_none());
+
+        // Only the undecodable kind of JPEG inside.
+        let lossless = dir.path().join("lossless.DNG");
+        let mut bytes = b"II*\0\x08\0\0\0\0\0\0\0\0\0".to_vec();
+        bytes.extend_from_slice(&[0xFF, 0xD8, 0xFF, 0xC3, 0, 11, 14, 0x10, 0, 0x10, 0, 1, 1, 0x11, 0]);
+        std::fs::write(&lossless, bytes).unwrap();
+        assert!(render_photo(&lossless).is_err());
+
+        let missing = render_photo(&dir.path().join("gone.CR2")).unwrap_err();
+        assert!(
+            matches!(missing, MediaError::Io(_)),
+            "a missing file is not a format problem"
+        );
+        assert!(embedded_preview(&dir.path().join("gone.CR2")).is_none());
+    }
+
+    #[test]
+    fn the_same_bytes_under_an_ordinary_name_are_not_dug_through() {
+        // The embedded-picture search is for RAW files only. A damaged TIFF
+        // should be reported as damaged, not previewed from whatever
+        // happens to be inside it.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("scan.tif");
+        std::fs::write(&path, pretend_raw(None)).unwrap();
+        assert!(render_photo(&path).is_err());
+    }
+}
