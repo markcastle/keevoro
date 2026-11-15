@@ -83,7 +83,8 @@ A Rust workspace of small crates. The core has no I/O, and storage sits behind n
 | `keevoro-storage-s3` | Built | One S3-compatible adapter (`aws-sdk-s3`) with presets for R2, AWS S3 and any custom endpoint. Checked against MinIO in CI. B2 and Wasabi presets to come. |
 | `keevoro-index` | Built | v2 index writer, its JSON Schema (`schemars`), and v1 gallery.json export. |
 | `keevoro-platform` | Planned | Drive events, volume ids, keychain, per-OS differences. |
-| `keevoro-app` | Planned | Tauri 2 desktop app. |
+| `keevoro-engine` | Built | What Keevoro does as plain function calls: scan into a library, the Discover view, keep or skip, gather, previews. The command line and the app both sit on it. |
+| `keevoro-app` (`src-tauri`) | Part built | Tauri 2 desktop shell: a thin layer of commands over the engine. Screens are in `ui/` (React, Vite, TypeScript). No installer or updater yet. |
 
 ### Storage plug-ins
 

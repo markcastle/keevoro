@@ -36,6 +36,26 @@ keevoro update
 
 `keevoro update --check` only tells you whether there is one. Every download is checked against the release's checksum before it replaces anything. What changed in each version is in [CHANGELOG.md](CHANGELOG.md).
 
+## The desktop app (early)
+
+The app is the friendly face of the same engine. Today it covers the first half of the journey: choose where your library lives, add a drive, see what was found as collections with big photos, keep or leave out each one, and gather the keepers. Backing up is still done from the command line, and there is no installer yet, so for now it runs from source.
+
+You need [Rust](https://rustup.rs) and [Node.js](https://nodejs.org) 22 or newer.
+
+```sh
+npm install
+```
+
+```sh
+npm run dev
+```
+
+To look at the screens without the desktop shell, in an ordinary browser with made-up photos:
+
+```sh
+npm run ui:dev
+```
+
 ## Try the engine from source
 
 You need [Rust](https://rustup.rs) 1.82 or newer. The examples below use `cargo run`; with Keevoro installed, replace `cargo run --release -p keevoro-cli --` with `keevoro`.
@@ -233,7 +253,9 @@ What Keevoro remembers lives in one file, `.keevoro/catalog.sqlite`, inside the 
 | `keevoro-storage-folder` | Stores the library on a local disk, external drive or NAS. |
 | `keevoro-storage-s3` | Stores it in Cloudflare R2, Amazon S3 or anything else that speaks S3. |
 | `keevoro-update` | Finds, checks and installs a newer version. |
+| `keevoro-engine` | What Keevoro does, as plain function calls. The command line and the app are both thin layers over this. |
 | `keevoro-cli` | The `keevoro` command. |
+| `src-tauri` and `ui` | The desktop app: a Tauri shell and its screens. |
 | `xtask` | The project's own tooling: the changelog and cutting a release. |
 
 ## Contributing

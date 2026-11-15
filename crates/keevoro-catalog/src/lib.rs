@@ -352,6 +352,29 @@ impl Catalog {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    /// Where on a source the file with this content id can be read from,
+    /// with its kind and full hash. `id` is the start of the hash; the
+    /// app uses the first 16 characters. `None` when nothing matches.
+    pub fn find_item(&self, id: &str) -> Result<Option<(PathBuf, keevoro_core::MediaKind, String)>> {
+        // Only hex is expected; anything else cannot match and must not be
+        // allowed to act as a LIKE wildcard.
+        if id.is_empty() || !id.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Ok(None);
+        }
+        let row = self
+            .conn
+            .query_row(
+                "SELECT path, kind, blake3 FROM items WHERE blake3 LIKE ?1 || '%' ORDER BY id LIMIT 1",
+                [id.to_lowercase()],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)),
+            )
+            .optional()?;
+        match row {
+            Some((path, kind, hash)) => Ok(Some((PathBuf::from(path), from_name(&kind)?, hash))),
+            None => Ok(None),
+        }
+    }
+
     /// Remembers whether the user wants a file kept. `blake3` is the file's
     /// full content hash.
     pub fn set_choice(&self, blake3: &str, keep: bool) -> Result<()> {

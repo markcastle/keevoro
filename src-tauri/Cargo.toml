@@ -1,0 +1,35 @@
+[package]
+name = "keevoro-app"
+description = "The Keevoro desktop app: a window onto the engine."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "keevoro_app"
+path = "src/lib.rs"
+
+[[bin]]
+name = "keevoro-app"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+anyhow.workspace = true
+keevoro-catalog.workspace = true
+keevoro-engine.workspace = true
+keevoro-media.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

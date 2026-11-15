@@ -4,10 +4,10 @@
 //! last, so the index never points at something that is not there yet. Only
 //! files that are confirmed stored are listed in it.
 
-use crate::summary;
 use anyhow::{Context, Result};
 use keevoro_catalog::{Catalog, RenditionState, VideoState};
 use keevoro_core::{group_into_collections, CollectionInput, DateSource};
+use keevoro_engine::summary;
 use keevoro_index::{build_index, gallery_v1, index_key, rendition_path, AlbumInput, ItemInput, Rendition};
 use keevoro_publish::{publish, put_document, PublishOptions, Upload};
 use keevoro_scan::FoundItem;

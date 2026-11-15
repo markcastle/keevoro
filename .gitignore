@@ -3,3 +3,7 @@
 lcov.info
 .DS_Store
 Thumbs.db
+node_modules
+/dist
+/ui/tests/screens
+/src-tauri/gen

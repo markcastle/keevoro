@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/*"]
+members = ["crates/*", "src-tauri"]
 
 [workspace.package]
 version = "0.3.0"
@@ -13,6 +13,7 @@ repository = "https://github.com/markcastle/keevoro"
 keevoro-catalog = { path = "crates/keevoro-catalog" }
 keevoro-collect = { path = "crates/keevoro-collect" }
 keevoro-core = { path = "crates/keevoro-core" }
+keevoro-engine = { path = "crates/keevoro-engine" }
 keevoro-index = { path = "crates/keevoro-index" }
 keevoro-media = { path = "crates/keevoro-media" }
 keevoro-publish = { path = "crates/keevoro-publish" }
@@ -62,6 +63,9 @@ expect_used = "warn"
 # do a lot of both. Our own code stays quick to compile and debug.
 [profile.dev.package."*"]
 opt-level = 2
+# Debug data for dependencies is rarely looked at and, with the desktop
+# app's dependencies, runs to many gigabytes of build output.
+debug = false
 
 [profile.release]
 lto = "thin"
