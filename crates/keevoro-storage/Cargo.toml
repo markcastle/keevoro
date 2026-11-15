@@ -1,0 +1,21 @@
+[package]
+name = "keevoro-storage"
+description = "Storage provider traits for keevoro. No provider code lives here."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+# Shared test suite every provider must pass.
+conformance = []
+
+[dependencies]
+async-trait.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+
+[lints]
+workspace = true

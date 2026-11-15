@@ -1,0 +1,19 @@
+[package]
+name = "keevoro-storage-folder"
+description = "Local folder or NAS storage provider for keevoro. Also the reference test double."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+keevoro-storage.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+keevoro-storage = { workspace = true, features = ["conformance"] }
+tempfile.workspace = true
+
+[lints]
+workspace = true

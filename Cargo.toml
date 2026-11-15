@@ -1,0 +1,43 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+license = "UNLICENSED"
+repository = "https://github.com/markcastle/keevoro"
+
+[workspace.dependencies]
+keevoro-core = { path = "crates/keevoro-core" }
+keevoro-scan = { path = "crates/keevoro-scan" }
+keevoro-storage = { path = "crates/keevoro-storage" }
+keevoro-storage-folder = { path = "crates/keevoro-storage-folder" }
+
+anyhow = "1"
+async-trait = "0.1"
+blake3 = "1"
+clap = { version = "4", features = ["derive"] }
+futures = "0.3"
+infer = "0.19"
+kamadak-exif = "0.6"
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "io-util"] }
+walkdir = "2"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+unwrap_used = "warn"
+expect_used = "warn"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

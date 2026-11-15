@@ -1,0 +1,25 @@
+[package]
+name = "keevoro-cli"
+description = "The keevoro engine without a UI, for testing, scripting and power users."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "keevoro"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+keevoro-core.workspace = true
+keevoro-scan.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
