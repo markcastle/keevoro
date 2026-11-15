@@ -1,0 +1,256 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Index",
+  "description": "The v2 index.",
+  "type": "object",
+  "properties": {
+    "albums": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Album"
+      }
+    },
+    "baseUrl": {
+      "description": "Always ends with `/`.",
+      "type": "string"
+    },
+    "generatedAt": {
+      "description": "UTC, `2026-11-15T13:30:00Z`.",
+      "type": "string"
+    },
+    "items": {
+      "description": "Keyed by item id: the first 16 hex characters of the file's BLAKE3.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/Item"
+      }
+    },
+    "renditions": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/RenditionRule"
+      }
+    },
+    "schema": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "generatedAt",
+    "baseUrl",
+    "renditions",
+    "albums",
+    "items"
+  ],
+  "$defs": {
+    "Album": {
+      "type": "object",
+      "properties": {
+        "cover": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "dateRange": {
+          "description": "First and last day, `YYYY-MM-DD`.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "description": {
+          "type": "string"
+        },
+        "id": {
+          "description": "A readable slug, stable while the album's folder path is.",
+          "type": "string"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "parent": {
+          "description": "The id of the album this one sits inside.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "description",
+        "items"
+      ]
+    },
+    "IndexDateSource": {
+      "description": "Where an item's date came from, so a gallery can show a weak guess as\n\"Roughly 2009\".",
+      "type": "string",
+      "enum": [
+        "exif",
+        "video",
+        "filename",
+        "folder",
+        "mtime"
+      ]
+    },
+    "Item": {
+      "description": "One photo or video.",
+      "type": "object",
+      "properties": {
+        "blurhash": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "dateSource": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IndexDateSource"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "duration": {
+          "description": "Seconds, videos only.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "h": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "mime": {
+          "type": "string"
+        },
+        "path": {
+          "description": "Path of the original, relative to `baseUrl`, not URL-encoded.",
+          "type": "string"
+        },
+        "renditions": {
+          "description": "The renditions that exist for this item. Always present, so a\ngallery never has to guess; empty when no preview could be made.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Rendition"
+          }
+        },
+        "taken": {
+          "description": "Local wall-clock time with no timezone, as precise as is known:\n`2009`, `2009-07`, `2009-07-14` or `2009-07-14T21:03:11`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "type": {
+          "$ref": "#/$defs/ItemType"
+        },
+        "w": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "type",
+        "path",
+        "bytes",
+        "mime",
+        "renditions"
+      ]
+    },
+    "ItemType": {
+      "type": "string",
+      "enum": [
+        "photo",
+        "video"
+      ]
+    },
+    "Rendition": {
+      "description": "The smaller copies made of each file, and where they live.",
+      "oneOf": [
+        {
+          "description": "400 px on the long edge, for grids.",
+          "type": "string",
+          "const": "thumb"
+        },
+        {
+          "description": "2048 px on the long edge, for viewing.",
+          "type": "string",
+          "const": "display"
+        },
+        {
+          "description": "A still frame from a video.",
+          "type": "string",
+          "const": "poster"
+        },
+        {
+          "description": "A video converted to MP4.",
+          "type": "string",
+          "const": "video"
+        }
+      ]
+    },
+    "RenditionRule": {
+      "description": "How to find one kind of rendition: replace `{id}` in `path`.",
+      "type": "object",
+      "properties": {
+        "codec": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "maxEdge": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ]
+    }
+  }
+}

@@ -241,3 +241,71 @@ fn an_older_catalog_is_upgraded_in_place() {
     );
     c.mark_collected("abc", "originals/Undated/a.jpg", 1).unwrap();
 }
+
+#[test]
+fn previews_are_remembered_including_the_ones_that_could_not_be_made() {
+    let c = Catalog::in_memory().unwrap();
+    assert_eq!(c.rendition("aa").unwrap(), None);
+    let made = RenditionState::Made {
+        width: 3264,
+        height: 2448,
+        blurhash: "LKO2?U%2Tw=w]~RBVZRi};RPxuwH".into(),
+    };
+    c.set_rendition("aa", &made).unwrap();
+    assert_eq!(c.rendition("aa").unwrap(), Some(made.clone()));
+
+    let none = RenditionState::NoPreview {
+        reason: "This kind of picture can't be previewed yet".into(),
+    };
+    c.set_rendition("bb", &none).unwrap();
+    assert_eq!(c.rendition("bb").unwrap(), Some(none));
+    // A later success replaces an earlier failure.
+    c.set_rendition("bb", &made).unwrap();
+    assert_eq!(c.rendition("bb").unwrap(), Some(made));
+}
+
+#[test]
+fn uploads_are_tracked_per_storage_target() {
+    let c = Catalog::in_memory().unwrap();
+    assert!(!c.is_uploaded("r2:family", "originals/a.jpg").unwrap());
+    c.mark_uploaded("r2:family", "originals/a.jpg", 10).unwrap();
+    c.mark_uploaded("r2:family", "originals/a.jpg", 10).unwrap();
+    assert!(c.is_uploaded("r2:family", "originals/a.jpg").unwrap());
+    assert!(
+        !c.is_uploaded("nas", "originals/a.jpg").unwrap(),
+        "another target has its own record"
+    );
+
+    c.set_multipart("r2:family", "originals/big.mov", Some("upload-1"))
+        .unwrap();
+    c.set_multipart("r2:family", "originals/big.mov", Some("upload-2"))
+        .unwrap();
+    assert_eq!(
+        c.multipart("r2:family", "originals/big.mov").unwrap().as_deref(),
+        Some("upload-2")
+    );
+    c.mark_uploaded("r2:family", "originals/big.mov", 99).unwrap();
+    assert_eq!(
+        c.multipart("r2:family", "originals/big.mov").unwrap(),
+        None,
+        "finishing clears it"
+    );
+
+    c.set_multipart("r2:family", "x", Some("u")).unwrap();
+    c.set_multipart("r2:family", "x", None).unwrap();
+    assert_eq!(c.multipart("r2:family", "x").unwrap(), None);
+
+    c.set_multipart("r2:family", "y", Some("u")).unwrap();
+    c.forget_uploads("r2:family").unwrap();
+    assert!(!c.is_uploaded("r2:family", "originals/a.jpg").unwrap());
+    assert_eq!(c.multipart("r2:family", "y").unwrap(), None);
+}
+
+#[test]
+fn settings_are_small_named_values() {
+    let c = Catalog::in_memory().unwrap();
+    assert_eq!(c.setting("index_key").unwrap(), None);
+    c.set_setting("index_key", "index/abc.kvx").unwrap();
+    c.set_setting("index_key", "index/def.kvx").unwrap();
+    assert_eq!(c.setting("index_key").unwrap().as_deref(), Some("index/def.kvx"));
+}

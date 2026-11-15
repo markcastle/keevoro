@@ -1,0 +1,19 @@
+[package]
+name = "keevoro-media"
+description = "Makes the smaller copies a gallery shows: thumbnails, display-sized pictures and blur placeholders."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+blurhash.workspace = true
+image.workspace = true
+thiserror.workspace = true
+webp.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

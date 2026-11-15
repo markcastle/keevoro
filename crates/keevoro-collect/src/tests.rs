@@ -314,3 +314,117 @@ fn errors_read_plainly() {
         .contains("didn't match the original"));
     assert!(CopyError::NameTaken.to_string().contains("share this name"));
 }
+
+mod previews {
+    use super::*;
+    use crate::make_previews;
+    use keevoro_catalog::RenditionState;
+
+    fn real_jpeg(shade: u8) -> Vec<u8> {
+        let img = image::RgbImage::from_pixel(900, 600, image::Rgb([shade, 120, 60]));
+        let mut bytes = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Jpeg)
+            .unwrap();
+        bytes
+    }
+
+    fn previews(w: &World, report: &ScanReport) -> crate::PreviewReport {
+        let items: Vec<&FoundItem> = report.items.iter().collect();
+        make_previews(&w.library(), &w.catalog, &items, &mut |_, _| {}).unwrap()
+    }
+
+    #[test]
+    fn previews_are_made_from_the_library_and_named_by_content() {
+        let w = World::new();
+        w.add("Family/a.jpg", &real_jpeg(10));
+        w.add(
+            "Family/clip.mp4",
+            b"\0\0\0\x18ftypisom\0\0\x02\0isomiso2 not really a video",
+        );
+        let report = w.scan();
+        w.gather(&report);
+        // The drive goes back in the drawer; previews do not need it.
+        fs::remove_dir_all(w.drive()).unwrap();
+
+        let p = previews(&w, &report);
+        assert_eq!(
+            (p.made, p.already_there, p.no_preview.len()),
+            (1, 0, 0),
+            "videos are not photos"
+        );
+        let photo = report.items.iter().find(|i| i.path.ends_with("a.jpg")).unwrap();
+        let id = photo.id().unwrap();
+        assert!(w.library().join(format!("renditions/thumb/{id}.webp")).is_file());
+        assert!(w.library().join(format!("renditions/display/{id}.webp")).is_file());
+        let state = w.catalog.rendition(photo.blake3.as_deref().unwrap()).unwrap();
+        assert!(
+            matches!(
+                state,
+                Some(RenditionState::Made {
+                    width: 900,
+                    height: 600,
+                    ..
+                })
+            ),
+            "{state:?}"
+        );
+
+        let again = previews(&w, &report);
+        assert_eq!((again.made, again.already_there), (0, 1));
+    }
+
+    #[test]
+    fn a_deleted_thumbnail_is_made_again() {
+        let w = World::new();
+        w.add("Family/a.jpg", &real_jpeg(10));
+        let report = w.scan();
+        w.gather(&report);
+        previews(&w, &report);
+        fs::remove_dir_all(w.library().join("renditions/thumb")).unwrap();
+        assert_eq!(previews(&w, &report).made, 1);
+    }
+
+    #[test]
+    fn photos_that_cannot_be_previewed_are_remembered_with_a_reason() {
+        let w = World::new();
+        w.add("Family/odd.jpg", &jpeg(1, 50));
+        let report = w.scan();
+        w.gather(&report);
+
+        let first = previews(&w, &report);
+        assert_eq!((first.made, first.no_preview.len()), (0, 1));
+        assert!(first.no_preview[0].path.ends_with("originals/Family/odd.jpg"));
+        assert!(!first.no_preview[0].reason.is_empty());
+
+        // Not attempted again, but still reported.
+        let mut calls = 0;
+        let items: Vec<&FoundItem> = report.items.iter().collect();
+        let second = make_previews(&w.library(), &w.catalog, &items, &mut |_, _| calls += 1).unwrap();
+        assert_eq!((calls, second.no_preview.len()), (0, 1));
+    }
+
+    #[test]
+    fn a_missing_library_file_is_retried_next_time_not_written_off() {
+        let w = World::new();
+        w.add("Family/a.jpg", &real_jpeg(10));
+        let report = w.scan();
+        w.gather(&report);
+        let original = w.library().join("originals/Family/a.jpg");
+        let bytes = fs::read(&original).unwrap();
+        fs::remove_file(&original).unwrap();
+
+        assert_eq!(previews(&w, &report).no_preview.len(), 1);
+        fs::write(&original, bytes).unwrap();
+        assert_eq!(previews(&w, &report).made, 1);
+    }
+
+    #[test]
+    fn files_not_yet_gathered_are_left_alone() {
+        let w = World::new();
+        w.add("Family/a.jpg", &real_jpeg(10));
+        let report = w.scan();
+        let p = previews(&w, &report);
+        assert_eq!((p.made, p.already_there, p.no_preview.len()), (0, 0, 0));
+        assert!(!w.library().join("renditions").exists());
+    }
+}

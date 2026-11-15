@@ -78,6 +78,31 @@ const MIGRATIONS: &[&str] = &[
          path   TEXT NOT NULL,
          bytes  INTEGER NOT NULL
      );",
+    // 3: previews made, what has reached each storage target, and settings.
+    "CREATE TABLE renditions (
+         blake3   TEXT PRIMARY KEY,
+         ok       INTEGER NOT NULL,
+         width    INTEGER,
+         height   INTEGER,
+         blurhash TEXT,
+         reason   TEXT
+     );
+     CREATE TABLE uploaded (
+         target TEXT NOT NULL,
+         key    TEXT NOT NULL,
+         bytes  INTEGER NOT NULL,
+         PRIMARY KEY (target, key)
+     );
+     CREATE TABLE multipart (
+         target    TEXT NOT NULL,
+         key       TEXT NOT NULL,
+         upload_id TEXT NOT NULL,
+         PRIMARY KEY (target, key)
+     );
+     CREATE TABLE settings (
+         key   TEXT PRIMARY KEY,
+         value TEXT NOT NULL
+     );",
 ];
 
 #[derive(Debug, thiserror::Error)]
@@ -372,6 +397,142 @@ impl Catalog {
                     Ok((r.get(0)?, r.get(1)?))
                 })?;
         Ok((u64::try_from(n).unwrap_or(0), u64::try_from(bytes).unwrap_or(0)))
+    }
+}
+
+/// What is known about the preview copies of one file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RenditionState {
+    /// Thumbnail and display copy exist. The size is the original's,
+    /// turned upright.
+    Made { width: u32, height: u32, blurhash: String },
+    /// No preview could be made, with the plain reason. Remembered so the
+    /// same file is not tried again on every run.
+    NoPreview { reason: String },
+}
+
+impl Catalog {
+    pub fn set_rendition(&self, blake3: &str, state: &RenditionState) -> Result<()> {
+        let (ok, width, height, blurhash, reason) = match state {
+            RenditionState::Made {
+                width,
+                height,
+                blurhash,
+            } => (true, Some(*width), Some(*height), Some(blurhash.as_str()), None),
+            RenditionState::NoPreview { reason } => (false, None, None, None, Some(reason.as_str())),
+        };
+        self.conn.execute(
+            "INSERT OR REPLACE INTO renditions (blake3, ok, width, height, blurhash, reason)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![blake3, ok, width, height, blurhash, reason],
+        )?;
+        Ok(())
+    }
+
+    pub fn rendition(&self, blake3: &str) -> Result<Option<RenditionState>> {
+        let row = self
+            .conn
+            .query_row(
+                "SELECT ok, width, height, blurhash, reason FROM renditions WHERE blake3 = ?1",
+                [blake3],
+                |r| {
+                    Ok((
+                        r.get::<_, bool>(0)?,
+                        r.get::<_, Option<u32>>(1)?,
+                        r.get::<_, Option<u32>>(2)?,
+                        r.get::<_, Option<String>>(3)?,
+                        r.get::<_, Option<String>>(4)?,
+                    ))
+                },
+            )
+            .optional()?;
+        Ok(row.map(|row| match row {
+            (true, Some(width), Some(height), Some(blurhash), _) => RenditionState::Made {
+                width,
+                height,
+                blurhash,
+            },
+            (_, _, _, _, reason) => RenditionState::NoPreview {
+                reason: reason.unwrap_or_default(),
+            },
+        }))
+    }
+
+    /// Records that `key` is safely stored on a storage target. `target` is
+    /// any stable name for the place, such as a bucket address.
+    pub fn mark_uploaded(&self, target: &str, key: &str, bytes: u64) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO uploaded (target, key, bytes) VALUES (?1, ?2, ?3)",
+            params![target, key, to_i64(bytes)],
+        )?;
+        self.conn.execute(
+            "DELETE FROM multipart WHERE target = ?1 AND key = ?2",
+            params![target, key],
+        )?;
+        Ok(())
+    }
+
+    pub fn is_uploaded(&self, target: &str, key: &str) -> Result<bool> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT 1 FROM uploaded WHERE target = ?1 AND key = ?2",
+                params![target, key],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some())
+    }
+
+    /// Forgets what was uploaded to a target, so everything is checked
+    /// against the storage again. Nothing stored is touched.
+    pub fn forget_uploads(&self, target: &str) -> Result<()> {
+        self.conn.execute("DELETE FROM uploaded WHERE target = ?1", [target])?;
+        self.conn.execute("DELETE FROM multipart WHERE target = ?1", [target])?;
+        Ok(())
+    }
+
+    /// Remembers a large upload in progress so it can carry on after a
+    /// restart instead of starting again.
+    pub fn set_multipart(&self, target: &str, key: &str, upload_id: Option<&str>) -> Result<()> {
+        match upload_id {
+            Some(id) => self.conn.execute(
+                "INSERT OR REPLACE INTO multipart (target, key, upload_id) VALUES (?1, ?2, ?3)",
+                params![target, key, id],
+            )?,
+            None => self.conn.execute(
+                "DELETE FROM multipart WHERE target = ?1 AND key = ?2",
+                params![target, key],
+            )?,
+        };
+        Ok(())
+    }
+
+    pub fn multipart(&self, target: &str, key: &str) -> Result<Option<String>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT upload_id FROM multipart WHERE target = ?1 AND key = ?2",
+                params![target, key],
+                |r| r.get(0),
+            )
+            .optional()?)
+    }
+
+    /// Small named values, such as the private name of a published index.
+    pub fn set_setting(&self, key: &str, value: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
+            params![key, value],
+        )?;
+        Ok(())
+    }
+
+    pub fn setting(&self, key: &str) -> Result<Option<String>> {
+        Ok(self
+            .conn
+            .query_row("SELECT value FROM settings WHERE key = ?1", [key], |r| r.get(0))
+            .optional()?)
     }
 }
 
