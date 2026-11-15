@@ -10,6 +10,7 @@ repository.workspace = true
 [dependencies]
 blurhash.workspace = true
 image.workspace = true
+kamadak-exif.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 webp.workspace = true

@@ -5,7 +5,7 @@
 //! files that are confirmed stored are listed in it.
 
 use crate::summary;
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use keevoro_catalog::{Catalog, RenditionState, VideoState};
 use keevoro_core::{group_into_collections, CollectionInput, DateSource};
 use keevoro_index::{build_index, gallery_v1, index_key, rendition_path, AlbumInput, ItemInput, Rendition};
@@ -54,9 +54,15 @@ impl Kept<'_> {
 pub enum Destination {
     /// An external drive or a network share.
     Folder(PathBuf),
-    /// An S3-compatible bucket. The keys come from the environment so they
-    /// never appear in shell history or a process list.
-    Bucket { preset: Preset, bucket: String },
+    /// An S3-compatible bucket, with the keys to it. The keys come from
+    /// the environment or the system keychain (see `connect.rs`), never
+    /// from the command line, where they would end up in shell history.
+    Bucket {
+        preset: Preset,
+        bucket: String,
+        access_key_id: String,
+        secret_access_key: String,
+    },
 }
 
 pub const ACCESS_KEY_VAR: &str = "KEEVORO_ACCESS_KEY_ID";
@@ -66,7 +72,7 @@ pub const SECRET_KEY_VAR: &str = "KEEVORO_SECRET_ACCESS_KEY";
 /// to use in the index when the user gives none.
 type Opened = (Box<dyn MultipartStore>, String, String);
 
-fn open(out: &mut dyn Write, runtime: &tokio::runtime::Runtime, destination: Destination) -> Result<Opened> {
+pub(crate) fn open(out: &mut dyn Write, runtime: &tokio::runtime::Runtime, destination: Destination) -> Result<Opened> {
     match destination {
         Destination::Folder(folder) => {
             let store = runtime
@@ -75,14 +81,12 @@ fn open(out: &mut dyn Write, runtime: &tokio::runtime::Runtime, destination: Des
             let home = std::fs::canonicalize(&folder).unwrap_or(folder);
             Ok((Box::new(store), format!("folder:{}", home.display()), file_url(&home)))
         }
-        Destination::Bucket { preset, bucket } => {
-            let key = |name: &str| std::env::var(name).ok().filter(|v| !v.trim().is_empty());
-            let (Some(access_key_id), Some(secret_access_key)) = (key(ACCESS_KEY_VAR), key(SECRET_KEY_VAR)) else {
-                bail!(
-                    "Keevoro needs the storage keys. Set {ACCESS_KEY_VAR} and {SECRET_KEY_VAR} \
-                     to a key that can read and write this one bucket, then run this again."
-                );
-            };
+        Destination::Bucket {
+            preset,
+            bucket,
+            access_key_id,
+            secret_access_key,
+        } => {
             let store = S3Store::connect(&S3Settings {
                 preset,
                 bucket,

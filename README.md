@@ -110,7 +110,7 @@ Gathering copies each file, reads the copy back and compares it with the origina
 
 It is safe to stop halfway, unplug the drive or run it twice. It carries on where it left off and never copies a file it already has. If a file can't be read, the rest still go through and the problem is listed at the end. It checks there is enough room before it starts.
 
-Gathering also makes a thumbnail and a larger viewing copy of each photo, stored under `renditions/`. These are what a gallery shows, so pages load quickly. They are built from the picture alone: the location and camera details inside your originals are never copied into them. Some formats (HEIC from newer iPhones, camera RAW) can't be previewed yet; Keevoro says how many, and the originals are kept all the same.
+Gathering also makes a thumbnail and a larger viewing copy of each photo, stored under `renditions/`. These are what a gallery shows, so pages load quickly. They are built from the picture alone: the location and camera details inside your originals are never copied into them. Camera RAW files are previewed from the finished picture the camera stores inside them. HEIC photos from newer iPhones can't be previewed yet; Keevoro says how many, and the originals are kept all the same. After an update, `gather --retry-previews` has another go at any that were missed.
 
 ### Videos
 
@@ -166,6 +166,20 @@ cargo run --release -p keevoro-cli -- publish --library "D:\Keevoro Library" --t
 ```
 
 For Amazon S3 use `--to-s3 eu-west-2` instead, and for MinIO or a NAS that speaks S3 use `--to-endpoint https://nas.local:9000`.
+
+Typing all that each time gets old, so do it once with `connect` instead. It checks the storage works, saves the keys in your computer's own keychain (Credential Manager on Windows, Keychain on a Mac) and remembers the destination in the library:
+
+```sh
+cargo run --release -p keevoro-cli -- connect --library "D:\Keevoro Library" --to-r2 0123456789abcdef0123456789abcdef --bucket family-photos
+```
+
+If the two keys are not set as above, `connect` asks you to paste them; the secret is not shown as you paste. From then on a backup is just:
+
+```sh
+cargo run --release -p keevoro-cli -- publish --library "D:\Keevoro Library"
+```
+
+`connect` works for a folder too (`--to-folder`), and `disconnect` forgets the destination and removes the keys without touching anything already backed up.
 
 Keevoro checks the keys work before sending anything, and warns you if strangers are able to list the bucket's contents. The bucket itself is told never to replace an original, so even two computers backing up at once cannot overwrite one another. On a bucket the index's links are relative until you add `--base-url` with the address the bucket is served from.
 

@@ -342,3 +342,54 @@ fn videos_are_remembered_with_what_was_made_of_them() {
     c.set_video("bb", &fine).unwrap();
     assert_eq!(c.video("bb").unwrap(), Some(fine));
 }
+
+#[test]
+fn remembered_preview_problems_can_be_forgotten_so_they_are_tried_again() {
+    let c = Catalog::in_memory().unwrap();
+    let made = RenditionState::Made {
+        width: 10,
+        height: 10,
+        blurhash: "x".into(),
+    };
+    c.set_rendition("good", &made).unwrap();
+    c.set_rendition(
+        "raw",
+        &RenditionState::NoPreview {
+            reason: "not yet".into(),
+        },
+    )
+    .unwrap();
+    c.set_video(
+        "gone",
+        &VideoState::Unreadable {
+            reason: "damaged".into(),
+        },
+    )
+    .unwrap();
+    let stuck = VideoState::Known {
+        duration_secs: 1.0,
+        width: 2,
+        height: 2,
+        poster: true,
+        mp4: false,
+        conversion_problem: Some("couldn't".into()),
+    };
+    c.set_video("stuck", &stuck).unwrap();
+    let fine = VideoState::Known {
+        duration_secs: 1.0,
+        width: 2,
+        height: 2,
+        poster: true,
+        mp4: true,
+        conversion_problem: None,
+    };
+    c.set_video("fine", &fine).unwrap();
+
+    assert_eq!(c.forget_preview_problems().unwrap(), 3);
+    assert_eq!(c.rendition("good").unwrap(), Some(made));
+    assert_eq!(c.rendition("raw").unwrap(), None);
+    assert_eq!(c.video("gone").unwrap(), None);
+    assert_eq!(c.video("stuck").unwrap(), None);
+    assert_eq!(c.video("fine").unwrap(), Some(fine));
+    assert_eq!(c.forget_preview_problems().unwrap(), 0);
+}
