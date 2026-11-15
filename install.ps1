@@ -1,18 +1,12 @@
 # Installs or updates Keevoro on Windows from the latest GitHub Release.
 #
-# While the repository is private, set $env:GITHUB_TOKEN to a token that can
-# read it, then in PowerShell:
-#
-#   irm https://api.github.com/repos/markcastle/keevoro/contents/install.ps1 -Headers @{ Authorization = "Bearer $env:GITHUB_TOKEN"; Accept = 'application/vnd.github.raw' } | iex
-#
-# Once it is public this is enough:
-#
 #   irm https://raw.githubusercontent.com/markcastle/keevoro/main/install.ps1 | iex
 #
 # It downloads keevoro.exe, checks it against the release's checksum file,
 # puts it in your own Programs folder and adds that folder to your PATH. No
 # administrator prompt. Running it again updates to the newest version; so
-# does `keevoro update`.
+# does `keevoro update`. If the repository is ever made private again, set
+# GITHUB_TOKEN to a token that can read it.
 
 $ErrorActionPreference = 'Stop'
 $repo = 'markcastle/keevoro'
@@ -26,7 +20,7 @@ Write-Host 'Looking up the latest Keevoro release...'
 try {
     $release = Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest" -Headers $headers
 } catch {
-    throw "Could not read the latest release of $repo. If the repository is private, set GITHUB_TOKEN first. ($($_.Exception.Message))"
+    throw "Could not read the latest release of $repo. Check your internet connection and try again. ($($_.Exception.Message))"
 }
 
 $asset = $release.assets | Where-Object { $_.name -eq $assetName } | Select-Object -First 1

@@ -34,7 +34,7 @@ const MAX_DOWNLOAD: u64 = 500 * 1024 * 1024;
 #[derive(Debug, thiserror::Error)]
 pub enum UpdateError {
     #[error(
-        "Couldn't find a Keevoro release. If the repository is private, set GITHUB_TOKEN to a token that can read it"
+        "Couldn't find a Keevoro release. If the repository has been made private, set GITHUB_TOKEN to a token that can read it"
     )]
     NotFound,
     #[error("GitHub refused the request. Check that GITHUB_TOKEN is still valid and can read the repository")]

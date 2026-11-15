@@ -1,21 +1,14 @@
 #!/bin/sh
 # Installs or updates Keevoro on macOS or Linux from the latest GitHub Release.
 #
-# While the repository is private, set GITHUB_TOKEN to a token that can read
-# it, then:
-#
-#   curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" \
-#     -H "Accept: application/vnd.github.raw" \
-#     https://api.github.com/repos/markcastle/keevoro/contents/install.sh | sh
-#
-# Once it is public this is enough:
-#
 #   curl -fsSL https://raw.githubusercontent.com/markcastle/keevoro/main/install.sh | sh
 #
 # It downloads the build for this computer, checks it against the release's
 # checksum file, and puts it in ~/.local/bin (set KEEVORO_INSTALL_DIR to
 # choose somewhere else). Nothing needs an administrator password. Running
-# it again updates to the newest version; so does `keevoro update`.
+# it again updates to the newest version; so does `keevoro update`. If the
+# repository is ever made private again, set GITHUB_TOKEN to a token that
+# can read it.
 
 set -eu
 
@@ -52,7 +45,7 @@ fetch() {
 
 echo "Looking up the latest Keevoro release..."
 json=$(fetch "$API/repos/$REPO/releases/latest" "application/vnd.github+json") || {
-  echo "Could not read the latest release of $REPO. If the repository is private, set GITHUB_TOKEN first." >&2
+  echo "Could not read the latest release of $REPO. Check your internet connection and try again." >&2
   exit 1
 }
 tag=$(printf '%s' "$json" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1)

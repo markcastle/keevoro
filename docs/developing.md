@@ -104,9 +104,11 @@ The names carry no version, so "the latest Windows build" is always the same add
 
 `keevoro update` does the same from inside the program (`crates/keevoro-update`): it asks for the latest release, and if that is a higher version it downloads the build for this computer, checks it, and swaps itself for it in one step. `keevoro update --check` only reports. This is the one time Keevoro contacts the internet without being given a storage address, and it only happens when asked; there is no background check, in keeping with "nothing leaves the machine without consent".
 
-### While the repository is private
+### If the repository is made private
 
-GitHub will not show a private repository's releases to strangers, so the installers and `keevoro update` need a token: a fine-grained personal access token with read-only **Contents** access to this one repository. Put it in `GITHUB_TOKEN` (or `KEEVORO_GITHUB_TOKEN` if `GITHUB_TOKEN` is taken). The day the repository goes public the token stops being needed and the shorter install lines in the README work.
+The repository is public, so none of this needs a login. If it is ever made private again, GitHub stops showing its releases to strangers, and the installers and `keevoro update` need a token: a fine-grained personal access token with read-only **Contents** access to this one repository, in `GITHUB_TOKEN` (or `KEEVORO_GITHUB_TOKEN` if `GITHUB_TOKEN` is taken). The install scripts would then be fetched through `https://api.github.com/repos/markcastle/keevoro/contents/install.sh` with that token and the header `Accept: application/vnd.github.raw`.
+
+Being public also matters for cost: GitHub Actions is free and unlimited for public repositories, but metered for private ones, where a macOS minute counts as ten.
 
 ### What is not signed yet
 

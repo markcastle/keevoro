@@ -10,18 +10,16 @@ It is in early development. The engine and a command-line tool work today, from 
 
 One line installs Keevoro, and running it again updates it. Nothing needs an administrator password.
 
-The repository is private for now, so first make a token that can read it (GitHub, Settings, Developer settings, Fine-grained tokens: this repository only, **Contents: Read-only**) and put it in `GITHUB_TOKEN`.
-
 **Windows** (PowerShell):
 
 ```powershell
-irm https://api.github.com/repos/markcastle/keevoro/contents/install.ps1 -Headers @{ Authorization = "Bearer $env:GITHUB_TOKEN"; Accept = 'application/vnd.github.raw' } | iex
+irm https://raw.githubusercontent.com/markcastle/keevoro/main/install.ps1 | iex
 ```
 
 **macOS and Linux:**
 
 ```sh
-curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github.raw" https://api.github.com/repos/markcastle/keevoro/contents/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/markcastle/keevoro/main/install.sh | sh
 ```
 
 Then:
@@ -37,8 +35,6 @@ keevoro update
 ```
 
 `keevoro update --check` only tells you whether there is one. Every download is checked against the release's checksum before it replaces anything. What changed in each version is in [CHANGELOG.md](CHANGELOG.md).
-
-Once the repository is public the token is not needed and the lines shorten to `irm https://raw.githubusercontent.com/markcastle/keevoro/main/install.ps1 | iex` and `curl -fsSL https://raw.githubusercontent.com/markcastle/keevoro/main/install.sh | sh`.
 
 ## Try the engine from source
 
