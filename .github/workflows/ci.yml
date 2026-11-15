@@ -140,3 +140,43 @@ jobs:
         # the engine that only runs inside a window, so its lines cannot be
         # exercised here. Its own small tests still run in the test job.
         run: cargo llvm-cov --workspace --exclude keevoro-app --all-features --fail-under-lines 90 --summary-only
+
+  # Builds the real installers. Not on pull requests, where it would add a
+  # quarter of an hour to every change; on main and on demand, so there is
+  # always a current installer to download from the run's page and try.
+  installers:
+    name: installer (${{ matrix.name }})
+    if: github.event_name != 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            os: windows-latest
+            args: ''
+          - name: macOS universal
+            os: macos-latest
+            args: '--target universal-apple-darwin'
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: installer
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: scripts/build-installer.sh ${{ matrix.args }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Keevoro installer (${{ matrix.name }})
+          path: installers/*
+          retention-days: 14

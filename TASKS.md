@@ -97,7 +97,8 @@ Done when a non-technical tester gets from a drive to a backup without help.
 - [x] Discover screen as in the mockup: live search, hero collection, "Keep collection", more discoveries
 - [x] Sources sidebar with friendly names and live status
 - [x] Archive screen: what is kept, gathering with progress in human terms
-- [ ] Installers and in-app updates: build the app in the Release workflow (Tauri bundler and updater, as Task Rail does); needs an updater signing key in repository secrets
+- [x] Installers: the Release workflow builds a Windows installer (NSIS, per-user) and a universal macOS disk image; CI builds them on main as downloadable artefacts
+- [ ] In-app updates (Tauri updater, as Task Rail does); needs an updater signing key in repository secrets
 - [ ] Archive screen: backup status, "Back up now", "Check my backup"
 - [ ] Open a collection to see and tick its photos; show what was set aside as junk
 - [ ] Notice when a drive is plugged in and offer to look through it

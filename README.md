@@ -38,9 +38,18 @@ keevoro update
 
 ## The desktop app (early)
 
-The app is the friendly face of the same engine. Today it covers the first half of the journey: choose where your library lives, add a drive, see what was found as collections with big photos, keep or leave out each one, and gather the keepers. Backing up is still done from the command line, and there is no installer yet, so for now it runs from source.
+The app is the friendly face of the same engine. Today it covers the first half of the journey: choose where your library lives, add a drive, see what was found as collections with big photos, keep or leave out each one, and gather the keepers. Backing up is still done from the command line.
 
-You need [Rust](https://rustup.rs) and [Node.js](https://nodejs.org) 22 or newer.
+Download the installer from the latest release:
+
+| Computer | Download |
+| --- | --- |
+| Windows 10 or 11 | [Keevoro-windows-x64-setup.exe](https://github.com/markcastle/keevoro/releases/latest/download/Keevoro-windows-x64-setup.exe) |
+| Mac (Apple silicon or Intel) | [Keevoro-macos-universal.dmg](https://github.com/markcastle/keevoro/releases/latest/download/Keevoro-macos-universal.dmg) |
+
+The app is not yet signed with a paid certificate, so each system asks once whether you trust it. On Windows, choose **More info** then **Run anyway**. On a Mac, drag Keevoro to Applications, then right-click it and choose **Open** the first time. The app does not update itself yet; install a newer release over the top.
+
+To run it from source instead you need [Rust](https://rustup.rs) and [Node.js](https://nodejs.org) 22 or newer.
 
 ```sh
 npm install

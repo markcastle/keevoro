@@ -17,8 +17,8 @@ name: Roll back
 # Rehearse it first if unsure: there is no dry run here, but the Release
 # workflow's Rehearse option shows what the roll-forward number would be.
 #
-# The release tooling (.github, .cargo, crates/xtask, the install scripts and
-# CHANGELOG.md) stays at its current state. Work on main that landed after
+# The release tooling (.github, .cargo, crates/xtask, scripts, the install
+# scripts and CHANGELOG.md) stays at its current state. Work on main that landed after
 # the good version is gone from main after this; bring it back with git
 # revert of the "Roll back to" commit.
 
@@ -106,7 +106,7 @@ jobs:
           # The whole tree as it was at the good version, then the release
           # tooling back to today's, since it is what is running right now.
           git read-tree --reset -u "v$TO"
-          git checkout HEAD -- .github .cargo crates/xtask CHANGELOG.md install.sh install.ps1 rust-toolchain.toml
+          git checkout HEAD -- .github .cargo crates/xtask scripts CHANGELOG.md install.sh install.ps1 rust-toolchain.toml
           cargo xtask changelog note "Rolled back to the code of $TO. $REASON"
           # The old lock file may not know today's tooling; bring it in step
           # so the release that follows starts from a clean tree.

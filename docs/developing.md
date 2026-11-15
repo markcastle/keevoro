@@ -72,6 +72,8 @@ npm run ui:build
 npm run ui:test
 ```
 
+Every push to main builds real installers (the **installer** jobs in CI); download them from the run's page under Artifacts to try a change before it is released. To build one yourself on Windows or a Mac, run `scripts/build-installer.sh` (see the comment at its top).
+
 The app icon is drawn by `scripts/make-icon.mjs`; the comment at the top of that file says how to regenerate the icon set.
 
 ### Tests that need a server
@@ -98,8 +100,9 @@ On GitHub, open **Actions**, pick **Release** on the left, press **Run workflow*
 1. Works out the version if none was given, and refuses if it is not higher than the last release, if CI has not passed on the latest commit to main, or if the changelog has nothing under Unreleased.
 2. Dates the Unreleased section as the version and opens a fresh one, sets the version in `Cargo.toml`, updates `Cargo.lock`, commits and tags.
 3. Creates the GitHub Release as a draft, with the changelog section as the notes.
-4. Builds Keevoro for Windows (x64), macOS (one file for Apple silicon and Intel) and Linux (x64), checks each build reports the right version, and uploads them to the draft.
-5. Adds a `SHA256SUMS` file and publishes the release, so "latest" never points at a release with nothing to download.
+4. Builds the command-line program for Windows (x64), macOS (one file for Apple silicon and Intel) and Linux (x64), checks each build reports the right version, and uploads them to the draft.
+5. Builds the desktop app's installers for Windows and macOS with `scripts/build-installer.sh`, the same script CI uses, and uploads them too.
+6. Adds a `SHA256SUMS` file and publishes the release, so "latest" never points at a release with nothing to download.
 
 Tick **Rehearse** to see steps 1 and 2 in the log without anything being pushed, built or published. It is also the way to ask what number the next release would be. A rehearsal can run from any branch.
 
@@ -135,13 +138,15 @@ Work on main that landed after the good version is no longer on main afterwards.
 
 ## How installing and updating work
 
-Each release carries three programs and a checksum file:
+Each release carries the command-line program for three systems, the desktop app's installers for two, and a checksum file:
 
 | File | For |
 | --- | --- |
 | `keevoro-windows-x64.exe` | Windows 10 and 11 |
 | `keevoro-macos-universal` | macOS, Apple silicon and Intel |
 | `keevoro-linux-x64` | Linux on x86_64 |
+| `Keevoro-windows-x64-setup.exe` | The desktop app's Windows installer (per-user, no administrator) |
+| `Keevoro-macos-universal.dmg` | The desktop app for macOS, Apple silicon and Intel |
 | `SHA256SUMS` | Checking any of the above arrived intact |
 
 The names carry no version, so "the latest Windows build" is always the same address.
