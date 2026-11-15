@@ -103,8 +103,23 @@ enum Command {
         #[arg(long)]
         library: PathBuf,
         /// A folder to back up to: an external drive or a NAS share.
+        #[arg(long, group = "destination")]
+        to_folder: Option<PathBuf>,
+        /// Back up to Cloudflare R2. Give your Cloudflare account ID.
+        #[arg(long, group = "destination", requires = "bucket", value_name = "ACCOUNT_ID")]
+        to_r2: Option<String>,
+        /// Back up to Amazon S3. Give the region, like eu-west-2.
+        #[arg(long, group = "destination", requires = "bucket", value_name = "REGION")]
+        to_s3: Option<String>,
+        /// Back up to another S3-compatible server (MinIO, a NAS).
+        /// Give its address, like https://nas.local:9000.
+        #[arg(long, group = "destination", requires = "bucket", value_name = "URL")]
+        to_endpoint: Option<String>,
+        /// The bucket to use with --to-r2, --to-s3 or --to-endpoint.
+        /// The keys are read from KEEVORO_ACCESS_KEY_ID and
+        /// KEEVORO_SECRET_ACCESS_KEY, never from the command line.
         #[arg(long)]
-        to_folder: PathBuf,
+        bucket: Option<String>,
         /// The web address the storage is served from, if it is.
         /// Used for links inside the index.
         #[arg(long)]
@@ -157,14 +172,39 @@ fn run(cli: Cli, out: &mut dyn Write) -> Result<()> {
         Command::Publish {
             library,
             to_folder,
+            to_r2,
+            to_s3,
+            to_endpoint,
+            bucket,
             base_url,
-        } => publish::run(
-            out,
-            &open_existing(&library)?,
-            &library,
-            &to_folder,
-            base_url.as_deref(),
-        ),
+        } => {
+            let preset = if let Some(account_id) = to_r2 {
+                Some(keevoro_storage_s3::Preset::CloudflareR2 { account_id })
+            } else if let Some(region) = to_s3 {
+                Some(keevoro_storage_s3::Preset::AmazonS3 { region })
+            } else {
+                to_endpoint.map(|endpoint| keevoro_storage_s3::Preset::Custom {
+                    endpoint,
+                    region: None,
+                    path_style: true,
+                })
+            };
+            let destination = match (to_folder, preset) {
+                (Some(folder), _) => publish::Destination::Folder(folder),
+                (None, Some(preset)) => publish::Destination::Bucket {
+                    preset,
+                    bucket: bucket.unwrap_or_default(),
+                },
+                (None, None) => bail!("Say where to back up to: --to-folder, --to-r2, --to-s3 or --to-endpoint."),
+            };
+            publish::run(
+                out,
+                &open_existing(&library)?,
+                &library,
+                destination,
+                base_url.as_deref(),
+            )
+        }
         Command::Sources { library } => {
             let sources = open_existing(&library)?.sources()?;
             if sources.is_empty() {
@@ -793,6 +833,127 @@ mod tests {
         assert!(backup
             .join("originals/Holidays/Spain 2009/IMG_20090714_210311.jpg")
             .is_file());
+    }
+
+    #[test]
+    fn bucket_backups_ask_plainly_for_what_is_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib = dir.path().join("lib").to_string_lossy().to_string();
+        let dell = dir.path().join("dell");
+        fs::create_dir_all(&dell).unwrap();
+        fs::write(dell.join("a.jpg"), real_jpeg(1)).unwrap();
+        keevoro(&["scan", "--library", &lib, &dell.to_string_lossy()]).unwrap();
+        keevoro(&["gather", "--library", &lib]).unwrap();
+
+        let nowhere = keevoro(&["publish", "--library", &lib]).unwrap_err();
+        assert!(nowhere.to_string().starts_with("Say where to back up to"), "{nowhere}");
+        assert!(
+            keevoro(&["publish", "--library", &lib, "--to-s3", "eu-west-2"]).is_err(),
+            "a bucket is needed"
+        );
+        let both = [
+            "publish",
+            "--library",
+            &lib,
+            "--to-folder",
+            "x",
+            "--to-s3",
+            "eu-west-2",
+            "--bucket",
+            "b",
+        ];
+        assert!(keevoro(&both).is_err(), "one destination at a time");
+
+        // No keys in the environment: say exactly what to set. (Skipped
+        // where CI has set keys for the test server.)
+        if std::env::var_os(publish::ACCESS_KEY_VAR).is_none() {
+            let no_keys = keevoro(&[
+                "publish",
+                "--library",
+                &lib,
+                "--to-s3",
+                "eu-west-2",
+                "--bucket",
+                "family",
+            ])
+            .unwrap_err();
+            assert!(no_keys.to_string().contains("KEEVORO_ACCESS_KEY_ID"), "{no_keys}");
+        }
+    }
+
+    /// Runs only where a test S3 server is configured (CI starts MinIO);
+    /// see `keevoro-storage-s3/src/tests.rs` for the variables.
+    #[test]
+    fn backs_up_to_an_s3_compatible_bucket() {
+        let (Ok(endpoint), Ok(bucket)) = (
+            std::env::var("KEEVORO_S3_TEST_ENDPOINT"),
+            std::env::var("KEEVORO_S3_TEST_BUCKET"),
+        ) else {
+            eprintln!("skipped: no KEEVORO_S3_TEST_* server configured");
+            return;
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let lib = dir.path().join("lib").to_string_lossy().to_string();
+        // A folder name no other test run has used, so reruns against the
+        // same bucket never meet each other's files.
+        let album = format!("Bucket test {}", std::process::id());
+        let dell = dir.path().join("dell");
+        fs::create_dir_all(dell.join(&album)).unwrap();
+        fs::write(dell.join(&album).join("a.jpg"), real_jpeg(1)).unwrap();
+        fs::write(dell.join(&album).join("b.jpg"), real_jpeg(2)).unwrap();
+        keevoro(&["scan", "--library", &lib, &dell.to_string_lossy()]).unwrap();
+        keevoro(&["gather", "--library", &lib]).unwrap();
+
+        let to = [
+            "publish",
+            "--library",
+            &lib,
+            "--to-endpoint",
+            &endpoint,
+            "--bucket",
+            &bucket,
+        ];
+        let said = keevoro(&to).unwrap();
+        // Two originals, each with a thumbnail and a display copy.
+        assert!(said.starts_with("Safely backed up 6 files ("), "{said}");
+        assert!(
+            !said.contains("Warning"),
+            "a private bucket gives no listing warning: {said}"
+        );
+        assert!(said.contains("Index written for 2 files in 1 album."), "{said}");
+        let link = said.lines().last().unwrap().to_string();
+        assert!(
+            link.starts_with("Your private index: /index/") && link.ends_with(".kvx"),
+            "{link}"
+        );
+
+        let again = keevoro(&to).unwrap();
+        assert!(again.starts_with("6 files already there.\n"), "{again}");
+        assert_eq!(again.lines().last().unwrap(), link);
+
+        // With the catalog's memory of the upload gone, the bucket itself
+        // still stops originals being sent or replaced a second time.
+        let catalog = Catalog::open_in_library(Path::new(&lib)).unwrap();
+        catalog.forget_uploads(&format!("s3:{endpoint}/{bucket}")).unwrap();
+        drop(catalog);
+        let relearned = keevoro(&to).unwrap();
+        assert!(relearned.contains("2 files already there."), "{relearned}");
+        assert!(
+            relearned.starts_with("Safely backed up 4 files ("),
+            "previews are simply re-sent: {relearned}"
+        );
+
+        let wrong = [
+            "publish",
+            "--library",
+            &lib,
+            "--to-endpoint",
+            "http://127.0.0.1:9",
+            "--bucket",
+            &bucket,
+        ];
+        let err = keevoro(&wrong).unwrap_err();
+        assert!(err.to_string().starts_with("Couldn't connect to the storage."), "{err}");
     }
 
     #[test]

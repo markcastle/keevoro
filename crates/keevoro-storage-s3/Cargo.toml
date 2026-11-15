@@ -1,0 +1,19 @@
+[package]
+name = "keevoro-storage-s3"
+description = "Stores a library in any S3-compatible bucket: Cloudflare R2, Amazon S3, MinIO and others."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+aws-sdk-s3.workspace = true
+keevoro-storage.workspace = true
+
+[dev-dependencies]
+keevoro-storage = { workspace = true, features = ["conformance"] }
+tokio.workspace = true
+
+[lints]
+workspace = true

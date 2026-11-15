@@ -41,5 +41,37 @@ jobs:
           components: llvm-tools-preview
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@cargo-llvm-cov
+      # The S3 adapter is only really tested against a real S3-compatible
+      # server. MinIO runs here so those tests count towards coverage.
+      # These are throwaway credentials for a server that lives for one job.
+      - name: Start MinIO (local S3-compatible server)
+        run: |
+          # MinIO's own image is no longer on Docker Hub, so try the places
+          # it can still be had, in order, and use the first that starts.
+          for image in \
+            quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z \
+            ghcr.io/coollabsio/minio:latest \
+            cgr.dev/chainguard/minio:latest; do
+            if docker run -d --name minio -p 9000:9000 \
+              -e MINIO_ROOT_USER=keevoro -e MINIO_ROOT_PASSWORD=keevoro-test-secret \
+              "$image" server /data; then
+              echo "Using $image"
+              break
+            fi
+            docker rm -f minio >/dev/null 2>&1 || true
+          done
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:9000/minio/health/live && break
+            sleep 1
+          done
+          AWS_ACCESS_KEY_ID=keevoro AWS_SECRET_ACCESS_KEY=keevoro-test-secret AWS_DEFAULT_REGION=us-east-1 \
+            aws --endpoint-url http://127.0.0.1:9000 s3 mb s3://keevoro-test
       - name: Coverage (fails under 90% of lines)
+        env:
+          KEEVORO_S3_TEST_ENDPOINT: http://127.0.0.1:9000
+          KEEVORO_S3_TEST_BUCKET: keevoro-test
+          KEEVORO_S3_TEST_ACCESS_KEY: keevoro
+          KEEVORO_S3_TEST_SECRET_KEY: keevoro-test-secret
+          KEEVORO_ACCESS_KEY_ID: keevoro
+          KEEVORO_SECRET_ACCESS_KEY: keevoro-test-secret
         run: cargo llvm-cov --workspace --all-features --fail-under-lines 90 --summary-only
