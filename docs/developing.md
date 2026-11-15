@@ -30,6 +30,50 @@ cargo run -p keevoro-cli -- scan <a folder of photos>
 
 CI runs the same on Windows, macOS and Linux, and fails if fewer than 90% of lines are covered by tests.
 
+### The desktop app
+
+The app is three layers, and almost all the thinking is in the bottom one:
+
+| Layer | Where | What it is |
+| --- | --- | --- |
+| Screens | `ui/src` | React and TypeScript. They show what they are given and send one request per button. |
+| Shell | `src-tauri/src` | A Tauri window and a handful of commands. Each command finds the library, calls the engine, and turns an error into a sentence. |
+| Engine | `crates/keevoro-engine` | Everything Keevoro actually does. Shared with the command line, and tested without a window. |
+
+If you are about to write a rule about photos in the shell or the screens, it belongs in the engine instead.
+
+```sh
+npm install
+```
+
+```sh
+npm run dev
+```
+
+That builds the screens, starts the shell and reloads as you edit. On Linux the shell needs a few system libraries first: `libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev`.
+
+The screens can also run alone in a browser, which is the quickest way to work on how things look:
+
+```sh
+npm run ui:dev
+```
+
+There they talk to a stand-in for the engine (`ui/src/demo.ts`) with drawn pictures, so no drive or library is needed. Add `?demo=new` to the address to see the first-run screen, or `?demo=empty` for a library with nothing found yet.
+
+`ui/src/backend.ts` is the only place the screens touch the outside world. Its types mirror the Rust structs in `crates/keevoro-engine/src/discover.rs` and `src-tauri/src/events.rs`; change them together.
+
+The browser test uses the screens the way a person would and saves a screenshot of each to `ui/tests/screens/`:
+
+```sh
+npm run ui:build
+```
+
+```sh
+npm run ui:test
+```
+
+The app icon is drawn by `scripts/make-icon.mjs`; the comment at the top of that file says how to regenerate the icon set.
+
 ### Tests that need a server
 
 The S3 adapter is tested against a real S3-compatible server. CI starts MinIO for this. Locally those tests skip themselves unless you point them at a server; the variables are listed at the top of `crates/keevoro-storage-s3/src/tests.rs`.

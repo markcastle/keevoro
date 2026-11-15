@@ -2644,7 +2644,7 @@ dependencies = [
 
 [[package]]
 name = "keevoro-app"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "keevoro-catalog",
@@ -2727,7 +2727,7 @@ dependencies = [
 
 [[package]]
 name = "keevoro-engine"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "image",

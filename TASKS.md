@@ -91,14 +91,20 @@ Modelled on Task Rail's. See [docs/developing.md](docs/developing.md#cutting-a-r
 
 Done when a non-technical tester gets from a drive to a backup without help.
 
-- [ ] Tauri 2 shell, app icon, signed Windows installer
-- [ ] Discover screen as in the mockup: live search, hero collection, "Keep collection", more discoveries
-- [ ] Sources sidebar with friendly names and live status
-- [ ] Archive screen: what is kept, backup status, "Check my backup"
+- [x] `keevoro-engine`: the logic the command line and the app share (summary, discover view, gather, previews)
+- [x] Tauri 2 shell and app icon; screens in React, testable in a browser against a stand-in backend
+- [x] Welcome screen: one question, where the library lives
+- [x] Discover screen as in the mockup: live search, hero collection, "Keep collection", more discoveries
+- [x] Sources sidebar with friendly names and live status
+- [x] Archive screen: what is kept, gathering with progress in human terms
+- [ ] Installers and in-app updates: build the app in the Release workflow (Tauri bundler and updater, as Task Rail does); needs an updater signing key in repository secrets
+- [ ] Archive screen: backup status, "Back up now", "Check my backup"
+- [ ] Open a collection to see and tick its photos; show what was set aside as junk
+- [ ] Notice when a drive is plugged in and offer to look through it
+- [ ] Time left ("About 20 minutes"), and cancel for a search or a gather
 - [ ] Storage setup: provider logos, paste keys, connection check in plain words
 - [ ] "Show folders" view with tick boxes, for people who want control
 - [ ] Old video conversion prompt
-- [ ] Progress in human terms ("About 20 minutes left")
 
 ## Phase 4: macOS
 
