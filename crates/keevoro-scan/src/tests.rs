@@ -249,3 +249,131 @@ fn a_missing_source_is_reported_not_fatal() {
     assert!(r.items.is_empty());
     assert_eq!(r.unreadable.len(), 1);
 }
+
+/// A PNG header of the given size. Enough for content detection and for
+/// reading the pixel size; `salt` makes each file's contents different.
+fn png(width: u32, height: u32, salt: u8) -> Vec<u8> {
+    let mut p = b"\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR".to_vec();
+    p.extend_from_slice(&width.to_be_bytes());
+    p.extend_from_slice(&height.to_be_bytes());
+    p.extend_from_slice(&[8, 2, 0, 0, 0, salt, salt, salt, salt]);
+    p
+}
+
+#[test]
+fn videos_are_dated_from_their_own_recording_time() {
+    let t = Tree::new();
+    // The header sits after the video data, as on files straight from a camera.
+    t.add("MVI_0042.MOV", &video::tests::mp4_recorded_at(1_247_605_802, 0, true));
+    let r = t.scan();
+    let d = item(&r, "MVI_0042.MOV").date.unwrap();
+    assert_eq!(d.source, DateSource::Video);
+    assert_eq!(d.date.to_string(), "2009-07-14T21:10:02");
+}
+
+#[test]
+fn a_video_with_no_recording_time_falls_back_to_weaker_clues() {
+    let t = Tree::new();
+    t.add("VID_20120304_153012.mp4", &mp4());
+    let r = t.scan();
+    assert_eq!(
+        item(&r, "VID_20120304_153012.mp4").date.unwrap().source,
+        DateSource::Filename
+    );
+}
+
+#[test]
+fn photo_sizes_are_read_and_junk_is_flagged_but_still_listed() {
+    let t = Tree::new();
+    t.add("Family/big.png", &png(3264, 2448, 1));
+    t.add("Family/tiny.png", &png(120, 90, 2));
+    t.add("Some App/icons/save.png", &png(48, 48, 3));
+    t.add("Firefox/Cache2/A1B2C3", &png(1920, 1080, 4));
+    t.add("Quake/textures/wall.png", &png(512, 512, 5));
+    let r = t.scan();
+    assert_eq!(r.items.len(), 5, "junk is listed, never hidden");
+
+    let big = item(&r, "big.png");
+    assert_eq!((big.width, big.height), (Some(3264), Some(2448)));
+    assert_eq!(big.junk, None);
+    assert_eq!(item(&r, "tiny.png").junk, Some(JunkReason::TinyImage));
+    assert_eq!(item(&r, "save.png").junk, Some(JunkReason::AppIcons));
+    assert_eq!(item(&r, "A1B2C3").junk, Some(JunkReason::BrowserCache));
+    assert_eq!(item(&r, "wall.png").junk, Some(JunkReason::GameTextures));
+}
+
+#[test]
+fn a_photo_whose_size_cannot_be_read_is_kept() {
+    let t = Tree::new();
+    t.add("Family/odd.jpg", &plain_jpeg(9));
+    let r = t.scan();
+    let odd = item(&r, "odd.jpg");
+    assert_eq!((odd.width, odd.junk), (None, None));
+}
+
+#[test]
+fn apple_photos_library_gives_originals_only() {
+    let t = Tree::new();
+    let lib = "Pictures/Photos Library.photoslibrary";
+    t.add(
+        &format!("{lib}/originals/A/A1B2.jpeg"),
+        &jpeg_with_exif("2019:06:01 10:00:00"),
+    );
+    t.add(&format!("{lib}/originals/3/3C4D.jpeg"), &plain_jpeg(2));
+    t.add(
+        &format!("{lib}/resources/derivatives/A/A1B2_1_105_c.jpeg"),
+        &plain_jpeg(3),
+    );
+    t.add(
+        &format!("{lib}/resources/derivatives/masters/A/A1B2_4_5005_c.jpeg"),
+        &plain_jpeg(4),
+    );
+    t.add(
+        &format!("{lib}/private/com.apple.photoanalysisd/caches/face.jpg"),
+        &plain_jpeg(5),
+    );
+    t.add(&format!("{lib}/database/Photos.sqlite"), b"SQLite format 3\0");
+    let r = t.scan();
+
+    let mut names: Vec<_> = r.items.iter().map(|i| i.path.file_name().unwrap().to_owned()).collect();
+    names.sort();
+    assert_eq!(names, ["3C4D.jpeg", "A1B2.jpeg"]);
+    // The library's own storage folders are not album names.
+    assert!(r.items.iter().all(|i| i.folder.album.is_empty()), "{:?}", r.items);
+    // Its insides are not reported as skipped folders either.
+    assert!(r.skipped.is_empty());
+}
+
+#[test]
+fn old_iphoto_library_keeps_event_names() {
+    let t = Tree::new();
+    t.add(
+        "iPhoto Library/Originals/2008/Cornwall Trip/IMG_0001.JPG",
+        &plain_jpeg(1),
+    );
+    t.add(
+        "iPhoto Library/Masters/2011/03/04/20110304-123456/IMG_0002.JPG",
+        &plain_jpeg(2),
+    );
+    t.add("iPhoto Library/Data/2008/Cornwall Trip/IMG_0001.jpg", &plain_jpeg(3));
+    t.add(
+        "iPhoto Library/Modified/2008/Cornwall Trip/IMG_0001.JPG",
+        &plain_jpeg(4),
+    );
+    let r = t.scan();
+    assert_eq!(r.items.len(), 2);
+    assert_eq!(item(&r, "IMG_0001.JPG").folder.album, ["Cornwall Trip"]);
+    assert_eq!(item(&r, "IMG_0001.JPG").folder.date.unwrap().to_string(), "2008");
+    assert!(item(&r, "IMG_0002.JPG").folder.album.is_empty());
+}
+
+#[test]
+fn scanning_a_library_directly_works_too() {
+    let t = Tree::new();
+    t.add("Old.photoslibrary/Masters/2014/05/06/IMG_1.JPG", &plain_jpeg(1));
+    t.add("Old.photoslibrary/Thumbnails/2014/05/06/IMG_1.jpg", &plain_jpeg(2));
+    let root = t.root().join("Old.photoslibrary");
+    let r = scan(&root, &ScanOptions::default(), &mut |_| {});
+    assert_eq!(r.items.len(), 1);
+    assert!(r.items[0].path.ends_with("Masters/2014/05/06/IMG_1.JPG"));
+}

@@ -32,12 +32,37 @@ Skipped 2 folders (system, app and hidden).
 
 Add `--json` for the full details, or `--no-hash` for a quicker first look without duplicate checking.
 
+Pictures that are clearly not memories (app icons, game artwork, web page leftovers, anything under 300 px) are listed separately with the reason, and left out of the collections. Nothing is ever hidden without saying so.
+
+### Remembering a drive
+
+A scan of a big old disk can take a while, so you can ask Keevoro to remember it. Give it a library folder and a friendly name:
+
+```sh
+cargo run --release -p keevoro-cli -- scan "E:\" --library "D:\Keevoro Library" --name "Dad's old Dell"
+```
+
+After that the drive can go back in the drawer. These work without it plugged in:
+
+```sh
+cargo run --release -p keevoro-cli -- collections --library "D:\Keevoro Library"
+```
+
+```sh
+cargo run --release -p keevoro-cli -- sources --library "D:\Keevoro Library"
+```
+
+Scan a second drive into the same library and `collections` shows everything together, with copies that exist on both drives counted once. Scanning the same drive again replaces what was known about it rather than adding to it.
+
+What Keevoro remembers lives in one file, `.keevoro/catalog.sqlite`, inside the library folder. It is only working notes: it is safe to delete, and scanning again rebuilds it. Your old drives are never written to.
+
 ## How it is organised
 
 | Crate | What it does |
 | --- | --- |
-| `keevoro-core` | The rules: what counts as a photo, how dates and album names are worked out, what to skip, how collections are formed. No file access. |
+| `keevoro-core` | The rules: what counts as a photo, how dates and album names are worked out, what to skip, what looks like junk, how collections are formed. No file access. |
 | `keevoro-scan` | Looks through a drive or folder. Read-only. |
+| `keevoro-catalog` | Remembers what was found on each drive and what you chose to keep, in a small SQLite file inside the library. |
 | `keevoro-storage` | The plug-in interface every storage provider implements, and the tests they must all pass. |
 | `keevoro-storage-folder` | Stores the library on a local disk, external drive or NAS. |
 | `keevoro-cli` | The `keevoro` command. |

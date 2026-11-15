@@ -13,6 +13,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+keevoro-catalog.workspace = true
 keevoro-core.workspace = true
 keevoro-scan.workspace = true
 serde.workspace = true

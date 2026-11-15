@@ -112,6 +112,61 @@ impl PartialDate {
     }
 }
 
+impl PartialDate {
+    /// Reads back the text form written by `Display` (`2009`, `2009-07`,
+    /// `2009-07-14` or `2009-07-14T21:03:11`). Used by the catalog.
+    pub fn parse(s: &str) -> Option<Self> {
+        let (date, time) = match s.split_once('T') {
+            Some((d, t)) => (d, Some(t)),
+            None => (s, None),
+        };
+        let mut parts = date.split('-');
+        let year: u16 = parts.next()?.parse().ok()?;
+        let month: Option<u8> = parts.next().map(str::parse).transpose().ok()?;
+        let day: Option<u8> = parts.next().map(str::parse).transpose().ok()?;
+        if parts.next().is_some() || !(1..=12).contains(&month.unwrap_or(1)) {
+            return None;
+        }
+        if let (Some(m), Some(d)) = (month, day) {
+            if !(1..=days_in_month(year, m)).contains(&d) {
+                return None;
+            }
+        }
+        let mut out = Self {
+            year,
+            month,
+            day,
+            time: None,
+        };
+        if let Some(t) = time {
+            let mut hms = t.split(':').map(str::parse::<u8>);
+            let (h, m, sec) = (hms.next()?.ok()?, hms.next()?.ok()?, hms.next()?.ok()?);
+            out = out.with_time(h, m, sec);
+            out.time?;
+        }
+        Some(out)
+    }
+}
+
+impl DateSource {
+    /// The stable name stored in the catalog and the index.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Exif => "exif",
+            Self::Video => "video",
+            Self::Filename => "filename",
+            Self::Folder => "folder",
+            Self::Modified => "modified",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        [Self::Exif, Self::Video, Self::Filename, Self::Folder, Self::Modified]
+            .into_iter()
+            .find(|d| d.as_str() == s)
+    }
+}
+
 impl fmt::Display for PartialDate {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:04}", self.year)?;
@@ -491,5 +546,37 @@ mod tests {
         ];
         assert_eq!(best_date(&guesses).unwrap().source, DateSource::Exif);
         assert_eq!(best_date(&[]), None);
+    }
+
+    #[test]
+    fn text_form_round_trips() {
+        for text in ["2009", "2009-07", "2009-07-14", "2009-07-14T21:03:11", "1936-05-02"] {
+            assert_eq!(PartialDate::parse(text).unwrap().to_string(), text);
+        }
+        for bad in [
+            "",
+            "2009-13",
+            "2009-02-30",
+            "2009-07-14T25:00:00",
+            "2009-07-14T10:00",
+            "2009-07-14-01",
+            "x",
+        ] {
+            assert_eq!(PartialDate::parse(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn date_sources_round_trip() {
+        for s in [
+            DateSource::Exif,
+            DateSource::Video,
+            DateSource::Filename,
+            DateSource::Folder,
+            DateSource::Modified,
+        ] {
+            assert_eq!(DateSource::parse(s.as_str()), Some(s));
+        }
+        assert_eq!(DateSource::parse("mtime"), None);
     }
 }

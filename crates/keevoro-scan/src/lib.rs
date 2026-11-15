@@ -10,13 +10,16 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
+mod video;
+
 use keevoro_core::{
-    best_date, date_from_filename, folder_hints, kind_from_extension, kind_from_mime, DateGuess, DateSource,
-    FolderHints, MediaKind, PartialDate, SkipReason, SkipRules,
+    best_date, date_from_filename, folder_hints, holds_originals, junk_hint, kind_from_extension, kind_from_mime,
+    library_album_segments, photo_library, DateGuess, DateSource, FolderHints, JunkInput, JunkReason, MediaKind,
+    PartialDate, SkipReason, SkipRules,
 };
 use serde::Serialize;
 use std::fs::File;
-use std::io::{BufReader, Read};
+use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 use walkdir::WalkDir;
@@ -53,6 +56,12 @@ pub struct FoundItem {
     pub blake3: Option<String>,
     pub date: Option<DateGuess>,
     pub folder: FolderHints,
+    /// Pixel size of a photo, when it could be read from the file header.
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    /// Set when the file is probably not a memory (an app icon, a web page
+    /// leftover). It is still listed, just left unticked.
+    pub junk: Option<JunkReason>,
 }
 
 impl FoundItem {
@@ -116,6 +125,12 @@ pub fn scan(root: &Path, opts: &ScanOptions, on_progress: &mut dyn FnMut(&ScanPr
         };
         let name = entry.file_name().to_string_lossy();
         if entry.file_type().is_dir() {
+            if inside_library_package(entry.path()) && !holds_originals(&name) {
+                // Thumbnails, previews and databases: copies of what is in
+                // the originals folder, so not worth reporting as skipped.
+                walk.skip_current_dir();
+                continue;
+            }
             if entry.depth() > 0 {
                 if let Some(reason) = opts.skip.skip_folder(&name) {
                     report.skipped.push(SkippedFolder {
@@ -190,15 +205,32 @@ fn examine(root: &Path, path: &Path, opts: &ScanOptions) -> std::io::Result<Opti
                 .collect()
         })
         .unwrap_or_default();
-    let folder = folder_hints(&rel_dirs);
+    let folder = match rel_dirs.iter().position(|d| photo_library(d).is_some()) {
+        // Inside a Photos or iPhoto library only the folders below the
+        // originals folder can be names the user chose.
+        Some(lib) => folder_hints(&library_album_segments(rel_dirs.get(lib + 2..).unwrap_or_default())),
+        None => folder_hints(&rel_dirs),
+    };
 
     let mut guesses = Vec::new();
-    if kind == MediaKind::Photo {
-        if let Some(d) = exif_date(path) {
-            guesses.push(DateGuess {
-                date: d,
-                source: DateSource::Exif,
-            });
+    let mut size = None;
+    match kind {
+        MediaKind::Photo => {
+            if let Some(d) = exif_date(path) {
+                guesses.push(DateGuess {
+                    date: d,
+                    source: DateSource::Exif,
+                });
+            }
+            size = pixel_size(&mut file);
+        }
+        MediaKind::Video => {
+            if let Some(d) = video::recording_date(&mut file) {
+                guesses.push(DateGuess {
+                    date: d,
+                    source: DateSource::Video,
+                });
+            }
         }
     }
     let file_name = path
@@ -237,8 +269,30 @@ fn examine(root: &Path, path: &Path, opts: &ScanOptions) -> std::io::Result<Opti
         bytes: meta.len(),
         blake3,
         date: best_date(&guesses),
+        junk: junk_hint(&JunkInput {
+            kind,
+            size,
+            folders: &rel_dirs,
+            file_name: &file_name,
+        }),
         folder,
+        width: size.map(|s| s.0),
+        height: size.map(|s| s.1),
     }))
+}
+
+/// True when `dir` sits directly inside a Photos, iPhoto or Aperture library.
+fn inside_library_package(dir: &Path) -> bool {
+    dir.parent()
+        .and_then(Path::file_name)
+        .is_some_and(|n| photo_library(&n.to_string_lossy()).is_some())
+}
+
+/// Reads a photo's pixel size from its header without decoding the picture.
+fn pixel_size(file: &mut File) -> Option<(u32, u32)> {
+    file.seek(SeekFrom::Start(0)).ok()?;
+    let size = imagesize::reader_size(BufReader::new(file)).ok()?;
+    Some((u32::try_from(size.width).ok()?, u32::try_from(size.height).ok()?))
 }
 
 fn read_up_to(r: &mut impl Read, buf: &mut [u8]) -> std::io::Result<usize> {

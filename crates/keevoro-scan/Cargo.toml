@@ -8,6 +8,7 @@ license.workspace = true
 
 [dependencies]
 blake3.workspace = true
+imagesize.workspace = true
 infer.workspace = true
 kamadak-exif.workspace = true
 keevoro-core.workspace = true

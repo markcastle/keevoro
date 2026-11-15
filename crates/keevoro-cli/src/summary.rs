@@ -1,7 +1,7 @@
 //! Turns scan reports into the plain-English summary the CLI prints.
 //! The desktop app will show the same facts as its Discover screen.
 
-use keevoro_core::{group_into_collections, Collection, CollectionInput, DateSource, MediaKind};
+use keevoro_core::{group_into_collections, Collection, CollectionInput, DateSource, JunkReason, MediaKind};
 use keevoro_scan::{FoundItem, ScanReport};
 use serde::Serialize;
 use std::collections::{BTreeMap, HashSet};
@@ -15,6 +15,9 @@ pub struct Summary {
     pub bytes: u64,
     /// `None` when hashing was off, so duplicates are unknown.
     pub duplicates: Option<Duplicates>,
+    /// Pictures left out because they do not look like memories, by reason.
+    /// They are not counted in `photos` or shown in any collection.
+    pub junk: BTreeMap<JunkReason, usize>,
     pub dates: BTreeMap<DateSource, usize>,
     pub undated: usize,
     pub skipped_folders: usize,
@@ -49,8 +52,18 @@ pub fn unique_items(reports: &[ScanReport]) -> (Vec<&FoundItem>, Option<Duplicat
     (unique, Some(dup))
 }
 
+/// Sums up what was found. The items returned are the ones worth keeping
+/// (unique and not junk); collection `members` and `cover` index into them.
 pub fn summarise(reports: &[ScanReport]) -> (Summary, Vec<&FoundItem>) {
-    let (unique, duplicates) = unique_items(reports);
+    let (all_unique, duplicates) = unique_items(reports);
+    let mut junk = BTreeMap::new();
+    let mut unique = Vec::new();
+    for i in all_unique {
+        match i.junk {
+            Some(reason) => *junk.entry(reason).or_insert(0) += 1,
+            None => unique.push(i),
+        }
+    }
     let mut dates = BTreeMap::new();
     let mut undated = 0;
     for i in &unique {
@@ -74,6 +87,7 @@ pub fn summarise(reports: &[ScanReport]) -> (Summary, Vec<&FoundItem>) {
         videos: unique.iter().filter(|i| i.kind == MediaKind::Video).count(),
         bytes: unique.iter().map(|i| i.bytes).sum(),
         duplicates,
+        junk,
         dates,
         undated,
         skipped_folders: reports.iter().map(|r| r.skipped.len()).sum(),
@@ -87,6 +101,7 @@ pub fn render(s: &Summary, max_collections: usize) -> String {
     let mut out = String::new();
     if s.photos + s.videos == 0 {
         out.push_str("No photos or videos found.\n");
+        render_junk(&mut out, s);
         render_footer(&mut out, s);
         return out;
     }
@@ -109,6 +124,7 @@ pub fn render(s: &Summary, max_collections: usize) -> String {
         Some(_) => out.push_str("No duplicates.\n"),
         None => out.push_str("Duplicates not checked (hashing was off).\n"),
     }
+    render_junk(&mut out, s);
 
     out.push_str("\nCollections\n");
     let width = s
@@ -148,6 +164,23 @@ pub fn render(s: &Summary, max_collections: usize) -> String {
     let _ = writeln!(out, "Dates: {}.", clues.join(", "));
     render_footer(&mut out, s);
     out
+}
+
+/// Junk is never hidden: the user is told what was left out and why.
+fn render_junk(out: &mut String, s: &Summary) {
+    let total: usize = s.junk.values().sum();
+    if total == 0 {
+        return;
+    }
+    let _ = writeln!(
+        out,
+        "Left out {} that {} look like memories:",
+        count(total, "picture"),
+        if total == 1 { "doesn't" } else { "don't" }
+    );
+    for (reason, n) in &s.junk {
+        let _ = writeln!(out, "  {}  {}", thousands(*n), reason.describe());
+    }
 }
 
 fn render_footer(out: &mut String, s: &Summary) {
@@ -231,6 +264,9 @@ mod tests {
                 album: album.iter().map(|s| (*s).to_string()).collect(),
                 date: None,
             },
+            width: None,
+            height: None,
+            junk: None,
         }
     }
 
@@ -323,6 +359,56 @@ mod tests {
         assert!(text.contains("December 2011  1 photo"), "{text}");
         assert!(text.contains("Dates: 2 from camera data, 1 from file names."), "{text}");
         assert!(!text.contains("Skipped"));
+    }
+
+    #[test]
+    fn junk_is_left_out_but_never_hidden() {
+        let mut icon = found("save.png", Some("cc"), &["App"], None, MediaKind::Photo);
+        icon.junk = Some(JunkReason::AppIcons);
+        let mut tiny = found("t.jpg", Some("dd"), &["Cornwall"], aug(3), MediaKind::Photo);
+        tiny.junk = Some(JunkReason::TinyImage);
+        let mut tiny_copy = tiny.clone();
+        tiny_copy.path = "t copy.jpg".into();
+        let r = [ScanReport {
+            items: vec![
+                found("1.jpg", Some("aa"), &["Cornwall"], aug(1), MediaKind::Photo),
+                icon,
+                tiny,
+                tiny_copy,
+            ],
+            ..Default::default()
+        }];
+        let (s, kept) = summarise(&r);
+        assert_eq!((s.photos, kept.len()), (1, 1));
+        assert_eq!(s.collections.len(), 1, "no collection is made of junk alone");
+        assert_eq!(s.collections[0].photos, 1);
+        assert_eq!(
+            s.junk.get(&JunkReason::TinyImage),
+            Some(&1),
+            "a duplicate of junk is counted once"
+        );
+        let text = render(&s, 10);
+        assert!(
+            text.contains(
+                "Left out 2 pictures that don't look like memories:\n  1  Looks like app icons\n  1  Tiny images (under 300 px)\n"
+            ),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn a_drive_of_nothing_but_junk_still_explains_itself() {
+        let mut icon = found("save.png", Some("cc"), &[], None, MediaKind::Photo);
+        icon.junk = Some(JunkReason::AppIcons);
+        let r = [ScanReport {
+            items: vec![icon],
+            ..Default::default()
+        }];
+        let text = render(&summarise(&r).0, 10);
+        assert!(
+            text.starts_with("No photos or videos found.\nLeft out 1 picture that doesn't look like memories:"),
+            "{text}"
+        );
     }
 
     #[test]

@@ -10,6 +10,7 @@ license = "UNLICENSED"
 repository = "https://github.com/markcastle/keevoro"
 
 [workspace.dependencies]
+keevoro-catalog = { path = "crates/keevoro-catalog" }
 keevoro-core = { path = "crates/keevoro-core" }
 keevoro-scan = { path = "crates/keevoro-scan" }
 keevoro-storage = { path = "crates/keevoro-storage" }
@@ -20,9 +21,11 @@ async-trait = "0.1"
 blake3 = "1"
 clap = { version = "4", features = ["derive"] }
 futures = "0.3"
+imagesize = "0.14"
 infer = "0.19"
 kamadak-exif = "0.6"
 regex = "1"
+rusqlite = { version = "0.43", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tempfile = "3"
