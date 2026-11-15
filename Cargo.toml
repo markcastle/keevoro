@@ -20,6 +20,7 @@ keevoro-scan = { path = "crates/keevoro-scan" }
 keevoro-storage = { path = "crates/keevoro-storage" }
 keevoro-storage-folder = { path = "crates/keevoro-storage-folder" }
 keevoro-storage-s3 = { path = "crates/keevoro-storage-s3" }
+keevoro-update = { path = "crates/keevoro-update" }
 
 anyhow = "1"
 async-trait = "0.1"
@@ -36,11 +37,14 @@ kamadak-exif = "0.6"
 regex = "1"
 schemars = "1"
 rusqlite = { version = "0.43", features = ["bundled"] }
+self-replace = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.11"
 tempfile = "3"
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "io-util"] }
+ureq = "3"
 walkdir = "2"
 webp = { version = "0.3", default-features = false }
 

@@ -74,6 +74,8 @@ A Rust workspace of small crates. The core has no I/O, and storage sits behind n
 | `keevoro-storage` | Built | Storage traits, errors, keys, and the shared conformance suite. |
 | `keevoro-storage-folder` | Built | Local folder, external drive or NAS target. Reference provider. |
 | `keevoro-cli` | Built | `keevoro scan`, `collections`, `sources`, `keep`, `skip`, `gather` and `publish`: the engine without a UI. |
+| `keevoro-update` | Built | `keevoro update`: finds the latest GitHub release, checks the download against its checksum file and swaps the program (`ureq`, `sha2`, `self-replace`). |
+| `xtask` | Built | Release tooling: changelog rules, version choice, release cut. Run with `cargo xtask`. |
 | `keevoro-catalog` | Built | SQLite catalog (`rusqlite`, bundled): sources, what was found, keep choices. The job queue arrives with `keevoro-collect`. |
 | `keevoro-collect` | Built | Copy and verify into the library (`fs4` for the free-space check). Renditions and conversion are separate, in `keevoro-media`. |
 | `keevoro-media` | Part built | Thumbnails and display copies as WebP (`image`, `webp`), blurhash, rotation baked in, no metadata carried over. Video posters and MP4 conversion to come. |

@@ -1,0 +1,4 @@
+# `cargo xtask <command>` runs the project's own tooling (crates/xtask):
+# the changelog and the release cut. See docs/developing.md.
+[alias]
+xtask = "run --quiet -p xtask --"

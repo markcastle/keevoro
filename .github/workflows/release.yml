@@ -1,0 +1,319 @@
+name: Release
+
+# Two ways in.
+#
+# The button: Actions → Release → Run workflow, press Run. Leave the version
+# blank and the changelog decides it: a minor release if anything is listed
+# as Added or Removed under Unreleased, otherwise a patch. Type one to choose
+# yourself. This workflow then dates the changelog, sets the version,
+# commits, tags, builds Keevoro for Windows, macOS and Linux and publishes
+# the GitHub Release. Only people with write access to the repository can
+# press it. Tick "Rehearse" to see what it would do without pushing, building
+# or publishing anything.
+#
+# The terminal: cargo xtask release and a tag push, which lands here at the
+# build step with the commit and tag already made.
+#
+# The Roll back workflow calls this one for the roll-forward release.
+#
+# The build runs in this same workflow rather than off the tag push, because
+# a tag pushed with the workflow's own token does not start other workflows.
+#
+# The release itself is created as a draft before the builds start and
+# published after every build and the checksum file are on it. Two reasons.
+# "latest" never points at a release with nothing to download, so the
+# installers and `keevoro update` can never fetch half a release. And the
+# workflow token may only create a release for a commit that matches the
+# head of main in its workflow files, so the release is created the moment
+# the tag is fresh, not fifteen minutes later when main may have moved on.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Leave blank and the changelog decides: minor if anything was Added, otherwise a patch. Or type a version, such as 0.3.0, to choose yourself.'
+        required: false
+        type: string
+      dry_run:
+        description: 'Rehearse: do everything except push, build and publish'
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+      skip_ci_check:
+        description: 'The tree on main was released before, so CI need not have run on this commit'
+        type: boolean
+        default: false
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+# One release at a time, and never cancel one that has started.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  prepare:
+    name: Prepare ${{ inputs.version || (github.event_name == 'push' && github.ref_name) || 'the next version' }}
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Decide the version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            # A tag someone pushed by hand: the commit is already cut.
+            version="${GITHUB_REF_NAME#v}"
+            manifest=$(cargo xtask version)
+            if [ "$version" != "$manifest" ]; then
+              echo "::error::Tag v$version does not match the version in Cargo.toml ($manifest). Run: cargo xtask release $version"
+              exit 1
+            fi
+            echo "cut=false" >> "$GITHUB_OUTPUT"
+          else
+            highest=$(git tag -l 'v*' | sed 's/^v//' | sort -V | tail -1)
+            version="$INPUT_VERSION"
+            why="as asked"
+            if [ -z "$version" ]; then
+              # Nobody chose, so the changelog does. The reason comes back on
+              # stderr and the number on stdout.
+              if ! version=$(cargo xtask changelog next "${highest:-0.0.0}" 2> "$RUNNER_TEMP/reason.txt"); then
+                echo "::error::$(tail -1 "$RUNNER_TEMP/reason.txt")"
+                exit 1
+              fi
+              why=$(tail -1 "$RUNNER_TEMP/reason.txt" | sed -E 's/^After [^ ]+ comes [^:]+: //; s/\.$//')
+            fi
+            if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::\"$version\" is not a version. Use major.minor.patch, such as 0.3.0."
+              exit 1
+            fi
+            if [ "$GITHUB_REF" != "refs/heads/main" ] && [ "$DRY_RUN" != "true" ]; then
+              echo "::error::Releases are cut from main, not from $GITHUB_REF_NAME. Pick main under \"Use workflow from\"."
+              exit 1
+            fi
+            if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+              echo "::error::v$version already exists."
+              exit 1
+            fi
+            if [ -n "$highest" ] && [ "$(printf '%s\n%s\n' "$highest" "$version" | sort -V | tail -1)" != "$version" ]; then
+              echo "::error::$version is not higher than $highest. Installed copies only ever move to a higher version, so a release must go up."
+              exit 1
+            fi
+            echo "cut=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Releasing Keevoro $version${why:+ ($why)}"
+          # On the run's own page, so the number is there to read without opening a log.
+          echo "### Keevoro $version${why:+: $why}" >> "$GITHUB_STEP_SUMMARY"
+
+      # The commit being released must have passed CI. A rehearsal skips this
+      # so it can run from any branch; a roll back skips it because the tree
+      # it releases was released before.
+      - name: CI must be green on this commit
+        if: steps.version.outputs.cut == 'true' && !inputs.dry_run && !inputs.skip_ci_check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          state=$(gh run list --workflow ci.yml --commit "$GITHUB_SHA" --limit 1 --json status,conclusion --jq '.[0] | "\(.status) \(.conclusion)"')
+          case "$state" in
+            "completed success") echo "CI passed on ${GITHUB_SHA:0:7}." ;;
+            "") echo "::error::CI has not run on ${GITHUB_SHA:0:7}. Push a commit to main and wait for CI before releasing."; exit 1 ;;
+            "completed "*) echo "::error::CI did not pass on ${GITHUB_SHA:0:7} (${state#completed }). Fix main first."; exit 1 ;;
+            *) echo "::error::CI is still running on ${GITHUB_SHA:0:7} ($state). Wait for it, then press Run again."; exit 1 ;;
+          esac
+
+      # The same command a person runs in the terminal, so the two routes
+      # cannot drift: it dates the changelog, sets the version, commits and
+      # tags. It refuses an empty changelog.
+      - name: Cut the release
+        if: steps.version.outputs.cut == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Building the tooling above must not count as an uncommitted change.
+          git checkout -- Cargo.lock
+          cargo xtask release "${{ steps.version.outputs.version }}"
+          echo
+          git show --stat --format='%h %s' HEAD
+
+      - name: Push the commit and the tag
+        if: steps.version.outputs.cut == 'true' && !inputs.dry_run
+        run: |
+          git push origin HEAD:main
+          git push origin "v${{ steps.version.outputs.version }}"
+
+      - name: Rehearsal only
+        if: inputs.dry_run
+        run: |
+          echo "Rehearsal: nothing was pushed, built or published."
+          echo "A real run would push the commit above and the tag v${{ steps.version.outputs.version }}, then build and publish."
+
+      # The version's section of CHANGELOG.md is the release body. It is what
+      # `keevoro update` links to as "What's new", so it is written for the
+      # person using Keevoro. A hand-pushed tag with no section falls back to
+      # the commit headlines since the previous release.
+      - name: Write the release notes
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          notes=$(cargo xtask changelog section "$version")
+          if [ -z "$notes" ]; then
+            echo "CHANGELOG.md has no section for $version; using the commit headlines instead."
+            previous=$(git describe --tags --abbrev=0 "v$version^" 2>/dev/null || true)
+            if [ -n "$previous" ]; then range="$previous..v$version"; else range="v$version"; fi
+            notes=$(git log "$range" --no-merges --pretty=format:'- %s' | grep -v -- '- Release v' | grep -v -i -- '- Merge ' || true)
+          fi
+          if [ -z "$notes" ]; then notes="- Small fixes and improvements."; fi
+          notes="$notes
+
+          Every version's notes are in [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md). Already have Keevoro? Run \`keevoro update\`. New here? The one-line install is in the [README](https://github.com/${{ github.repository }}#install)."
+          printf '%s\n' "$notes" | sed 's/^          //' > "$RUNNER_TEMP/release-notes.md"
+          cat "$RUNNER_TEMP/release-notes.md"
+
+      # A draft, so nothing sees it until the builds are on it. The build
+      # jobs upload to it by tag; the publish job opens it.
+      - name: Create the release as a draft
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          if gh release view "v$version" --json isDraft >/dev/null 2>&1; then
+            echo "Release v$version already exists; the builds will upload to it."
+            exit 0
+          fi
+          if ! gh release create "v$version" --draft --verify-tag --title "Keevoro v$version" --notes-file "$RUNNER_TEMP/release-notes.md"; then
+            echo "::error::GitHub refused to create the release. This happens when main has moved on with workflow changes since the tag was made. Create it by hand from a checkout: gh release create v$version --draft --title \"Keevoro v$version\" --notes-file <(cargo xtask changelog section $version) and then re-run the failed jobs."
+            exit 1
+          fi
+          echo "Created draft release v$version."
+
+  build:
+    name: Build (${{ matrix.name }})
+    needs: prepare
+    if: ${{ !inputs.dry_run }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            os: windows-latest
+            asset: keevoro-windows-x64.exe
+          - name: macOS universal
+            os: macos-latest
+            asset: keevoro-macos-universal
+          # An older Ubuntu on purpose: a program built here runs on newer
+          # systems, but not the other way round.
+          - name: Linux x64
+            os: ubuntu-22.04
+            asset: keevoro-linux-x64
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/v${{ needs.prepare.outputs.version }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        env:
+          # Build the C runtime in, so the program runs on a PC that has
+          # never had Visual Studio's redistributable installed.
+          RUSTFLAGS: -C target-feature=+crt-static
+        run: |
+          cargo build --release --locked -p keevoro-cli
+          cp target/release/keevoro.exe "${{ matrix.asset }}"
+
+      - name: Build (macOS, Apple silicon and Intel in one file)
+        if: runner.os == 'macOS'
+        run: |
+          cargo build --release --locked -p keevoro-cli --target aarch64-apple-darwin
+          cargo build --release --locked -p keevoro-cli --target x86_64-apple-darwin
+          lipo -create -output "${{ matrix.asset }}" \
+            target/aarch64-apple-darwin/release/keevoro \
+            target/x86_64-apple-darwin/release/keevoro
+          # Apple silicon refuses to run a program with no signature at all.
+          # This is the free "ad-hoc" kind; a Developer ID replaces it later.
+          codesign --force --sign - "${{ matrix.asset }}"
+          lipo -info "${{ matrix.asset }}"
+
+      - name: Build (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cargo build --release --locked -p keevoro-cli
+          cp target/release/keevoro "${{ matrix.asset }}"
+
+      # The file about to be published must run, and must say it is the
+      # version being released.
+      - name: Check the build says the right version
+        run: |
+          chmod +x "${{ matrix.asset }}"
+          said=$("./${{ matrix.asset }}" --version)
+          echo "$said"
+          if [ "$said" != "keevoro ${{ needs.prepare.outputs.version }}" ]; then
+            echo "::error::Expected \"keevoro ${{ needs.prepare.outputs.version }}\" but the build says \"$said\"."
+            exit 1
+          fi
+
+      - name: Upload to the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "v${{ needs.prepare.outputs.version }}" "${{ matrix.asset }}" --clobber
+
+  publish:
+    name: Publish
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add checksums and open the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          version="${{ needs.prepare.outputs.version }}"
+          mkdir assets && cd assets
+          gh release download "v$version" --pattern 'keevoro-*'
+          for needed in keevoro-windows-x64.exe keevoro-macos-universal keevoro-linux-x64; do
+            if [ ! -s "$needed" ]; then
+              echo "::error::v$version has no $needed on it, so it stays a draft. Check the build jobs."
+              exit 1
+            fi
+          done
+          # The installers and `keevoro update` refuse a download that does
+          # not match this file, so it goes up before the release is opened.
+          sha256sum keevoro-* > SHA256SUMS
+          cat SHA256SUMS
+          gh release upload "v$version" SHA256SUMS --clobber
+          if ! gh release edit "v$version" --draft=false --latest; then
+            echo "::error::Every build is on the draft but GitHub refused to publish it. Open https://github.com/${GH_REPO}/releases and press Publish release on v$version."
+            exit 1
+          fi
+          echo "Keevoro v$version is published: https://github.com/${GH_REPO}/releases/tag/v$version"
+          echo "### Published: https://github.com/${GH_REPO}/releases/tag/v$version" >> "$GITHUB_STEP_SUMMARY"

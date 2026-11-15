@@ -6,9 +6,43 @@ Keevoro looks through old laptops, USB sticks and backup disks, finds your photo
 
 It is in early development. The engine and a command-line tool work today, from scanning a drive through to a verified backup on another disk; the desktop app for Windows and macOS comes next.
 
-## Try the engine
+## Install
 
-You need [Rust](https://rustup.rs) 1.82 or newer.
+One line installs Keevoro, and running it again updates it. Nothing needs an administrator password.
+
+The repository is private for now, so first make a token that can read it (GitHub, Settings, Developer settings, Fine-grained tokens: this repository only, **Contents: Read-only**) and put it in `GITHUB_TOKEN`.
+
+**Windows** (PowerShell):
+
+```powershell
+irm https://api.github.com/repos/markcastle/keevoro/contents/install.ps1 -Headers @{ Authorization = "Bearer $env:GITHUB_TOKEN"; Accept = 'application/vnd.github.raw' } | iex
+```
+
+**macOS and Linux:**
+
+```sh
+curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github.raw" https://api.github.com/repos/markcastle/keevoro/contents/install.sh | sh
+```
+
+Then:
+
+```sh
+keevoro --help
+```
+
+To move to the newest version later:
+
+```sh
+keevoro update
+```
+
+`keevoro update --check` only tells you whether there is one. Every download is checked against the release's checksum before it replaces anything. What changed in each version is in [CHANGELOG.md](CHANGELOG.md).
+
+Once the repository is public the token is not needed and the lines shorten to `irm https://raw.githubusercontent.com/markcastle/keevoro/main/install.ps1 | iex` and `curl -fsSL https://raw.githubusercontent.com/markcastle/keevoro/main/install.sh | sh`.
+
+## Try the engine from source
+
+You need [Rust](https://rustup.rs) 1.82 or newer. The examples below use `cargo run`; with Keevoro installed, replace `cargo run --release -p keevoro-cli --` with `keevoro`.
 
 ```sh
 cargo run --release -p keevoro-cli -- scan "D:\" "E:\Old Laptop Backup"
@@ -142,11 +176,13 @@ What Keevoro remembers lives in one file, `.keevoro/catalog.sqlite`, inside the 
 | `keevoro-storage` | The plug-in interface every storage provider implements, and the tests they must all pass. |
 | `keevoro-storage-folder` | Stores the library on a local disk, external drive or NAS. |
 | `keevoro-storage-s3` | Stores it in Cloudflare R2, Amazon S3 or anything else that speaks S3. |
+| `keevoro-update` | Finds, checks and installs a newer version. |
 | `keevoro-cli` | The `keevoro` command. |
+| `xtask` | The project's own tooling: the changelog and cutting a release. |
 
 ## Contributing
 
-Read [PLANNING.md](PLANNING.md) for the design, [TASKS.md](TASKS.md) for what is next, and [AI_AGENT_PROMPT.md](AI_AGENT_PROMPT.md) for the rules every change must follow. Before opening a pull request:
+Read [docs/developing.md](docs/developing.md) for building, testing and cutting a release, [PLANNING.md](PLANNING.md) for the design, [TASKS.md](TASKS.md) for what is next, and [AI_AGENT_PROMPT.md](AI_AGENT_PROMPT.md) for the rules every change must follow. Before opening a pull request:
 
 ```sh
 cargo fmt --all

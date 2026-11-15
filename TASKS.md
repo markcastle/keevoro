@@ -64,6 +64,20 @@ Done when the CLI can publish the current gallery's photos to R2 and the existin
 - [ ] "Change my private link": write the index under a new name and remove the old one
 - [ ] Secrets in the OS keychain via `keyring`
 
+## Releases and installing
+
+Modelled on Task Rail's. See [docs/developing.md](docs/developing.md#cutting-a-release).
+
+- [x] `CHANGELOG.md` in Keep a Changelog form; the headings decide the next version number
+- [x] `cargo xtask release` cuts a release: dates the changelog, sets the version, commits, tags
+- [x] Release workflow: one button, optional rehearsal, CI must be green, draft first, builds for Windows, macOS (universal) and Linux, checksums, then publish
+- [x] Roll back workflow: withdraw the bad release, restore the good code, release it under a higher number
+- [x] One-line installers (`install.ps1`, `install.sh`) that check the download and need no administrator
+- [x] `keevoro update` and `keevoro update --check`
+- [ ] First real release from the button (the workflows can only run once they are on main)
+- [ ] Windows code signing and Apple notarisation, when certificates exist
+- [ ] A short address for the install lines, if a domain is bought
+
 ## Phase 3: Friendly app (Windows)
 
 Done when a non-technical tester gets from a drive to a backup without help.
