@@ -363,6 +363,14 @@ impl Catalog {
         Ok(())
     }
 
+    /// The content hashes of every file the user has explicitly said to
+    /// keep. Used to bring wrongly set-aside junk back into view.
+    pub fn kept_hashes(&self) -> Result<std::collections::HashSet<String>> {
+        let mut q = self.conn.prepare("SELECT blake3 FROM choices WHERE keep = 1")?;
+        let rows = q.query_map([], |r| r.get::<_, String>(0))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     /// Puts a file back to "not decided yet".
     pub fn clear_choice(&self, blake3: &str) -> Result<()> {
         self.conn.execute("DELETE FROM choices WHERE blake3 = ?1", [blake3])?;

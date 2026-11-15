@@ -4,7 +4,7 @@
 use keevoro_core::{group_into_collections, Collection, CollectionInput, DateSource, JunkReason, MediaKind};
 use keevoro_scan::{FoundItem, ScanReport};
 use serde::Serialize;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write as _;
 
 #[derive(Debug, Serialize)]
@@ -79,13 +79,21 @@ fn how_well_described(item: &FoundItem) -> (bool, std::cmp::Reverse<usize>, bool
 /// Sums up what was found. The items returned are the ones worth keeping
 /// (unique and not junk); collection `members` and `cover` index into them.
 pub fn summarise(reports: &[ScanReport]) -> (Summary, Vec<&FoundItem>) {
+    summarise_with(reports, &HashSet::new())
+}
+
+/// As [`summarise`], but files whose content hash is in `rescued` are
+/// treated as ordinary photos even if they look like junk. That is how a
+/// picture the user has chosen to keep comes back into its collection.
+pub fn summarise_with<'a>(reports: &'a [ScanReport], rescued: &HashSet<String>) -> (Summary, Vec<&'a FoundItem>) {
     let (all_unique, duplicates) = unique_items(reports);
     let mut junk = BTreeMap::new();
     let mut unique = Vec::new();
     for i in all_unique {
+        let was_rescued = i.blake3.as_ref().is_some_and(|h| rescued.contains(h));
         match i.junk {
-            Some(reason) => *junk.entry(reason).or_insert(0) += 1,
-            None => unique.push(i),
+            Some(reason) if !was_rescued => *junk.entry(reason).or_insert(0) += 1,
+            _ => unique.push(i),
         }
     }
     let mut dates = BTreeMap::new();

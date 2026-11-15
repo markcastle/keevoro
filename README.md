@@ -96,6 +96,20 @@ cargo run --release -p keevoro-cli -- skip --library "D:\Keevoro Library" "Stuff
 cargo run --release -p keevoro-cli -- keep --library "D:\Keevoro Library" "Stuff"
 ```
 
+To choose photo by photo, list a collection. Each line starts with a short code:
+
+```sh
+cargo run --release -p keevoro-cli -- photos --library "D:\Keevoro Library" "Cornwall"
+```
+
+```text
+Cornwall (August 2008 · 83 photos · 6 videos)
+  9f2c4be1  IMG_1234.jpg  2008-08-12T10:15:00
+  41aa09cd  IMG_1235.jpg  2008-08-12T10:16:41
+```
+
+Give a code to `skip --photo` or `keep --photo` to leave one out or put it back. `photos --junk` lists the pictures Keevoro set aside as junk, with the reason; `keep --photo` on one of those brings it back into its album. A tiny scan of an old print is small, but it may be the only copy there is.
+
 Then, with the old drive plugged in, gather the keepers into the library:
 
 ```sh

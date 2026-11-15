@@ -45,7 +45,7 @@ Done when the CLI can publish the current gallery's photos to R2 and the existin
 - [x] Library layout that mirrors the user's folders, `By date/` for unnamed files, `Undated/`
 - [x] Space check before copying
 - [x] `keevoro gather`: resumable, reports failures file by file, refuses a library inside a source
-- [ ] Ticking single photos (today choices are per collection) and keeping junk the user wants
+- [x] Ticking single photos (`keevoro photos`, `keep --photo`, `skip --photo`) and keeping junk the user wants (`photos --junk`)
 - [ ] Merge same-named albums from different parents only when the user confirms in the preview tree
 - [x] `keevoro-media`: thumbnails (400 px) and display copies (2048 px) as WebP, named by item id, with blurhash and upright rotation
 - [x] `keevoro gather` makes previews from the library's own copies and remembers which files cannot be previewed

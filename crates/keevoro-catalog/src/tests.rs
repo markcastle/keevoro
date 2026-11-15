@@ -393,3 +393,14 @@ fn remembered_preview_problems_can_be_forgotten_so_they_are_tried_again() {
     assert_eq!(c.video("fine").unwrap(), Some(fine));
     assert_eq!(c.forget_preview_problems().unwrap(), 0);
 }
+
+#[test]
+fn the_files_explicitly_kept_can_be_listed() {
+    let c = Catalog::in_memory().unwrap();
+    c.set_choice("aa", true).unwrap();
+    c.set_choice("bb", false).unwrap();
+    c.set_choice("cc", true).unwrap();
+    let kept = c.kept_hashes().unwrap();
+    assert_eq!(kept.len(), 2);
+    assert!(kept.contains("aa") && kept.contains("cc") && !kept.contains("bb"));
+}
