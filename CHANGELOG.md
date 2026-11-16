@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.6.1] - 2026-11-16
+
 ### Changed
 
 - **The app now shows you where you are and what to do next.** Four steps run across the top (Add a source, Choose what to keep, Gather, Back up) with the one you are on picked out, and Discover always has a bar at the bottom with the next thing to do, such as "Gather my photos". You no longer have to find that button on another screen.
@@ -91,7 +95,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/markcastle/keevoro/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/markcastle/keevoro/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/markcastle/keevoro/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/markcastle/keevoro/compare/v0.3.0...v0.4.0
