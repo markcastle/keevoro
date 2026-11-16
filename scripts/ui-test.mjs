@@ -216,6 +216,18 @@ try {
   await page.getByRole('button', { name: 'Later' }).click()
   assert.equal(await page.locator('.update').count(), 0, 'Later puts the offer away')
 
+  // --- A search does not stop you doing other things, such as removing a source.
+  await page.goto(`${base}/`)
+  await page.getByRole('button', { name: /Find your photos/ }).click()
+  await page.getByRole('button', { name: /KINGSTON/ }).click()
+  await page.locator('.searching').waitFor()
+  const remove = page.getByRole('button', { name: /^Remove / }).first()
+  assert.ok(await remove.isEnabled(), 'Remove works while a search is running')
+  await remove.click()
+  await page.getByRole('button', { name: 'Remove from Keevoro' }).click()
+  await page.locator('.kept li.source').waitFor({ state: 'detached' })
+  assert.ok(await page.locator('.searching').isVisible(), 'and the search carries on')
+
   // --- An existing library opens on the step that still needs doing, in dark mode too.
   await page.emulateMedia({ colorScheme: 'dark' })
   await page.goto(`${base}/?fast`)

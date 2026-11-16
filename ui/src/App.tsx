@@ -666,7 +666,7 @@ function FindScreen(props: {
                     <button onClick={() => setRemoving(null)}>Cancel</button>
                   </span>
                 ) : (
-                  <button className="link" disabled={!!scan} onClick={() => setRemoving(s.id)} aria-label={`Remove ${s.name}`}>
+                  <button className="link" onClick={() => setRemoving(s.id)} aria-label={`Remove ${s.name}`}>
                     Remove
                   </button>
                 )}

@@ -6,7 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **You can remove a source while another is being looked through.** The Remove buttons were greyed out for as long as a search was running.
 
 ## [0.12.2] - 2026-11-16
 
