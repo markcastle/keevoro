@@ -79,6 +79,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::app_state,
             commands::use_library,
+            commands::start_session,
+            commands::switch_session,
+            commands::open_destination,
             commands::discover,
             commands::scan_place,
             commands::places,

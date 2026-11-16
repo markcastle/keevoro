@@ -31,13 +31,30 @@ fn say(e: impl std::fmt::Display) -> String {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppState {
+    /// The open session's own folder, or `None` before the first session.
     library: Option<String>,
     suggested_library: String,
+    /// The session that is open.
+    session: Option<SessionView>,
+    /// Every session, in the order they were started.
+    sessions: Vec<SessionView>,
     version: &'static str,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionView {
+    id: String,
+    name: String,
+}
+
 fn current_state(app: &AppHandle, shared: &Shared) -> AppState {
-    let library = shared.settings.lock().ok().and_then(|s| s.library.clone());
+    let settings = shared.settings.lock().ok().map(|s| s.clone()).unwrap_or_default();
+    let view = |s: &crate::settings::Session| SessionView {
+        id: s.id.clone(),
+        name: s.name.clone(),
+    };
+    let library = settings.open_session().map(|s| s.home.clone());
     // The Pictures folder is where people expect photos to live.
     let pictures = app
         .path()
@@ -47,6 +64,8 @@ fn current_state(app: &AppHandle, shared: &Shared) -> AppState {
     AppState {
         library: library.map(|p| p.display().to_string()),
         suggested_library: pictures.join("Keevoro Library").display().to_string(),
+        session: settings.open_session().map(view),
+        sessions: settings.sessions.iter().map(view).collect(),
         version: env!("CARGO_PKG_VERSION"),
     }
 }
@@ -56,8 +75,54 @@ fn library(shared: &Shared) -> Said<PathBuf> {
         .settings
         .lock()
         .ok()
-        .and_then(|s| s.library.clone())
-        .ok_or_else(|| "Choose where your library will live first.".to_string())
+        .and_then(|s| s.open_session().map(|open| open.home.clone()))
+        .ok_or_else(|| "Start a session first.".to_string())
+}
+
+/// Starts a new session with this name and opens it.
+#[tauri::command]
+pub fn start_session(app: AppHandle, shared: State<'_, Shared>, name: String) -> Said<AppState> {
+    let sessions_dir = app.path().app_data_dir().map_err(say)?.join("sessions");
+    {
+        let mut settings = shared.settings.lock().map_err(say)?;
+        let session = settings.start_session(&name, &sessions_dir).clone();
+        // Opening the catalog proves the folder can be made and written to.
+        Catalog::open_in_library(&session.home).map_err(say)?;
+        settings.save(&shared.config_dir).map_err(say)?;
+        shared.log.say(&format!("Started session \"{}\"", session.name));
+    }
+    Ok(current_state(&app, &shared))
+}
+
+/// Opens another session. Whatever was open is left exactly as it was.
+#[tauri::command]
+pub fn switch_session(app: AppHandle, shared: State<'_, Shared>, id: String) -> Said<AppState> {
+    if shared.scanning.load(Ordering::SeqCst) || shared.backing_up.load(Ordering::SeqCst) {
+        return Err("Keevoro is in the middle of something in this session. Let that finish first.".into());
+    }
+    {
+        let mut settings = shared.settings.lock().map_err(say)?;
+        if !settings.switch_to(&id) {
+            return Err("That session is no longer there.".into());
+        }
+        settings.save(&shared.config_dir).map_err(say)?;
+        if let Some(open) = settings.open_session() {
+            shared.log.say(&format!("Switched to session \"{}\"", open.name));
+        }
+    }
+    check_in_background(&app);
+    Ok(current_state(&app, &shared))
+}
+
+/// Shows the folder this session sends to, if it sends to a folder.
+#[tauri::command]
+pub fn open_destination(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
+    use tauri_plugin_opener::OpenerExt;
+    let catalog = Catalog::open_in_library(&library(&shared)?).map_err(say)?;
+    match Saved::load(&catalog).map_err(say)? {
+        Some(saved) if saved.kind == "folder" => app.opener().open_path(saved.place, None::<&str>).map_err(say),
+        _ => Err("This session doesn't send to a folder on this computer.".to_string()),
+    }
 }
 
 #[tauri::command]
@@ -73,6 +138,15 @@ pub fn use_library(app: AppHandle, shared: State<'_, Shared>, path: String) -> S
     Catalog::open_in_library(&path).map_err(say)?;
     {
         let mut settings = shared.settings.lock().map_err(say)?;
+        // Kept for the first-run screen of older builds: the folder becomes
+        // a session of its own.
+        let id = format!("library-{}", settings.sessions.len() + 1);
+        settings.sessions.push(crate::settings::Session {
+            id,
+            name: "My photos".to_string(),
+            home: path.clone(),
+        });
+        settings.current = settings.sessions.last().map(|s| s.id.clone());
         settings.library = Some(path);
         settings.save(&shared.config_dir).map_err(say)?;
     }
@@ -492,6 +566,7 @@ pub fn disconnect_backup(shared: State<'_, Shared>) -> Said<()> {
 fn backup_job(
     app: AppHandle,
     shared: &Shared,
+    prepare: bool,
     job: impl FnOnce(
             &std::path::Path,
             &Catalog,
@@ -519,6 +594,33 @@ fn backup_job(
             };
             let destination = saved.open(&world)?;
             let web_address = saved.base_url.clone();
+            if prepare {
+                // Read every kept file in full, agree its place and make its
+                // preview. The files stay where they are: they are sent
+                // from their source.
+                let n = keevoro_engine::summary::thousands;
+                let tools = VideoTools::find();
+                keevoro_engine::prepare_to_send(&library, &catalog, tools.as_ref(), &mut |step| {
+                    let line = match step {
+                        keevoro_engine::GatherStep::Checking { done, total } => {
+                            format!("Reading each file in full first: {} of {}", n(done), n(total))
+                        }
+                        keevoro_engine::GatherStep::Copying { done, total } => {
+                            format!("Getting ready: {} of {}", n(done), n(total))
+                        }
+                        keevoro_engine::GatherStep::MakingPreviews { done, total } => {
+                            format!("Making previews: {} of {}", n(done), n(total))
+                        }
+                        keevoro_engine::GatherStep::WorkingOnVideos { done, total } => {
+                            format!("Working on videos: {} of {}", n(done), n(total))
+                        }
+                    };
+                    if last_said.elapsed() >= PROGRESS_EVERY {
+                        last_said = Instant::now();
+                        let _ = app.emit(BACKUP, BackupEvent::progress(&line));
+                    }
+                })?;
+            }
             job(
                 &library,
                 &catalog,
@@ -553,6 +655,7 @@ pub fn back_up(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
     backup_job(
         app,
         &shared,
+        true,
         |library, catalog, destination, base_url, said, progress| {
             backup::run(said, catalog, library, destination, base_url, false, progress)
         },
@@ -565,6 +668,7 @@ pub fn check_backup(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
     backup_job(
         app,
         &shared,
+        false,
         |library, catalog, destination, _base_url, said, progress| {
             backup::check(said, catalog, library, Some(destination), false, progress)
         },

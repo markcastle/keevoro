@@ -285,7 +285,10 @@ pub fn check(
         on_progress(&format!("Checking your library: {} of {}", n(done), n(total)));
     })?;
     let mut wrong = report.problems.len();
-    if report.problems.is_empty() {
+    if report.intact == 0 && report.problems.is_empty() {
+        // Nothing is kept in this folder: everything was sent straight
+        // from its source, so there is no library to speak of.
+    } else if report.problems.is_empty() {
         writeln!(
             out,
             "Your library: all {} are intact.",

@@ -19,6 +19,7 @@ import type {
   Photo,
   PhotoChoice,
   ScanEvent,
+  Session,
 } from './backend'
 
 const SCENES: [string, string, string][] = [
@@ -124,7 +125,30 @@ export function demoBackend(): Backend {
   // Tests can ask for everything to happen at once.
   const pace = mode === 'fast' || new URLSearchParams(window.location.search).has('fast') ? 0 : 1
 
-  const state = (): AppState => ({ library, suggestedLibrary: suggested, version: 'demo' })
+  // Sessions: each keeps what it found, what was chosen and where it sends.
+  type Kept = { collections: Collection[]; sources: typeof sources; junk: PhotoChoice[]; backedUpTo: string | null; backedUp: number }
+  let sessions: Session[] = library ? [{ id: 's1', name: 'My photos' }] : []
+  let open: string | null = sessions[0]?.id ?? null
+  const shelf = new Map<string, Kept>()
+  const putAway = () => {
+    if (open) shelf.set(open, { collections: [...collections], sources: [...sources], junk: [...junk], backedUpTo, backedUp })
+  }
+  const takeOut = (id: string) => {
+    const kept = shelf.get(id) ?? { collections: [], sources: [], junk: [], backedUpTo: null, backedUp: 0 }
+    collections.splice(0, collections.length, ...kept.collections)
+    sources.splice(0, sources.length, ...kept.sources)
+    junk.splice(0, junk.length, ...kept.junk)
+    backedUpTo = kept.backedUpTo
+    backedUp = kept.backedUp
+    open = id
+  }
+  const state = (): AppState => ({
+    library,
+    suggestedLibrary: suggested,
+    session: sessions.find((s) => s.id === open) ?? null,
+    sessions: [...sessions],
+    version: 'demo',
+  })
   const view = (): Discover => {
     const kept = collections.filter((c) => c.kept)
     return {
@@ -190,6 +214,27 @@ export function demoBackend(): Backend {
       library = path
       return state()
     },
+    async startSession(name) {
+      putAway()
+      const taken = (n: string) => sessions.some((s) => s.name.toLowerCase() === n.toLowerCase())
+      const wanted = name.trim() || 'My photos'
+      let called = wanted
+      for (let n = 2; taken(called); n++) called = `${wanted} ${n}`
+      const id = `s${sessions.length + 1}`
+      sessions = [...sessions, { id, name: called }]
+      library = `C:\\Users\\You\\AppData\\Keevoro\\sessions\\${id}`
+      // A new session starts with nothing found, unless the page asked for a full one.
+      if (sessions.length > 1) shelf.set(id, { collections: [], sources: [], junk: [], backedUpTo: null, backedUp: 0 })
+      else putAway()
+      takeOut(id)
+      return state()
+    },
+    async switchSession(id) {
+      putAway()
+      takeOut(id)
+      return state()
+    },
+    openDestination: async () => {},
     discover: async () => view(),
     places: async () => [
       { path: 'E:\\', name: 'KINGSTON (E:)', detail: 'USB or external drive \u00b7 32 GB', removable: true, askFirst: false },
@@ -301,8 +346,11 @@ export function demoBackend(): Backend {
       backedUpTo = null
     },
     async backUp() {
-      const total = collections.filter((c) => c.kept).reduce((n, c) => n + c.gathered, 0)
+      const kept = collections.filter((c) => c.kept)
+      const total = kept.reduce((n, c) => n + c.photos + c.videos, 0)
       void (async () => {
+        backupListeners.forEach((l) => l({ line: 'Reading each file in full first: 0 of 12', finished: false }))
+        await later(200 * pace)
         for (let step = 1; step <= 6; step++) {
           await later(200 * pace)
           const done = Math.round((total * step) / 6)
@@ -312,6 +360,8 @@ export function demoBackend(): Backend {
         }
         const fresh = total - backedUp
         backedUp = total
+        // Sent means safe: nothing is waiting any more.
+        kept.forEach((c) => (c.gathered = c.photos + c.videos))
         backupListeners.forEach((l) =>
           l({
             finished: true,
@@ -331,7 +381,6 @@ export function demoBackend(): Backend {
           l({
             finished: true,
             summary: [
-              `Your library: all ${backedUp.toLocaleString('en-GB')} files are intact.`,
               `Your backup: all ${backedUp.toLocaleString('en-GB')} originals are there.`,
             ],
           }),
