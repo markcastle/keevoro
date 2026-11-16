@@ -22,6 +22,7 @@ mod commands;
 mod events;
 mod places;
 mod settings;
+mod updates;
 
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
@@ -67,6 +68,9 @@ pub fn run() {
             commands::scan_place,
             commands::places,
             commands::open_library,
+            commands::check_update,
+            commands::open_release_page,
+            commands::install_update,
             commands::keep_collection,
             commands::collection_photos,
             commands::set_aside,

@@ -384,6 +384,48 @@ pub fn places() -> Vec<crate::places::Place> {
     crate::places::plugged_in()
 }
 
+/// Opens the page describing a release in the person's browser. Only
+/// Keevoro's own release pages are opened, whatever the screen asks for.
+#[tauri::command]
+pub fn open_release_page(app: AppHandle, page: String) -> Said<()> {
+    use tauri_plugin_opener::OpenerExt;
+    if !page.starts_with("https://github.com/markcastle/keevoro/releases") {
+        return Err("That isn't one of Keevoro's release pages.".to_string());
+    }
+    app.opener().open_url(page, None::<&str>).map_err(say)
+}
+
+/// A newer Keevoro, if there is one this computer can install.
+#[tauri::command]
+pub async fn check_update() -> Said<Option<crate::updates::Offer>> {
+    tauri::async_runtime::spawn_blocking(|| crate::updates::offer(env!("CARGO_PKG_VERSION"), std::env::consts::OS))
+        .await
+        .map_err(say)
+}
+
+/// Downloads the newer Keevoro, checks it, and starts installing it. On
+/// Windows the app then closes so the installer can replace it.
+#[tauri::command]
+pub async fn install_update(app: AppHandle) -> Said<()> {
+    let os = std::env::consts::OS;
+    let into = app.path().app_cache_dir().map_err(say)?.join("update");
+    let installer =
+        tauri::async_runtime::spawn_blocking(move || crate::updates::fetch(env!("CARGO_PKG_VERSION"), os, &into))
+            .await
+            .map_err(say)?
+            .map_err(|e| format!("Keevoro couldn't update itself: {e}."))?;
+    let (program, args) = crate::updates::launch_plan(os, &installer)
+        .ok_or_else(|| "Keevoro can't update itself on this kind of computer yet.".to_string())?;
+    std::process::Command::new(program)
+        .args(args)
+        .spawn()
+        .map_err(|e| format!("Keevoro downloaded the update but couldn't start it: {e}."))?;
+    if os == "windows" {
+        app.exit(0);
+    }
+    Ok(())
+}
+
 /// Shows the library folder in the system's file manager, so the user can
 /// see their photos are really there.
 #[tauri::command]

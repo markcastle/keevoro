@@ -85,6 +85,9 @@ export type ConnectRequest = {
   secretAccessKey?: string
 }
 
+/** A newer version of Keevoro that is ready to install. */
+export type Update = { version: string; page: string }
+
 export interface Backend {
   state(): Promise<AppState>
   /** Asks the user to pick a folder for the library. Null if they cancel. */
@@ -97,6 +100,12 @@ export interface Backend {
   scanPlace(path: string): Promise<void>
   /** Asks for a folder and starts looking through it. False if cancelled. */
   addPlace(): Promise<boolean>
+  /** A newer Keevoro this computer can install, or null. */
+  checkUpdate(): Promise<Update | null>
+  /** Downloads, checks and starts the update. On Windows the app then closes. */
+  installUpdate(): Promise<void>
+  /** Opens a release's "What's new" page in the browser. */
+  openReleasePage(page: string): Promise<void>
   /** Shows the library folder in the system's file manager. */
   openLibrary(): Promise<void>
   keepCollection(key: string, keep: boolean): Promise<void>
@@ -154,6 +163,9 @@ async function tauriBackend(): Promise<Backend> {
     places: () => invoke('places'),
     scanPlace: (path) => invoke('scan_place', { path }),
     openLibrary: () => invoke('open_library'),
+    checkUpdate: () => invoke('check_update'),
+    installUpdate: () => invoke('install_update'),
+    openReleasePage: (page) => invoke('open_release_page', { page }),
     async addPlace() {
       const path = await pickFolder('Choose a source: a drive or folder to look through')
       if (!path) return false

@@ -151,6 +151,17 @@ try {
   await page.getByRole('button', { name: 'See what was found' }).click()
   assert.match(await text('.next'), /Gather them into my library/, 'the new photos are waiting to be gathered')
 
+  // --- A newer version is offered calmly and can be installed in one click.
+  await page.goto(`${base}/?fast&update`)
+  assert.match(await text('.update'), /A new version of Keevoro is ready \(9\.9\.0\)/)
+  await shot('9c-update-ready')
+  await page.getByRole('button', { name: 'Update now' }).click()
+  await page.getByText(/Downloading the new version/).waitFor()
+  await page.getByText(/has been downloaded and opened/).waitFor()
+  await page.goto(`${base}/?fast&update`)
+  await page.getByRole('button', { name: 'Later' }).click()
+  assert.equal(await page.locator('.update').count(), 0, 'Later puts the offer away')
+
   // --- An existing library opens on the step that still needs doing, in dark mode too.
   await page.emulateMedia({ colorScheme: 'dark' })
   await page.goto(`${base}/?fast`)

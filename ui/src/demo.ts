@@ -185,6 +185,14 @@ export function demoBackend(): Backend {
       look(sources.length === 0 ? 'Family hard drive' : `Old laptop ${sources.length}`, 'D:\\Photos')
       return true
     },
+    checkUpdate: async () =>
+      new URLSearchParams(window.location.search).has('update')
+        ? { version: '9.9.0', page: 'https://github.com/markcastle/keevoro/releases' }
+        : null,
+    installUpdate: async () => {
+      await later(600 * pace)
+    },
+    openReleasePage: async () => {},
     openLibrary: async () => {
       opened += 1
     },
