@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.12.1] - 2026-11-16
+
 ### Fixed
 
 - **No more black windows flashing up on Windows.** Making a thumbnail for a video uses a helper program (ffmpeg), and each time it ran Windows opened a console window for it, so opening a collection with videos in it filled the screen with them. The helper now runs with no window at all. Keevoro also looks for it once instead of once per picture, and makes at most three previews at a time, so opening a large collection no longer slows the computer down.
@@ -168,7 +172,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.12.1...HEAD
+[0.12.1]: https://github.com/markcastle/keevoro/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/markcastle/keevoro/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/markcastle/keevoro/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/markcastle/keevoro/compare/v0.9.0...v0.10.0
