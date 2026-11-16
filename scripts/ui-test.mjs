@@ -36,27 +36,42 @@ page.on('pageerror', (error) => problems.push(String(error)))
 page.on('console', (message) => message.type() === 'error' && problems.push(message.text()))
 const shot = (name) => page.screenshot({ path: join(shots, `${name}.png`) })
 const text = (selector) => page.locator(selector).first().innerText()
+// The two screens in the sidebar, and the step the journey says we are on.
+const goDiscover = () => page.locator('nav .nav').nth(0).click()
+const goArchive = () => page.locator('nav .nav').nth(1).click()
+const currentStep = () => page.locator('.steps li.now').innerText()
 
 try {
   // --- A first-time user is asked one thing: where the library lives.
   await page.goto(`${base}/?demo=new&fast`)
-  await page.getByRole('heading', { name: 'Where should your library live?' }).waitFor()
+  await page.getByRole('heading', { name: 'First: where should your library live?' }).waitFor()
+  assert.equal(await page.locator('.how li').count(), 4, 'the four steps are explained up front')
   await shot('1-welcome')
   await page.getByRole('button', { name: 'Use my Pictures folder' }).click()
 
   // --- With nothing found yet, Discover says what to do.
   await page.getByRole('heading', { name: 'Add your first source' }).waitFor()
+  assert.match(await currentStep(), /Add a source$/)
   await shot('2-discover-empty')
 
   // --- Adding a place finds photos and shows them as collections.
-  await page.getByRole('button', { name: 'Add a source', exact: true }).click()
+  await page.locator('.empty').getByRole('button', { name: 'Add a source' }).click()
   await page.getByRole('heading', { name: 'More discoveries' }).waitFor()
   assert.match(await text('.status'), /^\s*[\d,]+ photos and \d+ videos found$/)
   assert.equal(await page.locator('.sources .source').count(), 1)
   assert.equal(await text('.sources .source'), 'Family hard drive')
   assert.equal(await page.locator('.hero .picture img').count(), 3, 'the hero shows three pictures')
+  // Side by side, as a collage: the first picture must not span the full width.
+  const collage = await page.locator('.hero .collage').boundingBox()
+  const firstPicture = await page.locator('.hero .picture').first().boundingBox()
+  assert.ok(firstPicture.width < collage.width * 0.8, 'the hero pictures sit side by side, not stacked')
   assert.ok((await page.locator('.grid .card').count()) >= 3)
   await page.waitForFunction(() => [...document.images].every((i) => i.complete && i.naturalWidth > 0))
+  // The journey has moved on, and the next thing to do is spelled out.
+  assert.match(await currentStep(), /Choose what to keep$/)
+  assert.equal(await page.locator('.steps li.done').count(), 1)
+  assert.match(await text('.next'), /^You’re keeping [\d,]+ photos and videos in \d+ collections\. Happy with that\?/)
+  assert.ok(await page.locator('.hint').isVisible(), 'a line explains that everything is kept unless you say otherwise')
   await shot('3-discover')
 
   // --- Everything is kept unless you say otherwise, and saying so sticks.
@@ -69,22 +84,33 @@ try {
   await shot('4-discover-one-skipped')
 
   // --- Archive offers one button, counts in human terms, then says it is safe.
-  await page.getByRole('button', { name: 'Archive' }).click()
+  await goArchive()
+  assert.equal(await text('.panel .eyebrow'), 'STEP 3 · GATHER')
+  assert.match(await text('.panel.backup.muted'), /This comes after gathering/, 'step 4 waits its turn, and says why')
   assert.match(await text('.panel h2'), /^[\d,]+ photos and videos ready to gather$/)
   const listed = await page.locator('.kept li span:first-child').allInnerTexts()
   assert.ok(!listed.includes(title), `"${title}" was skipped, so it is not listed as kept`)
   await shot('5-archive-ready')
-  await page.getByRole('button', { name: 'Gather my photos' }).click()
+  // Gathering can be started from Discover's own bar, which is where most
+  // people will be; it takes them to Archive to watch.
+  await goDiscover()
+  await page.locator('.next').getByRole('button', { name: 'Gather my photos' }).click()
   await page.getByRole('heading', { name: 'Everything you’re keeping is safe' }).waitFor()
+  assert.match(await currentStep(), /Back up$/)
+  await goDiscover()
+  assert.match(await text('.next'), /^Your photos are safely in your library\. Next, keep a second copy/)
+  await page.locator('.next').getByRole('button', { name: 'Set up a backup' }).click()
   assert.match(await text('.panel .done'), /^Safely copied [\d,]+ photos and videos into your library\.$/)
   assert.ok((await page.locator('.badge.safe').count()) >= 3)
   await shot('6-archive-safe')
 
   // --- Changing your mind brings a collection back, with more to gather.
-  await page.getByRole('button', { name: 'Discover' }).click()
+  await goDiscover()
   await page.locator('.grid .card').first().getByRole('button', { name: 'Keep collection' }).click()
-  await page.getByRole('button', { name: 'Archive' }).click()
-  await page.getByRole('button', { name: 'Gather my photos' }).waitFor()
+  await goArchive()
+  assert.match(await currentStep(), /Choose what to keep$/, 'with more to gather, the journey steps back')
+  await page.getByRole('button', { name: 'Gather my photos' }).click()
+  await page.getByRole('heading', { name: 'Everything you’re keeping is safe' }).waitFor()
 
   // --- With photos safely gathered, Archive offers a second copy elsewhere.
   await page.getByRole('heading', { name: 'Keep a second copy somewhere else' }).waitFor()
@@ -105,10 +131,11 @@ try {
   assert.match(await text('.backup .done'), /^Safely backed up [\d,]+ files\.$/)
   await page.getByRole('button', { name: 'Check my backup' }).click()
   await page.getByText(/^Your backup: all [\d,]+ originals are there\.$/).waitFor()
+  assert.equal(await page.locator('.steps li.done').count(), 4, 'every step of the journey is ticked')
   await shot('12-backup-checked')
 
   // --- Opening a collection shows its photos, and one can be left out.
-  await page.getByRole('button', { name: 'Discover', exact: true }).click()
+  await goDiscover()
   const opened = await page.locator('.hero h2').innerText()
   await page.getByRole('button', { name: `Open ${opened}` }).click()
   await page.getByRole('heading', { name: opened, level: 1 }).waitFor()

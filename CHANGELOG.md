@@ -6,7 +6,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **The app now shows you where you are and what to do next.** Four steps run across the top (Add a source, Choose what to keep, Gather, Back up) with the one you are on picked out, and Discover always has a bar at the bottom with the next thing to do, such as "Gather my photos". You no longer have to find that button on another screen.
+- **The first screen explains how Keevoro works** in four short steps before asking where your library should live, and says what a library is.
+- **Discover says how choosing works:** everything is kept unless you say otherwise, and you can click a collection to look inside.
+- The Archive screen labels gathering and backing up as steps 3 and 4, and explains that backing up comes after gathering.
+
+### Fixed
+
+- **The large collage on Discover shows its photos side by side again.** In 0.5.0 and 0.6.0 they were stacked one above another.
 
 ## [0.6.0] - 2026-11-16
 

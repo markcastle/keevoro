@@ -337,7 +337,7 @@ h3 {
 .collage {
   display: grid;
   gap: 6px;
-  height: min(52vh, 470px);
+  height: min(44vh, 420px);
 }
 
 .collage .picture {
@@ -458,7 +458,11 @@ h3 {
 
 /* ---------- inside a collection ---------- */
 
-.collage[role='button'],
+/* The collage keeps its grid; only the card's button needs to be a block. */
+.collage[role='button'] {
+  cursor: pointer;
+}
+
 .open {
   cursor: pointer;
   display: block;
@@ -768,5 +772,192 @@ progress::-webkit-progress-value {
   .spinner,
   .picture img {
     animation: none;
+  }
+}
+
+/* ---------- the journey ---------- */
+
+.steps {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 4px;
+  padding: 0;
+  margin: 0 auto 22px;
+  max-width: 1180px;
+}
+
+.steps li {
+  display: flex;
+  align-items: center;
+}
+
+.steps li + li::before {
+  content: '';
+  width: 22px;
+  height: 1px;
+  background: var(--line);
+  margin: 0 6px 0 2px;
+}
+
+.steps button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px 5px 5px;
+  border-radius: 999px;
+  font-size: 14px;
+  color: var(--quiet);
+}
+
+.steps button:hover {
+  background: var(--panel);
+}
+
+.steps .num {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 650;
+  border: 1.5px solid var(--line);
+}
+
+.steps .now button {
+  color: var(--text);
+  font-weight: 600;
+  background: var(--selected);
+}
+
+.steps .now .num {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.steps .done button {
+  color: var(--text);
+}
+
+.steps .done .num {
+  background: var(--safe);
+  border-color: var(--safe);
+  color: #fff;
+}
+
+.hint {
+  background: var(--panel);
+  border-radius: 12px;
+  padding: 12px 16px;
+  margin-bottom: 20px;
+  color: var(--quiet);
+  font-size: 14px;
+}
+
+.hint b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* The next thing to do, pinned to the foot of the screen so it is in view
+   however far the photos scroll. */
+.next {
+  position: sticky;
+  bottom: 18px;
+  margin-top: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 14px 16px 14px 22px;
+  box-shadow: var(--shadow);
+  font-size: 16px;
+}
+
+/* A sentence, so it must flow as text and not be split into columns. */
+.next .spinner {
+  display: inline-block;
+  vertical-align: -3px;
+  margin-right: 8px;
+}
+
+.next b {
+  font-weight: 650;
+}
+
+.eyebrow {
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.panel.muted {
+  opacity: 0.7;
+}
+
+.panel.muted .eyebrow {
+  color: var(--quiet);
+}
+
+.nav span {
+  display: grid;
+  line-height: 1.25;
+}
+
+.nav small {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--quiet);
+}
+
+.how {
+  list-style: none;
+  counter-reset: how;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 170px));
+  gap: 14px;
+  padding: 0;
+  margin: 22px 0 0;
+  text-align: left;
+}
+
+.how li {
+  counter-increment: how;
+  display: grid;
+  gap: 2px;
+  font-size: 14px;
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  border-radius: 14px;
+  padding: 12px 14px;
+}
+
+.how li::before {
+  content: counter(how);
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 13px;
+  font-weight: 650;
+  margin-bottom: 4px;
+}
+
+.how span {
+  color: var(--quiet);
+}
+
+@media (max-width: 760px) {
+  .how {
+    grid-template-columns: repeat(2, minmax(0, 170px));
   }
 }

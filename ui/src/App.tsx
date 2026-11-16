@@ -13,6 +13,7 @@
 // progress said in human terms ("3,412 of 9,870 safely copied").
 
 import { useCallback, useEffect, useState } from 'react'
+import type { ReactNode } from 'react'
 
 import { backend } from './backend'
 import type {
@@ -40,6 +41,8 @@ export function App() {
   const [scan, setScan] = useState<ScanEvent | null>(null)
   const [gather, setGather] = useState<GatherEvent | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
+  // Where the library is backed up to; undefined until asked.
+  const [backedUpTo, setBackedUpTo] = useState<string | null | undefined>(undefined)
 
   // Anything that goes wrong is said once, in the engine's own plain words.
   const report = useCallback((error: unknown) => {
@@ -76,7 +79,10 @@ export function App() {
       try {
         const s = await b.state()
         setState(s)
-        if (s.library) await refresh(b)
+        if (s.library) {
+          await refresh(b)
+          setBackedUpTo(await b.backupState())
+        }
       } catch (error) {
         report(error)
       }
@@ -124,6 +130,20 @@ export function App() {
       .catch(report)
   }
   const gathering = gather !== null && gather.step !== 'finished'
+  const startGather = () => {
+    setScreen('archive')
+    setGather({ step: 'copying', done: 0, total: found?.waitingToGather ?? 0 })
+    api.gather().catch((error) => {
+      setGather(null)
+      report(error)
+    })
+  }
+  const waiting = found?.waitingToGather ?? 0
+  const kept = found?.collections.filter((c) => c.kept) ?? []
+  const safe = kept.reduce((n, c) => n + c.gathered, 0)
+  // Where the user is on the journey, which decides what to suggest next.
+  const stage: Stage =
+    !found || found.sources.length === 0 ? 'add' : waiting > 0 ? 'choose' : safe === 0 ? 'choose' : backedUpTo ? 'done' : 'backup'
 
   return (
     <div className="app">
@@ -134,10 +154,16 @@ export function App() {
         </div>
         <nav>
           <button className={screen !== 'archive' ? 'nav on' : 'nav'} onClick={() => setScreen('discover')}>
-            <SearchIcon /> Discover
+            <SearchIcon />
+            <span>
+              Discover<small>Find and choose</small>
+            </span>
           </button>
           <button className={screen === 'archive' ? 'nav on' : 'nav'} onClick={() => setScreen('archive')}>
-            <ArchiveIcon /> Archive
+            <ArchiveIcon />
+            <span>
+              Archive<small>Gather and back up</small>
+            </span>
             {found && found.waitingToGather > 0 && !gathering && <span className="dot" aria-hidden />}
           </button>
         </nav>
@@ -161,6 +187,13 @@ export function App() {
       </aside>
 
       <main>
+        <Steps
+          stage={stage}
+          gathering={gathering}
+          onAdd={addPlace}
+          onChoose={() => setScreen('discover')}
+          onArchive={() => setScreen('archive')}
+        />
         {problem && (
           <div className="problem" role="alert">
             <span>{problem}</span>
@@ -178,6 +211,17 @@ export function App() {
             onKeep={keep}
             onOpen={(collection) => setScreen({ collection })}
             onSetAside={() => setScreen('setAside')}
+            next={
+              <NextStep
+                stage={stage}
+                gathering={gathering}
+                gather={gather}
+                waiting={waiting}
+                collections={kept.length}
+                onGather={startGather}
+                onArchive={() => setScreen('archive')}
+              />
+            }
           />
         ) : screen === 'setAside' || typeof screen === 'object' ? (
           <PhotosScreen
@@ -197,13 +241,8 @@ export function App() {
             library={state.library}
             gather={gather}
             gathering={gathering}
-            onGather={() => {
-              setGather({ step: 'copying', done: 0, total: found?.waitingToGather ?? 0 })
-              api.gather().catch((error) => {
-                setGather(null)
-                report(error)
-              })
-            }}
+            onGather={startGather}
+            onBackedUpTo={setBackedUpTo}
           />
         )}
       </main>
@@ -220,8 +259,28 @@ function Welcome(props: { suggested: string; onSuggested: () => void; onChoose: 
         Keevoro looks through your sources (old drives, USB sticks, folders), finds your photos and videos, and gathers the ones you want into one tidy
         library. It never changes anything on a source.
       </p>
-      <h2>Where should your library live?</h2>
-      <p className="quiet">Pick somewhere with plenty of room. You can back it up later.</p>
+      <ol className="how">
+        <li>
+          <b>Add a source</b>
+          <span>Show Keevoro a drive or folder.</span>
+        </li>
+        <li>
+          <b>Choose what to keep</b>
+          <span>See what it found, as collections.</span>
+        </li>
+        <li>
+          <b>Gather</b>
+          <span>The keepers are copied into your library.</span>
+        </li>
+        <li>
+          <b>Back up</b>
+          <span>Keep a second copy somewhere safe.</span>
+        </li>
+      </ol>
+      <h2>First: where should your library live?</h2>
+      <p className="quiet">
+        Your library is the one tidy folder your photos are gathered into. Pick somewhere with plenty of room.
+      </p>
       <button className="primary big" onClick={props.onSuggested}>
         Use my Pictures folder
       </button>
@@ -246,6 +305,8 @@ function DiscoverScreen(props: {
   onKeep: (collection: Collection, kept: boolean) => void
   onOpen: (collection: Collection) => void
   onSetAside: () => void
+  /** What to do next, shown at the foot of the screen. */
+  next: ReactNode
 }) {
   const { found, scan } = props
   const [hero, ...rest] = found?.collections ?? []
@@ -277,6 +338,13 @@ function DiscoverScreen(props: {
         </div>
       )}
       {!hero && scan && <div className="empty quiet">Your photos will appear here as they are found.</div>}
+
+      {hero && (
+        <p className="hint">
+          Everything Keevoro found is kept unless you say otherwise. Click a collection to look inside and choose photo
+          by photo, or use <b>Don’t keep</b> to leave a whole collection out.
+        </p>
+      )}
 
       {hero && (
         <article className="hero">
@@ -334,8 +402,92 @@ function DiscoverScreen(props: {
           )}
         </p>
       )}
+      {props.next}
     </section>
   )
+}
+
+type Stage = 'add' | 'choose' | 'backup' | 'done'
+
+/**
+ * The journey, always in view: four steps, with the one the user is on
+ * picked out. It answers "where am I and what is left?" at a glance.
+ */
+function Steps(props: { stage: Stage; gathering: boolean; onAdd: () => void; onChoose: () => void; onArchive: () => void }) {
+  const { stage } = props
+  const order: Stage[] = ['add', 'choose', 'backup', 'done']
+  const reached = order.indexOf(stage)
+  // Choosing and gathering are one stage of the journey but two steps on
+  // screen, because they are two different things to do.
+  const steps = [
+    { label: 'Add a source', state: reached > 0 ? 'done' : 'now', go: props.onAdd },
+    { label: 'Choose what to keep', state: reached > 1 ? 'done' : reached === 1 && !props.gathering ? 'now' : 'todo', go: props.onChoose },
+    { label: 'Gather', state: reached > 1 ? 'done' : props.gathering ? 'now' : 'todo', go: props.onArchive },
+    { label: 'Back up', state: reached > 2 ? 'done' : reached === 2 ? 'now' : 'todo', go: props.onArchive },
+  ]
+  return (
+    <ol className="steps" aria-label="Your progress">
+      {steps.map((step, i) => (
+        <li key={step.label} className={step.state}>
+          <button onClick={step.go} aria-current={step.state === 'now' ? 'step' : undefined}>
+            <span className="num" aria-hidden>
+              {step.state === 'done' ? '✓' : i + 1}
+            </span>
+            {step.label}
+          </button>
+        </li>
+      ))}
+    </ol>
+  )
+}
+
+/** One sentence and one button: the next thing to do from Discover. */
+function NextStep(props: {
+  stage: Stage
+  gathering: boolean
+  gather: GatherEvent | null
+  waiting: number
+  collections: number
+  onGather: () => void
+  onArchive: () => void
+}) {
+  const { stage, gather } = props
+  if (props.gathering && gather) {
+    return (
+      <div className="next">
+        <span>
+          <Spinner /> Gathering your photos… {thousands(gather.done)} of {thousands(gather.total)}
+        </span>
+        <button className="link" onClick={props.onArchive}>
+          See progress
+        </button>
+      </div>
+    )
+  }
+  if (stage === 'choose' && props.waiting > 0) {
+    return (
+      <div className="next">
+        <span>
+          You’re keeping <b>{count(props.waiting, 'photo and video').replace('photo and videos', 'photos and videos')}</b>{' '}
+          in {count(props.collections, 'collection')}. Happy with that?
+        </span>
+        <button className="primary big" onClick={props.onGather}>
+          Gather my photos
+        </button>
+      </div>
+    )
+  }
+  if (stage === 'backup') {
+    return (
+      <div className="next">
+        <span>Your photos are safely in your library. Next, keep a second copy somewhere else.</span>
+        <button className="primary big" onClick={props.onArchive}>
+          Set up a backup
+        </button>
+      </div>
+    )
+  }
+  return null
 }
 
 /** Everything is kept unless you say otherwise, so the button shows which. */
@@ -368,6 +520,7 @@ function ArchiveScreen(props: {
   gather: GatherEvent | null
   gathering: boolean
   onGather: () => void
+  onBackedUpTo: (where: string | null) => void
 }) {
   const { found, gather, gathering } = props
   const waiting = found?.waitingToGather ?? 0
@@ -383,6 +536,7 @@ function ArchiveScreen(props: {
       </header>
 
       <div className="panel">
+        <span className="eyebrow">Step 3 · Gather</span>
         {gathering && gather ? (
           <>
             <h2>Gathering your photos…</h2>
@@ -424,7 +578,15 @@ function ArchiveScreen(props: {
         ))}
       </div>
 
-      {safe > 0 && <BackupPanel api={props.api} onProblem={props.onProblem} busy={gathering} />}
+      {safe > 0 ? (
+        <BackupPanel api={props.api} onProblem={props.onProblem} busy={gathering} onWhere={props.onBackedUpTo} />
+      ) : (
+        <div className="panel backup muted">
+          <span className="eyebrow">Step 4 · Back up</span>
+          <h2>Keep a second copy somewhere else</h2>
+          <p>This comes after gathering: once your photos are in your library, you can back them up from here.</p>
+        </div>
+      )}
 
       {found && keptCollections.length > 0 && (
         <>
@@ -451,8 +613,14 @@ function ArchiveScreen(props: {
  * A second copy somewhere else. Until a destination is connected this asks
  * one question, "where?"; after that it is two buttons.
  */
-function BackupPanel(props: { api: Backend; onProblem: (error: unknown) => void; busy: boolean }) {
-  const { api, onProblem } = props
+function BackupPanel(props: {
+  api: Backend
+  onProblem: (error: unknown) => void
+  busy: boolean
+  /** Tells the rest of the app where the library is backed up to. */
+  onWhere: (where: string | null) => void
+}) {
+  const { api, onProblem, onWhere } = props
   const [where, setWhere] = useState<string | null | undefined>(undefined)
   const [form, setForm] = useState<ConnectRequest | null>(null)
   const [connecting, setConnecting] = useState(false)
@@ -479,6 +647,7 @@ function BackupPanel(props: { api: Backend; onProblem: (error: unknown) => void;
       .connectBackup(request)
       .then((description) => {
         setWhere(description)
+        onWhere(description)
         setForm(null)
       })
       // A wrong key is the user's to fix, so it is said beside the form.
@@ -497,6 +666,7 @@ function BackupPanel(props: { api: Backend; onProblem: (error: unknown) => void;
   if (where === undefined) return null
   return (
     <div className="panel backup">
+      <span className="eyebrow">Step 4 · Back up</span>
       {where === null ? (
         <>
           <h2>Keep a second copy somewhere else</h2>
@@ -622,6 +792,7 @@ function BackupPanel(props: { api: Backend; onProblem: (error: unknown) => void;
                     .disconnectBackup()
                     .then(() => {
                       setWhere(null)
+                      onWhere(null)
                       setSaid(null)
                     })
                     .catch(onProblem)
