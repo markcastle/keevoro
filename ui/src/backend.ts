@@ -62,15 +62,15 @@ export type Discover = {
  * One job the person comes back to, such as "Drone footage": its own
  * sources, its own choices and its own place to send things.
  */
-export type Session = { id: string; name: string }
+export type Backup = { id: string; name: string }
 
 export type AppState = {
-  /** The open session's own folder, or null before the first session. */
+  /** The open backup's own folder, or null before the first backup. */
   library: string | null
-  /** The session that is open. */
-  session: Session | null
-  /** Every session, in the order they were started. */
-  sessions: Session[]
+  /** The backup that is open. */
+  backup: Backup | null
+  /** Every backup, in the order they were started. */
+  backups: Backup[]
   /** A sensible place to suggest for a new library. */
   suggestedLibrary: string
   version: string
@@ -107,7 +107,7 @@ export type GatherEvent = {
 }
 
 /** Sent while a backup or a check runs, and once more when it is done. */
-export type BackupEvent = { line?: string; finished: boolean; summary?: string[]; problem?: string }
+export type SendEvent = { line?: string; finished: boolean; summary?: string[]; problem?: string }
 
 /** What the "connect" form collects. Keys go to the system keychain. */
 export type ConnectRequest = {
@@ -127,11 +127,11 @@ export interface Backend {
   /** Asks the user to pick a folder for the library. Null if they cancel. */
   chooseLibrary(): Promise<AppState | null>
   useLibrary(path: string): Promise<AppState>
-  /** Starts a new session with this name and opens it. */
-  startSession(name: string): Promise<AppState>
-  /** Opens another session; the one that was open is left as it was. */
-  switchSession(id: string): Promise<AppState>
-  /** Shows the folder this session sends to, when it sends to a folder. */
+  /** Starts a new backup with this name and opens it. */
+  startBackup(name: string): Promise<AppState>
+  /** Opens another backup; the one that was open is left as it was. */
+  switchBackup(id: string): Promise<AppState>
+  /** Shows the folder this backup sends to, when it sends to a folder. */
   openDestination(): Promise<void>
   discover(): Promise<Discover>
   /** The drives plugged in right now, likeliest first. */
@@ -164,15 +164,15 @@ export interface Backend {
   preview(id: string): Promise<string>
   gather(): Promise<void>
   /** Where the library is backed up to, in words, or null if nowhere yet. */
-  backupState(): Promise<string | null>
+  destination(): Promise<string | null>
   /** Asks for a folder to back up to. Null if they cancel. */
-  chooseBackupFolder(): Promise<string | null>
+  chooseDestinationFolder(): Promise<string | null>
   /** Checks a destination works, then remembers it. Returns it in words. */
-  connectBackup(request: ConnectRequest): Promise<string>
-  disconnectBackup(): Promise<void>
-  backUp(): Promise<void>
-  checkBackup(): Promise<void>
-  onBackup(listener: (event: BackupEvent) => void): () => void
+  connectDestination(request: ConnectRequest): Promise<string>
+  disconnectDestination(): Promise<void>
+  send(): Promise<void>
+  checkArrived(): Promise<void>
+  onSend(listener: (event: SendEvent) => void): () => void
   onScan(listener: (event: ScanEvent) => void): () => void
   /** Carries on with any background checking left over from last time. */
   keepChecking(): Promise<void>
@@ -202,8 +202,8 @@ async function tauriBackend(): Promise<Backend> {
   return {
     state: () => invoke('app_state'),
     useLibrary: (path) => invoke('use_library', { path }),
-    startSession: (name) => invoke('start_session', { name }),
-    switchSession: (id) => invoke('switch_session', { id }),
+    startBackup: (name) => invoke('start_backup', { name }),
+    switchBackup: (id) => invoke('switch_backup', { id }),
     openDestination: () => invoke('open_destination'),
     async chooseLibrary() {
       const path = await pickFolder('Choose where your library will live')
@@ -237,13 +237,13 @@ async function tauriBackend(): Promise<Backend> {
       return url
     },
     gather: () => invoke('gather'),
-    backupState: () => invoke('backup_state'),
-    chooseBackupFolder: () => pickFolder('Choose a folder to back up to'),
-    connectBackup: (request) => invoke('connect_backup', { request }),
-    disconnectBackup: () => invoke('disconnect_backup'),
-    backUp: () => invoke('back_up'),
-    checkBackup: () => invoke('check_backup'),
-    onBackup: (listener) => subscribe('backup', listener),
+    destination: () => invoke('destination'),
+    chooseDestinationFolder: () => pickFolder('Choose a folder to back up to'),
+    connectDestination: (request) => invoke('connect_destination', { request }),
+    disconnectDestination: () => invoke('disconnect_destination'),
+    send: () => invoke('send'),
+    checkArrived: () => invoke('check_arrived'),
+    onSend: (listener) => subscribe('send', listener),
     onScan: (listener) => subscribe('scan', listener),
     keepChecking: () => invoke('keep_checking'),
     onCheck: (listener) => subscribe('check', listener),

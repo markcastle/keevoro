@@ -47,7 +47,7 @@ pub struct Shared {
     /// background.
     checking: AtomicBool,
     /// True while a backup or a check of one is running.
-    backing_up: AtomicBool,
+    sending: AtomicBool,
 }
 
 pub fn run() {
@@ -72,15 +72,15 @@ pub fn run() {
                 scanning: AtomicBool::new(false),
                 gathering: AtomicBool::new(false),
                 checking: AtomicBool::new(false),
-                backing_up: AtomicBool::new(false),
+                sending: AtomicBool::new(false),
             });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::app_state,
             commands::use_library,
-            commands::start_session,
-            commands::switch_session,
+            commands::start_backup,
+            commands::switch_backup,
             commands::open_destination,
             commands::discover,
             commands::scan_place,
@@ -99,11 +99,11 @@ pub fn run() {
             commands::keep_photo,
             commands::preview,
             commands::gather,
-            commands::backup_state,
-            commands::connect_backup,
-            commands::disconnect_backup,
-            commands::back_up,
-            commands::check_backup,
+            commands::destination,
+            commands::connect_destination,
+            commands::disconnect_destination,
+            commands::send,
+            commands::check_arrived,
         ])
         .run(tauri::generate_context!());
     if let Err(e) = built {

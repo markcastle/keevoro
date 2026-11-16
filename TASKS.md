@@ -142,7 +142,7 @@ Done when a non-technical tester gets from a drive to a backup without help.
 
 Separate, remembered jobs ("Drone footage to R2", "Family photos to a folder"), each sent straight to its destination. The thinking is in [PLANNING.md](PLANNING.md#backups-and-destinations).
 
-- [x] Backups (called sessions when first built, and still `Session` in the code): named, separate, switchable from the side bar; the old single library becomes the first one
+- [x] Backups: named, separate, switchable from the side bar; the old single library becomes the first one
 - [x] Destinations as a list: a folder first, then R2, S3 and other S3-compatible storage
 - [x] Send straight from the source to the destination; no local library in between
 - [x] Sending again later only sends what is new
@@ -150,7 +150,7 @@ Separate, remembered jobs ("Drone footage to R2", "Family photos to a folder"), 
 - [ ] Rename and remove a backup
 - [ ] A backup that only looks for videos, or only photos
 - [ ] Verify a folder destination by reading it back automatically after sending
-- [ ] Sessions on the command line
+- [ ] Backups on the command line
 
 ## Phase 4: macOS
 

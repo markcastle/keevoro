@@ -526,7 +526,7 @@ h3 {
   font-weight: 500;
 }
 
-.panel.backup {
+.panel.send {
   margin-top: 16px;
 }
 
@@ -1212,14 +1212,14 @@ button.danger {
   margin-right: 4px;
 }
 
-/* ---------- sessions ---------- */
+/* ---------- backups ---------- */
 
-.session {
+.backup {
   position: relative;
   margin: 14px 2px 6px;
 }
 
-.session .current {
+.backup .current {
   width: 100%;
   display: flex;
   align-items: center;
@@ -1233,14 +1233,14 @@ button.danger {
   font-weight: 500;
 }
 
-.session .current small {
+.backup .current small {
   display: block;
   font-weight: 400;
   font-size: 11px;
   color: var(--ink-muted);
 }
 
-.session .menu {
+.backup .menu {
   position: absolute;
   z-index: 5;
   left: 0;
@@ -1255,23 +1255,23 @@ button.danger {
   box-shadow: 0 10px 30px rgb(0 0 0 / 0.14);
 }
 
-.session .menu > button {
+.backup .menu > button {
   text-align: left;
   padding: 8px 10px;
   border-radius: 8px;
 }
 
-.session .menu > button:hover {
+.backup .menu > button:hover {
   background: color-mix(in srgb, var(--primary) 12%, transparent);
 }
 
-.session .menu form {
+.backup .menu form {
   display: flex;
   gap: 6px;
   padding: 4px;
 }
 
-.session .menu input,
+.backup .menu input,
 .welcome .naming input {
   min-width: 0;
   flex: 1;
@@ -1305,12 +1305,12 @@ button.danger {
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
 }
 
-.session .menu form {
+.backup .menu form {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
-.session .menu input {
+.backup .menu input {
   width: 100%;
 }
 
@@ -1424,7 +1424,7 @@ h3 {
 .choices button:not(.link),
 .kept li.source .confirm button,
 .update .actions button:not(.link),
-.session .menu form button {
+.backup .menu form button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1453,7 +1453,7 @@ h3 {
 .primary,
 .choices .primary,
 .update .actions .primary,
-.session .menu form .primary {
+.backup .menu form .primary {
   background: var(--primary);
   border-color: transparent;
   color: var(--on-primary);
@@ -1514,7 +1514,7 @@ button:disabled,
 .panel,
 .next,
 .update,
-.session .menu {
+.backup .menu {
   background: var(--surface-raised);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
@@ -1529,7 +1529,7 @@ button:disabled,
   box-shadow: var(--shadow-md);
 }
 
-.session .menu {
+.backup .menu {
   box-shadow: var(--shadow-md);
   border-radius: var(--radius-md);
 }
@@ -1614,16 +1614,16 @@ h3,
   }
 }
 
-/* ---------- sessions and steps ---------- */
+/* ---------- backups and steps ---------- */
 
-.session .current {
+.backup .current {
   background: var(--surface-raised);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
 }
 
-.session .current small {
+.backup .current small {
   font-size: 11px;
   line-height: 16px;
   font-weight: 700;
@@ -1632,7 +1632,7 @@ h3,
   color: var(--ink-muted);
 }
 
-.session .menu > button:hover {
+.backup .menu > button:hover {
   background: var(--surface-sunken);
 }
 
@@ -1842,7 +1842,7 @@ progress::-webkit-progress-value {
 input,
 select,
 .connect select,
-.session .menu input,
+.backup .menu input,
 .welcome .naming input {
   height: 40px;
   padding: 0 var(--space-3);
@@ -1945,7 +1945,7 @@ h2,
 h3,
 h4,
 .place b,
-.session .current,
+.backup .current,
 .big-count,
 .next b,
 strong,
@@ -1954,7 +1954,7 @@ b {
   font-weight: 700;
 }
 
-.session .current small,
+.backup .current small,
 .eyebrow {
   font-weight: 700;
 }
@@ -1974,4 +1974,13 @@ label,
 .link.quiet,
 .badge {
   font-weight: 500;
+}
+
+/* Nothing on the first screen is for selecting, except what is typed. */
+.welcome {
+  user-select: none;
+}
+
+.welcome input {
+  user-select: text;
 }

@@ -10,7 +10,7 @@
 
 import type {
   AppState,
-  BackupEvent,
+  SendEvent,
   Backend,
   CheckEvent,
   Collection,
@@ -19,7 +19,7 @@ import type {
   Photo,
   PhotoChoice,
   ScanEvent,
-  Session,
+  Backup,
 } from './backend'
 
 const SCENES: [string, string, string][] = [
@@ -118,35 +118,35 @@ export function demoBackend(): Backend {
   const scanListeners = new Set<(e: ScanEvent) => void>()
   const checkListeners = new Set<(event: CheckEvent) => void>()
   const gatherListeners = new Set<(e: GatherEvent) => void>()
-  const backupListeners = new Set<(e: BackupEvent) => void>()
-  let backedUpTo: string | null = null
-  let backedUp = 0
+  const sendListeners = new Set<(e: SendEvent) => void>()
+  let sendingTo: string | null = null
+  let sentSoFar = 0
   const later = (ms: number) => new Promise((done) => setTimeout(done, ms))
   // Tests can ask for everything to happen at once.
   const pace = mode === 'fast' || new URLSearchParams(window.location.search).has('fast') ? 0 : 1
 
-  // Sessions: each keeps what it found, what was chosen and where it sends.
-  type Kept = { collections: Collection[]; sources: typeof sources; junk: PhotoChoice[]; backedUpTo: string | null; backedUp: number }
-  let sessions: Session[] = library ? [{ id: 's1', name: 'My photos' }] : []
-  let open: string | null = sessions[0]?.id ?? null
+  // Backups: each keeps what it found, what was chosen and where it sends.
+  type Kept = { collections: Collection[]; sources: typeof sources; junk: PhotoChoice[]; sendingTo: string | null; sentSoFar: number }
+  let backups: Backup[] = library ? [{ id: 's1', name: 'My photos' }] : []
+  let open: string | null = backups[0]?.id ?? null
   const shelf = new Map<string, Kept>()
   const putAway = () => {
-    if (open) shelf.set(open, { collections: [...collections], sources: [...sources], junk: [...junk], backedUpTo, backedUp })
+    if (open) shelf.set(open, { collections: [...collections], sources: [...sources], junk: [...junk], sendingTo, sentSoFar })
   }
   const takeOut = (id: string) => {
-    const kept = shelf.get(id) ?? { collections: [], sources: [], junk: [], backedUpTo: null, backedUp: 0 }
+    const kept = shelf.get(id) ?? { collections: [], sources: [], junk: [], sendingTo: null, sentSoFar: 0 }
     collections.splice(0, collections.length, ...kept.collections)
     sources.splice(0, sources.length, ...kept.sources)
     junk.splice(0, junk.length, ...kept.junk)
-    backedUpTo = kept.backedUpTo
-    backedUp = kept.backedUp
+    sendingTo = kept.sendingTo
+    sentSoFar = kept.sentSoFar
     open = id
   }
   const state = (): AppState => ({
     library,
     suggestedLibrary: suggested,
-    session: sessions.find((s) => s.id === open) ?? null,
-    sessions: [...sessions],
+    backup: backups.find((s) => s.id === open) ?? null,
+    backups: [...backups],
     version: 'demo',
   })
   const view = (): Discover => {
@@ -214,22 +214,22 @@ export function demoBackend(): Backend {
       library = path
       return state()
     },
-    async startSession(name) {
+    async startBackup(name) {
       putAway()
-      const taken = (n: string) => sessions.some((s) => s.name.toLowerCase() === n.toLowerCase())
+      const taken = (n: string) => backups.some((s) => s.name.toLowerCase() === n.toLowerCase())
       const wanted = name.trim() || 'My photos'
       let called = wanted
       for (let n = 2; taken(called); n++) called = `${wanted} ${n}`
-      const id = `s${sessions.length + 1}`
-      sessions = [...sessions, { id, name: called }]
-      library = `C:\\Users\\You\\AppData\\Keevoro\\sessions\\${id}`
-      // A new session starts with nothing found, unless the page asked for a full one.
-      if (sessions.length > 1) shelf.set(id, { collections: [], sources: [], junk: [], backedUpTo: null, backedUp: 0 })
+      const id = `s${backups.length + 1}`
+      backups = [...backups, { id, name: called }]
+      library = `C:\\Users\\You\\AppData\\Keevoro\\backups\\${id}`
+      // A new backup starts with nothing found, unless the page asked for a full one.
+      if (backups.length > 1) shelf.set(id, { collections: [], sources: [], junk: [], sendingTo: null, sentSoFar: 0 })
       else putAway()
       takeOut(id)
       return state()
     },
-    async switchSession(id) {
+    async switchBackup(id) {
       putAway()
       takeOut(id)
       return state()
@@ -328,41 +328,41 @@ export function demoBackend(): Backend {
         )
       })()
     },
-    backupState: async () => backedUpTo,
-    chooseBackupFolder: async () => 'F:\\Family Backup',
-    async connectBackup(request) {
+    destination: async () => sendingTo,
+    chooseDestinationFolder: async () => 'F:\\Family Backup',
+    async connectDestination(request) {
       await later(300 * pace)
       // The stand-in refuses one obviously wrong answer, as the real one would.
       if (request.kind !== 'folder' && !request.secretAccessKey) throw new Error('Enter both keys for the storage.')
-      backedUpTo =
+      sendingTo =
         request.kind === 'folder'
           ? `the folder ${request.place}`
           : request.kind === 'r2'
             ? `the Cloudflare R2 bucket ${request.bucket}`
             : `the bucket ${request.bucket}`
-      return backedUpTo
+      return sendingTo
     },
-    async disconnectBackup() {
-      backedUpTo = null
+    async disconnectDestination() {
+      sendingTo = null
     },
-    async backUp() {
+    async send() {
       const kept = collections.filter((c) => c.kept)
       const total = kept.reduce((n, c) => n + c.photos + c.videos, 0)
       void (async () => {
-        backupListeners.forEach((l) => l({ line: 'Reading each file in full first: 0 of 12', finished: false }))
+        sendListeners.forEach((l) => l({ line: 'Reading each file in full first: 0 of 12', finished: false }))
         await later(200 * pace)
         for (let step = 1; step <= 6; step++) {
           await later(200 * pace)
           const done = Math.round((total * step) / 6)
-          backupListeners.forEach((l) =>
+          sendListeners.forEach((l) =>
             l({ line: `${done.toLocaleString('en-GB')} of ${total.toLocaleString('en-GB')} safely backed up`, finished: false }),
           )
         }
-        const fresh = total - backedUp
-        backedUp = total
+        const fresh = total - sentSoFar
+        sentSoFar = total
         // Sent means safe: nothing is waiting any more.
         kept.forEach((c) => (c.gathered = c.photos + c.videos))
-        backupListeners.forEach((l) =>
+        sendListeners.forEach((l) =>
           l({
             finished: true,
             summary: [
@@ -374,22 +374,22 @@ export function demoBackend(): Backend {
         )
       })()
     },
-    async checkBackup() {
+    async checkArrived() {
       void (async () => {
         await later(400 * pace)
-        backupListeners.forEach((l) =>
+        sendListeners.forEach((l) =>
           l({
             finished: true,
             summary: [
-              `Your backup: all ${backedUp.toLocaleString('en-GB')} originals are there.`,
+              `Your send: all ${sentSoFar.toLocaleString('en-GB')} originals are there.`,
             ],
           }),
         )
       })()
     },
-    onBackup(listener) {
-      backupListeners.add(listener)
-      return () => backupListeners.delete(listener)
+    onSend(listener) {
+      sendListeners.add(listener)
+      return () => sendListeners.delete(listener)
     },
     onScan(listener) {
       scanListeners.add(listener)

@@ -500,9 +500,9 @@ mod tests {
         );
     }
 
-    /// A source with two photos, searched quickly into a session whose
+    /// A source with two photos, searched quickly into a backup whose
     /// home folder is somewhere else entirely.
-    fn session() -> (tempfile::TempDir, PathBuf, PathBuf, Catalog) {
+    fn one_backup() -> (tempfile::TempDir, PathBuf, PathBuf, Catalog) {
         let dir = tempfile::tempdir().unwrap();
         let card = dir.path().join("Card");
         for (rel, shade) in [
@@ -537,7 +537,7 @@ mod tests {
 
     #[test]
     fn files_go_straight_from_the_source_to_a_folder_with_no_copy_in_between() {
-        let (dir, card, home, catalog) = session();
+        let (dir, card, home, catalog) = one_backup();
         let to = dir.path().join("Drone footage");
         let said = send(&catalog, &home, &to);
         assert!(said.contains("Safely backed up"), "{said}");
@@ -550,7 +550,7 @@ mod tests {
                 keevoro_scan::whole_hash(&card.join("Flights").join(name)).unwrap()
             );
         }
-        // And the session's own folder holds no second copy of them.
+        // And the backup's own folder holds no second copy of them.
         assert!(!home.join("originals").exists());
         // The app counts them as safe.
         assert_eq!(crate::discover(&home, &catalog).unwrap().waiting_to_gather, 0);
@@ -558,13 +558,13 @@ mod tests {
 
     #[test]
     fn sending_again_later_only_sends_what_is_new() {
-        let (dir, card, home, mut catalog) = session();
+        let (dir, card, home, mut catalog) = one_backup();
         let to = dir.path().join("Drone footage");
         send(&catalog, &home, &to);
         let again = send(&catalog, &home, &to);
         assert!(!again.contains("Safely backed up"), "nothing new to send: {again}");
 
-        // Another flight, another day: the same session, looked through again.
+        // Another flight, another day: the same backup, looked through again.
         std::fs::write(
             card.join("Flights").join("IMG_20240702_090000.jpg"),
             crate::discover::tests::real_jpeg(200),
