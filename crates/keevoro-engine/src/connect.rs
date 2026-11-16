@@ -16,7 +16,7 @@
 //! Keys set in the environment still win over the keychain, which is what
 //! scripts and CI use.
 
-use crate::backup::{Destination, ACCESS_KEY_VAR, SECRET_KEY_VAR};
+use crate::send::{Destination, ACCESS_KEY_VAR, SECRET_KEY_VAR};
 use anyhow::{bail, Result};
 use keevoro_catalog::Catalog;
 use keevoro_storage_s3::Preset;
@@ -255,7 +255,7 @@ pub fn connect(out: &mut dyn Write, catalog: &Catalog, saved: &Saved, world: &Wo
 
     // Prove it works before remembering anything.
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
-    crate::backup::open(out, &runtime, destination)?;
+    crate::send::open(out, &runtime, destination)?;
 
     if let Some(keys) = keys {
         world.secrets.set(&saved.secret_name(), &keys)?;

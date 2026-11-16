@@ -19,11 +19,11 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-pub mod backup;
 pub mod connect;
 pub mod deep;
 pub mod discover;
 pub mod preview;
+pub mod send;
 pub mod summary;
 
 pub use discover::{
@@ -198,7 +198,7 @@ pub fn gather_everything(
 /// Gets everything the user is keeping ready to be sent somewhere, without
 /// copying it into this library's own folder: every file is read in full
 /// and checked, given its place, and has its preview made. The files stay
-/// on their sources and are sent from there (see [`backup::run`]).
+/// on their sources and are sent from there (see [`send::run`]).
 pub fn prepare_to_send(
     home: &Path,
     catalog: &Catalog,

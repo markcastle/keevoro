@@ -8,7 +8,7 @@ use crate::events::{CheckEvent, GatherEvent, ScanEvent, SendEvent, CHECK, GATHER
 use crate::Shared;
 use keevoro_catalog::Catalog;
 use keevoro_engine::connect::{self, Flags, Keychain, Saved, World};
-use keevoro_engine::{backup, Discover, PhotoChoice};
+use keevoro_engine::{Discover, PhotoChoice};
 use keevoro_media::VideoTools;
 use serde::Deserialize;
 use serde::Serialize;
@@ -612,7 +612,7 @@ fn send_job(
     job: impl FnOnce(
             &std::path::Path,
             &Catalog,
-            backup::Destination,
+            keevoro_engine::send::Destination,
             Option<&str>,
             &mut Vec<u8>,
             &mut dyn FnMut(&str),
@@ -699,7 +699,7 @@ pub fn send(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
         &shared,
         true,
         |library, catalog, destination, base_url, said, progress| {
-            backup::run(said, catalog, library, destination, base_url, false, progress)
+            keevoro_engine::send::run(said, catalog, library, destination, base_url, false, progress)
         },
     )
 }
@@ -712,7 +712,7 @@ pub fn check_arrived(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
         &shared,
         false,
         |library, catalog, destination, _base_url, said, progress| {
-            backup::check(said, catalog, library, Some(destination), false, progress)
+            keevoro_engine::send::check(said, catalog, library, Some(destination), false, progress)
         },
     )
 }

@@ -9,7 +9,7 @@ use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use keevoro_catalog::Catalog;
 pub(crate) use keevoro_engine::wanted;
-use keevoro_engine::{backup as publish, connect};
+use keevoro_engine::{connect, send as publish};
 use keevoro_engine::{gather_everything, summary, GatherStep};
 use keevoro_scan::FoundItem;
 use keevoro_scan::{scan, ScanOptions, ScanReport};
