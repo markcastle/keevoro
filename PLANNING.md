@@ -133,7 +133,7 @@ How it is built:
 
 - Each backup has a home folder in the app's own data, holding its catalog and previews. The photos themselves are not copied there.
 - `settings.json` lists the backups and which is open. A library from before backups existed becomes the first one, in place.
-- Sending is `prepare_to_send` (read each kept file in full, agree its place, make its preview) followed by `backup::run` (send, skipping what is already there, then write the index).
+- Sending is `prepare_to_send` (read each kept file in full, agree its place, make its preview) followed by `send::run` (send, skipping what is already there, then write the index).
 
 Still to do: more than one destination per backup; renaming and removing a backup; a backup that only looks for videos, or only photos; backups on the command line (`--library` selects a home folder today).
 

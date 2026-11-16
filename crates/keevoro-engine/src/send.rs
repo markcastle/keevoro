@@ -1,9 +1,13 @@
-//! Backing a library up, and checking it afterwards.
+//! Sending a backup's files to their destination, and checking they
+//! arrived.
 //!
-//! `run` sends originals and previews to a destination and then writes the
-//! index. The order matters: the index goes last, so it never points at
-//! something that is not there yet, and it lists only files confirmed
-//! stored. `check` re-reads the library and, if asked, the backup.
+//! A backup is the named job ("Family photos"); this module is the act of
+//! sending what it is keeping somewhere: a folder, or storage that speaks
+//! S3. `run` sends originals and previews and then writes the index. The
+//! order matters: the index goes last, so it never points at something
+//! that is not there yet, and it lists only files confirmed stored.
+//! `check` re-reads what is kept on this computer and, if asked, what was
+//! sent.
 //!
 //! Both say what happened by writing plain sentences to `out`, one per
 //! line, and report progress as a short line of text through a callback.
