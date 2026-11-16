@@ -178,6 +178,30 @@ pub fn gather_everything(
     video_tools: Option<&VideoTools>,
     on_step: &mut dyn FnMut(GatherStep),
 ) -> Result<Option<GatherOutcome>> {
+    make_ready(library, catalog, convert_videos, video_tools, true, on_step)
+}
+
+/// Gets everything the user is keeping ready to be sent somewhere, without
+/// copying it into this library's own folder: every file is read in full
+/// and checked, given its place, and has its preview made. The files stay
+/// on their sources and are sent from there (see [`backup::run`]).
+pub fn prepare_to_send(
+    home: &Path,
+    catalog: &Catalog,
+    video_tools: Option<&VideoTools>,
+    on_step: &mut dyn FnMut(GatherStep),
+) -> Result<Option<GatherOutcome>> {
+    make_ready(home, catalog, false, video_tools, false, on_step)
+}
+
+fn make_ready(
+    library: &Path,
+    catalog: &Catalog,
+    convert_videos: bool,
+    video_tools: Option<&VideoTools>,
+    copy_here: bool,
+    on_step: &mut dyn FnMut(GatherStep),
+) -> Result<Option<GatherOutcome>> {
     let reports = catalog.load_reports()?;
     // Rule one: never write to a source. A library inside a scanned folder
     // would do exactly that.
@@ -229,19 +253,24 @@ pub fn gather_everything(
         return Ok(None);
     }
 
-    let copied = match gather(library, catalog, &chosen, free_space(library), &mut |p| {
-        on_step(GatherStep::Copying {
-            done: p.done,
-            total: p.total,
-        });
-    }) {
-        Ok(report) => report,
-        Err(GatherError::NotEnoughRoom { needed, free }) => bail!(
-            "There isn't enough room for your library. It needs {} and the disk has {} free.",
-            summary::bytes(needed),
-            summary::bytes(free)
-        ),
-        Err(e) => return Err(e).context("Couldn't gather your photos"),
+    let copied = if !copy_here {
+        keevoro_collect::agree_places(catalog, &chosen)?;
+        GatherReport::default()
+    } else {
+        match gather(library, catalog, &chosen, free_space(library), &mut |p| {
+            on_step(GatherStep::Copying {
+                done: p.done,
+                total: p.total,
+            });
+        }) {
+            Ok(report) => report,
+            Err(GatherError::NotEnoughRoom { needed, free }) => bail!(
+                "There isn't enough room for your library. It needs {} and the disk has {} free.",
+                summary::bytes(needed),
+                summary::bytes(free)
+            ),
+            Err(e) => return Err(e).context("Couldn't gather your photos"),
+        }
     };
 
     // Previews come from the library's own copies, so they are made for
