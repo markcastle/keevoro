@@ -40,6 +40,10 @@ import type {
   Update,
 } from './backend'
 import { count, photosAndVideos, size, thousands, wholePlace } from './format'
+import iconUrl from './assets/keevoro-icon.png'
+import lockupUrl from './assets/keevoro-lockup.png'
+import { chooseTheme, savedTheme } from './theme'
+import type { Theme } from './theme'
 
 type Step = 'find' | 'choose' | 'backup'
 /** Looking inside a collection, or at what was set aside, sits on top of step 2. */
@@ -188,7 +192,6 @@ export function App() {
       <aside className="sidebar">
         <div className="brand">
           <Logo />
-          <span>Keevoro</span>
         </div>
         <SessionPicker
           session={state.session}
@@ -713,6 +716,7 @@ function SettingsScreen(props: {
   const { api, state, onProblem } = props
   const [log, setLog] = useState<string | null>(null)
   const [checked, setChecked] = useState<'no' | 'checking' | 'current'>('no')
+  const [theme, setTheme] = useState<Theme>(savedTheme)
   const logBox = useRef<HTMLPreElement>(null)
 
   const showLog = () =>
@@ -751,6 +755,34 @@ function SettingsScreen(props: {
         <p>{props.backedUpTo ? `This session sends to ${props.backedUpTo}.` : 'Nowhere has been chosen yet.'}</p>
         <p className="choices">
           <button onClick={props.onBackup}>{props.backedUpTo ? 'Go to sending' : 'Choose where'}</button>
+        </p>
+      </div>
+
+      <div className="setting">
+        <h3>Appearance</h3>
+        <p className="quiet">Light, dark, or the same as the rest of your computer.</p>
+        <p className="choices">
+          <span className="themes" role="group" aria-label="Appearance">
+            {(
+              [
+                ['system', 'Match my computer'],
+                ['light', 'Light'],
+                ['dark', 'Dark'],
+              ] as [Theme, string][]
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                className="link"
+                aria-pressed={theme === value}
+                onClick={() => {
+                  chooseTheme(value)
+                  setTheme(value)
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </span>
         </p>
       </div>
 
@@ -1285,18 +1317,21 @@ function Spinner() {
   return <span className="spinner" aria-hidden />
 }
 
+/**
+ * The logo, exactly as supplied by the design system: the full lockup in
+ * the side bar, the picture tiles on their own where it is shown large.
+ * It is never redrawn or recoloured.
+ */
 function Logo(props: { large?: boolean }) {
-  const s = props.large ? 56 : 26
-  return (
-    <svg width={s} height={s} viewBox="0 0 32 32" aria-hidden>
-      <rect x="9" y="5" width="19" height="17" rx="4" fill="none" stroke="currentColor" strokeWidth="2.2" opacity=".55" />
-      <rect x="4" y="10" width="19" height="17" rx="4" fill="var(--panel)" stroke="currentColor" strokeWidth="2.2" />
-    </svg>
+  return props.large ? (
+    <img className="mark" src={iconUrl} alt="" />
+  ) : (
+    <img src={lockupUrl} alt="Keevoro" />
   )
 }
 
 const icon = (path: string, large = false) => (
-  <svg width={large ? 44 : 18} height={large ? 44 : 18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+  <svg width={large ? 44 : 18} height={large ? 44 : 18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
     <path d={path} />
   </svg>
 )

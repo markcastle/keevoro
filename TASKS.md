@@ -122,6 +122,14 @@ Done when a non-technical tester gets from a drive to a backup without help.
 - [ ] "Show folders" view with tick boxes, for people who want control
 - [ ] Old video conversion prompt
 
+### Look and feel
+
+- [x] Reskin with the Keevoro design system: tokens, Figtree, the logo, soft-square photo tiles
+- [x] Light, dark and match-my-computer, chosen in Settings
+- [ ] A reversed logo for dark grounds (the design system notes it is still to be made; until then the logo sits on a cream panel)
+- [ ] Sunset placeholder art where a photo has no preview
+- [ ] Title bar that follows the chosen appearance on Windows
+
 ### Video without extra software
 
 - [x] Thumbnails and posters from the computer's own decoder (`keevoro-frame`: Media Foundation on Windows, AVFoundation on macOS), tested against a real video on GitHub's Windows and macOS machines
