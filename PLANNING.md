@@ -125,17 +125,17 @@ Every upload writes a v2 JSON index under an unguessable name (`index/<128-bit r
 
 ## Backups and destinations
 
-People use Keevoro for separate jobs: family photos to a folder, drone footage to cloud storage, perhaps a client's work somewhere else. A **backup** is one of those jobs (the code calls it a session, the name it was built under). It has a name, its own sources, its own choices about what to keep and its own destination, and it is remembered, so the same job can be run again next month and only what is new is sent.
+People use Keevoro for separate jobs: family photos to a folder, drone footage to cloud storage, perhaps a client's work somewhere else. A **backup** is one of those jobs. It has a name, its own sources, its own choices about what to keep and its own destination, and it is remembered, so the same job can be run again next month and only what is new is sent.
 
 A **destination** is anywhere files can be sent: a folder (on this computer, another disk, a network drive) or storage that speaks S3 (Cloudflare R2, Amazon S3 and others). They are the same kind of thing. A file's place (its folder and name) is agreed once and is the same in every destination, and files go straight from the source to the destination. There is no library on this computer that everything must pass through.
 
 How it is built:
 
-- Each session has a home folder in the app's own data, holding its catalog and previews. The photos themselves are not copied there.
-- `settings.json` lists the sessions and which is open. A library from before sessions becomes the first session, in place.
+- Each backup has a home folder in the app's own data, holding its catalog and previews. The photos themselves are not copied there.
+- `settings.json` lists the backups and which is open. A library from before backups existed becomes the first one, in place.
 - Sending is `prepare_to_send` (read each kept file in full, agree its place, make its preview) followed by `backup::run` (send, skipping what is already there, then write the index).
 
-Still to do: more than one destination per session; renaming and removing a session; a session that only looks for videos, or only photos; sessions on the command line (`--library` selects a home folder today).
+Still to do: more than one destination per backup; renaming and removing a backup; a backup that only looks for videos, or only photos; backups on the command line (`--library` selects a home folder today).
 
 ## Open questions
 

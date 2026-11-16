@@ -8,7 +8,7 @@ use serde::Serialize;
 
 pub const SCAN: &str = "scan";
 pub const GATHER: &str = "gather";
-pub const BACKUP: &str = "backup";
+pub const SEND: &str = "send";
 pub const CHECK: &str = "check";
 
 /// Progress reading, in the background, the files a quick search only
@@ -46,7 +46,7 @@ pub struct ScanEvent {
 
 /// Progress backing up or checking, and a last one when it is done.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct BackupEvent {
+pub struct SendEvent {
     /// A short line saying how far it has got, while it runs.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub line: Option<String>,
@@ -58,7 +58,7 @@ pub struct BackupEvent {
     pub problem: Option<String>,
 }
 
-impl BackupEvent {
+impl SendEvent {
     pub fn progress(line: &str) -> Self {
         Self {
             line: Some(line.to_string()),
@@ -155,25 +155,25 @@ mod tests {
             "There isn't enough room."
         );
 
-        let going = BackupEvent::progress("3,412 of 9,870 safely backed up");
+        let going = SendEvent::progress("3,412 of 9,870 safely backed up");
         assert_eq!(
             serde_json::to_value(&going).unwrap(),
             serde_json::json!({ "line": "3,412 of 9,870 safely backed up", "finished": false })
         );
-        let done = BackupEvent::finished(b"Safely backed up 3 files (1.2 MB).\n\nYour private index: x\n", None);
+        let done = SendEvent::finished(b"Safely backed up 3 files (1.2 MB).\n\nYour private index: x\n", None);
         assert_eq!(
             done.summary,
             ["Safely backed up 3 files (1.2 MB).", "Your private index: x"]
         );
         assert!(done.finished && done.line.is_none());
-        let hinted = BackupEvent::finished(b"Couldn't back up 1 file:\n  a.jpg: The connection kept dropping.\nRun `keevoro publish` again to retry.\n", None);
+        let hinted = SendEvent::finished(b"Couldn't back up 1 file:\n  a.jpg: The connection kept dropping.\nRun `keevoro publish` again to retry.\n", None);
         assert_eq!(
             hinted.summary.len(),
             2,
             "command-line advice is left out: {:?}",
             hinted.summary
         );
-        let failed = BackupEvent::finished(b"", Some("Couldn't connect to the storage.".into()));
+        let failed = SendEvent::finished(b"", Some("Couldn't connect to the storage.".into()));
         assert_eq!(
             serde_json::to_value(&failed).unwrap(),
             serde_json::json!({ "finished": true, "problem": "Couldn't connect to the storage." })

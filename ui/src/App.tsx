@@ -26,7 +26,7 @@ import { backend } from './backend'
 import type {
   AppState,
   Backend,
-  BackupEvent,
+  SendEvent,
   Collection,
   ConnectRequest,
   Discover,
@@ -36,7 +36,7 @@ import type {
   Place,
   CheckEvent,
   ScanEvent,
-  Session,
+  Backup,
   Update,
 } from './backend'
 import { count, photosAndVideos, size, thousands, wholePlace } from './format'
@@ -46,14 +46,14 @@ import lockupUrl from './assets/keevoro-lockup.png'
 import { chooseTheme, savedTheme } from './theme'
 import type { Theme } from './theme'
 
-type Step = 'find' | 'choose' | 'backup'
+type Step = 'find' | 'choose' | 'send'
 /** Looking inside a collection, or at what was set aside, sits on top of step 2. */
 type Overlay = { collection: Collection } | 'setAside' | 'settings' | null
 
 const STEPS: { id: Step; title: string }[] = [
   { id: 'find', title: 'Find your photos' },
   { id: 'choose', title: 'Choose what to keep' },
-  { id: 'backup', title: 'Send them somewhere safe' },
+  { id: 'send', title: 'Send them somewhere safe' },
 ]
 
 const all = (n: number) => (n === 1 ? '1 photo or video' : `${n.toLocaleString()} photos and videos`)
@@ -74,7 +74,7 @@ export function App() {
   const [update, setUpdate] = useState<Update | null>(null)
   const [updating, setUpdating] = useState<'no' | 'downloading' | 'opened'>('no')
   // Where the library is backed up to; undefined until asked.
-  const [backedUpTo, setBackedUpTo] = useState<string | null | undefined>(undefined)
+  const [sendingTo, setSendingTo] = useState<string | null | undefined>(undefined)
 
   // Anything that goes wrong is said once, in the engine's own plain words.
   const report = useCallback((error: unknown) => {
@@ -117,8 +117,8 @@ export function App() {
         if (s.library) {
           const d = await b.discover()
           setFound(d)
-          const where = await b.backupState()
-          setBackedUpTo(where)
+          const where = await b.destination()
+          setSendingTo(where)
           // Open on whichever step still needs doing.
           setStep(nextToDo(d, where))
           void b.keepChecking().catch(() => {})
@@ -137,8 +137,8 @@ export function App() {
 
   if (!api || !state) return <div className="blank" />
 
-  // Opening a session (a new one, or another one) shows what it holds.
-  const openSession = (opened: Promise<AppState>) =>
+  // Opening a backup (a new one, or another one) shows what it holds.
+  const openBackup = (opened: Promise<AppState>) =>
     opened
       .then(async (s) => {
         setState(s)
@@ -146,14 +146,14 @@ export function App() {
         setJustFound(null)
         const d = await api.discover()
         setFound(d)
-        const where = await api.backupState()
-        setBackedUpTo(where)
+        const where = await api.destination()
+        setSendingTo(where)
         setStep(nextToDo(d, where))
       })
       .catch(report)
 
-  if (!state.session) {
-    return <Welcome onStart={(name) => openSession(api.startSession(name))} problem={problem} />
+  if (!state.backup) {
+    return <Welcome onStart={(name) => openBackup(api.startBackup(name))} problem={problem} />
   }
 
   const waiting = found?.waitingToGather ?? 0
@@ -177,16 +177,16 @@ export function App() {
   // What each step has to say for itself in the list down the side.
   const done: Record<Step, boolean> = {
     find: anythingFound,
-    choose: anythingFound && (step === 'backup' || safe > 0),
-    backup: safe > 0 && waiting === 0,
+    choose: anythingFound && (step === 'send' || safe > 0),
+    send: safe > 0 && waiting === 0,
   }
   const note: Record<Step, string> = {
     find: found && found.sources.length > 0 ? count(found.sources.length, 'source') : 'Start here',
     choose: anythingFound ? `Keeping ${thousands(waiting + safe)}` : '',
-    backup: safe > 0 ? `${thousands(safe)} safe` : backedUpTo ? 'Ready to send' : '',
+    send: safe > 0 ? `${thousands(safe)} safe` : sendingTo ? 'Ready to send' : '',
   }
   // A step can be opened once the one before it has something to show.
-  const open: Record<Step, boolean> = { find: true, choose: anythingFound, backup: anythingFound }
+  const open: Record<Step, boolean> = { find: true, choose: anythingFound, send: anythingFound }
 
   return (
     <div className="app">
@@ -194,11 +194,11 @@ export function App() {
         <div className="brand">
           <Logo />
         </div>
-        <SessionPicker
-          session={state.session}
-          sessions={state.sessions}
-          onSwitch={(id) => openSession(api.switchSession(id))}
-          onStart={(name) => openSession(api.startSession(name))}
+        <BackupPicker
+          backup={state.backup}
+          backups={state.backups}
+          onSwitch={(id) => openBackup(api.switchBackup(id))}
+          onStart={(name) => openBackup(api.startBackup(name))}
         />
         <ol className="steps" aria-label="Steps">
           {STEPS.map((s, i) => (
@@ -284,16 +284,16 @@ export function App() {
           <SettingsScreen
             api={api}
             state={state}
-            backedUpTo={backedUpTo ?? null}
+            sendingTo={sendingTo ?? null}
             update={update}
             onUpdate={setUpdate}
             onLibrary={(s) => {
               setState(s)
               void refresh(api)
             }}
-            onBackup={() => {
+            onSend={() => {
               setOverlay(null)
-              setStep('backup')
+              setStep('send')
             }}
             onBack={() => setOverlay(null)}
             onProblem={report}
@@ -347,22 +347,22 @@ export function App() {
                     </>
                   }
                   button="Choose where they go"
-                  onClick={() => go('backup')}
+                  onClick={() => go('send')}
                 />
               ) : safe > 0 ? (
-                <Next back={() => go('find')} say="Everything you’re keeping has already been sent." button="Next" onClick={() => go('backup')} />
+                <Next back={() => go('find')} say="Everything you’re keeping has already been sent." button="Next" onClick={() => go('send')} />
               ) : (
                 <Next back={() => go('find')} say="Nothing is being kept yet. Choose at least one collection." />
               )
             }
           />
         ) : (
-          <BackupScreen
+          <SendScreen
             api={api}
             waiting={waiting}
             safe={safe}
             onProblem={report}
-            onBackedUpTo={setBackedUpTo}
+            onSendingTo={setSendingTo}
             onSent={() => void refresh(api)}
             next={
               <Next
@@ -384,7 +384,7 @@ export function App() {
 function nextToDo(found: Discover, sendingTo: string | null): Step {
   if (found.collections.length === 0) return 'find'
   // Somewhere to send to is already chosen: sending is what is left.
-  if (found.waitingToGather > 0) return sendingTo ? 'backup' : 'choose'
+  if (found.waitingToGather > 0) return sendingTo ? 'send' : 'choose'
   return 'find'
 }
 
@@ -446,26 +446,26 @@ function Welcome(props: { onStart: (name: string) => void; problem: string | nul
   )
 }
 
-/** The open session's name, and the way to another one or a new one. */
-function SessionPicker(props: {
-  session: Session | null
-  sessions: Session[]
+/** The open backup's name, and the way to another one or a new one. */
+function BackupPicker(props: {
+  backup: Backup | null
+  backups: Backup[]
   onSwitch: (id: string) => void
   onStart: (name: string) => void
 }) {
   const [open, setOpen] = useState(false)
   const [naming, setNaming] = useState<string | null>(null)
-  const others = props.sessions.filter((s) => s.id !== props.session?.id)
+  const others = props.backups.filter((s) => s.id !== props.backup?.id)
   const close = () => {
     setOpen(false)
     setNaming(null)
   }
   return (
-    <div className="session">
+    <div className="backup">
       <button className="current" onClick={() => (open ? close() : setOpen(true))} aria-expanded={open} aria-label="Backup">
         <span>
           <small>Backup</small>
-          {props.session?.name}
+          {props.backup?.name}
         </span>
         <span aria-hidden>{open ? '▴' : '▾'}</span>
       </button>
@@ -706,11 +706,11 @@ function PlaceCard(props: { place: Place; added: boolean; onClick: () => void })
 function SettingsScreen(props: {
   api: Backend
   state: AppState
-  backedUpTo: string | null
+  sendingTo: string | null
   update: Update | null
   onUpdate: (update: Update | null) => void
   onLibrary: (state: AppState) => void
-  onBackup: () => void
+  onSend: () => void
   onBack: () => void
   onProblem: (error: unknown) => void
 }) {
@@ -742,7 +742,7 @@ function SettingsScreen(props: {
       <div className="setting">
         <h3>This backup</h3>
         <p>
-          This is <b>{state.session?.name}</b>. A backup remembers its own sources, what you chose to keep and where
+          This is <b>{state.backup?.name}</b>. A backup remembers its own sources, what you chose to keep and where
           it sends things. To open another or start a new one, use the backup’s name at the top of the side bar.
         </p>
         <p className="quiet small">
@@ -753,9 +753,9 @@ function SettingsScreen(props: {
 
       <div className="setting">
         <h3>Where it sends to</h3>
-        <p>{props.backedUpTo ? `This backup sends to ${props.backedUpTo}.` : 'Nowhere has been chosen yet.'}</p>
+        <p>{props.sendingTo ? `This backup sends to ${props.sendingTo}.` : 'Nowhere has been chosen yet.'}</p>
         <p className="choices">
-          <button onClick={props.onBackup}>{props.backedUpTo ? 'Go to sending' : 'Choose where'}</button>
+          <button onClick={props.onSend}>{props.sendingTo ? 'Go to sending' : 'Choose where'}</button>
         </p>
       </div>
 
@@ -946,12 +946,12 @@ function KeepButton(props: { collection: Collection; onKeep: (c: Collection, kep
 }
 
 /** Step 3. One question: where should they go? Then one button: send. */
-function BackupScreen(props: {
+function SendScreen(props: {
   api: Backend
   waiting: number
   safe: number
   onProblem: (error: unknown) => void
-  onBackedUpTo: (where: string | null) => void
+  onSendingTo: (where: string | null) => void
   onSent: () => void
   next: ReactNode
 }) {
@@ -964,12 +964,12 @@ function BackupScreen(props: {
           never replaces a file that is already there. Your sources are not changed.
         </p>
       </header>
-      <BackupPanel
+      <SendPanel
         api={props.api}
         waiting={props.waiting}
         safe={props.safe}
         onProblem={props.onProblem}
-        onWhere={props.onBackedUpTo}
+        onWhere={props.onSendingTo}
         onSent={props.onSent}
       />
       {props.next}
@@ -978,15 +978,15 @@ function BackupScreen(props: {
 }
 
 /**
- * Where this session sends to. Until a destination is chosen this offers the
+ * Where this backup sends to. Until a destination is chosen this offers the
  * kinds there are, a folder first; after that it is one button, Send.
  */
-function BackupPanel(props: {
+function SendPanel(props: {
   api: Backend
   onProblem: (error: unknown) => void
   waiting: number
   safe: number
-  /** Tells the rest of the app where this session sends to. */
+  /** Tells the rest of the app where this backup sends to. */
   onWhere: (where: string | null) => void
   /** Called when a send finishes, so the counts can be read again. */
   onSent: () => void
@@ -997,11 +997,11 @@ function BackupPanel(props: {
   const [connecting, setConnecting] = useState(false)
   const [refused, setRefused] = useState<string | null>(null)
   const [running, setRunning] = useState<string | null>(null)
-  const [said, setSaid] = useState<BackupEvent | null>(null)
+  const [said, setSaid] = useState<SendEvent | null>(null)
 
   useEffect(() => {
-    api.backupState().then(setWhere).catch(onProblem)
-    return api.onBackup((event) => {
+    api.destination().then(setWhere).catch(onProblem)
+    return api.onSend((event) => {
       if (event.finished) {
         setRunning(null)
         setSaid(event)
@@ -1016,7 +1016,7 @@ function BackupPanel(props: {
     setConnecting(true)
     setRefused(null)
     api
-      .connectBackup(request)
+      .connectDestination(request)
       .then((description) => {
         setWhere(description)
         onWhere(description)
@@ -1037,7 +1037,7 @@ function BackupPanel(props: {
 
   if (where === undefined) return null
   return (
-    <div className="panel backup">
+    <div className="panel send">
       {where === null ? (
         <>
           {!form && (
@@ -1046,7 +1046,7 @@ function BackupPanel(props: {
                 className="place likely"
                 onClick={() =>
                   api
-                    .chooseBackupFolder()
+                    .chooseDestinationFolder()
                     .then((folder) => folder && connect({ kind: 'folder', place: folder }))
                     .catch(onProblem)
                 }
@@ -1171,10 +1171,10 @@ function BackupPanel(props: {
             </p>
           ) : (
             <div className="choices">
-              <button className="primary" onClick={() => start('Starting…', api.backUp)} disabled={props.waiting + props.safe === 0}>
+              <button className="primary" onClick={() => start('Starting…', api.send)} disabled={props.waiting + props.safe === 0}>
                 {props.waiting > 0 ? 'Send them now' : 'Send again'}
               </button>
-              <button className="link" onClick={() => start('Checking…', api.checkBackup)} disabled={props.safe === 0}>
+              <button className="link" onClick={() => start('Checking…', api.checkArrived)} disabled={props.safe === 0}>
                 Check they all arrived
               </button>
               {where.startsWith('the folder') && (
@@ -1186,7 +1186,7 @@ function BackupPanel(props: {
                 className="link quiet"
                 onClick={() =>
                   api
-                    .disconnectBackup()
+                    .disconnectDestination()
                     .then(() => {
                       setWhere(null)
                       onWhere(null)

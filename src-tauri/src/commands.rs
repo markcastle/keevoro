@@ -4,7 +4,7 @@
 //! the engine, and turn any error into a sentence the screen can show. If a
 //! function grows beyond that, the extra belongs in `keevoro-engine`.
 
-use crate::events::{BackupEvent, CheckEvent, GatherEvent, ScanEvent, BACKUP, CHECK, GATHER, SCAN};
+use crate::events::{CheckEvent, GatherEvent, ScanEvent, SendEvent, CHECK, GATHER, SCAN, SEND};
 use crate::Shared;
 use keevoro_catalog::Catalog;
 use keevoro_engine::connect::{self, Flags, Keychain, Saved, World};
@@ -31,30 +31,30 @@ fn say(e: impl std::fmt::Display) -> String {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppState {
-    /// The open session's own folder, or `None` before the first session.
+    /// The open backup's own folder, or `None` before the first backup.
     library: Option<String>,
     suggested_library: String,
-    /// The session that is open.
-    session: Option<SessionView>,
-    /// Every session, in the order they were started.
-    sessions: Vec<SessionView>,
+    /// The backup that is open.
+    backup: Option<BackupView>,
+    /// Every backup, in the order they were started.
+    backups: Vec<BackupView>,
     version: &'static str,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SessionView {
+pub struct BackupView {
     id: String,
     name: String,
 }
 
 fn current_state(app: &AppHandle, shared: &Shared) -> AppState {
     let settings = shared.settings.lock().ok().map(|s| s.clone()).unwrap_or_default();
-    let view = |s: &crate::settings::Session| SessionView {
+    let view = |s: &crate::settings::Backup| BackupView {
         id: s.id.clone(),
         name: s.name.clone(),
     };
-    let library = settings.open_session().map(|s| s.home.clone());
+    let library = settings.open_backup().map(|s| s.home.clone());
     // The Pictures folder is where people expect photos to live.
     let pictures = app
         .path()
@@ -64,8 +64,8 @@ fn current_state(app: &AppHandle, shared: &Shared) -> AppState {
     AppState {
         library: library.map(|p| p.display().to_string()),
         suggested_library: pictures.join("Keevoro Library").display().to_string(),
-        session: settings.open_session().map(view),
-        sessions: settings.sessions.iter().map(view).collect(),
+        backup: settings.open_backup().map(view),
+        backups: settings.backups.iter().map(view).collect(),
         version: env!("CARGO_PKG_VERSION"),
     }
 }
@@ -75,29 +75,29 @@ fn library(shared: &Shared) -> Said<PathBuf> {
         .settings
         .lock()
         .ok()
-        .and_then(|s| s.open_session().map(|open| open.home.clone()))
+        .and_then(|s| s.open_backup().map(|open| open.home.clone()))
         .ok_or_else(|| "Start a backup first.".to_string())
 }
 
-/// Starts a new session with this name and opens it.
+/// Starts a new backup with this name and opens it.
 #[tauri::command]
-pub fn start_session(app: AppHandle, shared: State<'_, Shared>, name: String) -> Said<AppState> {
-    let sessions_dir = app.path().app_data_dir().map_err(say)?.join("sessions");
+pub fn start_backup(app: AppHandle, shared: State<'_, Shared>, name: String) -> Said<AppState> {
+    let backups_dir = app.path().app_data_dir().map_err(say)?.join("backups");
     {
         let mut settings = shared.settings.lock().map_err(say)?;
-        let session = settings.start_session(&name, &sessions_dir).clone();
+        let backup = settings.start_backup(&name, &backups_dir).clone();
         // Opening the catalog proves the folder can be made and written to.
-        Catalog::open_in_library(&session.home).map_err(say)?;
+        Catalog::open_in_library(&backup.home).map_err(say)?;
         settings.save(&shared.config_dir).map_err(say)?;
-        shared.log.say(&format!("Started backup \"{}\"", session.name));
+        shared.log.say(&format!("Started backup \"{}\"", backup.name));
     }
     Ok(current_state(&app, &shared))
 }
 
-/// Opens another session. Whatever was open is left exactly as it was.
+/// Opens another backup. Whatever was open is left exactly as it was.
 #[tauri::command]
-pub fn switch_session(app: AppHandle, shared: State<'_, Shared>, id: String) -> Said<AppState> {
-    if shared.scanning.load(Ordering::SeqCst) || shared.backing_up.load(Ordering::SeqCst) {
+pub fn switch_backup(app: AppHandle, shared: State<'_, Shared>, id: String) -> Said<AppState> {
+    if shared.scanning.load(Ordering::SeqCst) || shared.sending.load(Ordering::SeqCst) {
         return Err("Keevoro is in the middle of something in this backup. Let that finish first.".into());
     }
     {
@@ -106,7 +106,7 @@ pub fn switch_session(app: AppHandle, shared: State<'_, Shared>, id: String) -> 
             return Err("That backup is no longer there.".into());
         }
         settings.save(&shared.config_dir).map_err(say)?;
-        if let Some(open) = settings.open_session() {
+        if let Some(open) = settings.open_backup() {
             shared.log.say(&format!("Switched to backup \"{}\"", open.name));
         }
     }
@@ -114,7 +114,7 @@ pub fn switch_session(app: AppHandle, shared: State<'_, Shared>, id: String) -> 
     Ok(current_state(&app, &shared))
 }
 
-/// Shows the folder this session sends to, if it sends to a folder.
+/// Shows the folder this backup sends to, if it sends to a folder.
 #[tauri::command]
 pub fn open_destination(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
     use tauri_plugin_opener::OpenerExt;
@@ -139,14 +139,14 @@ pub fn use_library(app: AppHandle, shared: State<'_, Shared>, path: String) -> S
     {
         let mut settings = shared.settings.lock().map_err(say)?;
         // Kept for the first-run screen of older builds: the folder becomes
-        // a session of its own.
-        let id = format!("library-{}", settings.sessions.len() + 1);
-        settings.sessions.push(crate::settings::Session {
+        // a backup of its own.
+        let id = format!("library-{}", settings.backups.len() + 1);
+        settings.backups.push(crate::settings::Backup {
             id,
             name: "My photos".to_string(),
             home: path.clone(),
         });
-        settings.current = settings.sessions.last().map(|s| s.id.clone());
+        settings.current = settings.backups.last().map(|s| s.id.clone());
         settings.library = Some(path);
         settings.save(&shared.config_dir).map_err(say)?;
     }
@@ -525,7 +525,7 @@ pub fn gather(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
 
 /// Where this library is backed up to, in words, or `None` if nowhere yet.
 #[tauri::command]
-pub fn backup_state(shared: State<'_, Shared>) -> Said<Option<String>> {
+pub fn destination(shared: State<'_, Shared>) -> Said<Option<String>> {
     let catalog = Catalog::open_in_library(&library(&shared)?).map_err(say)?;
     Ok(Saved::load(&catalog).map_err(say)?.map(|s| s.describe()))
 }
@@ -549,7 +549,7 @@ pub struct ConnectRequest {
 
 /// Checks a backup destination works, then remembers it. Returns it in words.
 #[tauri::command]
-pub async fn connect_backup(shared: State<'_, Shared>, request: ConnectRequest) -> Said<String> {
+pub async fn connect_destination(shared: State<'_, Shared>, request: ConnectRequest) -> Said<String> {
     let library = library(&shared)?;
     // Connecting talks to the storage, which can take a few seconds.
     tauri::async_runtime::spawn_blocking(move || {
@@ -595,7 +595,7 @@ pub async fn connect_backup(shared: State<'_, Shared>, request: ConnectRequest) 
 
 /// Forgets the destination and removes its keys from the keychain.
 #[tauri::command]
-pub fn disconnect_backup(shared: State<'_, Shared>) -> Said<()> {
+pub fn disconnect_destination(shared: State<'_, Shared>) -> Said<()> {
     let catalog = Catalog::open_in_library(&library(&shared)?).map_err(say)?;
     let world = World {
         secrets: &Keychain,
@@ -605,7 +605,7 @@ pub fn disconnect_backup(shared: State<'_, Shared>) -> Said<()> {
 }
 
 /// Runs a backup job on its own thread, reporting with `backup` events.
-fn backup_job(
+fn send_job(
     app: AppHandle,
     shared: &Shared,
     prepare: bool,
@@ -621,7 +621,7 @@ fn backup_job(
         + 'static,
 ) -> Said<()> {
     let library = library(shared)?;
-    if shared.backing_up.swap(true, Ordering::SeqCst) {
+    if shared.sending.swap(true, Ordering::SeqCst) {
         return Err("Keevoro is already working on your backup. Let that finish first.".into());
     }
     std::thread::spawn(move || {
@@ -659,7 +659,7 @@ fn backup_job(
                     };
                     if last_said.elapsed() >= PROGRESS_EVERY {
                         last_said = Instant::now();
-                        let _ = app.emit(BACKUP, BackupEvent::progress(&line));
+                        let _ = app.emit(SEND, SendEvent::progress(&line));
                     }
                 })?;
             }
@@ -672,13 +672,13 @@ fn backup_job(
                 &mut |line| {
                     if last_said.elapsed() >= PROGRESS_EVERY {
                         last_said = Instant::now();
-                        let _ = app.emit(BACKUP, BackupEvent::progress(line));
+                        let _ = app.emit(SEND, SendEvent::progress(line));
                     }
                 },
             )
         })();
         let state = app.state::<Shared>();
-        state.backing_up.store(false, Ordering::SeqCst);
+        state.sending.store(false, Ordering::SeqCst);
         match &result {
             Ok(()) => state.log.say(&format!(
                 "Backup job finished: {}",
@@ -686,15 +686,15 @@ fn backup_job(
             )),
             Err(e) => state.log.say(&format!("Backup job failed: {e:#}")),
         }
-        let _ = app.emit(BACKUP, BackupEvent::finished(&said, result.err().map(say)));
+        let _ = app.emit(SEND, SendEvent::finished(&said, result.err().map(say)));
     });
     Ok(())
 }
 
 /// Starts backing the library up to where it is connected.
 #[tauri::command]
-pub fn back_up(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
-    backup_job(
+pub fn send(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
+    send_job(
         app,
         &shared,
         true,
@@ -706,8 +706,8 @@ pub fn back_up(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
 
 /// Starts checking the library and its backup are both intact.
 #[tauri::command]
-pub fn check_backup(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
-    backup_job(
+pub fn check_arrived(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
+    send_job(
         app,
         &shared,
         false,
