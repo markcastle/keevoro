@@ -92,6 +92,15 @@ pub fn asset_for(os: &str, arch: &str) -> Option<&'static str> {
     }
 }
 
+/// The desktop app's installer for a platform. Linux has no installer yet.
+pub fn installer_for(os: &str) -> Option<&'static str> {
+    match os {
+        "windows" => Some("Keevoro-windows-x64-setup.exe"),
+        "macos" => Some("Keevoro-macos-universal.dmg"),
+        _ => None,
+    }
+}
+
 /// Reads the reply from GitHub's "latest release" address.
 pub fn parse_release(json: &str) -> Result<Release, UpdateError> {
     let v: serde_json::Value = serde_json::from_str(json).map_err(|e| UpdateError::Unexpected(e.to_string()))?;
@@ -152,8 +161,29 @@ pub fn download(web: &dyn Web, release: &Release, os: &str, arch: &str) -> Resul
         arch: arch.to_string(),
     };
     let name = asset_for(os, arch).ok_or_else(no_build)?;
+    fetch_checked(web, release, name).and_then(|found| found.ok_or_else(no_build))
+}
+
+/// Downloads the desktop app's installer from `release` and proves it
+/// matches the release's checksum file. Returns its file name and bytes.
+pub fn download_installer(web: &dyn Web, release: &Release, os: &str) -> Result<(&'static str, Vec<u8>), UpdateError> {
+    let no_build = || UpdateError::NoBuild {
+        version: release.version.clone(),
+        os: os.to_string(),
+        arch: "any".to_string(),
+    };
+    let name = installer_for(os).ok_or_else(no_build)?;
+    let bytes = fetch_checked(web, release, name)?.ok_or_else(no_build)?;
+    Ok((name, bytes))
+}
+
+/// One named file from a release, checked against the release's checksums.
+/// `None` means the release does not have that file.
+fn fetch_checked(web: &dyn Web, release: &Release, name: &str) -> Result<Option<Vec<u8>>, UpdateError> {
     let find = |wanted: &str| release.assets.iter().find(|a| a.name == wanted);
-    let asset = find(name).ok_or_else(no_build)?;
+    let Some(asset) = find(name) else {
+        return Ok(None);
+    };
     // A release without checksums is not one this updater will trust.
     let sums = find(SUMS).ok_or(UpdateError::BadChecksum)?;
     let sums = String::from_utf8(web.bytes(&sums.url)?).map_err(|_| UpdateError::BadChecksum)?;
@@ -163,7 +193,7 @@ pub fn download(web: &dyn Web, release: &Release, os: &str, arch: &str) -> Resul
     if sha256_hex(&bytes) != expected {
         return Err(UpdateError::BadChecksum);
     }
-    Ok(bytes)
+    Ok(Some(bytes))
 }
 
 /// Finds a file's checksum in `sha256sum` output: `<hex>  <name>` per line.

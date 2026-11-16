@@ -28,6 +28,8 @@ fn github(tag: &str) -> FakeWeb {
         "keevoro-windows-x64.exe",
         "keevoro-macos-universal",
         "keevoro-linux-x64",
+        "Keevoro-windows-x64-setup.exe",
+        "Keevoro-macos-universal.dmg",
     ];
     let mut files = BTreeMap::new();
     let mut assets = Vec::new();
@@ -322,4 +324,47 @@ fn githubs_refusals_are_explained() {
         assert!(err.contains(expected), "{status}: {err}");
         sent.join().unwrap();
     }
+}
+
+#[test]
+fn the_apps_installer_is_fetched_and_checked_like_any_other_file() {
+    let web = github("v0.9.0");
+    let release = available(&web, "0.8.0");
+    let (name, bytes) = download_installer(&web, &release, "windows").unwrap();
+    assert_eq!((name, bytes.as_slice()), ("Keevoro-windows-x64-setup.exe", PROGRAM));
+    assert_eq!(
+        download_installer(&web, &release, "macos").unwrap().0,
+        "Keevoro-macos-universal.dmg"
+    );
+
+    // A tampered installer is refused.
+    let mut damaged = github("v0.9.0");
+    let url = release
+        .assets
+        .iter()
+        .find(|a| a.name == "Keevoro-windows-x64-setup.exe")
+        .unwrap()
+        .url
+        .clone();
+    damaged.files.insert(url, b"not what was published".to_vec());
+    assert!(matches!(
+        download_installer(&damaged, &release, "windows"),
+        Err(UpdateError::BadChecksum)
+    ));
+}
+
+#[test]
+fn computers_without_an_installer_are_told_so() {
+    let web = github("v0.9.0");
+    let mut release = available(&web, "0.8.0");
+    assert!(matches!(
+        download_installer(&web, &release, "linux"),
+        Err(UpdateError::NoBuild { .. })
+    ));
+    // An older release from before the app had installers.
+    release.assets.retain(|a| !a.name.starts_with("Keevoro-"));
+    assert!(matches!(
+        download_installer(&web, &release, "windows"),
+        Err(UpdateError::NoBuild { .. })
+    ));
 }

@@ -35,6 +35,7 @@ import type {
   PhotoChoice,
   Place,
   ScanEvent,
+  Update,
 } from './backend'
 import { count, photosAndVideos, size, thousands } from './format'
 
@@ -61,6 +62,9 @@ export function App() {
   const [justFound, setJustFound] = useState<ScanEvent | null>(null)
   const [gather, setGather] = useState<GatherEvent | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
+  // A newer Keevoro, and how far along installing it is.
+  const [update, setUpdate] = useState<Update | null>(null)
+  const [updating, setUpdating] = useState<'no' | 'downloading' | 'opened'>('no')
   // Where the library is backed up to; undefined until asked.
   const [backedUpTo, setBackedUpTo] = useState<string | null | undefined>(undefined)
 
@@ -78,6 +82,8 @@ export function App() {
     void backend().then(async (b) => {
       if (closed) return
       setApi(b)
+      // Never worth an error: no answer simply means no offer today.
+      void b.checkUpdate().then(setUpdate, () => {})
       stopScan = b.onScan((event) => {
         setScan(event.finished ? null : event)
         if (event.problem) report(event.problem)
@@ -208,6 +214,47 @@ export function App() {
       </aside>
 
       <main>
+        {update && (
+          <div className="update" role="status">
+            {updating === 'no' && (
+              <>
+                <span>
+                  <strong>A new version of Keevoro is ready</strong> ({update.version}). Updating takes about a minute and
+                  your library is not affected.
+                </span>
+                <span className="actions">
+                  <button className="link" onClick={() => api.openReleasePage(update.page).catch(report)}>
+                    What’s new
+                  </button>
+                  <button onClick={() => setUpdate(null)}>Later</button>
+                  <button
+                    className="primary"
+                    onClick={() => {
+                      setUpdating('downloading')
+                      api
+                        .installUpdate()
+                        .then(() => setUpdating('opened'))
+                        .catch((e) => {
+                          setUpdating('no')
+                          report(e)
+                        })
+                    }}
+                  >
+                    Update now
+                  </button>
+                </span>
+              </>
+            )}
+            {updating === 'downloading' && (
+              <span>
+                <span className="spinner" /> Downloading the new version. Keevoro will close and reopen by itself.
+              </span>
+            )}
+            {updating === 'opened' && (
+              <span>The new version has been downloaded and opened. Follow the window that appeared to finish.</span>
+            )}
+          </div>
+        )}
         {problem && (
           <div className="problem" role="alert">
             <span>{problem}</span>

@@ -47,7 +47,7 @@ Download the installer from the latest release:
 | Windows 10 or 11 | [Keevoro-windows-x64-setup.exe](https://github.com/markcastle/keevoro/releases/latest/download/Keevoro-windows-x64-setup.exe) |
 | Mac (Apple silicon or Intel) | [Keevoro-macos-universal.dmg](https://github.com/markcastle/keevoro/releases/latest/download/Keevoro-macos-universal.dmg) |
 
-The app is not yet signed with a paid certificate, so each system asks once whether you trust it. On Windows, choose **More info** then **Run anyway**. On a Mac, drag Keevoro to Applications, then right-click it and choose **Open** the first time. The app does not update itself yet; install a newer release over the top.
+The app is not yet signed with a paid certificate, so each system asks once whether you trust it. On Windows, choose **More info** then **Run anyway**. On a Mac, drag Keevoro to Applications, then right-click it and choose **Open** the first time. After that the app keeps itself up to date: when a newer release is out it says so across the top, and **Update now** downloads it, checks it against the checksums published with the release, and installs it. On Windows Keevoro closes and reopens by itself; on a Mac the new disk image opens for you to drag across.
 
 To run it from source instead you need [Rust](https://rustup.rs) and [Node.js](https://nodejs.org) 22 or newer.
 

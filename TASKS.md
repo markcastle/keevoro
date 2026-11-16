@@ -101,7 +101,8 @@ Done when a non-technical tester gets from a drive to a backup without help.
 - [x] Sources sidebar with friendly names and live status
 - [x] Archive screen: what is kept, gathering with progress in human terms
 - [x] Installers: the Release workflow builds a Windows installer (NSIS, per-user) and a universal macOS disk image; CI builds them on main as downloadable artefacts
-- [ ] In-app updates (Tauri updater, as Task Rail does); needs an updater signing key in repository secrets
+- [x] In-app updates: the app offers a newer release and installs it in one click, using the same checksum check as `keevoro update` (no signing key needed)
+- [ ] Signed updates (Tauri updater signature, as Task Rail does) on top of the checksum check; needs an updater signing key in repository secrets
 - [x] Archive screen: connect a backup (another disk, or R2, S3 or another S3-compatible service), "Back up now", "Check my backup", disconnect
 - [x] Backup and connect logic moved into `keevoro-engine`, shared by the app and the command line
 - [ ] Storage setup with provider logos, and a link to instructions for making a scoped key

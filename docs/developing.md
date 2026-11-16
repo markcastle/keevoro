@@ -60,6 +60,8 @@ npm run ui:dev
 
 There they talk to a stand-in for the engine (`ui/src/demo.ts`) with drawn pictures, so no drive or library is needed. Add `?demo=new` to the address to see the first-run screen, or `?demo=empty` for a library with nothing found yet.
 
+The app updates itself through `src-tauri/src/updates.rs`, which leans on `keevoro-update`: the same "find the latest release, download, compare with SHA256SUMS" rules the command line uses, applied to the installer. To see the offer in a browser, add `?update` to the address.
+
 The app is four steps (`find`, `choose`, `gather`, `backup` in `ui/src/App.tsx`) and the steps in the sidebar are the only navigation. The rule for any new screen: one question as the heading, one main button in the bar at the bottom, and words a person who has never heard of Keevoro would understand. The drives offered on the first step come from `src-tauri/src/places.rs`, which decides what a drive is called and which system volumes to hide.
 
 `ui/src/backend.ts` is the only place the screens touch the outside world. Its types mirror the Rust structs in `crates/keevoro-engine/src/discover.rs` and `src-tauri/src/events.rs`; change them together.
