@@ -76,7 +76,7 @@ fn library(shared: &Shared) -> Said<PathBuf> {
         .lock()
         .ok()
         .and_then(|s| s.open_session().map(|open| open.home.clone()))
-        .ok_or_else(|| "Start a session first.".to_string())
+        .ok_or_else(|| "Start a backup first.".to_string())
 }
 
 /// Starts a new session with this name and opens it.
@@ -89,7 +89,7 @@ pub fn start_session(app: AppHandle, shared: State<'_, Shared>, name: String) ->
         // Opening the catalog proves the folder can be made and written to.
         Catalog::open_in_library(&session.home).map_err(say)?;
         settings.save(&shared.config_dir).map_err(say)?;
-        shared.log.say(&format!("Started session \"{}\"", session.name));
+        shared.log.say(&format!("Started backup \"{}\"", session.name));
     }
     Ok(current_state(&app, &shared))
 }
@@ -98,16 +98,16 @@ pub fn start_session(app: AppHandle, shared: State<'_, Shared>, name: String) ->
 #[tauri::command]
 pub fn switch_session(app: AppHandle, shared: State<'_, Shared>, id: String) -> Said<AppState> {
     if shared.scanning.load(Ordering::SeqCst) || shared.backing_up.load(Ordering::SeqCst) {
-        return Err("Keevoro is in the middle of something in this session. Let that finish first.".into());
+        return Err("Keevoro is in the middle of something in this backup. Let that finish first.".into());
     }
     {
         let mut settings = shared.settings.lock().map_err(say)?;
         if !settings.switch_to(&id) {
-            return Err("That session is no longer there.".into());
+            return Err("That backup is no longer there.".into());
         }
         settings.save(&shared.config_dir).map_err(say)?;
         if let Some(open) = settings.open_session() {
-            shared.log.say(&format!("Switched to session \"{}\"", open.name));
+            shared.log.say(&format!("Switched to backup \"{}\"", open.name));
         }
     }
     check_in_background(&app);
@@ -121,7 +121,7 @@ pub fn open_destination(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
     let catalog = Catalog::open_in_library(&library(&shared)?).map_err(say)?;
     match Saved::load(&catalog).map_err(say)? {
         Some(saved) if saved.kind == "folder" => app.opener().open_path(saved.place, None::<&str>).map_err(say),
-        _ => Err("This session doesn't send to a folder on this computer.".to_string()),
+        _ => Err("This backup doesn't send to a folder on this computer.".to_string()),
     }
 }
 

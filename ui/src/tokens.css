@@ -1,32 +1,58 @@
 /* Keevoro design tokens. Generated from design/tokens.json by scripts/make-tokens.mjs: do not edit. */
 
+@font-face {
+  font-family: 'Keevoro Sans';
+  src: url('./assets/fonts/KeevoroSans-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Keevoro Sans';
+  src: url('./assets/fonts/KeevoroSans-Medium.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Keevoro Sans';
+  src: url('./assets/fonts/KeevoroSans-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   color-scheme: light;
-  --font-sans: "Figtree Variable", "Figtree", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Keevoro Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-sans: "Keevoro Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
-  --surface: #fef7eb;
-  --surface-raised: #fffcf7;
-  --surface-sunken: #f8ecd9;
-  --surface-frame: #fce9d1;
-  --line: #ecd9bf;
-  --line-strong: #9a8366;
-  --ink: #043c3e;
-  --ink-muted: #4f6b68;
+  --surface: #fffefb;
+  --surface-nav: #f7f4ef;
+  --surface-raised: #ffffff;
+  --surface-sunken: #f4f0ea;
+  --surface-frame: #fdeedd;
+  --line: #ebe5dc;
+  --line-strong: #7d8b86;
+  --ink: #063c3d;
+  --ink-muted: #5a6f6c;
   --primary: #043c3e;
   --primary-hover: #0b5254;
-  --on-primary: #fef7eb;
+  --on-primary: #fffcf7;
   --pine: #275a50;
-  --pine-soft: #e3ece4;
+  --pine-soft: #e8f0eb;
   --sun: #fc932c;
   --on-sun: #043c3e;
   --sun-ink: #9c4a06;
   --peach: #fbbd90;
-  --peach-soft: #fde6d2;
+  --peach-soft: #feeee0;
   --hill: #0f3937;
   --success: #0f6b78;
-  --success-soft: #ddeef0;
+  --success-soft: #e3f1f3;
   --danger: #b42318;
-  --danger-soft: #fbe4df;
+  --danger-soft: #fcebe7;
   --focus-ring: #b85c0f;
   --shadow-sm: 0 1px 2px rgba(4,60,62,0.08);
   --shadow-md: 0 2px 4px rgba(4,60,62,0.06), 0 8px 20px rgba(4,60,62,0.08);
@@ -48,27 +74,31 @@
 
 :root[data-theme='dark'] {
   color-scheme: dark;
-  --surface: #071e1e;
-  --surface-raised: #0d2a29;
-  --surface-sunken: #041514;
-  --surface-frame: #133431;
-  --line: #22433f;
-  --line-strong: #5f807b;
-  --ink: #fdf4e6;
-  --ink-muted: #a9bfbb;
-  --primary: #fbbd90;
-  --primary-hover: #feca9f;
-  --on-primary: #043c3e;
-  --pine: #7fb8aa;
-  --pine-soft: #163b36;
-  --sun-ink: #fdb36e;
-  --peach-soft: #3a2a1e;
-  --hill: #336e65;
-  --success: #6cc3cf;
-  --success-soft: #123338;
-  --danger: #ff8f80;
-  --danger-soft: #3d1d1a;
-  --focus-ring: #fc932c;
+  --surface: #102725;
+  --surface-nav: #0c2120;
+  --surface-raised: #16312f;
+  --surface-sunken: #0b1f1e;
+  --surface-frame: #1f3c39;
+  --line: #23403d;
+  --line-strong: #64807a;
+  --ink: #e8e0d2;
+  --ink-muted: #a2b3ae;
+  --primary: #f2b98f;
+  --primary-hover: #f7c7a2;
+  --on-primary: #0b2b2c;
+  --pine: #86b8ab;
+  --pine-soft: #1b3a36;
+  --sun: #f5953a;
+  --on-sun: #0b2b2c;
+  --sun-ink: #f0ad70;
+  --peach: #f2b98f;
+  --peach-soft: #3a2d22;
+  --hill: #3a7369;
+  --success: #72bfc9;
+  --success-soft: #173a3f;
+  --danger: #f0907f;
+  --danger-soft: #3f2522;
+  --focus-ring: #f5953a;
   --shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
   --shadow-md: 0 2px 4px rgba(0,0,0,0.4), 0 8px 20px rgba(0,0,0,0.35);
   --shadow-lg: 0 4px 8px rgba(0,0,0,0.45), 0 20px 40px rgba(0,0,0,0.5);
@@ -77,27 +107,31 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
     color-scheme: dark;
-    --surface: #071e1e;
-    --surface-raised: #0d2a29;
-    --surface-sunken: #041514;
-    --surface-frame: #133431;
-    --line: #22433f;
-    --line-strong: #5f807b;
-    --ink: #fdf4e6;
-    --ink-muted: #a9bfbb;
-    --primary: #fbbd90;
-    --primary-hover: #feca9f;
-    --on-primary: #043c3e;
-    --pine: #7fb8aa;
-    --pine-soft: #163b36;
-    --sun-ink: #fdb36e;
-    --peach-soft: #3a2a1e;
-    --hill: #336e65;
-    --success: #6cc3cf;
-    --success-soft: #123338;
-    --danger: #ff8f80;
-    --danger-soft: #3d1d1a;
-    --focus-ring: #fc932c;
+    --surface: #102725;
+    --surface-nav: #0c2120;
+    --surface-raised: #16312f;
+    --surface-sunken: #0b1f1e;
+    --surface-frame: #1f3c39;
+    --line: #23403d;
+    --line-strong: #64807a;
+    --ink: #e8e0d2;
+    --ink-muted: #a2b3ae;
+    --primary: #f2b98f;
+    --primary-hover: #f7c7a2;
+    --on-primary: #0b2b2c;
+    --pine: #86b8ab;
+    --pine-soft: #1b3a36;
+    --sun: #f5953a;
+    --on-sun: #0b2b2c;
+    --sun-ink: #f0ad70;
+    --peach: #f2b98f;
+    --peach-soft: #3a2d22;
+    --hill: #3a7369;
+    --success: #72bfc9;
+    --success-soft: #173a3f;
+    --danger: #f0907f;
+    --danger-soft: #3f2522;
+    --focus-ring: #f5953a;
     --shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
     --shadow-md: 0 2px 4px rgba(0,0,0,0.4), 0 8px 20px rgba(0,0,0,0.35);
     --shadow-lg: 0 4px 8px rgba(0,0,0,0.45), 0 20px 40px rgba(0,0,0,0.5);

@@ -41,7 +41,7 @@ import type {
 } from './backend'
 import { count, photosAndVideos, size, thousands, wholePlace } from './format'
 import iconUrl from './assets/keevoro-icon.png'
-import lockupDarkUrl from './assets/keevoro-lockup-dark.png'
+import lockupDarkUrl from './assets/keevoro-lockup-reversed.png'
 import lockupUrl from './assets/keevoro-lockup.png'
 import { chooseTheme, savedTheme } from './theme'
 import type { Theme } from './theme'
@@ -427,15 +427,15 @@ function Welcome(props: { onStart: (name: string) => void; problem: string | nul
         want somewhere safe: a folder, another disk, or cloud storage. It never changes or deletes anything it looks at.
       </p>
       <label className="naming">
-        What shall we call this?
+        What shall we call this backup?
         <input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} autoFocus />
       </label>
       <button className="primary big" type="submit">
         Get started
       </button>
       <p className="quiet small">
-        A name such as “Family photos” or “Drone footage”. You can have several, each with its own sources and its own
-        place to send things, and come back to any of them later.
+        A name such as “Family photos” or “Drone footage”. You can have several backups, each with its own sources
+        and its own place to send things, and come back to any of them later.
       </p>
       {props.problem && (
         <div className="problem inline" role="alert">
@@ -462,9 +462,9 @@ function SessionPicker(props: {
   }
   return (
     <div className="session">
-      <button className="current" onClick={() => (open ? close() : setOpen(true))} aria-expanded={open} aria-label="Session">
+      <button className="current" onClick={() => (open ? close() : setOpen(true))} aria-expanded={open} aria-label="Backup">
         <span>
-          <small>Session</small>
+          <small>Backup</small>
           {props.session?.name}
         </span>
         <span aria-hidden>{open ? '▴' : '▾'}</span>
@@ -484,7 +484,7 @@ function SessionPicker(props: {
           ))}
           {naming === null ? (
             <button className="link" onClick={() => setNaming('')}>
-              Start a new session…
+              Start a new backup…
             </button>
           ) : (
             <form
@@ -499,7 +499,7 @@ function SessionPicker(props: {
                 value={naming}
                 onChange={(e) => setNaming(e.target.value)}
                 placeholder="Such as Drone footage"
-                aria-label="Name for the new session"
+                aria-label="Name for the new backup"
                 maxLength={60}
                 autoFocus
               />
@@ -740,10 +740,10 @@ function SettingsScreen(props: {
       </header>
 
       <div className="setting">
-        <h3>This session</h3>
+        <h3>This backup</h3>
         <p>
-          This is <b>{state.session?.name}</b>. A session remembers its own sources, what you chose to keep and where
-          it sends things. To open another or start a new one, use the session name at the top of the side bar.
+          This is <b>{state.session?.name}</b>. A backup remembers its own sources, what you chose to keep and where
+          it sends things. To open another or start a new one, use the backup’s name at the top of the side bar.
         </p>
         <p className="quiet small">
           Its notes and previews are kept in <span className="where">{state.library}</span>. Your photos themselves
@@ -753,7 +753,7 @@ function SettingsScreen(props: {
 
       <div className="setting">
         <h3>Where it sends to</h3>
-        <p>{props.backedUpTo ? `This session sends to ${props.backedUpTo}.` : 'Nowhere has been chosen yet.'}</p>
+        <p>{props.backedUpTo ? `This backup sends to ${props.backedUpTo}.` : 'Nowhere has been chosen yet.'}</p>
         <p className="choices">
           <button onClick={props.onBackup}>{props.backedUpTo ? 'Go to sending' : 'Choose where'}</button>
         </p>
