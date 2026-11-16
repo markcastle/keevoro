@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.9.0] - 2026-11-16
+
 ### Added
 
 - **The app updates itself.** When a newer Keevoro is out, a bar across the top says so. "Update now" downloads it, checks it is exactly the file that was published, and installs it; on Windows Keevoro closes and reopens by itself, and on a Mac the new disk image opens ready to drag across. "What's new" shows the release notes and "Later" puts it off. Your library is not affected. This starts working from this version onwards, so install this one by hand one last time.
@@ -121,7 +125,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/markcastle/keevoro/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/markcastle/keevoro/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/markcastle/keevoro/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/markcastle/keevoro/compare/v0.6.0...v0.6.1

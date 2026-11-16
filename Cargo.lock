@@ -2871,7 +2871,7 @@ dependencies = [
 
 [[package]]
 name = "keevoro-app"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "keevoro-catalog",
@@ -2890,7 +2890,7 @@ dependencies = [
 
 [[package]]
 name = "keevoro-catalog"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "keevoro-core",
  "keevoro-scan",
@@ -2903,7 +2903,7 @@ dependencies = [
 
 [[package]]
 name = "keevoro-cli"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -2931,7 +2931,7 @@ dependencies = [
 
 [[package]]
 name = "keevoro-collect"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "blake3",
  "fs4",
@@ -2948,7 +2948,7 @@ dependencies = [
 
 [[package]]
 name = "keevoro-core"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "regex",
  "serde",
@@ -2957,7 +2957,7 @@ dependencies = [
 
 [[package]]
 name = "keevoro-engine"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "getrandom 0.3.4",
@@ -2981,7 +2981,7 @@ dependencies = [
 
 [[package]]
 name = "keevoro-index"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "keevoro-core",
  "schemars 1.2.3",
@@ -2991,7 +2991,7 @@ dependencies = [
 
 [[package]]
 name = "keevoro-media"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "blurhash",
  "image",
@@ -3004,7 +3004,7 @@ dependencies = [
 
 [[package]]
 name = "keevoro-publish"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "async-trait",
  "blake3",
@@ -3018,7 +3018,7 @@ dependencies = [
 
 [[package]]
 name = "keevoro-scan"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "blake3",
  "imagesize",
@@ -3032,7 +3032,7 @@ dependencies = [
 
 [[package]]
 name = "keevoro-storage"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "async-trait",
  "thiserror 2.0.21",
@@ -3041,7 +3041,7 @@ dependencies = [
 
 [[package]]
 name = "keevoro-storage-folder"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "async-trait",
  "keevoro-storage",
@@ -3051,7 +3051,7 @@ dependencies = [
 
 [[package]]
 name = "keevoro-storage-s3"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "async-trait",
  "aws-sdk-s3",
@@ -3061,7 +3061,7 @@ dependencies = [
 
 [[package]]
 name = "keevoro-update"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "self-replace",
  "serde_json",
@@ -6924,7 +6924,7 @@ checksum = "66fee0b777b0f5ac1c69bb06d361268faafa61cd4682ae064a171c16c433e9e4"
 
 [[package]]
 name = "xtask"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "keevoro-core",
