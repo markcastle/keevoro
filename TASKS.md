@@ -122,6 +122,14 @@ Done when a non-technical tester gets from a drive to a backup without help.
 - [ ] "Show folders" view with tick boxes, for people who want control
 - [ ] Old video conversion prompt
 
+### Video without extra software
+
+- [x] Thumbnails and posters from the computer's own decoder (`keevoro-frame`: Media Foundation on Windows, AVFoundation on macOS), tested against a real video on GitHub's Windows and macOS machines
+- [x] ffmpeg only as a second try, and for converting old videos
+- [ ] Windows: honour the rotation note on videos shot sideways on a phone
+- [ ] Evaluate a pure-Rust decoder (`yscv-video` is young; `video-utils-rs` and a thumbnail-making `rivet` were not found on crates.io) as a fallback for formats the computer cannot play
+- [ ] Say on the placeholder why a video has no thumbnail ("this computer can't play HEVC", with what to install)
+
 ### Sessions and destinations
 
 Separate, remembered jobs ("Drone footage to R2", "Family photos to a folder"), each sent straight to its destination. The thinking is in [PLANNING.md](PLANNING.md#sessions-and-destinations).

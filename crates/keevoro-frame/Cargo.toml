@@ -1,0 +1,38 @@
+[package]
+name = "keevoro-frame"
+description = "One still picture from a video, using the decoder the operating system already has."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Media_MediaFoundation",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Variant",
+] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSURL", "NSString", "NSError", "NSDictionary"] }
+objc2-av-foundation = { version = "0.3", features = ["AVAsset", "AVAssetImageGenerator", "objc2-core-media", "objc2-core-graphics", "objc2-core-foundation"] }
+objc2-core-media = { version = "0.3", features = ["CMTime"] }
+objc2-core-graphics = { version = "0.3", features = ["CGImage", "CGContext", "CGBitmapContext", "CGColorSpace", "CGGeometry"] }
+objc2-core-foundation = { version = "0.3", features = ["CFCGTypes"] }
+
+# Talking to the operating system's decoder means calling into it, which
+# Rust cannot check. This is the one crate allowed to do that; every such
+# call is kept in `windows.rs` and `macos.rs` and explained there.
+[lints.rust]
+unsafe_code = "allow"
+
+[lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"

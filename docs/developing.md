@@ -64,6 +64,16 @@ The app updates itself through `src-tauri/src/updates.rs`, which leans on `keevo
 
 Searching is split in two. The search itself (`keevoro-scan` with `quick: true`) only samples large files and marks them `hashed: false`. `keevoro-engine/src/deep.rs` then reads those files whole, in the background in the app, and always before gathering. The rule that must never be broken: nothing is copied, and nothing is dropped as a duplicate, on the strength of a quick fingerprint. `gather_one` refuses an item that is not `hashed`.
 
+Video stills come from `keevoro-frame`, the one crate allowed `unsafe`, because it calls the operating system's decoder directly. Its Windows and macOS halves cannot be built on Linux, but they can be type-checked from anywhere:
+
+```sh
+rustup target add x86_64-pc-windows-msvc aarch64-apple-darwin
+cargo check -p keevoro-frame --target x86_64-pc-windows-msvc --tests
+cargo check -p keevoro-frame --target aarch64-apple-darwin --tests
+```
+
+Its real test (`tests/native.rs`) decodes a tiny sample video and only runs on Windows and macOS, so CI is where it proves itself.
+
 The app keeps a log (`src-tauri/src/log.rs`): one line per event with the time in front, in the system's usual log folder for the app, shown in Settings. Log anything a person might later ask "what was it doing?" about, in the same plain words as the screens. Never log keys.
 
 The app works in sessions (see `src-tauri/src/settings.rs`): each is a named job with its own home folder for its catalog. Within a session there are three steps (`find`, `choose`, `backup` in `ui/src/App.tsx`; the last is shown as "Send them somewhere safe") and the steps in the sidebar are the only navigation. The rule for any new screen: one question as the heading, one main button in the bar at the bottom, and words a person who has never heard of Keevoro would understand. The drives offered on the first step come from `src-tauri/src/places.rs`, which decides what a drive is called and which system volumes to hide.

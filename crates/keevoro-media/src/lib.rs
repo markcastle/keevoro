@@ -29,7 +29,7 @@
 pub mod raw;
 pub mod video;
 
-pub use video::{Conversion, VideoInfo, VideoTools};
+pub use video::{Conversion, Still, VideoInfo, VideoTools};
 
 use image::imageops::FilterType;
 use image::{DynamicImage, ImageDecoder, ImageReader};
@@ -53,6 +53,9 @@ pub enum MediaError {
     Unsupported,
     #[error("The picture seems to be damaged")]
     Damaged,
+    /// A video this computer has no decoder for.
+    #[error("{0}")]
+    CannotPlay(String),
 }
 
 /// The smaller copies of one photo.

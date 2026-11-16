@@ -14,6 +14,7 @@ keevoro-catalog = { path = "crates/keevoro-catalog" }
 keevoro-collect = { path = "crates/keevoro-collect" }
 keevoro-core = { path = "crates/keevoro-core" }
 keevoro-engine = { path = "crates/keevoro-engine" }
+keevoro-frame = { path = "crates/keevoro-frame" }
 keevoro-index = { path = "crates/keevoro-index" }
 keevoro-media = { path = "crates/keevoro-media" }
 keevoro-publish = { path = "crates/keevoro-publish" }

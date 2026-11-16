@@ -53,10 +53,7 @@ pub fn preview(
 
     let bytes = match kind {
         MediaKind::Photo => render_photo(&source).map(|r| r.thumb),
-        MediaKind::Video => match video_tools {
-            Some(tools) => video::poster(tools, &source),
-            None => bail!("Video previews need ffmpeg, which isn't installed."),
-        },
+        MediaKind::Video => video::still(video_tools, &source).map(|still| still.webp),
     }
     .with_context(|| {
         if source.exists() {
@@ -161,7 +158,8 @@ mod tests {
         let err = preview(&library, &catalog, &cache, "0000", None).unwrap_err();
         assert_eq!(err.to_string(), "That photo isn't known to this library.");
         let err = preview(&library, &catalog, &cache, &id_of("clip.mp4"), None).unwrap_err();
-        assert_eq!(err.to_string(), "Video previews need ffmpeg, which isn't installed.");
+        // Not a real video, so no decoder here or anywhere can show it.
+        assert_eq!(err.to_string(), "This one can't be previewed");
 
         fs::remove_dir_all(&drive).unwrap();
         let err = preview(&library, &catalog, &cache, &id_of("a.jpg"), None).unwrap_err();

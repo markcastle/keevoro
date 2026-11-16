@@ -12,7 +12,7 @@ use crate::{in_library, Failed};
 use keevoro_catalog::{Catalog, CatalogError, VideoState};
 use keevoro_core::MediaKind;
 use keevoro_index::{rendition_path, Rendition};
-use keevoro_media::video::{convert, plan, poster, probe};
+use keevoro_media::video::{convert, plan, probe, still};
 use keevoro_media::{write_rendition, Conversion, MediaError, VideoTools};
 use keevoro_scan::FoundItem;
 use serde::Serialize;
@@ -40,7 +40,7 @@ pub fn make_video_previews(
     library: &Path,
     catalog: &Catalog,
     items: &[&FoundItem],
-    tools: &VideoTools,
+    tools: Option<&VideoTools>,
     convert_old: bool,
     on_progress: &mut dyn FnMut(usize, usize),
 ) -> Result<VideoReport, CatalogError> {
@@ -114,22 +114,36 @@ fn extension(path: &Path) -> String {
 /// Probes one video and makes whatever is missing. An error means the
 /// video could not be read at all.
 fn work_on(
-    tools: &VideoTools,
+    tools: Option<&VideoTools>,
     original: &Path,
     poster_file: &Path,
     mp4_file: &Path,
     convert_old: bool,
     report: &mut VideoReport,
 ) -> Result<VideoState, MediaError> {
-    let info = probe(tools, original)?;
+    // ffprobe, when it is there, knows the most about a video and is what
+    // conversion is planned from. Without it the computer's own decoder
+    // still gives a poster, a length and a size, which is all a gallery
+    // needs.
+    let info = match tools {
+        Some(tools) => Some(probe(tools, original)?),
+        None => None,
+    };
 
     let mut has_poster = poster_file.is_file();
-    if !has_poster {
-        match poster(tools, original).and_then(|bytes| Ok(write_rendition(poster_file, &bytes)?)) {
-            Ok(()) => {
-                has_poster = true;
-                report.posters += 1;
+    let mut learnt = None;
+    if !has_poster || info.is_none() {
+        match still(tools, original) {
+            Ok(made) => {
+                if !has_poster {
+                    write_rendition(poster_file, &made.webp)?;
+                    has_poster = true;
+                    report.posters += 1;
+                }
+                learnt = Some((made.duration_secs.unwrap_or(0.0), made.width, made.height));
             }
+            // With nothing else known about the video, this is all there is.
+            Err(e) if info.is_none() => return Err(e),
             Err(e) => report.problems.push(Failed {
                 path: original.to_path_buf(),
                 reason: format!("No poster could be made. {e}"),
@@ -139,32 +153,40 @@ fn work_on(
 
     let mut has_mp4 = mp4_file.is_file();
     let mut conversion_problem = None;
-    let action = plan(&info, &extension(original));
-    if convert_old && !has_mp4 && action != Conversion::Leave {
-        match convert(tools, original, &info, action, mp4_file) {
-            Ok(()) => {
-                has_mp4 = true;
-                match action {
-                    Conversion::Remux => report.repackaged += 1,
-                    _ => report.converted += 1,
+    // Converting old videos is ffmpeg's job alone, so it only happens
+    // where ffmpeg is.
+    if let (Some(tools), Some(info)) = (tools, &info) {
+        let action = plan(info, &extension(original));
+        if convert_old && !has_mp4 && action != Conversion::Leave {
+            match convert(tools, original, info, action, mp4_file) {
+                Ok(()) => {
+                    has_mp4 = true;
+                    match action {
+                        Conversion::Remux => report.repackaged += 1,
+                        _ => report.converted += 1,
+                    }
                 }
-            }
-            Err(MediaError::Io(e)) => return Err(MediaError::Io(e)),
-            Err(_) => {
-                let reason = "It couldn't be converted to MP4. The original is safe in your library".to_string();
-                report.problems.push(Failed {
-                    path: original.to_path_buf(),
-                    reason: reason.clone(),
-                });
-                conversion_problem = Some(reason);
+                Err(MediaError::Io(e)) => return Err(MediaError::Io(e)),
+                Err(_) => {
+                    let reason = "It couldn't be converted to MP4. The original is safe in your library".to_string();
+                    report.problems.push(Failed {
+                        path: original.to_path_buf(),
+                        reason: reason.clone(),
+                    });
+                    conversion_problem = Some(reason);
+                }
             }
         }
     }
 
     Ok(VideoState::Known {
-        duration_secs: info.duration_secs,
-        width: info.width,
-        height: info.height,
+        duration_secs: info
+            .as_ref()
+            .map(|i| i.duration_secs)
+            .or(learnt.map(|l| l.0))
+            .unwrap_or(0.0),
+        width: info.as_ref().map(|i| i.width).or(learnt.map(|l| l.1)).unwrap_or(0),
+        height: info.as_ref().map(|i| i.height).or(learnt.map(|l| l.2)).unwrap_or(0),
         poster: has_poster,
         mp4: has_mp4,
         conversion_problem,

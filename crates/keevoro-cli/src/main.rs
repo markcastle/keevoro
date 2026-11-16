@@ -1486,15 +1486,22 @@ mod tests {
         run_gather(&mut out, &lib_dir, true, None).unwrap();
         let said = String::from_utf8(out).unwrap();
         assert!(said.starts_with("Safely copied 1 file ("), "{said}");
-        assert!(
-            said.ends_with("they have no posters or MP4 copies: that needs ffmpeg, which isn't installed.\n"),
-            "{said}"
-        );
-        let mut out = Vec::new();
-        run_gather(&mut out, &lib_dir, false, None).unwrap();
-        assert!(String::from_utf8(out)
-            .unwrap()
-            .contains("no posters: that needs ffmpeg"));
+        if keevoro_media::video::can_make_posters(None) {
+            // Windows and macOS read videos themselves, so they try, and say
+            // plainly that this (pretend) one cannot be played.
+            assert!(said.contains("1 video had a problem"), "{said}");
+            assert!(said.contains("can't play this video"), "{said}");
+        } else {
+            assert!(
+                said.ends_with("they have no posters or MP4 copies: that needs ffmpeg, which isn't installed.\n"),
+                "{said}"
+            );
+            let mut out = Vec::new();
+            run_gather(&mut out, &lib_dir, false, None).unwrap();
+            assert!(String::from_utf8(out)
+                .unwrap()
+                .contains("no posters: that needs ffmpeg"));
+        }
     }
 
     #[test]

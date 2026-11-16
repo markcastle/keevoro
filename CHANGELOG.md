@@ -6,7 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **Video thumbnails no longer need any extra software.** Keevoro now asks the computer's own video player for a picture from each video (Media Foundation on Windows, AVFoundation on a Mac), so thumbnails and posters work on a freshly installed computer and no other program is started to make them. The picture is taken a little way into the video and found by jumping straight there, so a long video takes no longer than a short one. Videos in a format the computer itself cannot play show a plain placeholder; if ffmpeg happens to be installed it is still tried for those. Converting old videos to MP4, which only the command line offers, still uses ffmpeg.
 
 ## [0.12.1] - 2026-11-16
 
