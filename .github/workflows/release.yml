@@ -97,6 +97,17 @@ jobs:
             highest=$(git tag -l 'v*' | sed 's/^v//' | sort -V | tail -1)
             version="$INPUT_VERSION"
             why="as asked"
+            # A release whose commit reached main but whose tag did not (the
+            # tag push can fail by itself). Nobody should have to know the
+            # number to finish it: if the version in Cargo.toml has notes and
+            # no tag, that is the release to finish.
+            manifest=$(cargo xtask version)
+            if [ -z "$version" ] && ! git rev-parse -q --verify "refs/tags/v$manifest" >/dev/null \
+              && [ -n "$(cargo xtask changelog section "$manifest")" ] \
+              && [ "$(printf '%s\n%s\n' "${highest:-0.0.0}" "$manifest" | sort -V | tail -1)" = "$manifest" ] \
+              && [ "$manifest" != "${highest:-0.0.0}" ]; then
+              version="$manifest"
+            fi
             if [ -z "$version" ]; then
               # Nobody chose, so the changelog does. The reason comes back on
               # stderr and the number on stdout.
@@ -146,6 +157,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # CI does not run on the "Release vX" commit this workflow pushes
+          # (it only changes the version and dates the changelog), so when
+          # finishing such a release the commit to judge is the one before.
+          if [ "$(git log -1 --format=%s)" = "Release v${{ steps.version.outputs.version }}" ]; then
+            GITHUB_SHA=$(git rev-parse HEAD~1)
+          fi
           state=$(gh run list --workflow ci.yml --commit "$GITHUB_SHA" --limit 1 --json status,conclusion --jq '.[0] | "\(.status) \(.conclusion)"')
           case "$state" in
             "completed success") echo "CI passed on ${GITHUB_SHA:0:7}." ;;
@@ -172,7 +189,15 @@ jobs:
         if: steps.version.outputs.cut == 'true' && !inputs.dry_run
         run: |
           git push origin HEAD:main
-          git push origin "v${{ steps.version.outputs.version }}"
+          # GitHub sometimes refuses a tag for a commit it received a moment
+          # ago ("missing necessary objects"). Waiting and asking again works.
+          for attempt in 1 2 3 4; do
+            git push origin "v${{ steps.version.outputs.version }}" && exit 0
+            echo "The tag was refused (attempt $attempt). Waiting before trying again."
+            sleep $((attempt * 15))
+          done
+          echo "::error::The commit is on main but the tag could not be pushed. Press Run again to finish this release."
+          exit 1
 
       - name: Tag the release that was already cut
         if: steps.version.outputs.resume == 'true' && !inputs.dry_run
@@ -181,7 +206,13 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           version="${{ steps.version.outputs.version }}"
           git tag -a "v$version" -m "Keevoro v$version"
-          git push origin "v$version"
+          for attempt in 1 2 3 4; do
+            git push origin "v$version" && exit 0
+            echo "The tag was refused (attempt $attempt). Waiting before trying again."
+            sleep $((attempt * 15))
+          done
+          echo "::error::The tag could not be pushed. Press Run again to finish this release."
+          exit 1
 
       - name: Rehearsal only
         if: inputs.dry_run
