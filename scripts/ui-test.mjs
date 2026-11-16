@@ -132,10 +132,20 @@ try {
   assert.equal(await page.locator('.steps li.done').count(), 3, 'everything before this step is ticked')
   await shot('9-backed-up')
 
-  // --- Done. The way on is to add another source, which finds more.
+  // --- A source can be removed, after being told what that does and does not do.
   await page.getByRole('button', { name: 'Add another source' }).click()
   await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
-  assert.equal(await page.locator('.steps li.done').count(), 3, 'the earlier work stays ticked')
+  assert.equal(await page.locator('.kept li.source').count(), 1)
+  await page.getByRole('button', { name: /^Remove / }).click()
+  assert.match(await text('.kept li.source .explain'), /Nothing in .+ itself is changed or deleted/)
+  await shot('9b-remove-source')
+  await page.getByRole('button', { name: 'Cancel' }).click()
+  assert.equal(await page.locator('.kept li.source').count(), 1, 'cancelling keeps the source')
+  await page.getByRole('button', { name: /^Remove / }).click()
+  await page.getByRole('button', { name: 'Remove from Keevoro' }).click()
+  await page.locator('.kept li.source').waitFor({ state: 'detached' })
+
+  // --- Adding a source again finds its photos again.
   await page.getByRole('button', { name: /Choose a folder/ }).click()
   await page.getByRole('heading', { name: /^Found [\d,]+ photos/ }).waitFor()
   await page.getByRole('button', { name: 'See what was found' }).click()

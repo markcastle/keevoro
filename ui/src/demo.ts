@@ -158,7 +158,7 @@ export function demoBackend(): Backend {
           collections.unshift(found)
         }
         if (junk.length === 0) junk.push(...junkFound())
-        sources.push({ id: sources.length + 1, name, root, items: photos + videos })
+        sources.push({ id: Date.now(), name, root, items: photos + videos })
         scanListeners.forEach((l) => l({ name, photos, videos, finished: true }))
       })()
   }
@@ -200,6 +200,14 @@ export function demoBackend(): Backend {
       return filesOf(found).map((file) => ({ ...file }))
     },
     setAside: async () => junk.map((file) => ({ ...file })),
+    forgetSource: async (id) => {
+      const at = sources.findIndex((s) => s.id === id)
+      if (at < 0) return
+      sources.splice(at, 1)
+      // The made-up collections are not tied to a source, so the newest go.
+      collections.splice(0, sources.length === 0 ? collections.length : 2)
+      if (sources.length === 0) junk.length = 0
+    },
     async keepPhoto(id, keep) {
       const at = junk.findIndex((file) => file.id === id)
       if (at >= 0 && keep) {

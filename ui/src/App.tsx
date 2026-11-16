@@ -49,7 +49,7 @@ const STEPS: { id: Step; title: string }[] = [
   { id: 'backup', title: 'Back them up' },
 ]
 
-const all = (n: number) => count(n, 'photo and video').replace('photo and videos', 'photos and videos')
+const all = (n: number) => (n === 1 ? '1 photo or video' : `${n.toLocaleString()} photos and videos`)
 
 export function App() {
   const [api, setApi] = useState<Backend | null>(null)
@@ -235,6 +235,10 @@ export function App() {
             justFound={justFound}
             onProblem={report}
             onStarted={() => setJustFound(null)}
+            onChanged={() => {
+              setJustFound(null)
+              void refresh(api)
+            }}
             next={
               anythingFound && !scan ? (
                 <Next
@@ -377,10 +381,13 @@ function FindScreen(props: {
   justFound: ScanEvent | null
   onProblem: (error: unknown) => void
   onStarted: () => void
+  onChanged: () => void
   next: ReactNode
 }) {
   const { api, found, scan, justFound, onProblem } = props
   const [places, setPlaces] = useState<Place[] | null>(null)
+  // The source the person has asked to remove, until they confirm.
+  const [removing, setRemoving] = useState<number | null>(null)
 
   const look = useCallback(() => {
     api.places().then(setPlaces).catch(onProblem)
@@ -446,12 +453,37 @@ function FindScreen(props: {
       {found && found.sources.length > 0 && (
         <>
           <h3>Your sources</h3>
+          <p className="quiet small">Removing a source only takes it off this list. Keevoro never changes or deletes anything in a source.</p>
           <ul className="kept">
             {found.sources.map((s) => (
-              <li key={s.id}>
+              <li key={s.id} className="source">
                 <span>{s.name}</span>
                 <span className="quiet">{s.root}</span>
                 <span className="badge">{all(s.items)}</span>
+                {removing === s.id ? (
+                  <span className="confirm">
+                    <button
+                      className="danger"
+                      onClick={() => {
+                        setRemoving(null)
+                        api.forgetSource(s.id).then(props.onChanged).catch(onProblem)
+                      }}
+                    >
+                      Remove from Keevoro
+                    </button>
+                    <button onClick={() => setRemoving(null)}>Cancel</button>
+                  </span>
+                ) : (
+                  <button className="link" disabled={!!scan} onClick={() => setRemoving(s.id)} aria-label={`Remove ${s.name}`}>
+                    Remove
+                  </button>
+                )}
+                {removing === s.id && (
+                  <p className="quiet small explain">
+                    Keevoro will forget what it found in {s.name}. Nothing in {s.name} itself is changed or deleted, and
+                    photos you have already gathered stay in your library. You can add it again at any time.
+                  </p>
+                )}
               </li>
             ))}
           </ul>

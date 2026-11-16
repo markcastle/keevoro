@@ -106,6 +106,7 @@ Done when a non-technical tester gets from a drive to a backup without help.
 - [x] Backup and connect logic moved into `keevoro-engine`, shared by the app and the command line
 - [ ] Storage setup with provider logos, and a link to instructions for making a scoped key
 - [x] Open a collection to see and tick its photos; show what was set aside as junk, with one click to keep
+- [x] Remove a source from the list (the source itself is never touched; gathered photos stay)
 - [ ] Notice when a drive is plugged in and offer to look through it
 - [ ] Time left ("About 20 minutes"), and cancel for a search or a gather
 - [ ] "Show folders" view with tick boxes, for people who want control

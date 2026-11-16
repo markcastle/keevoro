@@ -30,6 +30,27 @@ pub struct SourceView {
     pub items: u64,
 }
 
+/// A path as a person would write it. Windows gives long paths back as
+/// `\\?\C:\Users\...`, which means nothing to most people.
+pub fn friendly_path(path: &Path) -> String {
+    let shown = path.display().to_string();
+    if let Some(share) = shown.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{share}")
+    } else if let Some(plain) = shown.strip_prefix(r"\\?\") {
+        plain.to_string()
+    } else {
+        shown
+    }
+}
+
+/// Stops Keevoro remembering a source: what was found there leaves the list.
+///
+/// Nothing on the source is touched, and photos already gathered stay in
+/// the library. Returns false when there was no such source.
+pub fn forget_source(catalog: &mut Catalog, id: i64) -> Result<bool> {
+    Ok(catalog.forget_source(id)?)
+}
+
 /// One photo or video, with enough for the app to show it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -173,7 +194,7 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
         .map(|s| SourceView {
             id: s.id,
             name: s.name,
-            root: s.root.display().to_string(),
+            root: friendly_path(&s.root),
             items: s.items,
         })
         .collect();
@@ -305,6 +326,36 @@ mod tests {
         scan_into(&mut catalog, &drive, Some("Dad's old Dell"), &mut |_| ticks += 1).unwrap();
         assert_eq!(ticks, 4);
         (dir, library, catalog)
+    }
+
+    #[test]
+    fn forgetting_a_source_never_touches_its_files() {
+        let (dir, library, mut catalog) = world();
+        let drive = dir.path().join("Dads old Dell");
+        let id = discover(&library, &catalog).unwrap().sources[0].id;
+
+        assert!(forget_source(&mut catalog, id).unwrap());
+        let after = discover(&library, &catalog).unwrap();
+        assert!(after.sources.is_empty());
+        assert_eq!((after.photos, after.collections.len()), (0, 0));
+        for rel in [
+            "Holidays/Cornwall/IMG_20080812_101500.jpg",
+            "Holidays/Cornwall/IMG_20080813_090000.jpg",
+            "DCIM/100CANON/IMG_20120304_153012.jpg",
+            "Backup/IMG_20080812_101500.jpg",
+        ] {
+            assert!(drive.join(rel).is_file(), "{rel} must still be on the source");
+        }
+        // Asking twice is harmless.
+        assert!(!forget_source(&mut catalog, id).unwrap());
+    }
+
+    #[test]
+    fn windows_long_paths_are_shown_the_ordinary_way() {
+        let shown = |p: &str| friendly_path(Path::new(p));
+        assert_eq!(shown(r"\\?\C:\Users\Mark\Pictures"), r"C:\Users\Mark\Pictures");
+        assert_eq!(shown(r"\\?\UNC\nas\photos"), r"\\nas\photos");
+        assert_eq!(shown("/Volumes/KINGSTON"), "/Volumes/KINGSTON");
     }
 
     #[test]

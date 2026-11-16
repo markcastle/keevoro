@@ -102,6 +102,8 @@ export interface Backend {
   keepCollection(key: string, keep: boolean): Promise<void>
   /** Every file in a collection, in date order. */
   collectionPhotos(key: string): Promise<PhotoChoice[]>
+  /** Stops remembering a source. Nothing on the source itself is touched. */
+  forgetSource(id: number): Promise<void>
   /** The pictures set aside as probably not memories. */
   setAside(): Promise<PhotoChoice[]>
   keepPhoto(id: string, keep: boolean): Promise<void>
@@ -161,6 +163,7 @@ async function tauriBackend(): Promise<Backend> {
     keepCollection: (key, keep) => invoke('keep_collection', { key, keep }),
     collectionPhotos: (key) => invoke('collection_photos', { key }),
     setAside: () => invoke('set_aside'),
+    forgetSource: (id) => invoke('forget_source', { id }),
     keepPhoto: (id, keep) => invoke('keep_photo', { id, keep }),
     preview(id) {
       // Each picture is fetched once and reused; the bytes come back raw.
