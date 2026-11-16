@@ -200,6 +200,44 @@ pub fn keep_photo(shared: State<'_, Shared>, id: String, keep: bool) -> Said<()>
     keevoro_engine::set_photo_kept(&catalog, &id, keep).map_err(say)
 }
 
+/// Lets only a few slow jobs run at once; the rest wait their turn.
+struct Turns {
+    free: std::sync::Mutex<usize>,
+    freed: std::sync::Condvar,
+}
+
+/// Holding one of these is having a turn. Dropping it passes the turn on.
+struct Turn<'a>(&'a Turns);
+
+impl Turns {
+    const fn new(at_once: usize) -> Self {
+        Self {
+            free: std::sync::Mutex::new(at_once),
+            freed: std::sync::Condvar::new(),
+        }
+    }
+
+    fn wait_for_a_turn(&self) -> Turn<'_> {
+        // A poisoned lock only means another preview panicked; the count
+        // inside is still right, so carry on with it.
+        let mut free = self.free.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        while *free == 0 {
+            free = self.freed.wait(free).unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+        *free -= 1;
+        Turn(self)
+    }
+}
+
+impl Drop for Turn<'_> {
+    fn drop(&mut self) {
+        *self.0.free.lock().unwrap_or_else(std::sync::PoisonError::into_inner) += 1;
+        self.0.freed.notify_one();
+    }
+}
+
+static PREVIEWS: Turns = Turns::new(3);
+
 /// A small picture of one found file, as raw WebP bytes.
 #[tauri::command]
 pub async fn preview(shared: State<'_, Shared>, id: String) -> Said<tauri::ipc::Response> {
@@ -208,6 +246,10 @@ pub async fn preview(shared: State<'_, Shared>, id: String) -> Said<tauri::ipc::
     // Making a preview reads a file and shrinks a picture; keep that off
     // the thread that draws the window.
     let bytes = tauri::async_runtime::spawn_blocking(move || {
+        // A screen of pictures asks for all of its previews at once. A few
+        // at a time keeps the computer responsive, above all for videos,
+        // where each preview runs a separate program.
+        let _turn = PREVIEWS.wait_for_a_turn();
         let catalog = Catalog::open_in_library(&library)?;
         keevoro_engine::preview(&library, &catalog, &cache, &id, VideoTools::find().as_ref())
     })
@@ -752,4 +794,33 @@ pub fn open_library(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
     app.opener()
         .open_path(show.display().to_string(), None::<&str>)
         .map_err(say)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::AtomicUsize;
+
+    #[test]
+    fn only_a_few_slow_jobs_run_at_once() {
+        static TURNS: Turns = Turns::new(2);
+        static RUNNING: AtomicUsize = AtomicUsize::new(0);
+        static MOST: AtomicUsize = AtomicUsize::new(0);
+        let jobs: Vec<_> = (0..12)
+            .map(|_| {
+                std::thread::spawn(|| {
+                    let _turn = TURNS.wait_for_a_turn();
+                    let now = RUNNING.fetch_add(1, Ordering::SeqCst) + 1;
+                    MOST.fetch_max(now, Ordering::SeqCst);
+                    std::thread::sleep(Duration::from_millis(5));
+                    RUNNING.fetch_sub(1, Ordering::SeqCst);
+                })
+            })
+            .collect();
+        for job in jobs {
+            job.join().unwrap();
+        }
+        assert_eq!(MOST.load(Ordering::SeqCst), 2);
+        assert_eq!(RUNNING.load(Ordering::SeqCst), 0);
+    }
 }
