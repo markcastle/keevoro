@@ -122,15 +122,19 @@ Done when a non-technical tester gets from a drive to a backup without help.
 - [ ] "Show folders" view with tick boxes, for people who want control
 - [ ] Old video conversion prompt
 
-### Several libraries (profiles)
+### Sessions and destinations
 
-So drone footage can be kept and backed up apart from family photos. The thinking is in [PLANNING.md](PLANNING.md#several-libraries-profiles).
+Separate, remembered jobs ("Drone footage to R2", "Family photos to a folder"), each sent straight to its destination. The thinking is in [PLANNING.md](PLANNING.md#sessions-and-destinations).
 
-- [ ] App settings hold a list of named libraries and which one is open (moving the single `library` setting across)
-- [ ] Library name at the top of the side bar, with a switcher and "Start a new library"
-- [ ] Backup keys stored per library in the keychain, not per computer
-- [ ] Decide: renaming and moving a library; copying storage settings between libraries
-- [ ] Later: a library that only looks for videos, or only photos
+- [x] Sessions: named, separate, switchable from the side bar; the old single library becomes the first one
+- [x] Destinations as a list: a folder first, then R2, S3 and other S3-compatible storage
+- [x] Send straight from the source to the destination; no local library in between
+- [x] Sending again later only sends what is new
+- [ ] More than one destination per session
+- [ ] Rename and remove a session
+- [ ] A session that only looks for videos, or only photos
+- [ ] Verify a folder destination by reading it back automatically after sending
+- [ ] Sessions on the command line
 
 ## Phase 4: macOS
 

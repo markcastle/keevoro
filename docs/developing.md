@@ -66,7 +66,7 @@ Searching is split in two. The search itself (`keevoro-scan` with `quick: true`)
 
 The app keeps a log (`src-tauri/src/log.rs`): one line per event with the time in front, in the system's usual log folder for the app, shown in Settings. Log anything a person might later ask "what was it doing?" about, in the same plain words as the screens. Never log keys.
 
-The app is four steps (`find`, `choose`, `gather`, `backup` in `ui/src/App.tsx`) and the steps in the sidebar are the only navigation. The rule for any new screen: one question as the heading, one main button in the bar at the bottom, and words a person who has never heard of Keevoro would understand. The drives offered on the first step come from `src-tauri/src/places.rs`, which decides what a drive is called and which system volumes to hide.
+The app works in sessions (see `src-tauri/src/settings.rs`): each is a named job with its own home folder for its catalog. Within a session there are three steps (`find`, `choose`, `backup` in `ui/src/App.tsx`; the last is shown as "Send them somewhere safe") and the steps in the sidebar are the only navigation. The rule for any new screen: one question as the heading, one main button in the bar at the bottom, and words a person who has never heard of Keevoro would understand. The drives offered on the first step come from `src-tauri/src/places.rs`, which decides what a drive is called and which system volumes to hide.
 
 `ui/src/backend.ts` is the only place the screens touch the outside world. Its types mirror the Rust structs in `crates/keevoro-engine/src/discover.rs` and `src-tauri/src/events.rs`; change them together.
 

@@ -123,22 +123,19 @@ Every upload writes a v2 JSON index under an unguessable name (`index/<128-bit r
 | Hashing | BLAKE3. Item id is the first 16 hex characters. |
 | Audience | Personal use first. Commercial options kept open. |
 
-## Several libraries (profiles)
+## Sessions and destinations
 
-People want to keep different things apart: family photos in one place, drone footage in another, perhaps a client's work in a third, each backed up to its own storage. Keevoro should let you have several, each with a name, and switch between them.
+People use Keevoro for separate jobs: family photos to a folder, drone footage to cloud storage, perhaps a client's work somewhere else. A **session** is one of those jobs. It has a name, its own sources, its own choices about what to keep and its own destination, and it is remembered, so the same job can be run again next month and only what is new is sent.
 
-The engine is already shaped for this. A library is a folder that holds its own catalog, so its sources, its keep choices, what has been gathered and where it backs up to all travel with it. Two libraries never share anything. What is missing is only in the app, which remembers one library.
+A **destination** is anywhere files can be sent: a folder (on this computer, another disk, a network drive) or storage that speaks S3 (Cloudflare R2, Amazon S3 and others). They are the same kind of thing. A file's place (its folder and name) is agreed once and is the same in every destination, and files go straight from the source to the destination. There is no library on this computer that everything must pass through.
 
-The plan:
+How it is built:
 
-- **A library is the profile.** No second concept on top. "Family photos" and "Drone footage" are two libraries, each a folder the person can see.
-- **The app remembers a list of libraries**, each with a name and a folder, and which one is open. The name sits at the top of the side bar; clicking it offers the others and "Start a new library".
-- **Starting a new library asks two things:** what to call it and (quietly, with a sensible default) where to put it. It then begins at step 1 like a first run.
-- **The same source can be in more than one library.** Looking through a drone's memory card for the drone library does not stop it being looked through for the family one.
-- **Backups are per library**, as they already are. Keys in the keychain need to be stored per library rather than per computer, which is the one engine change.
-- **What a library is for** (photos and videos today) could later become a choice, such as "videos only" for drone footage, which would also make that search faster.
+- Each session has a home folder in the app's own data, holding its catalog and previews. The photos themselves are not copied there.
+- `settings.json` lists the sessions and which is open. A library from before sessions becomes the first session, in place.
+- Sending is `prepare_to_send` (read each kept file in full, agree its place, make its preview) followed by `backup::run` (send, skipping what is already there, then write the index).
 
-Things to decide before building: whether a library can be renamed or moved after it is made, whether to offer "copy my storage settings from another library", and what the command line calls this (`--library` already selects one).
+Still to do: more than one destination per session; renaming and removing a session; a session that only looks for videos, or only photos; sessions on the command line (`--library` selects a home folder today).
 
 ## Open questions
 
