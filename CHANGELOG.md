@@ -6,7 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **Tidying behind the name change.** Now that sessions are called backups, Keevoro's own settings file and folders use that word too. Nothing looks or works differently, and the backups you already have open exactly as before.
+
+### Fixed
+
+- The words on the first screen can no longer be highlighted by accident when you click or press Ctrl+A.
 
 ## [0.13.1] - 2026-11-16
 
