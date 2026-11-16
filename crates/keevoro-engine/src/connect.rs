@@ -16,7 +16,7 @@
 //! Keys set in the environment still win over the keychain, which is what
 //! scripts and CI use.
 
-use crate::publish::{Destination, ACCESS_KEY_VAR, SECRET_KEY_VAR};
+use crate::backup::{Destination, ACCESS_KEY_VAR, SECRET_KEY_VAR};
 use anyhow::{bail, Result};
 use keevoro_catalog::Catalog;
 use keevoro_storage_s3::Preset;
@@ -80,22 +80,6 @@ pub struct World<'a> {
     /// Asks a question and returns the answer. The flag says whether the
     /// answer should be hidden as it is typed.
     pub ask: &'a dyn Fn(&str, bool) -> Result<String>,
-}
-
-/// Asks at the terminal. Secrets are not shown as they are typed.
-pub fn ask_at_terminal(question: &str, hidden: bool) -> Result<String> {
-    let answer = if hidden {
-        rpassword::prompt_password(format!("{question}: "))
-    } else {
-        eprint!("{question}: ");
-        let _ = std::io::stderr().flush();
-        let mut line = String::new();
-        std::io::stdin().read_line(&mut line).map(|_| line)
-    };
-    match answer {
-        Ok(a) if !a.trim().is_empty() => Ok(a.trim().to_string()),
-        _ => bail!("Keevoro needs the storage keys. Set {ACCESS_KEY_VAR} and {SECRET_KEY_VAR}, or run this again and paste them when asked."),
-    }
 }
 
 /// A backup destination as it is remembered. Holds nothing secret.
@@ -271,7 +255,7 @@ pub fn connect(out: &mut dyn Write, catalog: &Catalog, saved: &Saved, world: &Wo
 
     // Prove it works before remembering anything.
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
-    crate::publish::open(out, &runtime, destination)?;
+    crate::backup::open(out, &runtime, destination)?;
 
     if let Some(keys) = keys {
         world.secrets.set(&saved.secret_name(), &keys)?;
@@ -311,7 +295,8 @@ pub fn disconnect(out: &mut dyn Write, catalog: &Catalog, world: &World<'_>) -> 
     Ok(())
 }
 
-#[cfg(test)]
+/// Stand-ins for the keychain and the keyboard, for tests here and in the
+/// front ends. Not used by the running program.
 pub mod testing {
     use super::*;
     use std::cell::RefCell;
