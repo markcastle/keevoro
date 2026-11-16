@@ -120,6 +120,11 @@ const MIGRATIONS: &[&str] = &[
     "ALTER TABLE items ADD COLUMN hashed INTEGER NOT NULL DEFAULT 1;
      ALTER TABLE items ADD COLUMN quick TEXT;
      CREATE INDEX items_unhashed ON items(hashed) WHERE hashed = 0;",
+    // 6: a kept file's place (its folder and name) is agreed once and is the
+    // same wherever it is copied to. `here` says whether a copy is in this
+    // library's own folder; a file can have a place without one, when it
+    // is sent straight from its source to other storage.
+    "ALTER TABLE collected ADD COLUMN here INTEGER NOT NULL DEFAULT 1;",
 ];
 
 #[derive(Debug, thiserror::Error)]
@@ -506,11 +511,52 @@ impl Catalog {
     /// `path` is relative to the library folder, with `/` between folders.
     pub fn mark_collected(&self, blake3: &str, path: &str, bytes: u64) -> Result<()> {
         self.conn.execute(
-            "INSERT INTO collected (blake3, path, bytes) VALUES (?1, ?2, ?3)
-             ON CONFLICT(blake3) DO UPDATE SET path = excluded.path, bytes = excluded.bytes",
+            "INSERT INTO collected (blake3, path, bytes, here) VALUES (?1, ?2, ?3, 1)
+             ON CONFLICT(blake3) DO UPDATE SET path = excluded.path, bytes = excluded.bytes, here = 1",
             params![blake3, path, to_i64(bytes)],
         )?;
         Ok(())
+    }
+
+    /// Agrees the place a kept file will have wherever it is copied to,
+    /// without saying a copy exists in this library's folder. Does nothing
+    /// if the file already has a place.
+    pub fn mark_placed(&self, blake3: &str, path: &str, bytes: u64) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO collected (blake3, path, bytes, here) VALUES (?1, ?2, ?3, 0)
+             ON CONFLICT(blake3) DO NOTHING",
+            params![blake3, path, to_i64(bytes)],
+        )?;
+        Ok(())
+    }
+
+    /// Is a copy of this file in this library's own folder?
+    pub fn is_here(&self, blake3: &str) -> Result<bool> {
+        Ok(self
+            .conn
+            .query_row("SELECT here FROM collected WHERE blake3 = ?1", [blake3], |r| {
+                r.get::<_, bool>(0)
+            })
+            .optional()?
+            .unwrap_or(false))
+    }
+
+    /// Is this place already taken by some file?
+    pub fn place_taken(&self, path: &str) -> Result<bool> {
+        Ok(self
+            .conn
+            .query_row("SELECT 1 FROM collected WHERE path = ?1", [path], |_| Ok(()))
+            .optional()?
+            .is_some())
+    }
+
+    /// Has anything been stored under this name in any storage?
+    pub fn stored_anywhere(&self, key: &str) -> Result<bool> {
+        Ok(self
+            .conn
+            .query_row("SELECT 1 FROM uploaded WHERE key = ?1 LIMIT 1", [key], |_| Ok(()))
+            .optional()?
+            .is_some())
     }
 
     /// Where in the library a file with this content was put, if it has
@@ -527,12 +573,13 @@ impl Catalog {
     pub fn collected(&self) -> Result<Vec<Collected>> {
         let mut q = self
             .conn
-            .prepare("SELECT blake3, path, bytes FROM collected ORDER BY path")?;
+            .prepare("SELECT blake3, path, bytes, here FROM collected ORDER BY path")?;
         let rows = q.query_map([], |r| {
             Ok(Collected {
                 blake3: r.get(0)?,
                 path: r.get(1)?,
                 bytes: u64::try_from(r.get::<_, i64>(2)?).unwrap_or(0),
+                here: r.get(3)?,
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -540,11 +587,11 @@ impl Catalog {
 
     /// How many files are in the library, and their total size in bytes.
     pub fn collected_totals(&self) -> Result<(u64, u64)> {
-        let (n, bytes): (i64, i64) =
-            self.conn
-                .query_row("SELECT COUNT(*), COALESCE(SUM(bytes), 0) FROM collected", [], |r| {
-                    Ok((r.get(0)?, r.get(1)?))
-                })?;
+        let (n, bytes): (i64, i64) = self.conn.query_row(
+            "SELECT COUNT(*), COALESCE(SUM(bytes), 0) FROM collected WHERE here = 1",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
         Ok((u64::try_from(n).unwrap_or(0), u64::try_from(bytes).unwrap_or(0)))
     }
 }
@@ -556,6 +603,8 @@ pub struct Collected {
     /// Relative to the library folder, with `/` between folders.
     pub path: String,
     pub bytes: u64,
+    /// True when a copy is in this library's own folder.
+    pub here: bool,
 }
 
 /// What is known about one video and the copies made of it.

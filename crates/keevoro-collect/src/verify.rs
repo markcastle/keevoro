@@ -34,7 +34,9 @@ pub fn verify_library(
     catalog: &Catalog,
     on_progress: &mut dyn FnMut(usize, usize),
 ) -> Result<VerifyReport, CatalogError> {
-    let files = catalog.collected()?;
+    // Only what is meant to be in this folder: a file sent straight to
+    // other storage has a place but no copy here.
+    let files: Vec<_> = catalog.collected()?.into_iter().filter(|f| f.here).collect();
     let total = files.len();
     let mut report = VerifyReport::default();
     for (done, file) in files.into_iter().enumerate() {

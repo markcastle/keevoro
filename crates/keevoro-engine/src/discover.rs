@@ -154,7 +154,12 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
             let is_wanted = wanted(catalog, item)?;
             kept |= is_wanted;
             let is_in = match &item.blake3 {
-                Some(hash) => catalog.collected_path(hash)?.is_some(),
+                // Safe means a copy exists somewhere it was sent: in this
+                // library's own folder, or in storage it was sent to.
+                Some(hash) => match catalog.collected_path(hash)? {
+                    Some(place) => catalog.is_here(hash)? || catalog.stored_anywhere(&place)?,
+                    None => false,
+                },
                 None => false,
             };
             gathered += usize::from(is_in);

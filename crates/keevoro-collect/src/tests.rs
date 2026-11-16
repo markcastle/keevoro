@@ -320,7 +320,7 @@ mod previews {
     use crate::make_previews;
     use keevoro_catalog::RenditionState;
 
-    fn real_jpeg(shade: u8) -> Vec<u8> {
+    pub(super) fn real_jpeg(shade: u8) -> Vec<u8> {
         let img = image::RgbImage::from_pixel(900, 600, image::Rgb([shade, 120, 60]));
         let mut bytes = Vec::new();
         img.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Jpeg)
@@ -404,7 +404,18 @@ mod previews {
     }
 
     #[test]
-    fn a_missing_library_file_is_retried_next_time_not_written_off() {
+    fn a_file_missing_from_the_library_is_previewed_from_its_source() {
+        let w = World::new();
+        w.add("Family/a.jpg", &real_jpeg(10));
+        let report = w.scan();
+        w.gather(&report);
+        fs::remove_file(w.library().join("originals/Family/a.jpg")).unwrap();
+        // The bytes are the same wherever they are read from.
+        assert_eq!(previews(&w, &report).made, 1);
+    }
+
+    #[test]
+    fn a_file_missing_everywhere_is_retried_next_time_not_written_off() {
         let w = World::new();
         w.add("Family/a.jpg", &real_jpeg(10));
         let report = w.scan();
@@ -412,6 +423,7 @@ mod previews {
         let original = w.library().join("originals/Family/a.jpg");
         let bytes = fs::read(&original).unwrap();
         fs::remove_file(&original).unwrap();
+        fs::remove_file(&report.items[0].path).unwrap();
 
         assert_eq!(previews(&w, &report).no_preview.len(), 1);
         fs::write(&original, bytes).unwrap();
@@ -613,7 +625,7 @@ mod videos {
     }
 
     #[test]
-    fn a_video_missing_from_the_library_is_retried_next_time() {
+    fn a_video_missing_everywhere_is_retried_next_time() {
         let Some(tools) = tools() else { return };
         let w = World::new();
         w.add(
@@ -625,6 +637,7 @@ mod videos {
         let original = w.library().join("originals/Holiday/old.avi");
         let bytes = fs::read(&original).unwrap();
         fs::remove_file(&original).unwrap();
+        fs::remove_file(&report.items[0].path).unwrap();
         assert_eq!(run(&w, &report, &tools, false).problems.len(), 1);
         assert_eq!(
             w.catalog.video(report.items[0].blake3.as_deref().unwrap()).unwrap(),
@@ -697,4 +710,44 @@ mod verify {
         let r = verify_library(&w.library(), &w.catalog, &mut |_, _| {}).unwrap();
         assert_eq!((r.intact, r.problems.len()), (0, 0));
     }
+}
+
+fn real_jpeg(shade: u8) -> Vec<u8> {
+    previews::real_jpeg(shade)
+}
+
+#[test]
+fn places_are_agreed_without_copying_and_two_files_never_share_one() {
+    let w = World::new();
+    w.add("Trip/IMG_0001.jpg", &real_jpeg(10));
+    w.add("Trip/sub/IMG_0002.jpg", &real_jpeg(20));
+    let report = w.scan();
+    let items: Vec<&FoundItem> = report.items.iter().collect();
+    assert_eq!(agree_places(&w.catalog, &items).unwrap(), 2);
+    assert_eq!(agree_places(&w.catalog, &items).unwrap(), 0, "a place is agreed once");
+    let places: Vec<_> = w.catalog.collected().unwrap();
+    assert!(places.iter().all(|p| !p.here), "nothing was copied here");
+    assert!(!w.library().join("originals").exists());
+    let mut names: Vec<_> = places.iter().map(|p| p.path.clone()).collect();
+    names.dedup();
+    assert_eq!(names.len(), 2);
+
+    // Gathering later puts each file at the place already agreed.
+    w.gather(&report);
+    for p in w.catalog.collected().unwrap() {
+        assert!(p.here);
+        assert!(names.contains(&p.path));
+        assert!(in_library(&w.library(), &p.path).is_file());
+    }
+}
+
+#[test]
+fn checking_the_library_ignores_files_that_were_never_meant_to_be_in_it() {
+    let w = World::new();
+    w.add("Trip/IMG_0001.jpg", &real_jpeg(10));
+    let report = w.scan();
+    let items: Vec<&FoundItem> = report.items.iter().collect();
+    agree_places(&w.catalog, &items).unwrap();
+    let checked = verify_library(&w.library(), &w.catalog, &mut |_, _| {}).unwrap();
+    assert_eq!((checked.intact, checked.problems.len()), (0, 0));
 }

@@ -51,7 +51,8 @@ pub fn make_video_previews(
         let Some(relative) = catalog.collected_path(hash)? else {
             continue;
         };
-        let original = in_library(library, &relative);
+        let _ = relative;
+        let original = crate::bytes_of(library, catalog, item)?;
         let id = &hash[..hash.len().min(16)];
         let poster_file = in_library(library, &rendition_path(Rendition::Poster, id));
         let mp4_file = in_library(library, &rendition_path(Rendition::Video, id));

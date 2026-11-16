@@ -38,7 +38,7 @@ keevoro update
 
 ## The desktop app (early)
 
-The app is the friendly face of the same engine. It walks through four steps, one question at a time: **Find your photos** (pick a plugged-in drive by name, or any folder), **Choose what to keep** (collections with big photos, each with a keep switch, and you can open one to choose photo by photo), **Gather them** into one library, and **Back them up** to another disk or to cloud storage. Each screen has one main button that takes you to the next step. The library goes in a folder called Keevoro Library in your Pictures unless you say otherwise. Converting old videos and changing the private link are still command-line only.
+The app is the friendly face of the same engine. You start a **session** (such as "Family photos" or "Drone footage"), then it walks through three steps, one question at a time: **Find your photos** (pick a plugged-in drive by name, or any folder), **Choose what to keep** (collections with big photos, each with a keep switch), and **Send them somewhere safe** (a folder, another disk, or cloud storage of your own). Files go straight from the source to where you send them, each checked first. Sessions are separate and remembered: open one again later and it sends only what is new.
 
 Download the installer from the latest release:
 

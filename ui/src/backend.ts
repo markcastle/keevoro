@@ -58,9 +58,19 @@ export type Discover = {
   collections: Collection[]
 }
 
+/**
+ * One job the person comes back to, such as "Drone footage": its own
+ * sources, its own choices and its own place to send things.
+ */
+export type Session = { id: string; name: string }
+
 export type AppState = {
-  /** Where the library lives, or null until the user has chosen. */
+  /** The open session's own folder, or null before the first session. */
   library: string | null
+  /** The session that is open. */
+  session: Session | null
+  /** Every session, in the order they were started. */
+  sessions: Session[]
   /** A sensible place to suggest for a new library. */
   suggestedLibrary: string
   version: string
@@ -117,6 +127,12 @@ export interface Backend {
   /** Asks the user to pick a folder for the library. Null if they cancel. */
   chooseLibrary(): Promise<AppState | null>
   useLibrary(path: string): Promise<AppState>
+  /** Starts a new session with this name and opens it. */
+  startSession(name: string): Promise<AppState>
+  /** Opens another session; the one that was open is left as it was. */
+  switchSession(id: string): Promise<AppState>
+  /** Shows the folder this session sends to, when it sends to a folder. */
+  openDestination(): Promise<void>
   discover(): Promise<Discover>
   /** The drives plugged in right now, likeliest first. */
   places(): Promise<Place[]>
@@ -186,6 +202,9 @@ async function tauriBackend(): Promise<Backend> {
   return {
     state: () => invoke('app_state'),
     useLibrary: (path) => invoke('use_library', { path }),
+    startSession: (name) => invoke('start_session', { name }),
+    switchSession: (id) => invoke('switch_session', { id }),
+    openDestination: () => invoke('open_destination'),
     async chooseLibrary() {
       const path = await pickFolder('Choose where your library will live')
       return path ? invoke<AppState>('use_library', { path }) : null

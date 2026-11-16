@@ -164,7 +164,7 @@ pub fn run(
     let store = store.as_ref();
     let base_url = base_url.map_or(default_url, str::to_string);
 
-    let uploads = uploads_for(library, &kept)?;
+    let uploads = uploads_for(library, catalog, &kept)?;
     let n = summary::thousands;
     let opts = PublishOptions::default();
     let report = runtime.block_on(publish(store, catalog, &target, &uploads, &opts, &mut |p| {
@@ -285,7 +285,10 @@ pub fn check(
         on_progress(&format!("Checking your library: {} of {}", n(done), n(total)));
     })?;
     let mut wrong = report.problems.len();
-    if report.problems.is_empty() {
+    if report.intact == 0 && report.problems.is_empty() {
+        // Nothing is kept in this folder: everything was sent straight
+        // from its source, so there is no library to speak of.
+    } else if report.problems.is_empty() {
         writeln!(
             out,
             "Your library: all {} are intact.",
@@ -368,13 +371,15 @@ pub fn check(
 }
 
 /// Originals first, then previews.
-fn uploads_for(library: &Path, kept: &[Kept<'_>]) -> Result<Vec<Upload>> {
+fn uploads_for(library: &Path, catalog: &Catalog, kept: &[Kept<'_>]) -> Result<Vec<Upload>> {
     let local = |relative: &str| relative.split('/').fold(library.to_path_buf(), |p, s| p.join(s));
     let mut uploads = Vec::new();
     for k in kept {
         uploads.push(Upload {
             key: ObjectKey::new(k.path.clone())?,
-            file: local(&k.path),
+            // The copy in this library if there is one, otherwise the
+            // file where it was found: the destination does not care.
+            file: keevoro_collect::bytes_of(library, catalog, k.item)?,
             bytes: k.item.bytes,
             write_once: true,
             content_type: Some(k.item.mime.clone()),
@@ -493,5 +498,88 @@ mod tests {
             file_url(Path::new(r"\\?\D:\Family Backup")),
             "file:///D:/Family%20Backup/"
         );
+    }
+
+    /// A source with two photos, searched quickly into a session whose
+    /// home folder is somewhere else entirely.
+    fn session() -> (tempfile::TempDir, PathBuf, PathBuf, Catalog) {
+        let dir = tempfile::tempdir().unwrap();
+        let card = dir.path().join("Card");
+        for (rel, shade) in [
+            ("Flights/IMG_20240601_100000.jpg", 10),
+            ("Flights/IMG_20240601_100500.jpg", 90),
+        ] {
+            let p = card.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, crate::discover::tests::real_jpeg(shade)).unwrap();
+        }
+        let home = dir.path().join("home");
+        let mut catalog = Catalog::open_in_library(&home).unwrap();
+        crate::scan_into(&mut catalog, &card, Some("Card"), &mut |_| {}).unwrap();
+        (dir, card, home, catalog)
+    }
+
+    fn send(catalog: &Catalog, home: &Path, to: &Path) -> String {
+        crate::prepare_to_send(home, catalog, None, &mut |_| {}).unwrap();
+        let mut said = Vec::new();
+        run(
+            &mut said,
+            catalog,
+            home,
+            Destination::Folder(to.to_path_buf()),
+            None,
+            false,
+            &mut |_| {},
+        )
+        .unwrap();
+        String::from_utf8(said).unwrap()
+    }
+
+    #[test]
+    fn files_go_straight_from_the_source_to_a_folder_with_no_copy_in_between() {
+        let (dir, card, home, catalog) = session();
+        let to = dir.path().join("Drone footage");
+        let said = send(&catalog, &home, &to);
+        assert!(said.contains("Safely backed up"), "{said}");
+
+        // Each original is in the destination, exact, under its album.
+        for name in ["IMG_20240601_100000.jpg", "IMG_20240601_100500.jpg"] {
+            let sent = to.join("originals").join("Flights").join(name);
+            assert_eq!(
+                keevoro_scan::whole_hash(&sent).unwrap(),
+                keevoro_scan::whole_hash(&card.join("Flights").join(name)).unwrap()
+            );
+        }
+        // And the session's own folder holds no second copy of them.
+        assert!(!home.join("originals").exists());
+        // The app counts them as safe.
+        assert_eq!(crate::discover(&home, &catalog).unwrap().waiting_to_gather, 0);
+    }
+
+    #[test]
+    fn sending_again_later_only_sends_what_is_new() {
+        let (dir, card, home, mut catalog) = session();
+        let to = dir.path().join("Drone footage");
+        send(&catalog, &home, &to);
+        let again = send(&catalog, &home, &to);
+        assert!(!again.contains("Safely backed up"), "nothing new to send: {again}");
+
+        // Another flight, another day: the same session, looked through again.
+        std::fs::write(
+            card.join("Flights").join("IMG_20240702_090000.jpg"),
+            crate::discover::tests::real_jpeg(200),
+        )
+        .unwrap();
+        crate::scan_into(&mut catalog, &card, Some("Card"), &mut |_| {}).unwrap();
+        assert_eq!(crate::discover(&home, &catalog).unwrap().waiting_to_gather, 1);
+        let later = send(&catalog, &home, &to);
+        // The new photo and its two previews; the six from before are not sent again.
+        assert!(later.contains("Safely backed up 3 files"), "{later}");
+        assert!(later.contains("6 files already there"), "{later}");
+        assert!(to
+            .join("originals")
+            .join("Flights")
+            .join("IMG_20240702_090000.jpg")
+            .is_file());
     }
 }

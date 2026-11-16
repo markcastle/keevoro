@@ -6,7 +6,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Sessions.** A session is one job you come back to, such as "Family photos" or "Drone footage". Each has its own sources, its own choices about what to keep and its own place to send things, and none of them affect the others. The session's name is at the top of the side bar: click it to open another or start a new one. What you already had becomes a session called "My photos", with everything it had found and chosen.
+- **Come back later and send only what is new.** Open a session again, look through its source again, and Send copies only the files that were not sent before.
+- **Choose where your photos go from a list.** A folder (on this computer, another disk or a network drive) comes first, then Cloudflare R2, Amazon S3 and other storage that works like S3. They are all the same kind of thing to Keevoro: somewhere to send your files.
+
+### Changed
+
+- **Three steps, not four: Find, Choose, Send.** There is no longer a separate "gather" step that copied everything into a library on this computer before it could go anywhere else. Files now go straight from the source to the place you chose, each one read in full and checked first, with no second copy made along the way. If you want them in a folder on this computer, choose that folder as the place to send them.
+- "Check they all arrived" replaces "Check my backup", and "Send somewhere else" replaces "Disconnect".
+
+### Removed
+
+- The "Gather them" step and the Keevoro Library folder in Pictures as a required stop. Photos already gathered into it stay exactly where they are. The command-line `keevoro gather` is unchanged.
 
 ## [0.11.0] - 2026-11-16
 

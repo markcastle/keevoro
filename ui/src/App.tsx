@@ -36,19 +36,19 @@ import type {
   Place,
   CheckEvent,
   ScanEvent,
+  Session,
   Update,
 } from './backend'
 import { count, photosAndVideos, size, thousands, wholePlace } from './format'
 
-type Step = 'find' | 'choose' | 'gather' | 'backup'
+type Step = 'find' | 'choose' | 'backup'
 /** Looking inside a collection, or at what was set aside, sits on top of step 2. */
 type Overlay = { collection: Collection } | 'setAside' | 'settings' | null
 
 const STEPS: { id: Step; title: string }[] = [
   { id: 'find', title: 'Find your photos' },
   { id: 'choose', title: 'Choose what to keep' },
-  { id: 'gather', title: 'Gather them' },
-  { id: 'backup', title: 'Back them up' },
+  { id: 'backup', title: 'Send them somewhere safe' },
 ]
 
 const all = (n: number) => (n === 1 ? '1 photo or video' : `${n.toLocaleString()} photos and videos`)
@@ -61,7 +61,7 @@ export function App() {
   const [overlay, setOverlay] = useState<Overlay>(null)
   const [scan, setScan] = useState<ScanEvent | null>(null)
   const [justFound, setJustFound] = useState<ScanEvent | null>(null)
-  const [gather, setGather] = useState<GatherEvent | null>(null)
+  const [, setGather] = useState<GatherEvent | null>(null)
   // Background checking of files a quick search only sampled.
   const [check, setCheck] = useState<CheckEvent | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
@@ -132,29 +132,28 @@ export function App() {
 
   if (!api || !state) return <div className="blank" />
 
-  if (!state.library) {
-    const begin = (chosen: Promise<AppState | null>) =>
-      chosen
-        .then((s) => {
-          if (!s) return
-          setState(s)
-          return refresh(api)
-        })
-        .catch(report)
-    return (
-      <Welcome
-        suggested={state.suggestedLibrary}
-        onStart={() => begin(api.useLibrary(state.suggestedLibrary))}
-        onChoose={() => begin(api.chooseLibrary())}
-        problem={problem}
-      />
-    )
+  // Opening a session (a new one, or another one) shows what it holds.
+  const openSession = (opened: Promise<AppState>) =>
+    opened
+      .then(async (s) => {
+        setState(s)
+        setOverlay(null)
+        setJustFound(null)
+        const d = await api.discover()
+        setFound(d)
+        const where = await api.backupState()
+        setBackedUpTo(where)
+        setStep(nextToDo(d, where))
+      })
+      .catch(report)
+
+  if (!state.session) {
+    return <Welcome onStart={(name) => openSession(api.startSession(name))} problem={problem} />
   }
 
   const waiting = found?.waitingToGather ?? 0
   const kept = found?.collections.filter((c) => c.kept) ?? []
   const safe = kept.reduce((n, c) => n + c.gathered, 0)
-  const gathering = gather !== null && gather.step !== 'finished'
   const anythingFound = (found?.collections.length ?? 0) > 0
 
   const go = (to: Step) => {
@@ -169,30 +168,20 @@ export function App() {
       .then(() => refresh(api))
       .catch(report)
   }
-  const startGather = () => {
-    go('gather')
-    setGather({ step: 'copying', done: 0, total: waiting })
-    api.gather().catch((error) => {
-      setGather(null)
-      report(error)
-    })
-  }
 
   // What each step has to say for itself in the list down the side.
   const done: Record<Step, boolean> = {
     find: anythingFound,
-    choose: anythingFound && (step === 'gather' || step === 'backup' || safe > 0),
-    gather: safe > 0 && waiting === 0,
-    backup: Boolean(backedUpTo),
+    choose: anythingFound && (step === 'backup' || safe > 0),
+    backup: safe > 0 && waiting === 0,
   }
   const note: Record<Step, string> = {
     find: found && found.sources.length > 0 ? count(found.sources.length, 'source') : 'Start here',
     choose: anythingFound ? `Keeping ${thousands(waiting + safe)}` : '',
-    gather: gathering ? 'Working…' : safe > 0 ? `${thousands(safe)} safe` : '',
-    backup: backedUpTo ? 'Set up' : '',
+    backup: safe > 0 ? `${thousands(safe)} safe` : backedUpTo ? 'Ready to send' : '',
   }
   // A step can be opened once the one before it has something to show.
-  const open: Record<Step, boolean> = { find: true, choose: anythingFound, gather: anythingFound, backup: safe > 0 }
+  const open: Record<Step, boolean> = { find: true, choose: anythingFound, backup: anythingFound }
 
   return (
     <div className="app">
@@ -201,6 +190,12 @@ export function App() {
           <Logo />
           <span>Keevoro</span>
         </div>
+        <SessionPicker
+          session={state.session}
+          sessions={state.sessions}
+          onSwitch={(id) => openSession(api.switchSession(id))}
+          onStart={(name) => openSession(api.startSession(name))}
+        />
         <ol className="steps" aria-label="Steps">
           {STEPS.map((s, i) => (
             <li key={s.id} className={step === s.id ? 'now' : done[s.id] ? 'done' : ''}>
@@ -217,9 +212,6 @@ export function App() {
           ))}
         </ol>
         <div className="foot">
-          <button className="link" onClick={() => api.openLibrary().catch(report)}>
-            Open my library
-          </button>
           {check && (
             <span className="checking" role="status">
               <Spinner /> Checking for duplicates in the background: {thousands(check.done)} of {thousands(check.total)}.
@@ -229,7 +221,7 @@ export function App() {
           <button className="link" onClick={() => setOverlay('settings')}>
             Settings
           </button>
-          <span title={state.library}>Your sources are only ever read.</span>
+          <span>Your sources are only ever read.</span>
         </div>
       </aside>
 
@@ -350,47 +342,29 @@ export function App() {
                       Keeping <b>{all(waiting + safe)}</b> in {count(kept.length, 'collection')}.
                     </>
                   }
-                  button="Gather them into my library"
-                  onClick={startGather}
+                  button="Choose where they go"
+                  onClick={() => go('backup')}
                 />
               ) : safe > 0 ? (
-                <Next back={() => go('find')} say="Everything you’re keeping is already in your library." button="Next" onClick={() => go('gather')} />
+                <Next back={() => go('find')} say="Everything you’re keeping has already been sent." button="Next" onClick={() => go('backup')} />
               ) : (
                 <Next back={() => go('find')} say="Nothing is being kept yet. Choose at least one collection." />
-              )
-            }
-          />
-        ) : step === 'gather' ? (
-          <GatherScreen
-            library={state.library}
-            waiting={waiting}
-            safe={safe}
-            collections={kept.length}
-            bytes={found?.bytes ?? 0}
-            gather={gather}
-            gathering={gathering}
-            onGather={startGather}
-            onOpenLibrary={() => api.openLibrary().catch(report)}
-            next={
-              gathering ? null : safe > 0 && waiting === 0 ? (
-                <Next back={() => go('choose')} say="One copy is not a backup." button="Keep a second copy" onClick={() => go('backup')} />
-              ) : (
-                <Next back={() => go('choose')} />
               )
             }
           />
         ) : (
           <BackupScreen
             api={api}
+            waiting={waiting}
             safe={safe}
-            gathering={gathering}
             onProblem={report}
             onBackedUpTo={setBackedUpTo}
+            onSent={() => void refresh(api)}
             next={
               <Next
-                back={() => go('gather')}
-                say={backedUpTo ? 'That’s everything. Have more photos somewhere else?' : undefined}
-                button={backedUpTo ? 'Add another source' : undefined}
+                back={() => go('choose')}
+                say={safe > 0 && waiting === 0 ? 'That’s everything. Have more photos somewhere else?' : undefined}
+                button={safe > 0 && waiting === 0 ? 'Add another source' : undefined}
                 quiet
                 onClick={() => go('find')}
               />
@@ -403,10 +377,11 @@ export function App() {
 }
 
 /** The step that still needs doing, for opening the app in the right place. */
-function nextToDo(found: Discover, backedUpTo: string | null): Step {
+function nextToDo(found: Discover, sendingTo: string | null): Step {
   if (found.collections.length === 0) return 'find'
-  if (found.waitingToGather > 0) return 'choose'
-  return backedUpTo ? 'find' : 'backup'
+  // Somewhere to send to is already chosen: sending is what is left.
+  if (found.waitingToGather > 0) return sendingTo ? 'backup' : 'choose'
+  return 'find'
 }
 
 /**
@@ -431,27 +406,104 @@ function Next(props: { back?: () => void; say?: ReactNode; button?: string; onCl
   )
 }
 
-function Welcome(props: { suggested: string; onStart: () => void; onChoose: () => void; problem: string | null }) {
+function Welcome(props: { onStart: (name: string) => void; problem: string | null }) {
+  const [name, setName] = useState('My photos')
   return (
-    <div className="welcome">
+    <form
+      className="welcome"
+      onSubmit={(e) => {
+        e.preventDefault()
+        props.onStart(name)
+      }}
+    >
       <Logo large />
       <h1>Let’s find your photos</h1>
       <p>
-        Keevoro looks through old drives, USB sticks and folders, finds your photos and videos, and gathers the ones
-        you want into one tidy place. It never changes or deletes anything it looks at.
+        Keevoro looks through drives, memory cards and folders, finds your photos and videos, and sends the ones you
+        want somewhere safe: a folder, another disk, or cloud storage. It never changes or deletes anything it looks at.
       </p>
-      <button className="primary big" onClick={props.onStart}>
+      <label className="naming">
+        What shall we call this?
+        <input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} autoFocus />
+      </label>
+      <button className="primary big" type="submit">
         Get started
       </button>
       <p className="quiet small">
-        Your photos will be gathered into a folder called “Keevoro Library” in your Pictures.{' '}
-        <button className="link" onClick={props.onChoose}>
-          Put it somewhere else
-        </button>
+        A name such as “Family photos” or “Drone footage”. You can have several, each with its own sources and its own
+        place to send things, and come back to any of them later.
       </p>
       {props.problem && (
         <div className="problem inline" role="alert">
           {props.problem}
+        </div>
+      )}
+    </form>
+  )
+}
+
+/** The open session's name, and the way to another one or a new one. */
+function SessionPicker(props: {
+  session: Session | null
+  sessions: Session[]
+  onSwitch: (id: string) => void
+  onStart: (name: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [naming, setNaming] = useState<string | null>(null)
+  const others = props.sessions.filter((s) => s.id !== props.session?.id)
+  const close = () => {
+    setOpen(false)
+    setNaming(null)
+  }
+  return (
+    <div className="session">
+      <button className="current" onClick={() => (open ? close() : setOpen(true))} aria-expanded={open} aria-label="Session">
+        <span>
+          <small>Session</small>
+          {props.session?.name}
+        </span>
+        <span aria-hidden>{open ? '▴' : '▾'}</span>
+      </button>
+      {open && (
+        <div className="menu">
+          {others.map((s) => (
+            <button
+              key={s.id}
+              onClick={() => {
+                close()
+                props.onSwitch(s.id)
+              }}
+            >
+              {s.name}
+            </button>
+          ))}
+          {naming === null ? (
+            <button className="link" onClick={() => setNaming('')}>
+              Start a new session…
+            </button>
+          ) : (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault()
+                const name = naming
+                close()
+                props.onStart(name)
+              }}
+            >
+              <input
+                value={naming}
+                onChange={(e) => setNaming(e.target.value)}
+                placeholder="Such as Drone footage"
+                aria-label="Name for the new session"
+                maxLength={60}
+                autoFocus
+              />
+              <button className="primary" type="submit">
+                Start
+              </button>
+            </form>
+          )}
         </div>
       )}
     </div>
@@ -683,35 +735,22 @@ function SettingsScreen(props: {
       </header>
 
       <div className="setting">
-        <h3>Your library</h3>
+        <h3>This session</h3>
         <p>
-          Your photos are gathered into <span className="where">{state.library}</span>
-        </p>
-        <p className="choices">
-          <button onClick={() => api.openLibrary().catch(onProblem)}>Open my library</button>
-          <button
-            className="link"
-            onClick={() =>
-              api
-                .chooseLibrary()
-                .then((s) => s && props.onLibrary(s))
-                .catch(onProblem)
-            }
-          >
-            Use a different folder…
-          </button>
+          This is <b>{state.session?.name}</b>. A session remembers its own sources, what you chose to keep and where
+          it sends things. To open another or start a new one, use the session name at the top of the side bar.
         </p>
         <p className="quiet small">
-          Choosing a different folder starts a separate library there. Nothing is moved or deleted, and you can switch
-          back by choosing this folder again.
+          Its notes and previews are kept in <span className="where">{state.library}</span>. Your photos themselves
+          are not copied there.
         </p>
       </div>
 
       <div className="setting">
-        <h3>Backup</h3>
-        <p>{props.backedUpTo ? `Backing up to ${props.backedUpTo}.` : 'No backup is set up yet.'}</p>
+        <h3>Where it sends to</h3>
+        <p>{props.backedUpTo ? `This session sends to ${props.backedUpTo}.` : 'Nowhere has been chosen yet.'}</p>
         <p className="choices">
-          <button onClick={props.onBackup}>{props.backedUpTo ? 'Go to backup' : 'Set up a backup'}</button>
+          <button onClick={props.onBackup}>{props.backedUpTo ? 'Go to sending' : 'Choose where'}</button>
         </p>
       </div>
 
@@ -873,129 +912,53 @@ function KeepButton(props: { collection: Collection; onKeep: (c: Collection, kep
   )
 }
 
-/** Step 3. One button, honest progress, then proof that it worked. */
-function GatherScreen(props: {
-  library: string
-  waiting: number
-  safe: number
-  collections: number
-  bytes: number
-  gather: GatherEvent | null
-  gathering: boolean
-  onGather: () => void
-  onOpenLibrary: () => void
-  next: ReactNode
-}) {
-  const { gather, gathering, waiting, safe } = props
-  const doing = {
-    checking: 'checked before copying',
-    copying: 'safely copied',
-    previews: 'previews made',
-    videos: 'videos done',
-    finished: '',
-  }
-
-  return (
-    <section className="archive">
-      <header>
-        <h1>{gathering ? 'Gathering your photos…' : waiting > 0 ? 'Ready to gather your photos?' : 'Your photos are safe'}</h1>
-        <p className="status">
-          {waiting > 0 || gathering
-            ? 'Each one is copied into your library and checked against the original. Nothing on your sources is changed.'
-            : 'Each one was copied into your library and checked against its original.'}
-        </p>
-      </header>
-
-      <div className="panel">
-        {gathering && gather ? (
-          <>
-            <p className="big-count">
-              {thousands(gather.done)} of {thousands(gather.total)}
-            </p>
-            <p>{doing[gather.step]}</p>
-            <progress value={gather.done} max={Math.max(gather.total, 1)} />
-            <p className="quiet">You can keep using your computer. If anything stops this, it carries on next time.</p>
-          </>
-        ) : waiting > 0 ? (
-          <>
-            <h2>{all(waiting)} to copy</h2>
-            <p className="quiet">
-              About {size(props.bytes)} in all, into {props.library}
-            </p>
-            <button className="primary big" onClick={props.onGather}>
-              Gather my photos
-            </button>
-          </>
-        ) : safe > 0 ? (
-          <>
-            <h2>
-              {all(safe)} in {count(props.collections, 'collection')}
-            </h2>
-            <p className="quiet">They are in {props.library}</p>
-            <button className="primary" onClick={props.onOpenLibrary}>
-              Show me my photos
-            </button>
-          </>
-        ) : (
-          <>
-            <h2>Nothing to gather yet</h2>
-            <p>Go back and choose what to keep first.</p>
-          </>
-        )}
-        {!gathering && gather?.summary?.map((line) => (
-          <p className="done" key={line}>
-            {line}
-          </p>
-        ))}
-      </div>
-      {props.next}
-    </section>
-  )
-}
-
-/** Step 4. A second copy somewhere else. */
+/** Step 3. One question: where should they go? Then one button: send. */
 function BackupScreen(props: {
   api: Backend
+  waiting: number
   safe: number
-  gathering: boolean
   onProblem: (error: unknown) => void
   onBackedUpTo: (where: string | null) => void
+  onSent: () => void
   next: ReactNode
 }) {
   return (
     <section className="archive">
       <header>
-        <h1>Keep a second copy</h1>
+        <h1>Where should they go?</h1>
         <p className="status">
-          Disks fail. With a second copy somewhere else, your photos survive it. Keevoro never replaces a photo that is
-          already backed up.
+          Keevoro copies what you are keeping straight from your sources to the place you choose, checks every copy, and
+          never replaces a file that is already there. Your sources are not changed.
         </p>
       </header>
-      {props.safe > 0 ? (
-        <BackupPanel api={props.api} onProblem={props.onProblem} busy={props.gathering} onWhere={props.onBackedUpTo} />
-      ) : (
-        <div className="panel">
-          <h2>Gather your photos first</h2>
-          <p>Once they are in your library, you can back them up from here.</p>
-        </div>
-      )}
+      <BackupPanel
+        api={props.api}
+        waiting={props.waiting}
+        safe={props.safe}
+        onProblem={props.onProblem}
+        onWhere={props.onBackedUpTo}
+        onSent={props.onSent}
+      />
       {props.next}
     </section>
   )
 }
 
 /**
- * A second copy somewhere else. Until a destination is connected this asks
- * one question, "where?"; after that it is two buttons.
+ * Where this session sends to. Until a destination is chosen this offers the
+ * kinds there are, a folder first; after that it is one button, Send.
  */
 function BackupPanel(props: {
   api: Backend
   onProblem: (error: unknown) => void
-  busy: boolean
-  /** Tells the rest of the app where the library is backed up to. */
+  waiting: number
+  safe: number
+  /** Tells the rest of the app where this session sends to. */
   onWhere: (where: string | null) => void
+  /** Called when a send finishes, so the counts can be read again. */
+  onSent: () => void
 }) {
-  const { api, onProblem, onWhere } = props
+  const { api, onProblem, onWhere, onSent } = props
   const [where, setWhere] = useState<string | null | undefined>(undefined)
   const [form, setForm] = useState<ConnectRequest | null>(null)
   const [connecting, setConnecting] = useState(false)
@@ -1009,11 +972,12 @@ function BackupPanel(props: {
       if (event.finished) {
         setRunning(null)
         setSaid(event)
+        onSent()
       } else if (event.line) {
         setRunning(event.line)
       }
     })
-  }, [api, onProblem])
+  }, [api, onProblem, onSent])
 
   const connect = (request: ConnectRequest) => {
     setConnecting(true)
@@ -1043,15 +1007,10 @@ function BackupPanel(props: {
     <div className="panel backup">
       {where === null ? (
         <>
-          <h2>Where should the second copy go?</h2>
-          <p>
-            One copy is not a backup. Keevoro can keep another on a separate disk, or in cloud storage of your own, and
-            will never replace an original that is already there.
-          </p>
           {!form && (
-            <div className="choices">
+            <div className="places destinations">
               <button
-                className="primary"
+                className="place likely"
                 onClick={() =>
                   api
                     .chooseBackupFolder()
@@ -1060,10 +1019,28 @@ function BackupPanel(props: {
                 }
                 disabled={connecting}
               >
-                Back up to another disk…
+                <FolderIcon large />
+                <b>A folder</b>
+                <span>On this computer, another disk or a network drive</span>
               </button>
-              <button className="link" onClick={() => setForm({ kind: 'r2', place: '', bucket: '' })}>
-                Use cloud storage instead
+              <button className="place" onClick={() => setForm({ kind: 'r2', place: '', bucket: '' })} disabled={connecting}>
+                <CloudIcon />
+                <b>Cloudflare R2</b>
+                <span>Cloud storage of your own</span>
+              </button>
+              <button className="place" onClick={() => setForm({ kind: 's3', place: '', bucket: '' })} disabled={connecting}>
+                <CloudIcon />
+                <b>Amazon S3</b>
+                <span>Cloud storage of your own</span>
+              </button>
+              <button
+                className="place"
+                onClick={() => setForm({ kind: 'endpoint', place: '', bucket: '' })}
+                disabled={connecting}
+              >
+                <CloudIcon />
+                <b>Other storage</b>
+                <span>Anything that works like S3</span>
               </button>
             </div>
           )}
@@ -1145,20 +1122,33 @@ function BackupPanel(props: {
         </>
       ) : (
         <>
-          <h2>Your backup</h2>
-          <p>A second copy is kept in {where}.</p>
+          <h2>Sending to {where}</h2>
+          <p>
+            {props.waiting > 0
+              ? `${props.waiting.toLocaleString('en-GB')} ${props.waiting === 1 ? 'file is' : 'files are'} waiting to be sent.${
+                  props.safe > 0 ? ` ${props.safe.toLocaleString('en-GB')} already there.` : ''
+                }`
+              : props.safe > 0
+                ? `Everything you are keeping is there: ${props.safe.toLocaleString('en-GB')} files.`
+                : 'Nothing is being kept yet.'}
+          </p>
           {running ? (
             <p className="running">
               <Spinner /> {running}
             </p>
           ) : (
             <div className="choices">
-              <button className="primary" onClick={() => start('Starting…', api.backUp)} disabled={props.busy}>
-                Back up now
+              <button className="primary" onClick={() => start('Starting…', api.backUp)} disabled={props.waiting + props.safe === 0}>
+                {props.waiting > 0 ? 'Send them now' : 'Send again'}
               </button>
-              <button className="link" onClick={() => start('Checking…', api.checkBackup)} disabled={props.busy}>
-                Check my backup
+              <button className="link" onClick={() => start('Checking…', api.checkBackup)} disabled={props.safe === 0}>
+                Check they all arrived
               </button>
+              {where.startsWith('the folder') && (
+                <button className="link" onClick={() => api.openDestination().catch(onProblem)}>
+                  Show me the folder
+                </button>
+              )}
               <button
                 className="link quiet"
                 onClick={() =>
@@ -1172,7 +1162,7 @@ function BackupPanel(props: {
                     .catch(onProblem)
                 }
               >
-                Disconnect
+                Send somewhere else
               </button>
             </div>
           )}
@@ -1311,4 +1301,5 @@ const icon = (path: string, large = false) => (
   </svg>
 )
 const FolderIcon = (props: { large?: boolean }) => icon('M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z', props.large)
+const CloudIcon = () => icon('M7 18a4 4 0 0 1-.6-7.96A5.5 5.5 0 0 1 17 9.5a4.25 4.25 0 0 1 .5 8.5z', true)
 const DriveIcon = (props: { large?: boolean }) => icon('M4 14l2.5-8h11L20 14M4 14h16v5H4zM16.5 16.5h.01', props.large)

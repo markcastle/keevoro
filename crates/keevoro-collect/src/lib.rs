@@ -147,7 +147,11 @@ pub fn gather(
     };
     on_progress(&progress);
     for item in todo {
-        match gather_one(library, item) {
+        let agreed = match &item.blake3 {
+            Some(hash) => catalog.collected_path(hash)?,
+            None => None,
+        };
+        match gather_one(library, item, agreed.as_deref()) {
             Ok((placed, relative)) => {
                 if let Some(hash) = &item.blake3 {
                     catalog.mark_collected(hash, &relative, item.bytes)?;
@@ -186,19 +190,18 @@ fn is_gathered(library: &Path, catalog: &Catalog, item: &FoundItem) -> Result<bo
         .is_some_and(|rel| in_library(library, &rel).is_file()))
 }
 
-fn gather_one(library: &Path, item: &FoundItem) -> Result<(Placed, String), CopyError> {
+/// Copies one file to its place. `agreed` is the place it was already given
+/// (when it was sent to other storage first), so that every copy of a file
+/// has the same folder and name.
+fn gather_one(library: &Path, item: &FoundItem, agreed: Option<&str>) -> Result<(Placed, String), CopyError> {
     let hash = item.blake3.as_deref().ok_or(CopyError::NotHashed)?;
     // A quick fingerprint cannot prove a copy exact, so it never stands in
     // for the real one here.
     if !item.hashed {
         return Err(CopyError::NotChecked);
     }
-    let folders = library_folder(&item.folder.album, item.date.as_ref());
+    let (folders, name) = place_for(item, agreed);
     let dir = folders.iter().fold(library.to_path_buf(), |p, s| p.join(s));
-    let name = item
-        .path
-        .file_name()
-        .map_or_else(|| "unnamed".to_string(), |n| safe_name(&n.to_string_lossy()));
     let placed = copy_verified(&item.path, &dir, &name, hash)?;
     let final_name = placed
         .path
@@ -206,6 +209,57 @@ fn gather_one(library: &Path, item: &FoundItem) -> Result<(Placed, String), Copy
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or(name);
     Ok((placed, format!("{}/{final_name}", folders.join("/"))))
+}
+
+/// The folders and name a file belongs under: the place already agreed for
+/// it, or else the one its album and date give.
+fn place_for(item: &FoundItem, agreed: Option<&str>) -> (Vec<String>, String) {
+    if let Some((folders, name)) = agreed.and_then(|a| a.rsplit_once('/')) {
+        return (folders.split('/').map(str::to_string).collect(), name.to_string());
+    }
+    let name = item
+        .path
+        .file_name()
+        .map_or_else(|| "unnamed".to_string(), |n| safe_name(&n.to_string_lossy()));
+    (library_folder(&item.folder.album, item.date.as_ref()), name)
+}
+
+/// Agrees a place for each of `items` without copying anything, for when
+/// the files go straight from their source to other storage. A file that
+/// already has a place keeps it. Returns how many were given one now.
+pub fn agree_places(catalog: &Catalog, items: &[&FoundItem]) -> Result<usize, CatalogError> {
+    let mut placed = 0;
+    for item in items {
+        let (Some(hash), true) = (item.blake3.as_deref(), item.hashed) else {
+            continue;
+        };
+        if catalog.collected_path(hash)?.is_some() {
+            continue;
+        }
+        let (folders, name) = place_for(item, None);
+        let folder = folders.join("/");
+        // Two different files with the same name in the same folder: the
+        // second becomes "IMG_1234 (2).jpg", as it would on a disk.
+        let mut place = format!("{folder}/{name}");
+        let mut n = 2;
+        while catalog.place_taken(&place)? {
+            place = format!("{folder}/{}", numbered_name(&name, n));
+            n += 1;
+        }
+        catalog.mark_placed(hash, &place, item.bytes)?;
+        placed += 1;
+    }
+    Ok(placed)
+}
+
+/// Where to read a kept file's bytes from: the copy in this library if
+/// there is one, otherwise the source it was found on.
+pub fn bytes_of(library: &Path, catalog: &Catalog, item: &FoundItem) -> Result<PathBuf, CatalogError> {
+    let local = match &item.blake3 {
+        Some(hash) => catalog.collected_path(hash)?.map(|rel| in_library(library, &rel)),
+        None => None,
+    };
+    Ok(local.filter(|p| p.is_file()).unwrap_or_else(|| item.path.clone()))
 }
 
 /// Copies one file into `dest_dir` as `name` (or a numbered variant) and

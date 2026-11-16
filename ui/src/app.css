@@ -1245,3 +1245,109 @@ button.danger {
   vertical-align: -1px;
   margin-right: 4px;
 }
+
+/* ---------- sessions ---------- */
+
+.session {
+  position: relative;
+  margin: 14px 2px 6px;
+}
+
+.session .current {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg, #fff) 60%, transparent);
+  text-align: left;
+  font-weight: 600;
+}
+
+.session .current small {
+  display: block;
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--quiet);
+}
+
+.session .menu {
+  position: absolute;
+  z-index: 5;
+  left: 0;
+  right: 0;
+  top: calc(100% + 6px);
+  display: grid;
+  gap: 2px;
+  padding: 8px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--panel, Canvas);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.14);
+}
+
+.session .menu > button {
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 8px;
+}
+
+.session .menu > button:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.session .menu form {
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+}
+
+.session .menu input,
+.welcome .naming input {
+  min-width: 0;
+  flex: 1;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.welcome .naming {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  font-weight: 600;
+}
+
+.welcome .naming input {
+  width: 300px;
+  text-align: center;
+  font-size: 17px;
+}
+
+.destinations {
+  margin: 4px 0 6px;
+}
+
+.panel .destinations {
+  width: 100%;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+
+.session .menu form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.session .menu input {
+  width: 100%;
+}
+
+.sidebar {
+  overflow-x: hidden;
+}

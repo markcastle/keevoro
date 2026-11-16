@@ -52,7 +52,7 @@ pub fn make_previews(
                 path: in_library(library, &relative),
                 reason,
             }),
-            _ => todo.push((hash, in_library(library, &relative), thumb, display)),
+            _ => todo.push((hash, crate::bytes_of(library, catalog, item)?, thumb, display)),
         }
     }
 

@@ -40,10 +40,12 @@ const text = (selector) => page.locator(selector).first().innerText()
 const currentStep = () => page.locator('.steps li.now').innerText()
 
 try {
-  // --- A first-time user is asked nothing they cannot answer: one button.
+  // --- A first-time user is asked one thing they can answer: what to call this.
   await page.goto(`${base}/?demo=new&fast`)
   await page.getByRole('heading', { name: 'Let’s find your photos' }).waitFor()
-  assert.equal(await page.getByRole('button').count(), 2, 'one way forward, and one quiet alternative')
+  assert.equal(await page.getByRole('button').count(), 1, 'one way forward')
+  assert.equal(await page.getByLabel('What shall we call this?').inputValue(), 'My photos', 'with a name already suggested')
+  await page.getByLabel('What shall we call this?').fill('Family photos')
   await shot('1-welcome')
   await page.getByRole('button', { name: 'Get started' }).click()
 
@@ -111,32 +113,51 @@ try {
   assert.equal(await page.locator('.tiles .tile').count(), 2, 'a rescued picture leaves the list')
   await page.getByRole('button', { name: '‹ Back' }).click()
 
-  // --- Step 3: one button from where you already are, then proof.
-  await page.getByRole('button', { name: 'Gather them into my library' }).click()
-  await page.getByRole('heading', { name: 'Your photos are safe', level: 1 }).waitFor()
-  assert.match(await text('.panel h2'), /^[\d,]+ photos and videos in 4 collections$/)
-  assert.match(await text('.panel .done'), /^Safely copied [\d,]+ photos and videos into your library\.$/)
-  assert.ok(await page.getByRole('button', { name: 'Show me my photos' }).isVisible())
-  assert.equal(await page.locator('.steps li.done').count(), 2, 'finding and choosing are ticked off')
-  await shot('7-gathered')
-  await page.getByRole('button', { name: 'Keep a second copy' }).click()
-
-  // --- Step 4: a second copy. Cloud storage asks only what it needs.
-  await page.getByRole('heading', { name: 'Keep a second copy', level: 1 }).waitFor()
-  await page.getByRole('button', { name: 'Use cloud storage instead' }).click()
+  // --- Step 3: one question, where should they go, with a folder first.
+  await page.getByRole('button', { name: 'Choose where they go' }).click()
+  await page.getByRole('heading', { name: 'Where should they go?', level: 1 }).waitFor()
+  const kinds = page.locator('.destinations .place b')
+  assert.deepEqual(await kinds.allInnerTexts(), ['A folder', 'Cloudflare R2', 'Amazon S3', 'Other storage'])
+  await shot('7-where-should-they-go')
+  // Cloud storage asks only what it needs, and hides the secret.
+  await page.getByRole('button', { name: /Cloudflare R2/ }).click()
   await page.getByLabel('Cloudflare account ID').fill('0123456789abcdef0123456789abcdef')
   assert.equal(await page.getByLabel('Secret access key').getAttribute('type'), 'password', 'the secret is hidden')
-  await shot('8-backup-cloud-form')
+  await shot('8-cloud-form')
   await page.getByRole('button', { name: 'Cancel' }).click()
-  await page.getByRole('button', { name: 'Back up to another disk…' }).click()
-  await page.getByText('A second copy is kept in the folder F:\\Family Backup.').waitFor()
-  await page.getByRole('button', { name: 'Back up now' }).click()
+  // A folder is one click, then one button sends everything.
+  await page.getByRole('button', { name: /^A folder/ }).click()
+  await page.getByRole('heading', { name: 'Sending to the folder F:\\Family Backup' }).waitFor()
+  await page.getByText(/^[\d,]+ files are waiting to be sent\.$/).waitFor()
+  await page.getByRole('button', { name: 'Send them now' }).click()
   await page.locator('.backup .done').first().waitFor()
   assert.match(await text('.backup .done'), /^Safely backed up [\d,]+ files\.$/)
-  await page.getByRole('button', { name: 'Check my backup' }).click()
+  await page.getByText(/^Everything you are keeping is there: [\d,]+ files\.$/).waitFor()
+  assert.ok(await page.getByRole('button', { name: 'Show me the folder' }).isVisible())
+  await page.getByRole('button', { name: 'Check they all arrived' }).click()
   await page.getByText(/^Your backup: all [\d,]+ originals are there\.$/).waitFor()
-  assert.equal(await page.locator('.steps li.done').count(), 3, 'everything before this step is ticked')
-  await shot('9-backed-up')
+  assert.equal(await page.locator('.steps li.done').count(), 2, 'finding and choosing are ticked off')
+  assert.equal(await page.locator('.steps li').count(), 3, 'there are three steps, not four')
+  await shot('9-sent')
+
+  // --- Sessions: a second job, kept apart, and the first is still there afterwards.
+  assert.match(await text('.session .current'), /Family photos/)
+  await page.getByRole('button', { name: 'Session' }).click()
+  await page.getByRole('button', { name: 'Start a new session…' }).click()
+  await page.getByLabel('Name for the new session').fill('Drone footage')
+  await shot('9a-new-session')
+  await page.getByRole('button', { name: 'Start', exact: true }).click()
+  await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
+  assert.match(await text('.session .current'), /Drone footage/)
+  assert.equal(await page.locator('.kept li.source').count(), 0, 'a new session starts with no sources')
+  assert.ok(await page.locator('.steps button').nth(1).isDisabled(), 'and nothing chosen')
+  await page.getByRole('button', { name: 'Session' }).click()
+  await page.getByRole('button', { name: 'Family photos' }).click()
+  await page.locator('.kept li.source').first().waitFor()
+  assert.match(await text('.session .current'), /Family photos/)
+  assert.equal(await page.locator('.steps li.done').count(), 2, 'the first session is exactly as it was left')
+  await page.getByRole('button', { name: 'Send them somewhere safe' }).click()
+  await page.getByRole('heading', { name: 'Sending to the folder F:\\Family Backup' }).waitFor()
 
   // --- A source can be removed, after being told what that does and does not do.
   await page.getByRole('button', { name: 'Add another source' }).click()
@@ -155,7 +176,7 @@ try {
   await page.getByRole('button', { name: /Choose a folder/ }).click()
   await page.getByRole('heading', { name: /^Found [\d,]+ photos/ }).waitFor()
   await page.getByRole('button', { name: 'See what was found' }).click()
-  assert.match(await text('.next'), /Gather them into my library/, 'the new photos are waiting to be gathered')
+  assert.match(await text('.next'), /Choose where they go/, 'the new photos are waiting to be sent')
 
   // --- A whole disk is asked about before it is looked through.
   await page.goto(`${base}/?demo=empty&fast`)
@@ -174,7 +195,7 @@ try {
   // --- Settings holds everything in one place, including the log.
   await page.getByRole('button', { name: 'Settings' }).click()
   await page.getByRole('heading', { name: 'Settings', level: 1 }).waitFor()
-  for (const title of ['Your library', 'Backup', 'Updates', 'What Keevoro has been doing']) {
+  for (const title of ['This session', 'Where it sends to', 'Updates', 'What Keevoro has been doing']) {
     await page.getByRole('heading', { name: title, level: 3 }).waitFor()
   }
   await page.getByRole('button', { name: 'Show the log' }).click()
