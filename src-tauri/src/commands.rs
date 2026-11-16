@@ -368,3 +368,25 @@ pub fn check_backup(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
         },
     )
 }
+
+/// The drives plugged into this computer, for the "Where are your photos?"
+/// screen to offer as buttons.
+#[tauri::command]
+pub fn places() -> Vec<crate::places::Place> {
+    crate::places::plugged_in()
+}
+
+/// Shows the library folder in the system's file manager, so the user can
+/// see their photos are really there.
+#[tauri::command]
+pub fn open_library(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
+    use tauri_plugin_opener::OpenerExt;
+    let library = library(&shared)?;
+    // The originals are what people want to see; fall back to the library
+    // itself before anything has been gathered.
+    let originals = library.join("originals");
+    let show = if originals.is_dir() { originals } else { library };
+    app.opener()
+        .open_path(show.display().to_string(), None::<&str>)
+        .map_err(say)
+}

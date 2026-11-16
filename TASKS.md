@@ -95,6 +95,7 @@ Done when a non-technical tester gets from a drive to a backup without help.
 - [x] Tauri 2 shell and app icon; screens in React, testable in a browser against a stand-in backend
 - [x] Welcome screen: one question, where the library lives
 - [x] Guided flow: a four-step journey always in view, one "next thing to do" on Discover, and a first-run explanation
+- [x] One question per screen: Find, Choose, Gather, Back up are the only navigation; each screen asks one thing and has one main button; plugged-in drives are offered by name; no library question up front
 - [ ] Watch someone non-technical use the app without help and note where they hesitate (the plan's test for this phase)
 - [x] Discover screen as in the mockup: live search, hero collection, "Keep collection", more discoveries
 - [x] Sources sidebar with friendly names and live status

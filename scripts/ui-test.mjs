@@ -36,147 +36,126 @@ page.on('pageerror', (error) => problems.push(String(error)))
 page.on('console', (message) => message.type() === 'error' && problems.push(message.text()))
 const shot = (name) => page.screenshot({ path: join(shots, `${name}.png`) })
 const text = (selector) => page.locator(selector).first().innerText()
-// The two screens in the sidebar, and the step the journey says we are on.
-const goDiscover = () => page.locator('nav .nav').nth(0).click()
-const goArchive = () => page.locator('nav .nav').nth(1).click()
+// The step the list down the side says we are on.
 const currentStep = () => page.locator('.steps li.now').innerText()
 
 try {
-  // --- A first-time user is asked one thing: where the library lives.
+  // --- A first-time user is asked nothing they cannot answer: one button.
   await page.goto(`${base}/?demo=new&fast`)
-  await page.getByRole('heading', { name: 'First: where should your library live?' }).waitFor()
-  assert.equal(await page.locator('.how li').count(), 4, 'the four steps are explained up front')
+  await page.getByRole('heading', { name: 'Let’s find your photos' }).waitFor()
+  assert.equal(await page.getByRole('button').count(), 2, 'one way forward, and one quiet alternative')
   await shot('1-welcome')
-  await page.getByRole('button', { name: 'Use my Pictures folder' }).click()
+  await page.getByRole('button', { name: 'Get started' }).click()
 
-  // --- With nothing found yet, Discover says what to do.
-  await page.getByRole('heading', { name: 'Add your first source' }).waitFor()
-  assert.match(await currentStep(), /Add a source$/)
-  await shot('2-discover-empty')
+  // --- Step 1 asks where the photos are, and offers the drives by name.
+  await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
+  assert.match(await currentStep(), /Find your photos/)
+  const places = page.locator('.places .place')
+  assert.equal(await places.count(), 3, 'the USB drive, a folder, and this computer’s disk')
+  assert.match(await places.first().innerText(), /^KINGSTON \(E:\)\s+USB or external drive · 32 GB$/)
+  assert.ok(await page.locator('.steps button').nth(1).isDisabled(), 'later steps wait their turn')
+  assert.equal(await page.locator('.next').count(), 0, 'nothing to move on to until something is found')
+  await shot('2-find')
 
-  // --- Adding a place finds photos and shows them as collections.
-  await page.locator('.empty').getByRole('button', { name: 'Add a source' }).click()
-  await page.getByRole('heading', { name: 'More discoveries' }).waitFor()
-  assert.match(await text('.status'), /^\s*[\d,]+ photos and \d+ videos found$/)
-  assert.equal(await page.locator('.sources .source').count(), 1)
-  assert.equal(await text('.sources .source'), 'Family hard drive')
+  await places.first().click()
+  await page.getByRole('heading', { name: /^Found [\d,]+ photos and \d+ videos on KINGSTON \(E:\)$/ }).waitFor()
+  assert.equal(await text('.kept li span'), 'KINGSTON (E:)', 'what has been looked through is listed')
+  await shot('3-found')
+  await page.getByRole('button', { name: 'See what was found' }).click()
+
+  // --- Step 2 shows collections, all kept, with one switch each.
+  await page.getByRole('heading', { name: 'Which of these should we keep?', level: 1 }).waitFor()
+  assert.match(await currentStep(), /Choose what to keep/)
   assert.equal(await page.locator('.hero .picture img').count(), 3, 'the hero shows three pictures')
-  // Side by side, as a collage: the first picture must not span the full width.
   const collage = await page.locator('.hero .collage').boundingBox()
   const firstPicture = await page.locator('.hero .picture').first().boundingBox()
   assert.ok(firstPicture.width < collage.width * 0.8, 'the hero pictures sit side by side, not stacked')
   assert.ok((await page.locator('.grid .card').count()) >= 3)
+  assert.match(await text('.next .say'), /^Keeping [\d,]+ photos and videos in 5 collections\.$/)
   await page.waitForFunction(() => [...document.images].every((i) => i.complete && i.naturalWidth > 0))
-  // The journey has moved on, and the next thing to do is spelled out.
-  assert.match(await currentStep(), /Choose what to keep$/)
-  assert.equal(await page.locator('.steps li.done').count(), 1)
-  assert.match(await text('.next'), /^You’re keeping [\d,]+ photos and videos in \d+ collections\. Happy with that\?/)
-  assert.ok(await page.locator('.hint').isVisible(), 'a line explains that everything is kept unless you say otherwise')
-  await shot('3-discover')
+  await shot('4-choose')
 
-  // --- Everything is kept unless you say otherwise, and saying so sticks.
+  // One click leaves a collection out, and the same switch brings it back.
   const first = page.locator('.grid .card').first()
-  const title = await first.locator('h4').innerText()
-  assert.equal(await first.locator('.keeping').innerText(), '✓ Keeping')
-  await first.getByRole('button', { name: 'Don’t keep' }).click()
-  await first.getByRole('button', { name: 'Keep collection' }).waitFor()
-  assert.equal(await first.locator('.keeping').count(), 0)
-  await shot('4-discover-one-skipped')
+  assert.equal(await first.locator('.toggle').getAttribute('aria-pressed'), 'true')
+  await first.locator('.toggle').click()
+  await first.locator('.toggle.off').waitFor()
+  assert.match(await text('.next .say'), /in 4 collections\.$/)
+  await shot('5-choose-one-left-out')
 
-  // --- Archive offers one button, counts in human terms, then says it is safe.
-  await goArchive()
-  assert.equal(await text('.panel .eyebrow'), 'STEP 3 · GATHER')
-  assert.match(await text('.panel.backup.muted'), /This comes after gathering/, 'step 4 waits its turn, and says why')
-  assert.match(await text('.panel h2'), /^[\d,]+ photos and videos ready to gather$/)
-  const listed = await page.locator('.kept li span:first-child').allInnerTexts()
-  assert.ok(!listed.includes(title), `"${title}" was skipped, so it is not listed as kept`)
-  await shot('5-archive-ready')
-  // Gathering can be started from Discover's own bar, which is where most
-  // people will be; it takes them to Archive to watch.
-  await goDiscover()
-  await page.locator('.next').getByRole('button', { name: 'Gather my photos' }).click()
-  await page.getByRole('heading', { name: 'Everything you’re keeping is safe' }).waitFor()
-  assert.match(await currentStep(), /Back up$/)
-  await goDiscover()
-  assert.match(await text('.next'), /^Your photos are safely in your library\. Next, keep a second copy/)
-  await page.locator('.next').getByRole('button', { name: 'Set up a backup' }).click()
-  assert.match(await text('.panel .done'), /^Safely copied [\d,]+ photos and videos into your library\.$/)
-  assert.ok((await page.locator('.badge.safe').count()) >= 3)
-  await shot('6-archive-safe')
-
-  // --- Changing your mind brings a collection back, with more to gather.
-  await goDiscover()
-  await page.locator('.grid .card').first().getByRole('button', { name: 'Keep collection' }).click()
-  await goArchive()
-  assert.match(await currentStep(), /Choose what to keep$/, 'with more to gather, the journey steps back')
-  await page.getByRole('button', { name: 'Gather my photos' }).click()
-  await page.getByRole('heading', { name: 'Everything you’re keeping is safe' }).waitFor()
-
-  // --- With photos safely gathered, Archive offers a second copy elsewhere.
-  await page.getByRole('heading', { name: 'Keep a second copy somewhere else' }).waitFor()
-  // Cloud storage asks for the few things it needs, and a wrong answer is
-  // said beside the form, not as a banner.
-  await page.getByRole('button', { name: 'Use cloud storage instead' }).click()
-  await page.getByLabel('Cloudflare account ID').fill('0123456789abcdef0123456789abcdef')
-  await page.getByLabel('Bucket name').fill('family-photos')
-  await page.getByLabel('Access key ID').fill('key')
-  assert.equal(await page.getByLabel('Secret access key').getAttribute('type'), 'password', 'the secret is hidden')
-  await shot('11-backup-connect')
-  await page.getByRole('button', { name: 'Cancel' }).click()
-  // Another disk is one click and a folder.
-  await page.getByRole('button', { name: 'Back up to another disk…' }).click()
-  await page.getByText('Your library is backed up to the folder F:\\Family Backup.').waitFor()
-  await page.getByRole('button', { name: 'Back up now' }).click()
-  await page.locator('.backup .done').first().waitFor()
-  assert.match(await text('.backup .done'), /^Safely backed up [\d,]+ files\.$/)
-  await page.getByRole('button', { name: 'Check my backup' }).click()
-  await page.getByText(/^Your backup: all [\d,]+ originals are there\.$/).waitFor()
-  assert.equal(await page.locator('.steps li.done').count(), 4, 'every step of the journey is ticked')
-  await shot('12-backup-checked')
-
-  // --- Opening a collection shows its photos, and one can be left out.
-  await goDiscover()
+  // Looking inside a collection, one photo can be left out.
   const opened = await page.locator('.hero h2').innerText()
   await page.getByRole('button', { name: `Open ${opened}` }).click()
   await page.getByRole('heading', { name: opened, level: 1 }).waitFor()
   const tiles = page.locator('.tiles .tile')
   const howMany = await tiles.count()
   assert.ok(howMany >= 3, 'the collection lists its photos')
-  assert.match(await text('.photos .status'), new RegExp(`^Keeping ${howMany} of ${howMany}\\.`))
   await tiles.nth(1).click()
   assert.equal(await tiles.nth(1).getAttribute('aria-pressed'), 'false')
   assert.match(await text('.photos .status'), new RegExp(`^Keeping ${howMany - 1} of ${howMany}\\.`))
   await page.waitForFunction(() => [...document.images].every((i) => i.complete && i.naturalWidth > 0))
-  await shot('9-collection')
-  await page.getByRole('button', { name: '‹ Discover' }).click()
-  await page.getByRole('heading', { name: 'More discoveries' }).waitFor()
+  await shot('6-inside-a-collection')
+  await page.getByRole('button', { name: '‹ Back' }).click()
 
-  // --- What was set aside can be looked at, with the reason, and rescued.
-  await page.getByRole('button', { name: /set aside as probably not memories$/ }).click()
+  // What was set aside can be looked at, with the reason, and rescued.
+  await page.getByRole('button', { name: /that don’t look like photos were set aside$/ }).click()
   await page.getByRole('heading', { name: 'Set aside', level: 1 }).waitFor()
-  assert.equal(await page.locator('.tiles .tile').count(), 3)
   assert.equal(await text('.tiles .tile .why'), 'Looks like app icons')
-  await shot('10-set-aside')
   await page.locator('.tiles .tile').last().click()
   assert.equal(await page.locator('.tiles .tile').count(), 2, 'a rescued picture leaves the list')
-  await page.getByRole('button', { name: '‹ Discover' }).click()
-  assert.match(await text('.tidied'), /2 pictures set aside/)
+  await page.getByRole('button', { name: '‹ Back' }).click()
 
-  // --- A library that already has photos opens straight onto them, in dark mode too.
+  // --- Step 3: one button from where you already are, then proof.
+  await page.getByRole('button', { name: 'Gather them into my library' }).click()
+  await page.getByRole('heading', { name: 'Your photos are safe', level: 1 }).waitFor()
+  assert.match(await text('.panel h2'), /^[\d,]+ photos and videos in 4 collections$/)
+  assert.match(await text('.panel .done'), /^Safely copied [\d,]+ photos and videos into your library\.$/)
+  assert.ok(await page.getByRole('button', { name: 'Show me my photos' }).isVisible())
+  assert.equal(await page.locator('.steps li.done').count(), 2, 'finding and choosing are ticked off')
+  await shot('7-gathered')
+  await page.getByRole('button', { name: 'Keep a second copy' }).click()
+
+  // --- Step 4: a second copy. Cloud storage asks only what it needs.
+  await page.getByRole('heading', { name: 'Keep a second copy', level: 1 }).waitFor()
+  await page.getByRole('button', { name: 'Use cloud storage instead' }).click()
+  await page.getByLabel('Cloudflare account ID').fill('0123456789abcdef0123456789abcdef')
+  assert.equal(await page.getByLabel('Secret access key').getAttribute('type'), 'password', 'the secret is hidden')
+  await shot('8-backup-cloud-form')
+  await page.getByRole('button', { name: 'Cancel' }).click()
+  await page.getByRole('button', { name: 'Back up to another disk…' }).click()
+  await page.getByText('A second copy is kept in the folder F:\\Family Backup.').waitFor()
+  await page.getByRole('button', { name: 'Back up now' }).click()
+  await page.locator('.backup .done').first().waitFor()
+  assert.match(await text('.backup .done'), /^Safely backed up [\d,]+ files\.$/)
+  await page.getByRole('button', { name: 'Check my backup' }).click()
+  await page.getByText(/^Your backup: all [\d,]+ originals are there\.$/).waitFor()
+  assert.equal(await page.locator('.steps li.done').count(), 3, 'everything before this step is ticked')
+  await shot('9-backed-up')
+
+  // --- Done. The way on is to add another source, which finds more.
+  await page.getByRole('button', { name: 'Add another source' }).click()
+  await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
+  assert.equal(await page.locator('.steps li.done').count(), 3, 'the earlier work stays ticked')
+  await page.getByRole('button', { name: /Choose a folder/ }).click()
+  await page.getByRole('heading', { name: /^Found [\d,]+ photos/ }).waitFor()
+  await page.getByRole('button', { name: 'See what was found' }).click()
+  assert.match(await text('.next'), /Gather them into my library/, 'the new photos are waiting to be gathered')
+
+  // --- An existing library opens on the step that still needs doing, in dark mode too.
   await page.emulateMedia({ colorScheme: 'dark' })
   await page.goto(`${base}/?fast`)
-  await page.getByRole('heading', { name: 'Cornwall' }).waitFor()
+  await page.getByRole('heading', { name: 'Which of these should we keep?', level: 1 }).waitFor()
   await page.waitForFunction(() => [...document.images].every((i) => i.complete && i.naturalWidth > 0))
-  await shot('7-discover-dark')
+  await shot('10-choose-dark')
 
   // --- Narrow windows still work.
   await page.emulateMedia({ colorScheme: 'light' })
   await page.setViewportSize({ width: 900, height: 700 })
   await page.reload()
-  await page.getByRole('heading', { name: 'Cornwall' }).waitFor()
+  await page.getByRole('heading', { name: 'Which of these should we keep?', level: 1 }).waitFor()
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)
   assert.equal(overflow, false, 'nothing spills off the side of a narrow window')
-  await shot('8-discover-narrow')
+  await shot('11-choose-narrow')
 
   assert.deepEqual(problems, [], 'the browser reported no errors')
   console.log(`UI test passed. Screenshots are in ${shots}`)
