@@ -19,7 +19,7 @@
 // back. Wording follows the house rules: plain English, no jargon, and
 // progress in human terms ("3,412 of 9,870 safely copied").
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
 import { backend } from './backend'
@@ -34,14 +34,15 @@ import type {
   Photo,
   PhotoChoice,
   Place,
+  CheckEvent,
   ScanEvent,
   Update,
 } from './backend'
-import { count, photosAndVideos, size, thousands } from './format'
+import { count, photosAndVideos, size, thousands, wholePlace } from './format'
 
 type Step = 'find' | 'choose' | 'gather' | 'backup'
 /** Looking inside a collection, or at what was set aside, sits on top of step 2. */
-type Overlay = { collection: Collection } | 'setAside' | null
+type Overlay = { collection: Collection } | 'setAside' | 'settings' | null
 
 const STEPS: { id: Step; title: string }[] = [
   { id: 'find', title: 'Find your photos' },
@@ -61,6 +62,8 @@ export function App() {
   const [scan, setScan] = useState<ScanEvent | null>(null)
   const [justFound, setJustFound] = useState<ScanEvent | null>(null)
   const [gather, setGather] = useState<GatherEvent | null>(null)
+  // Background checking of files a quick search only sampled.
+  const [check, setCheck] = useState<CheckEvent | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   // A newer Keevoro, and how far along installing it is.
   const [update, setUpdate] = useState<Update | null>(null)
@@ -78,6 +81,7 @@ export function App() {
   useEffect(() => {
     let stopScan = () => {}
     let stopGather = () => {}
+    let stopCheck = () => {}
     let closed = false
     void backend().then(async (b) => {
       if (closed) return
@@ -91,6 +95,11 @@ export function App() {
           setJustFound(event.problem ? null : event)
           void refresh(b)
         }
+      })
+      stopCheck = b.onCheck((event) => {
+        setCheck(event.finished ? null : event)
+        // Duplicates may have been confirmed or ruled out, so count again.
+        if (event.finished && event.done > 0) void refresh(b)
       })
       stopGather = b.onGather((event) => {
         setGather(event)
@@ -107,6 +116,7 @@ export function App() {
           setBackedUpTo(where)
           // Open on whichever step still needs doing.
           setStep(nextToDo(d, where))
+          void b.keepChecking().catch(() => {})
         }
       } catch (error) {
         report(error)
@@ -116,6 +126,7 @@ export function App() {
       closed = true
       stopScan()
       stopGather()
+      stopCheck()
     }
   }, [refresh, report])
 
@@ -209,6 +220,15 @@ export function App() {
           <button className="link" onClick={() => api.openLibrary().catch(report)}>
             Open my library
           </button>
+          {check && (
+            <span className="checking" role="status">
+              <Spinner /> Checking for duplicates in the background: {thousands(check.done)} of {thousands(check.total)}.
+              You can carry on.
+            </span>
+          )}
+          <button className="link" onClick={() => setOverlay('settings')}>
+            Settings
+          </button>
           <span title={state.library}>Your sources are only ever read.</span>
         </div>
       </aside>
@@ -264,7 +284,25 @@ export function App() {
           </div>
         )}
 
-        {overlay ? (
+        {overlay === 'settings' ? (
+          <SettingsScreen
+            api={api}
+            state={state}
+            backedUpTo={backedUpTo ?? null}
+            update={update}
+            onUpdate={setUpdate}
+            onLibrary={(s) => {
+              setState(s)
+              void refresh(api)
+            }}
+            onBackup={() => {
+              setOverlay(null)
+              setStep('backup')
+            }}
+            onBack={() => setOverlay(null)}
+            onProblem={report}
+          />
+        ) : overlay ? (
           <PhotosScreen
             api={api}
             collection={overlay === 'setAside' ? null : overlay.collection}
@@ -435,6 +473,8 @@ function FindScreen(props: {
   const [places, setPlaces] = useState<Place[] | null>(null)
   // The source the person has asked to remove, until they confirm.
   const [removing, setRemoving] = useState<number | null>(null)
+  // A whole disk the person picked, until they say they mean all of it.
+  const [asking, setAsking] = useState<{ path: string; name: string; detail?: string } | null>(null)
 
   const look = useCallback(() => {
     api.places().then(setPlaces).catch(onProblem)
@@ -446,9 +486,25 @@ function FindScreen(props: {
     return () => window.removeEventListener('focus', look)
   }, [look])
 
-  const start = (begin: Promise<unknown>) => {
+  const start = (path: string) => {
+    setAsking(null)
     props.onStarted()
-    begin.catch(onProblem)
+    api.scanPlace(path).catch(onProblem)
+  }
+  // Asks for a folder, then asks again if it turns out to be a whole drive.
+  const pick = () => {
+    api
+      .pickPlace()
+      .then((path) => {
+        if (!path) return
+        if (wholePlace(path)) setAsking({ path, name: path })
+        else start(path)
+      })
+      .catch(onProblem)
+  }
+  const choose = (place: Place) => {
+    if (place.askFirst) setAsking({ path: place.path, name: place.name, detail: place.detail })
+    else start(place.path)
   }
   const done = new Set(found?.sources.map((s) => s.root.replace(/[\\/]+$/, '')))
   const removable = places?.filter((p) => p.removable) ?? []
@@ -467,7 +523,15 @@ function FindScreen(props: {
           <h2>Looking through {scan.name}…</h2>
           <p className="big-count">{photosAndVideos(scan.photos, scan.videos)}</p>
           <p className="quiet">found so far. Nothing on it is being changed. You can leave this running.</p>
-          {scan.files !== undefined && (
+          {scan.saving ? (
+            <p className="quiet small doing">Finished looking. Saving what was found…</p>
+          ) : scan.reading ? (
+            <p className="quiet small doing">
+              Reading a large file ({size(scan.reading[1])}), which can take a few minutes:{' '}
+              <span className="where">{scan.reading[0]}</span>
+            </p>
+          ) : null}
+          {scan.files !== undefined && !scan.saving && (
             <p className="quiet small doing" aria-live="off">
               Looked at {count(scan.files, 'file')} so far
               {scan.folder && (
@@ -477,6 +541,25 @@ function FindScreen(props: {
               )}
             </p>
           )}
+        </div>
+      ) : asking ? (
+        <div className="panel asking" role="alertdialog" aria-labelledby="asking-title">
+          <h2 id="asking-title">Look through all of {asking.name}?</h2>
+          <p>
+            That is a whole disk{asking.detail ? ` (${asking.detail.split(' · ').pop()})` : ''}, and most of what is on
+            it will not be photos. It can take anything from a few minutes to an hour or more. You can leave it
+            running, and nothing on it is changed.
+          </p>
+          <p className="quiet">If you know roughly where your photos are, choosing that folder is much quicker.</p>
+          <p className="choices">
+            <button className="primary" onClick={pick}>
+              Choose a folder inside it
+            </button>
+            <button onClick={() => start(asking.path)}>Look through all of it</button>
+            <button className="link" onClick={() => setAsking(null)}>
+              Cancel
+            </button>
+          </p>
         </div>
       ) : (
         <>
@@ -490,15 +573,15 @@ function FindScreen(props: {
           )}
           <div className="places">
             {removable.map((place) => (
-              <PlaceCard key={place.path} place={place} added={done.has(place.path.replace(/[\\/]+$/, ''))} onClick={() => start(api.scanPlace(place.path))} />
+              <PlaceCard key={place.path} place={place} added={done.has(place.path.replace(/[\\/]+$/, ''))} onClick={() => choose(place)} />
             ))}
-            <button className="place" onClick={() => start(api.addPlace())}>
+            <button className="place" onClick={pick}>
               <FolderIcon large />
               <b>Choose a folder…</b>
               <span>Anywhere on this computer or a network</span>
             </button>
             {fixed.map((place) => (
-              <PlaceCard key={place.path} place={place} added={done.has(place.path.replace(/[\\/]+$/, ''))} onClick={() => start(api.scanPlace(place.path))} />
+              <PlaceCard key={place.path} place={place} added={done.has(place.path.replace(/[\\/]+$/, ''))} onClick={() => choose(place)} />
             ))}
           </div>
           {places && removable.length === 0 && (
@@ -560,6 +643,129 @@ function PlaceCard(props: { place: Place; added: boolean; onClick: () => void })
       <span>{place.detail}</span>
       {props.added && <em>Looked through. Click to look again.</em>}
     </button>
+  )
+}
+
+/** Everything that can be changed or looked up, in one place. */
+function SettingsScreen(props: {
+  api: Backend
+  state: AppState
+  backedUpTo: string | null
+  update: Update | null
+  onUpdate: (update: Update | null) => void
+  onLibrary: (state: AppState) => void
+  onBackup: () => void
+  onBack: () => void
+  onProblem: (error: unknown) => void
+}) {
+  const { api, state, onProblem } = props
+  const [log, setLog] = useState<string | null>(null)
+  const [checked, setChecked] = useState<'no' | 'checking' | 'current'>('no')
+  const logBox = useRef<HTMLPreElement>(null)
+
+  const showLog = () =>
+    api
+      .logTail()
+      .then((text) => {
+        setLog(text)
+        // The newest lines are at the bottom, which is what people want.
+        requestAnimationFrame(() => logBox.current?.scrollTo(0, logBox.current.scrollHeight))
+      })
+      .catch(onProblem)
+
+  return (
+    <section className="settings">
+      <header>
+        <button className="link" onClick={props.onBack}>
+          ‹ Back
+        </button>
+        <h1>Settings</h1>
+      </header>
+
+      <div className="setting">
+        <h3>Your library</h3>
+        <p>
+          Your photos are gathered into <span className="where">{state.library}</span>
+        </p>
+        <p className="choices">
+          <button onClick={() => api.openLibrary().catch(onProblem)}>Open my library</button>
+          <button
+            className="link"
+            onClick={() =>
+              api
+                .chooseLibrary()
+                .then((s) => s && props.onLibrary(s))
+                .catch(onProblem)
+            }
+          >
+            Use a different folder…
+          </button>
+        </p>
+        <p className="quiet small">
+          Choosing a different folder starts a separate library there. Nothing is moved or deleted, and you can switch
+          back by choosing this folder again.
+        </p>
+      </div>
+
+      <div className="setting">
+        <h3>Backup</h3>
+        <p>{props.backedUpTo ? `Backing up to ${props.backedUpTo}.` : 'No backup is set up yet.'}</p>
+        <p className="choices">
+          <button onClick={props.onBackup}>{props.backedUpTo ? 'Go to backup' : 'Set up a backup'}</button>
+        </p>
+      </div>
+
+      <div className="setting">
+        <h3>Updates</h3>
+        <p>
+          This is Keevoro {state.version}.{' '}
+          {props.update
+            ? `Version ${props.update.version} is ready; see the bar at the top.`
+            : checked === 'current'
+              ? 'That is the newest version.'
+              : ''}
+        </p>
+        <p className="choices">
+          <button
+            disabled={checked === 'checking'}
+            onClick={() => {
+              setChecked('checking')
+              api
+                .checkUpdate()
+                .then((found) => {
+                  props.onUpdate(found)
+                  setChecked(found ? 'no' : 'current')
+                })
+                .catch((e) => {
+                  setChecked('no')
+                  onProblem(e)
+                })
+            }}
+          >
+            {checked === 'checking' ? 'Checking…' : 'Check for updates'}
+          </button>
+        </p>
+      </div>
+
+      <div className="setting">
+        <h3>What Keevoro has been doing</h3>
+        <p className="quiet">
+          Keevoro keeps a plain record of what it did and when: every search, anything it could not read, gathering and
+          backups. It never records keys or passwords. If something seems slow or wrong, this is where to look.
+        </p>
+        <p className="choices">
+          <button onClick={showLog}>{log === null ? 'Show the log' : 'Refresh'}</button>
+          <button className="link" onClick={() => api.openLog().catch(onProblem)}>
+            Open the log file
+          </button>
+        </p>
+        {log !== null && (
+          <pre className="log" ref={logBox} tabIndex={0}>
+            {log || 'Nothing has been recorded yet.'}
+          </pre>
+        )}
+      </div>
+    </section>
   )
 }
 
@@ -681,7 +887,13 @@ function GatherScreen(props: {
   next: ReactNode
 }) {
   const { gather, gathering, waiting, safe } = props
-  const doing = { copying: 'safely copied', previews: 'previews made', videos: 'videos done', finished: '' }
+  const doing = {
+    checking: 'checked before copying',
+    copying: 'safely copied',
+    previews: 'previews made',
+    videos: 'videos done',
+    finished: '',
+  }
 
   return (
     <section className="archive">

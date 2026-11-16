@@ -9,6 +9,16 @@ use serde::Serialize;
 pub const SCAN: &str = "scan";
 pub const GATHER: &str = "gather";
 pub const BACKUP: &str = "backup";
+pub const CHECK: &str = "check";
+
+/// Progress reading, in the background, the files a quick search only
+/// sampled, and a last one when the pass ends.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CheckEvent {
+    pub done: usize,
+    pub total: usize,
+    pub finished: bool,
+}
 
 /// Progress looking through a drive, and a last one when it is done.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -22,6 +32,13 @@ pub struct ScanEvent {
     /// The folder being looked in right now, for the curious.
     #[serde(skip_serializing_if = "String::is_empty")]
     pub folder: String,
+    /// A large file being read right now: where it is and its size in
+    /// bytes. Reading one can take minutes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reading: Option<(String, u64)>,
+    /// True once the looking is over and what was found is being saved.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub saving: bool,
     pub finished: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub problem: Option<String>,
@@ -84,6 +101,7 @@ pub struct GatherEvent {
 impl From<GatherStep> for GatherEvent {
     fn from(step: GatherStep) -> Self {
         let (step, done, total) = match step {
+            GatherStep::Checking { done, total } => ("checking", done, total),
             GatherStep::Copying { done, total } => ("copying", done, total),
             GatherStep::MakingPreviews { done, total } => ("previews", done, total),
             GatherStep::WorkingOnVideos { done, total } => ("videos", done, total),
@@ -167,6 +185,8 @@ mod tests {
             videos: 312,
             files: 98_000,
             folder: String::new(),
+            reading: None,
+            saving: false,
             finished: false,
             problem: None,
         };

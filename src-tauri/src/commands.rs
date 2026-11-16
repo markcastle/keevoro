@@ -4,7 +4,7 @@
 //! the engine, and turn any error into a sentence the screen can show. If a
 //! function grows beyond that, the extra belongs in `keevoro-engine`.
 
-use crate::events::{BackupEvent, GatherEvent, ScanEvent, BACKUP, GATHER, SCAN};
+use crate::events::{BackupEvent, CheckEvent, GatherEvent, ScanEvent, BACKUP, CHECK, GATHER, SCAN};
 use crate::Shared;
 use keevoro_catalog::Catalog;
 use keevoro_engine::connect::{self, Flags, Keychain, Saved, World};
@@ -106,6 +106,9 @@ pub fn collection_photos(shared: State<'_, Shared>, key: String) -> Said<Vec<Pho
 pub fn forget_source(shared: State<'_, Shared>, id: i64) -> Said<()> {
     let mut catalog = Catalog::open_in_library(&library(&shared)?).map_err(say)?;
     keevoro_engine::forget_source(&mut catalog, id).map_err(say)?;
+    shared.log.say(&format!(
+        "Removed source {id} from the list (its files were not touched)"
+    ));
     Ok(())
 }
 
@@ -140,6 +143,98 @@ pub async fn preview(shared: State<'_, Shared>, id: String) -> Said<tauri::ipc::
     Ok(tauri::ipc::Response::new(bytes))
 }
 
+/// Reads, in the background, the files a quick search only sampled, so
+/// that true duplicates are known and gathering has less to do. Does
+/// nothing if a pass is already running. It gives way to a search or a
+/// gather, which start it again when they finish.
+fn check_in_background(app: &AppHandle) {
+    let state = app.state::<Shared>();
+    let Ok(library) = library(&state) else { return };
+    if state.checking.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let state = app.state::<Shared>();
+        let started = Instant::now();
+        let mut last_said = Instant::now() - PROGRESS_EVERY;
+        let mut total = 0;
+        let result = Catalog::open_in_library(&library)
+            .map_err(anyhow::Error::from)
+            .and_then(|catalog| {
+                keevoro_engine::deep::deep_look(
+                    &catalog,
+                    None,
+                    &mut |p| {
+                        total = p.total;
+                        if p.done == 0 {
+                            state.log.say(&format!("Checking {} files in the background", p.total));
+                        }
+                        if p.bytes >= 64 * 1024 * 1024 {
+                            state.log.say(&format!(
+                                "Checking a large file ({}): {}",
+                                keevoro_engine::summary::bytes(p.bytes),
+                                keevoro_engine::friendly_path(p.reading)
+                            ));
+                        }
+                        if last_said.elapsed() >= PROGRESS_EVERY {
+                            last_said = Instant::now();
+                            let _ = app.emit(
+                                CHECK,
+                                CheckEvent {
+                                    done: p.done,
+                                    total: p.total,
+                                    finished: false,
+                                },
+                            );
+                        }
+                    },
+                    &|| !state.scanning.load(Ordering::SeqCst) && !state.gathering.load(Ordering::SeqCst),
+                )
+            });
+        state.checking.store(false, Ordering::SeqCst);
+        let done = match &result {
+            Ok(report) => {
+                if report.checked > 0 || !report.failed.is_empty() || report.stopped {
+                    state.log.say(&format!(
+                        "Background checking {} after {} seconds: {} checked, {} could not be read",
+                        if report.stopped { "paused" } else { "finished" },
+                        started.elapsed().as_secs(),
+                        report.checked,
+                        report.failed.len()
+                    ));
+                }
+                for (path, why) in report.failed.iter().take(200) {
+                    state.log.say(&format!(
+                        "Could not check {}: {why}",
+                        keevoro_engine::friendly_path(path)
+                    ));
+                }
+                report.checked
+            }
+            Err(e) => {
+                state.log.say(&format!("Background checking failed: {e:#}"));
+                0
+            }
+        };
+        let _ = app.emit(
+            CHECK,
+            CheckEvent {
+                done,
+                total,
+                finished: true,
+            },
+        );
+    });
+}
+
+/// Asked by the screens when they open: carry on with any checking left
+/// over from last time.
+#[tauri::command]
+pub fn keep_checking(app: AppHandle) {
+    check_in_background(&app);
+}
+
 /// Starts looking through a drive or folder. Returns at once; progress and
 /// the result arrive as `scan` events.
 #[tauri::command]
@@ -154,31 +249,94 @@ pub fn scan_place(app: AppHandle, shared: State<'_, Shared>, path: String) -> Sa
         .map_or_else(|| source.display().to_string(), |n| n.to_string_lossy().to_string());
 
     std::thread::spawn(move || {
+        let started = Instant::now();
+        let state = app.state::<Shared>();
+        let log = &state.log;
+        log.say(&format!("Looking through {}", keevoro_engine::friendly_path(&source)));
         let mut last_said = Instant::now();
         let mut latest = (0, 0, 0);
+        let mut announced: Option<PathBuf> = None;
+        let event = |p: &keevoro_scan::ScanProgress, saving: bool| ScanEvent {
+            name: name.clone(),
+            photos: p.photos,
+            videos: p.videos,
+            files: p.files_seen,
+            folder: keevoro_engine::friendly_path(&p.folder),
+            reading: p
+                .reading
+                .as_ref()
+                .map(|(path, bytes)| (keevoro_engine::friendly_path(path), *bytes)),
+            saving,
+            finished: false,
+            problem: None,
+        };
+        let mut last_progress = keevoro_scan::ScanProgress::default();
         let result = Catalog::open_in_library(&library)
             .map_err(anyhow::Error::from)
             .and_then(|mut catalog| {
-                keevoro_engine::scan_into(&mut catalog, &source, Some(&name), &mut |p| {
-                    latest = (p.photos, p.videos, p.files_seen);
-                    if last_said.elapsed() >= PROGRESS_EVERY {
-                        last_said = Instant::now();
-                        let _ = app.emit(
-                            SCAN,
-                            ScanEvent {
-                                name: name.clone(),
-                                photos: p.photos,
-                                videos: p.videos,
-                                files: p.files_seen,
-                                folder: keevoro_engine::friendly_path(&p.folder),
-                                finished: false,
-                                problem: None,
-                            },
-                        );
-                    }
-                })
+                let last_progress = std::cell::RefCell::new(&mut last_progress);
+                keevoro_engine::scan_into_with(
+                    &mut catalog,
+                    &source,
+                    Some(&name),
+                    &keevoro_scan::ScanOptions {
+                        quick: true,
+                        ..Default::default()
+                    },
+                    &mut |p| {
+                        latest = (p.photos, p.videos, p.files_seen);
+                        **last_progress.borrow_mut() = p.clone();
+                        // A large file starting is always said at once: it
+                        // may be the last thing to change for minutes.
+                        let big = p.reading.as_ref().map(|(path, _)| path.clone());
+                        let news = big.is_some() && big != announced;
+                        if news {
+                            if let Some((path, bytes)) = &p.reading {
+                                log.say(&format!(
+                                    "Reading a large file ({}): {}",
+                                    keevoro_engine::summary::bytes(*bytes),
+                                    keevoro_engine::friendly_path(path)
+                                ));
+                            }
+                            announced = big;
+                        }
+                        if news || last_said.elapsed() >= PROGRESS_EVERY {
+                            last_said = Instant::now();
+                            let _ = app.emit(SCAN, event(p, false));
+                        }
+                    },
+                    &mut || {
+                        let p = last_progress.borrow();
+                        log.say(&format!(
+                            "Finished looking after {} files; saving what was found",
+                            p.files_seen
+                        ));
+                        let _ = app.emit(SCAN, event(&p, true));
+                    },
+                )
             });
-        app.state::<Shared>().scanning.store(false, Ordering::SeqCst);
+        state.scanning.store(false, Ordering::SeqCst);
+        match &result {
+            Ok(report) => {
+                log.say(&format!(
+                    "Looked through {} in {} seconds: {} photos and videos, {} other files, {} folders skipped, {} unreadable",
+                    keevoro_engine::friendly_path(&source),
+                    started.elapsed().as_secs(),
+                    report.items.len(),
+                    report.other_files,
+                    report.skipped.len(),
+                    report.unreadable.len()
+                ));
+                for unreadable in report.unreadable.iter().take(200) {
+                    log.say(&format!(
+                        "Could not read {}: {}",
+                        keevoro_engine::friendly_path(&unreadable.path),
+                        unreadable.error
+                    ));
+                }
+            }
+            Err(e) => log.say(&format!("Looking through {} failed: {e:#}", source.display())),
+        }
         let _ = app.emit(
             SCAN,
             ScanEvent {
@@ -187,10 +345,13 @@ pub fn scan_place(app: AppHandle, shared: State<'_, Shared>, path: String) -> Sa
                 videos: latest.1,
                 files: latest.2,
                 folder: String::new(),
+                reading: None,
+                saving: false,
                 finished: true,
                 problem: result.err().map(say),
             },
         );
+        check_in_background(&app);
     });
     Ok(())
 }
@@ -204,6 +365,9 @@ pub fn gather(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
         return Err("Keevoro is already gathering your photos.".into());
     }
     std::thread::spawn(move || {
+        let state = app.state::<Shared>();
+        state.log.say("Gathering started");
+        let mut stage = "";
         let tools = VideoTools::find();
         let result = Catalog::open_in_library(&library)
             .map_err(anyhow::Error::from)
@@ -211,16 +375,34 @@ pub fn gather(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
                 // Converting old videos is opt-in and not offered in the
                 // app yet, so it stays off here.
                 keevoro_engine::gather_everything(&library, &catalog, false, tools.as_ref(), &mut |step| {
+                    let now = match step {
+                        keevoro_engine::GatherStep::Checking { .. } => "checking files before copying",
+                        keevoro_engine::GatherStep::Copying { .. } => "copying",
+                        keevoro_engine::GatherStep::MakingPreviews { .. } => "making previews",
+                        keevoro_engine::GatherStep::WorkingOnVideos { .. } => "working on videos",
+                    };
+                    if now != stage {
+                        stage = now;
+                        state.log.say(&format!("Gathering: {now}"));
+                    }
                     let _ = app.emit(GATHER, GatherEvent::from(step));
                 })
             });
-        app.state::<Shared>().gathering.store(false, Ordering::SeqCst);
+        state.gathering.store(false, Ordering::SeqCst);
+        match &result {
+            Ok(Some(outcome)) => state
+                .log
+                .say(&format!("Gathering finished: {}", outcome.sentences().join(" "))),
+            Ok(None) => state.log.say("Gathering: there was nothing to gather"),
+            Err(e) => state.log.say(&format!("Gathering failed: {e:#}")),
+        }
         let last = match result {
             Ok(Some(outcome)) => GatherEvent::finished(outcome.sentences(), None),
             Ok(None) => GatherEvent::finished(vec!["There was nothing to gather.".to_string()], None),
             Err(e) => GatherEvent::finished(Vec::new(), Some(say(e))),
         };
         let _ = app.emit(GATHER, last);
+        check_in_background(&app);
     });
     Ok(())
 }
@@ -351,7 +533,15 @@ fn backup_job(
                 },
             )
         })();
-        app.state::<Shared>().backing_up.store(false, Ordering::SeqCst);
+        let state = app.state::<Shared>();
+        state.backing_up.store(false, Ordering::SeqCst);
+        match &result {
+            Ok(()) => state.log.say(&format!(
+                "Backup job finished: {}",
+                String::from_utf8_lossy(&said).trim()
+            )),
+            Err(e) => state.log.say(&format!("Backup job failed: {e:#}")),
+        }
         let _ = app.emit(BACKUP, BackupEvent::finished(&said, result.err().map(say)));
     });
     Ok(())
@@ -397,6 +587,21 @@ pub fn open_release_page(app: AppHandle, page: String) -> Said<()> {
         return Err("That isn't one of Keevoro's release pages.".to_string());
     }
     app.opener().open_url(page, None::<&str>).map_err(say)
+}
+
+/// The last few hundred lines of the log, for showing in Settings.
+#[tauri::command]
+pub fn log_tail(shared: State<'_, Shared>) -> String {
+    shared.log.tail(400)
+}
+
+/// Opens the log file in whatever the computer uses for text files.
+#[tauri::command]
+pub fn open_log(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_path(shared.log.path().display().to_string(), None::<&str>)
+        .map_err(say)
 }
 
 /// A newer Keevoro, if there is one this computer can install.

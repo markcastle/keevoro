@@ -404,3 +404,92 @@ fn a_big_source_comes_out_in_the_same_order_every_time() {
     sorted.sort();
     assert_eq!(paths(&first), sorted, "in folder and name order");
 }
+
+#[test]
+fn a_large_file_is_announced_before_it_is_read() {
+    let t = Tree::new();
+    let mut big = mp4();
+    big.resize(usize::try_from(WORTH_ANNOUNCING).unwrap() + 1, 0);
+    t.add("holiday.mp4", &big);
+    t.add("small.jpg", &plain_jpeg(1));
+    let mut announced = Vec::new();
+    let mut last = ScanProgress::default();
+    scan(t.root(), &ScanOptions::default(), &mut |p| {
+        if let Some((path, bytes)) = &p.reading {
+            announced.push((path.file_name().unwrap().to_owned(), *bytes));
+        }
+        last = p.clone();
+    });
+    assert!(announced
+        .iter()
+        .any(|(name, bytes)| name == "holiday.mp4" && *bytes > WORTH_ANNOUNCING));
+    assert_eq!(last.reading, None, "and it is cleared once read");
+    assert_eq!((last.files_seen, last.videos, last.photos), (2, 1, 1));
+}
+
+fn quick() -> ScanOptions {
+    ScanOptions {
+        quick: true,
+        ..ScanOptions::default()
+    }
+}
+
+/// A photo-shaped file of `len` bytes whose every byte depends on `seed`.
+fn big_photo(len: usize, seed: u8) -> Vec<u8> {
+    let mut bytes = plain_jpeg(seed);
+    let mut next = seed;
+    bytes.resize_with(len, || {
+        next = next.wrapping_mul(31).wrapping_add(7);
+        next
+    });
+    bytes
+}
+
+#[test]
+fn a_quick_search_does_not_read_large_files_to_the_end() {
+    let t = Tree::new();
+    t.add("big.jpg", &big_photo(2_000_000, 1));
+    t.add("small.jpg", &plain_jpeg(2));
+    let r = scan(t.root(), &quick(), &mut |_| {});
+    let (big, small) = (item(&r, "big.jpg"), item(&r, "small.jpg"));
+    assert!(!big.hashed, "a large file gets a quick fingerprint");
+    assert!(small.hashed, "a small one is simply read whole");
+    assert_eq!(small.blake3.as_deref().unwrap(), whole_hash(&small.path).unwrap());
+    assert_ne!(big.blake3.as_deref().unwrap(), whole_hash(&big.path).unwrap());
+    assert_eq!(big.blake3.as_deref().unwrap().len(), 64);
+}
+
+#[test]
+fn quick_fingerprints_match_for_copies_and_differ_for_different_files() {
+    let t = Tree::new();
+    let original = big_photo(2_000_000, 1);
+    let mut different_end = original.clone();
+    *different_end.last_mut().unwrap() ^= 1;
+    t.add("a/original.jpg", &original);
+    t.add("b/copy.jpg", &original);
+    t.add("c/other.jpg", &big_photo(2_000_000, 9));
+    t.add("d/longer.jpg", &big_photo(2_000_001, 1));
+    t.add("e/different-end.jpg", &different_end);
+    let r = scan(t.root(), &quick(), &mut |_| {});
+    let print = |name: &str| item(&r, name).blake3.clone().unwrap();
+    assert_eq!(print("original.jpg"), print("copy.jpg"));
+    assert_ne!(print("original.jpg"), print("other.jpg"));
+    assert_ne!(print("original.jpg"), print("longer.jpg"), "size is part of it");
+    assert_ne!(print("original.jpg"), print("different-end.jpg"), "so is the end");
+}
+
+#[test]
+fn a_quick_fingerprint_can_be_fooled_which_is_why_the_whole_hash_decides() {
+    let t = Tree::new();
+    let original = big_photo(2_000_000, 1);
+    let mut changed = original.clone();
+    changed[300_000] ^= 1; // Between the samples.
+    t.add("a.jpg", &original);
+    t.add("b.jpg", &changed);
+    let r = scan(t.root(), &quick(), &mut |_| {});
+    assert_eq!(item(&r, "a.jpg").blake3, item(&r, "b.jpg").blake3);
+    assert_ne!(
+        whole_hash(&item(&r, "a.jpg").path).unwrap(),
+        whole_hash(&item(&r, "b.jpg").path).unwrap()
+    );
+}

@@ -52,6 +52,8 @@ pub enum CopyError {
     VerifyFailed,
     #[error("It was scanned without checking for duplicates. Scan the source again without --no-hash")]
     NotHashed,
+    #[error("Keevoro could not read the whole file to check it, so it was not copied")]
+    NotChecked,
     #[error("Too many different files share this name")]
     NameTaken,
 }
@@ -186,6 +188,11 @@ fn is_gathered(library: &Path, catalog: &Catalog, item: &FoundItem) -> Result<bo
 
 fn gather_one(library: &Path, item: &FoundItem) -> Result<(Placed, String), CopyError> {
     let hash = item.blake3.as_deref().ok_or(CopyError::NotHashed)?;
+    // A quick fingerprint cannot prove a copy exact, so it never stands in
+    // for the real one here.
+    if !item.hashed {
+        return Err(CopyError::NotChecked);
+    }
     let folders = library_folder(&item.folder.album, item.date.as_ref());
     let dir = folders.iter().fold(library.to_path_buf(), |p, s| p.join(s));
     let name = item

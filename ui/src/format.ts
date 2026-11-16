@@ -15,6 +15,22 @@ export function photosAndVideos(photos: number, videos: number) {
   return parts.join(' and ')
 }
 
+/**
+ * Is this a whole drive, or a folder so near the top that it holds most of
+ * one (everybody's files, or one person's)? Looking through all of that can
+ * take a long while, so the app asks first.
+ */
+export function wholePlace(path: string) {
+  const p = path.replace(/^\\\\\?\\/, '').replace(/[\\/]+$/, '')
+  return (
+    p === '' || // "/"
+    /^[A-Za-z]:$/.test(p) || // "K:"
+    /^\\\\[^\\]+\\[^\\]+$/.test(p) || // a whole network share
+    /^\/Volumes\/[^/]+$/.test(p) ||
+    /^([A-Za-z]:\\Users|\/Users|\/home)([\\/][^\\/]+)?$/.test(p)
+  )
+}
+
 export function size(bytes: number) {
   const units = ['bytes', 'KB', 'MB', 'GB', 'TB']
   let value = bytes

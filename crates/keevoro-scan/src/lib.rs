@@ -36,6 +36,11 @@ pub struct ScanOptions {
     /// Hash every media file. Needed for duplicates; can be turned off for a
     /// quick first look.
     pub hash: bool,
+    /// Fingerprint large files from a few samples instead of reading them
+    /// to the end, so a search takes seconds where it took minutes. Such an
+    /// item is marked `hashed: false` until [`whole_hash`] has been run on
+    /// it, which must happen before it is gathered.
+    pub quick: bool,
 }
 
 impl Default for ScanOptions {
@@ -43,6 +48,7 @@ impl Default for ScanOptions {
         Self {
             skip: SkipRules::default(),
             hash: true,
+            quick: false,
         }
     }
 }
@@ -54,8 +60,13 @@ pub struct FoundItem {
     pub kind: MediaKind,
     pub mime: String,
     pub bytes: u64,
-    /// Full BLAKE3 hash, hex. `None` when hashing is off.
+    /// The file's fingerprint, hex. `None` when hashing is off. When
+    /// `hashed` is true this is the BLAKE3 hash of the whole file; when it
+    /// is false it is a quick fingerprint (see [`ScanOptions::quick`]).
     pub blake3: Option<String>,
+    /// True when `blake3` covers every byte of the file. Only then may the
+    /// file be copied, or called a duplicate for certain.
+    pub hashed: bool,
     pub date: Option<DateGuess>,
     pub folder: FolderHints,
     /// Pixel size of a photo, when it could be read from the file header.
@@ -106,7 +117,13 @@ pub struct ScanProgress {
     pub bytes: u64,
     /// The folder of the file most recently looked at.
     pub folder: PathBuf,
+    /// A large file being read right now, and its size. Reading one can
+    /// take minutes, during which nothing else here changes.
+    pub reading: Option<(PathBuf, u64)>,
 }
+
+/// Files at least this big are announced before they are read.
+const WORTH_ANNOUNCING: u64 = 64 * 1024 * 1024;
 
 /// What became of one thing the walk came across.
 enum Looked {
@@ -114,6 +131,8 @@ enum Looked {
     Other,
     Unreadable(String),
     Skipped(SkipReason),
+    /// A reader is about to start on a large file of this many bytes.
+    Reading(u64),
 }
 
 /// How many files to look at at once. More than one because most of a
@@ -154,6 +173,13 @@ pub fn scan(root: &Path, opts: &ScanOptions, on_progress: &mut dyn FnMut(&ScanPr
                     Err(_) => break,
                 };
                 let Ok((order, path)) = next else { break };
+                if let Some(bytes) = std::fs::metadata(&path)
+                    .ok()
+                    .map(|m| m.len())
+                    .filter(|b| *b >= WORTH_ANNOUNCING)
+                {
+                    let _ = done.send((order, path.clone(), Looked::Reading(bytes)));
+                }
                 let looked = match examine(root, &path, opts) {
                     Ok(Some(item)) => Looked::Media(Box::new(item)),
                     Ok(None) => Looked::Other,
@@ -167,7 +193,15 @@ pub fn scan(root: &Path, opts: &ScanOptions, on_progress: &mut dyn FnMut(&ScanPr
         threads.spawn(move || walk(root, opts, &to_read, &done));
 
         for (order, path, looked) in results {
+            if progress.reading.as_ref().is_some_and(|(reading, _)| *reading == path) {
+                progress.reading = None;
+            }
             match looked {
+                Looked::Reading(bytes) => {
+                    progress.reading = Some((path, bytes));
+                    on_progress(&progress);
+                    continue;
+                }
                 Looked::Skipped(reason) => {
                     skipped.push((order, SkippedFolder { path, reason }));
                     continue;
@@ -292,10 +326,12 @@ fn examine(root: &Path, path: &Path, opts: &ScanOptions) -> std::io::Result<Opti
     };
 
     let meta = file.metadata()?;
-    let blake3 = if opts.hash {
-        Some(hash_rest(&mut file, &head)?)
+    let (blake3, hashed) = if !opts.hash {
+        (None, false)
+    } else if opts.quick && meta.len() > QUICK_ABOVE {
+        (Some(quick_fingerprint(&mut file, meta.len())?), false)
     } else {
-        None
+        (Some(hash_rest(&mut file, &head)?), true)
     };
 
     let rel_dirs: Vec<String> = path
@@ -371,6 +407,7 @@ fn examine(root: &Path, path: &Path, opts: &ScanOptions) -> std::io::Result<Opti
         mime,
         bytes: meta.len(),
         blake3,
+        hashed,
         date: best_date(&guesses),
         junk: junk_hint(&JunkInput {
             kind,
@@ -423,6 +460,37 @@ fn hash_rest(file: &mut File, head: &[u8]) -> std::io::Result<String> {
         }
     }
     Ok(hasher.finalize().to_hex().to_string())
+}
+
+/// Files this size or smaller are simply read whole: the samples below
+/// would cover them anyway.
+const QUICK_ABOVE: u64 = 256 * 1024;
+const SAMPLE: usize = 64 * 1024;
+
+/// A fingerprint from the file's size and three samples: its start, its
+/// middle and its end. Two files with the same quick fingerprint are almost
+/// always the same file, but only [`whole_hash`] can say so for certain, so
+/// nothing is copied or dropped on the strength of this alone.
+///
+/// It can never equal a whole-file hash, because the label below is mixed in.
+fn quick_fingerprint(file: &mut File, size: u64) -> std::io::Result<String> {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"keevoro quick fingerprint 1");
+    hasher.update(&size.to_le_bytes());
+    let mut buf = vec![0u8; SAMPLE];
+    let sample = SAMPLE as u64;
+    for start in [0, (size / 2).saturating_sub(sample / 2), size.saturating_sub(sample)] {
+        file.seek(SeekFrom::Start(start))?;
+        let n = read_up_to(file, &mut buf)?;
+        hasher.update(&buf[..n]);
+    }
+    Ok(hasher.finalize().to_hex().to_string())
+}
+
+/// The BLAKE3 hash of every byte of a file: the fingerprint that proves two
+/// files are the same, and that a copy is exact.
+pub fn whole_hash(path: &Path) -> std::io::Result<String> {
+    hash_rest(&mut File::open(path)?, &[])
 }
 
 /// Reads the capture date from EXIF, preferring the original capture time.

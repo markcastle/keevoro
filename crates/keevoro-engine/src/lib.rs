@@ -21,6 +21,7 @@
 
 pub mod backup;
 pub mod connect;
+pub mod deep;
 pub mod discover;
 pub mod preview;
 pub mod summary;
@@ -64,13 +65,29 @@ pub fn scan_into(
     name: Option<&str>,
     on_progress: &mut dyn FnMut(&ScanProgress),
 ) -> Result<ScanReport> {
+    scan_into_with(catalog, source, name, &ScanOptions::default(), on_progress, &mut || {})
+}
+
+/// As [`scan_into`], with a say in how the search is done (a quick search
+/// samples large files; see [`deep`]). `on_saving` is called once the
+/// looking is over and what was found is about to be written down, which on
+/// a big source takes a noticeable moment of its own.
+pub fn scan_into_with(
+    catalog: &mut Catalog,
+    source: &Path,
+    name: Option<&str>,
+    options: &ScanOptions,
+    on_progress: &mut dyn FnMut(&ScanProgress),
+    on_saving: &mut dyn FnMut(),
+) -> Result<ScanReport> {
     // A remembered drive is recognised by its full path, so `D:` and
     // `D:\.` must come out the same.
     let root = std::fs::canonicalize(source).unwrap_or_else(|_| source.to_path_buf());
-    let report = scan(&root, &ScanOptions::default(), on_progress);
+    let report = scan(&root, options, on_progress);
     let fallback = root
         .file_name()
         .map_or_else(|| root.display().to_string(), |n| n.to_string_lossy().to_string());
+    on_saving();
     catalog.save_scan(name.unwrap_or(&fallback), &report, now())?;
     Ok(report)
 }
@@ -78,9 +95,23 @@ pub fn scan_into(
 /// Which part of gathering is under way, for a progress display.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GatherStep {
-    Copying { done: usize, total: usize },
-    MakingPreviews { done: usize, total: usize },
-    WorkingOnVideos { done: usize, total: usize },
+    /// Reading files a quick search only sampled, before copying them.
+    Checking {
+        done: usize,
+        total: usize,
+    },
+    Copying {
+        done: usize,
+        total: usize,
+    },
+    MakingPreviews {
+        done: usize,
+        total: usize,
+    },
+    WorkingOnVideos {
+        done: usize,
+        total: usize,
+    },
 }
 
 /// Everything that happened in one gather.
@@ -158,6 +189,34 @@ pub fn gather_everything(
             r.root.display()
         );
     }
+
+    // A quick search only sampled the large files. Before anything is
+    // copied, every file being kept is read in full, so that true copies
+    // are told from lookalikes and each copy can be proved exact.
+    let mut to_check = std::collections::HashSet::new();
+    for item in reports.iter().flat_map(|r| &r.items) {
+        if let (false, Some(quick)) = (item.hashed, &item.blake3) {
+            if wanted(catalog, item)? {
+                to_check.insert(quick.clone());
+            }
+        }
+    }
+    let reports = if to_check.is_empty() {
+        reports
+    } else {
+        deep::deep_look(
+            catalog,
+            Some(&to_check),
+            &mut |p| {
+                on_step(GatherStep::Checking {
+                    done: p.done,
+                    total: p.total,
+                });
+            },
+            &|| true,
+        )?;
+        catalog.load_reports()?
+    };
 
     let (unique, _) = summary::unique_items(&reports);
     let mut chosen = Vec::new();

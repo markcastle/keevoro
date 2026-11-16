@@ -36,7 +36,14 @@ export type Collection = {
 export type PhotoChoice = Photo & { taken: string | null; kept: boolean; junkReason: string | null }
 
 /** A drive plugged into this computer, offered as somewhere to look. */
-export type Place = { path: string; name: string; detail: string; removable: boolean }
+export type Place = {
+  path: string
+  name: string
+  detail: string
+  removable: boolean
+  /** A whole disk big enough to ask before looking through all of it. */
+  askFirst: boolean
+}
 
 export type Source = { id: number; name: string; root: string; items: number }
 
@@ -68,13 +75,20 @@ export type ScanEvent = {
   files?: number
   /** The folder being looked in right now. */
   folder?: string
+  /** A large file being read right now: where it is, and its size in bytes. */
+  reading?: [string, number]
+  /** True once looking is over and what was found is being saved. */
+  saving?: boolean
   finished: boolean
   problem?: string
 }
 
+/** Sent while files a quick search only sampled are read in the background. */
+export type CheckEvent = { done: number; total: number; finished: boolean }
+
 /** Sent while photos are being gathered, and once more when done. */
 export type GatherEvent = {
-  step: 'copying' | 'previews' | 'videos' | 'finished'
+  step: 'checking' | 'copying' | 'previews' | 'videos' | 'finished'
   done: number
   total: number
   /** On the last event: what happened, as sentences to show. */
@@ -108,8 +122,12 @@ export interface Backend {
   places(): Promise<Place[]>
   /** Starts looking through the drive or folder at this path. */
   scanPlace(path: string): Promise<void>
-  /** Asks for a folder and starts looking through it. False if cancelled. */
-  addPlace(): Promise<boolean>
+  /** Asks for a folder to look through. Null if cancelled. */
+  pickPlace(): Promise<string | null>
+  /** The last few hundred lines of the record of what Keevoro did. */
+  logTail(): Promise<string>
+  /** Opens the log file in the computer's text editor. */
+  openLog(): Promise<void>
   /** A newer Keevoro this computer can install, or null. */
   checkUpdate(): Promise<Update | null>
   /** Downloads, checks and starts the update. On Windows the app then closes. */
@@ -140,6 +158,9 @@ export interface Backend {
   checkBackup(): Promise<void>
   onBackup(listener: (event: BackupEvent) => void): () => void
   onScan(listener: (event: ScanEvent) => void): () => void
+  /** Carries on with any background checking left over from last time. */
+  keepChecking(): Promise<void>
+  onCheck(listener: (event: CheckEvent) => void): () => void
   onGather(listener: (event: GatherEvent) => void): () => void
 }
 
@@ -173,15 +194,12 @@ async function tauriBackend(): Promise<Backend> {
     places: () => invoke('places'),
     scanPlace: (path) => invoke('scan_place', { path }),
     openLibrary: () => invoke('open_library'),
+    logTail: () => invoke('log_tail'),
+    openLog: () => invoke('open_log'),
     checkUpdate: () => invoke('check_update'),
     installUpdate: () => invoke('install_update'),
     openReleasePage: (page) => invoke('open_release_page', { page }),
-    async addPlace() {
-      const path = await pickFolder('Choose a source: a drive or folder to look through')
-      if (!path) return false
-      await invoke('scan_place', { path })
-      return true
-    },
+    pickPlace: () => pickFolder('Choose a source: a drive or folder to look through'),
     keepCollection: (key, keep) => invoke('keep_collection', { key, keep }),
     collectionPhotos: (key) => invoke('collection_photos', { key }),
     setAside: () => invoke('set_aside'),
@@ -208,6 +226,8 @@ async function tauriBackend(): Promise<Backend> {
     checkBackup: () => invoke('check_backup'),
     onBackup: (listener) => subscribe('backup', listener),
     onScan: (listener) => subscribe('scan', listener),
+    keepChecking: () => invoke('keep_checking'),
+    onCheck: (listener) => subscribe('check', listener),
     onGather: (listener) => subscribe('gather', listener),
   }
 }

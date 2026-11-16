@@ -293,12 +293,12 @@ pub fn set_photo_kept(catalog: &Catalog, id: &str, keep: bool) -> Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::{gather_everything, scan_into};
     use std::fs;
 
-    fn real_jpeg(shade: u8) -> Vec<u8> {
+    pub(crate) fn real_jpeg(shade: u8) -> Vec<u8> {
         let img = image::RgbImage::from_pixel(640, 480, image::Rgb([shade, 120, 60]));
         let mut bytes = Vec::new();
         img.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Jpeg)

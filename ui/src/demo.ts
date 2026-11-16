@@ -12,6 +12,7 @@ import type {
   AppState,
   BackupEvent,
   Backend,
+  CheckEvent,
   Collection,
   Discover,
   GatherEvent,
@@ -114,6 +115,7 @@ export function demoBackend(): Backend {
   ]
   const junk: PhotoChoice[] = collections.length === 0 ? [] : junkFound()
   const scanListeners = new Set<(e: ScanEvent) => void>()
+  const checkListeners = new Set<(event: CheckEvent) => void>()
   const gatherListeners = new Set<(e: GatherEvent) => void>()
   const backupListeners = new Set<(e: BackupEvent) => void>()
   let backedUpTo: string | null = null
@@ -167,6 +169,14 @@ export function demoBackend(): Backend {
         if (junk.length === 0) junk.push(...junkFound())
         sources.push({ id: Date.now(), name, root, items: photos + videos })
         scanListeners.forEach((l) => l({ name, photos, videos, finished: true }))
+        // Then, as the real app does, the careful checking carries on behind.
+        const total = Math.max(1, Math.round((photos + videos) / 6))
+        for (let done = 0; done < total; done += Math.ceil(total / 5)) {
+          checkListeners.forEach((l) => l({ done, total, finished: false }))
+          // Long enough to be seen, however fast the rest is asked to go.
+          await later(300)
+        }
+        checkListeners.forEach((l) => l({ done: total, total, finished: true }))
       })()
   }
 
@@ -182,16 +192,29 @@ export function demoBackend(): Backend {
     },
     discover: async () => view(),
     places: async () => [
-      { path: 'E:\\', name: 'KINGSTON (E:)', detail: 'USB or external drive \u00b7 32 GB', removable: true },
-      { path: 'C:\\', name: 'Windows (C:)', detail: 'This computer\u2019s disk \u00b7 512 GB', removable: false },
+      { path: 'E:\\', name: 'KINGSTON (E:)', detail: 'USB or external drive \u00b7 32 GB', removable: true, askFirst: false },
+      { path: 'C:\\', name: 'Windows (C:)', detail: 'This computer\u2019s disk \u00b7 512 GB', removable: false, askFirst: true },
     ],
     async scanPlace(path) {
-      look(path.startsWith('E') ? 'KINGSTON (E:)' : 'Windows (C:)', path)
+      const name = path.startsWith('E')
+        ? 'KINGSTON (E:)'
+        : path === 'C:\\'
+          ? 'Windows (C:)'
+          : sources.length === 0
+            ? 'Family hard drive'
+            : `Old laptop ${sources.length}`
+      look(name, path)
     },
-    async addPlace() {
-      look(sources.length === 0 ? 'Family hard drive' : `Old laptop ${sources.length}`, 'D:\\Photos')
-      return true
-    },
+    // The folder window is the system's own, so the stand-in just answers.
+    pickPlace: async () => 'D:\\Photos',
+    logTail: async () =>
+      [
+        '2026-11-16 14:02:09  Keevoro 9.8.0 started on windows (x86_64)',
+        '2026-11-16 14:02:11  Looking through E:\\',
+        '2026-11-16 14:02:19  Reading a large file (3.9 GB): E:\\Video\\wedding.mov',
+        '2026-11-16 14:03:40  Looked through E:\\ in 89 seconds: 238 photos and videos, 11,204 other files, 3 folders skipped, 0 unreadable',
+      ].join('\n'),
+    openLog: async () => {},
     checkUpdate: async () =>
       new URLSearchParams(window.location.search).has('update')
         ? { version: '9.9.0', page: 'https://github.com/markcastle/keevoro/releases' }
@@ -322,6 +345,11 @@ export function demoBackend(): Backend {
     onScan(listener) {
       scanListeners.add(listener)
       return () => scanListeners.delete(listener)
+    },
+    keepChecking: async () => {},
+    onCheck(listener) {
+      checkListeners.add(listener)
+      return () => checkListeners.delete(listener)
     },
     onGather(listener) {
       gatherListeners.add(listener)
