@@ -556,6 +556,78 @@ h3 {
   font-weight: 550;
 }
 
+.panel.backup {
+  margin-top: 16px;
+}
+
+.choices {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 18px;
+  margin-top: 6px;
+}
+
+.choices .primary {
+  margin-top: 0;
+}
+
+.primary:disabled,
+.link:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.link.quiet {
+  color: var(--quiet);
+  margin-left: auto;
+}
+
+.running {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--quiet);
+}
+
+.refused {
+  color: var(--warn-text);
+  background: var(--warn-bg);
+  border-radius: 10px;
+  padding: 8px 12px;
+  user-select: text;
+}
+
+.connect {
+  display: grid;
+  gap: 12px;
+  width: min(100%, 460px);
+}
+
+.connect label {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--quiet);
+}
+
+.connect input,
+.connect select {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  user-select: text;
+}
+
+.connect input:focus-visible,
+.connect select:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-color: var(--accent);
+}
+
 progress {
   width: min(100%, 560px);
   height: 8px;
@@ -584,7 +656,7 @@ progress::-webkit-progress-value {
 
 .kept li {
   display: grid;
-  grid-template-columns: minmax(140px, 1fr) 2fr auto;
+  grid-template-columns: minmax(140px, 1fr) 2fr 130px;
   gap: 16px;
   align-items: center;
   padding: 12px 4px;
@@ -594,6 +666,7 @@ progress::-webkit-progress-value {
 .badge {
   font-size: 13px;
   color: var(--quiet);
+  text-align: right;
 }
 
 .badge.safe {

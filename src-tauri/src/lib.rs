@@ -38,6 +38,8 @@ pub struct Shared {
     scanning: AtomicBool,
     /// True while photos are being gathered.
     gathering: AtomicBool,
+    /// True while a backup or a check of one is running.
+    backing_up: AtomicBool,
 }
 
 pub fn run() {
@@ -52,6 +54,7 @@ pub fn run() {
                 cache_dir,
                 scanning: AtomicBool::new(false),
                 gathering: AtomicBool::new(false),
+                backing_up: AtomicBool::new(false),
             });
             Ok(())
         })
@@ -66,6 +69,11 @@ pub fn run() {
             commands::keep_photo,
             commands::preview,
             commands::gather,
+            commands::backup_state,
+            commands::connect_backup,
+            commands::disconnect_backup,
+            commands::back_up,
+            commands::check_backup,
         ])
         .run(tauri::generate_context!());
     if let Err(e) = built {

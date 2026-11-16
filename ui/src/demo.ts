@@ -8,7 +8,17 @@
 // Add ?demo=new to the address to start as a first-time user with no
 // library, or ?demo=empty for a library with nothing found yet.
 
-import type { AppState, Backend, Collection, Discover, GatherEvent, Photo, PhotoChoice, ScanEvent } from './backend'
+import type {
+  AppState,
+  BackupEvent,
+  Backend,
+  Collection,
+  Discover,
+  GatherEvent,
+  Photo,
+  PhotoChoice,
+  ScanEvent,
+} from './backend'
 
 const SCENES: [string, string, string][] = [
   ['#7ec8e3', '#f6d365', '#2e7d6b'], // beach
@@ -105,6 +115,9 @@ export function demoBackend(): Backend {
   const junk: PhotoChoice[] = collections.length === 0 ? [] : junkFound()
   const scanListeners = new Set<(e: ScanEvent) => void>()
   const gatherListeners = new Set<(e: GatherEvent) => void>()
+  const backupListeners = new Set<(e: BackupEvent) => void>()
+  let backedUpTo: string | null = null
+  let backedUp = 0
   const later = (ms: number) => new Promise((done) => setTimeout(done, ms))
   // Tests can ask for everything to happen at once.
   const pace = mode === 'fast' || new URLSearchParams(window.location.search).has('fast') ? 0 : 1
@@ -207,6 +220,65 @@ export function demoBackend(): Backend {
           }),
         )
       })()
+    },
+    backupState: async () => backedUpTo,
+    chooseBackupFolder: async () => 'F:\\Family Backup',
+    async connectBackup(request) {
+      await later(300 * pace)
+      // The stand-in refuses one obviously wrong answer, as the real one would.
+      if (request.kind !== 'folder' && !request.secretAccessKey) throw new Error('Enter both keys for the storage.')
+      backedUpTo =
+        request.kind === 'folder'
+          ? `the folder ${request.place}`
+          : request.kind === 'r2'
+            ? `the Cloudflare R2 bucket ${request.bucket}`
+            : `the bucket ${request.bucket}`
+      return backedUpTo
+    },
+    async disconnectBackup() {
+      backedUpTo = null
+    },
+    async backUp() {
+      const total = collections.filter((c) => c.kept).reduce((n, c) => n + c.gathered, 0)
+      void (async () => {
+        for (let step = 1; step <= 6; step++) {
+          await later(200 * pace)
+          const done = Math.round((total * step) / 6)
+          backupListeners.forEach((l) =>
+            l({ line: `${done.toLocaleString('en-GB')} of ${total.toLocaleString('en-GB')} safely backed up`, finished: false }),
+          )
+        }
+        const fresh = total - backedUp
+        backedUp = total
+        backupListeners.forEach((l) =>
+          l({
+            finished: true,
+            summary: [
+              fresh > 0
+                ? `Safely backed up ${fresh.toLocaleString('en-GB')} files.`
+                : `${total.toLocaleString('en-GB')} files already there.`,
+            ],
+          }),
+        )
+      })()
+    },
+    async checkBackup() {
+      void (async () => {
+        await later(400 * pace)
+        backupListeners.forEach((l) =>
+          l({
+            finished: true,
+            summary: [
+              `Your library: all ${backedUp.toLocaleString('en-GB')} files are intact.`,
+              `Your backup: all ${backedUp.toLocaleString('en-GB')} originals are there.`,
+            ],
+          }),
+        )
+      })()
+    },
+    onBackup(listener) {
+      backupListeners.add(listener)
+      return () => backupListeners.delete(listener)
     },
     onScan(listener) {
       scanListeners.add(listener)

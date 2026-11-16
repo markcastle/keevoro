@@ -86,6 +86,27 @@ try {
   await page.getByRole('button', { name: 'Archive' }).click()
   await page.getByRole('button', { name: 'Gather my photos' }).waitFor()
 
+  // --- With photos safely gathered, Archive offers a second copy elsewhere.
+  await page.getByRole('heading', { name: 'Keep a second copy somewhere else' }).waitFor()
+  // Cloud storage asks for the few things it needs, and a wrong answer is
+  // said beside the form, not as a banner.
+  await page.getByRole('button', { name: 'Use cloud storage instead' }).click()
+  await page.getByLabel('Cloudflare account ID').fill('0123456789abcdef0123456789abcdef')
+  await page.getByLabel('Bucket name').fill('family-photos')
+  await page.getByLabel('Access key ID').fill('key')
+  assert.equal(await page.getByLabel('Secret access key').getAttribute('type'), 'password', 'the secret is hidden')
+  await shot('11-backup-connect')
+  await page.getByRole('button', { name: 'Cancel' }).click()
+  // Another disk is one click and a folder.
+  await page.getByRole('button', { name: 'Back up to another disk…' }).click()
+  await page.getByText('Your library is backed up to the folder F:\\Family Backup.').waitFor()
+  await page.getByRole('button', { name: 'Back up now' }).click()
+  await page.locator('.backup .done').first().waitFor()
+  assert.match(await text('.backup .done'), /^Safely backed up [\d,]+ files\.$/)
+  await page.getByRole('button', { name: 'Check my backup' }).click()
+  await page.getByText(/^Your backup: all [\d,]+ originals are there\.$/).waitFor()
+  await shot('12-backup-checked')
+
   // --- Opening a collection shows its photos, and one can be left out.
   await page.getByRole('button', { name: 'Discover', exact: true }).click()
   const opened = await page.locator('.hero h2').innerText()
