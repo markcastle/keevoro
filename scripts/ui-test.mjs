@@ -204,10 +204,12 @@ try {
   assert.equal(await page.getByRole('button', { name: 'Match my computer' }).getAttribute('aria-pressed'), 'true')
   await page.getByRole('button', { name: 'Dark', exact: true }).click()
   assert.equal(await ground(), 'rgb(7, 30, 30)', 'the deep teal ground of the dark theme')
+  assert.match(await page.locator('.brand img:visible').getAttribute('src'), /lockup-dark/, 'the logo for dark grounds')
   await page.waitForTimeout(400) // let the colours finish easing across
   await shot('9f-settings-dark')
   await page.getByRole('button', { name: 'Light', exact: true }).click()
   assert.equal(await ground(), 'rgb(254, 247, 235)')
+  assert.doesNotMatch(await page.locator('.brand img:visible').getAttribute('src'), /lockup-dark/)
   assert.equal(await page.evaluate(() => localStorage.getItem('keevoro-theme')), 'light', 'the choice is remembered')
   await page.getByRole('button', { name: 'Match my computer' }).click()
   assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), undefined)

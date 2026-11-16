@@ -41,6 +41,7 @@ import type {
 } from './backend'
 import { count, photosAndVideos, size, thousands, wholePlace } from './format'
 import iconUrl from './assets/keevoro-icon.png'
+import lockupDarkUrl from './assets/keevoro-lockup-dark.png'
 import lockupUrl from './assets/keevoro-lockup.png'
 import { chooseTheme, savedTheme } from './theme'
 import type { Theme } from './theme'
@@ -1319,14 +1320,17 @@ function Spinner() {
 
 /**
  * The logo, exactly as supplied by the design system: the full lockup in
- * the side bar, the picture tiles on their own where it is shown large.
- * It is never redrawn or recoloured.
+ * the side bar (with its own version for dark grounds), the picture tiles
+ * on their own where it is shown large. It is never redrawn or recoloured.
  */
 function Logo(props: { large?: boolean }) {
   return props.large ? (
     <img className="mark" src={iconUrl} alt="" />
   ) : (
-    <img src={lockupUrl} alt="Keevoro" />
+    <>
+      <img className="on-light" src={lockupUrl} alt="Keevoro" />
+      <img className="on-dark" src={lockupDarkUrl} alt="Keevoro" />
+    </>
   )
 }
 

@@ -12,7 +12,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
-- **Keevoro has its own look.** The app now wears the Keevoro design: the cream and deep teal of the logo, the Figtree typeface, photos shown as soft squares on a cream mat, and the real Keevoro logo in the side bar, on the first screen and as the app's icon. The fonts are built in, so it looks the same with no internet connection.
+- **Keevoro has its own look.** The app now wears the Keevoro design: the cream and deep teal of the logo, the Figtree typeface, photos shown as soft squares on a cream mat, and the real Keevoro logo in the side bar (with its cream-lettered version when the app is dark), on the first screen and as the app's icon. The fonts are built in, so it looks the same with no internet connection.
 
 ## [0.12.3] - 2026-11-16
 

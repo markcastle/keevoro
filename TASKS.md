@@ -126,7 +126,7 @@ Done when a non-technical tester gets from a drive to a backup without help.
 
 - [x] Reskin with the Keevoro design system: tokens, Figtree, the logo, soft-square photo tiles
 - [x] Light, dark and match-my-computer, chosen in Settings
-- [ ] A reversed logo for dark grounds (the design system notes it is still to be made; until then the logo sits on a cream panel)
+- [x] The logo for dark grounds (cream lettering), shown whenever the app is dark
 - [ ] Sunset placeholder art where a photo has no preview
 - [ ] Title bar that follows the chosen appearance on Windows
 

@@ -1589,39 +1589,27 @@ h3,
   margin-bottom: var(--space-2);
 }
 
-/* The logo is drawn for light grounds. In dark it sits on a cream panel,
-   as the design system asks, and is never recoloured. */
-:root[data-theme='dark'] .brand,
-:root[data-theme='dark'] .welcome .mark {
-  background: #fce9d1;
-  border-radius: var(--radius-md);
+/* The logo has two versions: teal lettering for light grounds, cream
+   lettering for dark ones. Only the one that suits the ground is shown. */
+.brand .on-dark {
+  display: none;
 }
 
-:root[data-theme='dark'] .brand {
-  padding: 8px 10px;
-  align-self: flex-start;
+:root[data-theme='dark'] .brand .on-light {
+  display: none;
 }
 
-:root[data-theme='dark'] .welcome .mark {
-  padding: var(--space-3);
-  border-radius: var(--radius-xl);
+:root[data-theme='dark'] .brand .on-dark {
+  display: block;
 }
 
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) .brand,
-  :root:not([data-theme='light']) .welcome .mark {
-    background: #fce9d1;
-    border-radius: var(--radius-md);
+  :root:not([data-theme='light']) .brand .on-light {
+    display: none;
   }
 
-  :root:not([data-theme='light']) .brand {
-    padding: 8px 10px;
-    align-self: flex-start;
-  }
-
-  :root:not([data-theme='light']) .welcome .mark {
-    padding: var(--space-3);
-    border-radius: var(--radius-xl);
+  :root:not([data-theme='light']) .brand .on-dark {
+    display: block;
   }
 }
 
