@@ -119,9 +119,10 @@ pub enum GatherStep {
 pub struct GatherOutcome {
     pub copied: GatherReport,
     pub previews: PreviewReport,
-    /// `None` when there were no videos, or no ffmpeg to work on them.
+    /// `None` when there were no videos, or nothing here that can read them.
     pub videos: Option<VideoReport>,
-    /// True when there were videos but ffmpeg is not installed, so they
+    /// True when there were videos but this computer has neither a video
+    /// decoder of its own nor ffmpeg, so they
     /// have no posters or MP4 copies. They are still safely gathered.
     pub videos_need_ffmpeg: bool,
 }
@@ -161,7 +162,20 @@ impl GatherOutcome {
             ));
         }
         if self.videos_need_ffmpeg {
-            said.push("Your videos are safe, but have no preview pictures because ffmpeg isn't installed.".to_string());
+            said.push(
+                "Your videos are safe, but have no preview pictures because this computer has no way to read videos."
+                    .to_string(),
+            );
+        }
+        if let Some(videos) = self.videos.as_ref().filter(|v| !v.problems.is_empty()) {
+            said.push(format!(
+                "{} safe, but with no preview picture because this computer can't play {}.",
+                match videos.problems.len() {
+                    1 => "1 video is".to_string(),
+                    n => format!("{} videos are", summary::thousands(n)),
+                },
+                if videos.problems.len() == 1 { "it" } else { "them" }
+            ));
         }
         said
     }
@@ -280,12 +294,13 @@ fn make_ready(
     })?;
 
     let has_videos = chosen.iter().any(|i| i.kind == MediaKind::Video);
-    let videos = match video_tools {
-        Some(tools) if has_videos => Some(make_video_previews(
+    let can_make_posters = keevoro_media::video::can_make_posters(video_tools);
+    let videos = match can_make_posters {
+        true if has_videos => Some(make_video_previews(
             library,
             catalog,
             &chosen,
-            tools,
+            video_tools,
             convert_videos,
             &mut |done, total| on_step(GatherStep::WorkingOnVideos { done, total }),
         )?),
@@ -295,7 +310,7 @@ fn make_ready(
     Ok(Some(GatherOutcome {
         copied,
         previews,
-        videos_need_ffmpeg: has_videos && video_tools.is_none(),
+        videos_need_ffmpeg: has_videos && !can_make_posters,
         videos,
     }))
 }

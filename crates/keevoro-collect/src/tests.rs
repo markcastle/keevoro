@@ -482,7 +482,7 @@ mod videos {
 
     fn run(w: &World, report: &ScanReport, tools: &VideoTools, convert: bool) -> crate::VideoReport {
         let items: Vec<&FoundItem> = report.items.iter().collect();
-        make_video_previews(&w.library(), &w.catalog, &items, tools, convert, &mut |_, _| {}).unwrap()
+        make_video_previews(&w.library(), &w.catalog, &items, Some(tools), convert, &mut |_, _| {}).unwrap()
     }
 
     fn id_of<'a>(report: &'a ScanReport, name: &str) -> &'a FoundItem {
@@ -597,8 +597,10 @@ mod videos {
 
         let mut calls = 0;
         let items: Vec<&FoundItem> = report.items.iter().collect();
-        let second =
-            make_video_previews(&w.library(), &w.catalog, &items, &tools, true, &mut |_, _| calls += 1).unwrap();
+        let second = make_video_previews(&w.library(), &w.catalog, &items, Some(&tools), true, &mut |_, _| {
+            calls += 1
+        })
+        .unwrap();
         assert_eq!(
             (calls, second.problems.len()),
             (0, 1),

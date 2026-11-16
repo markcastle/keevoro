@@ -269,6 +269,69 @@ pub fn poster(tools: &VideoTools, video: &Path) -> Result<Vec<u8>, MediaError> {
     to_webp(&shrink(&frame, DISPLAY_EDGE))
 }
 
+/// A poster made for a video, with what was learnt about the video on the way.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Still {
+    /// The poster, as WebP, no wider or taller than a display copy.
+    pub webp: Vec<u8>,
+    /// How long the video runs, when it could be told.
+    pub duration_secs: Option<f64>,
+    /// The size of the frame the poster was made from.
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Can this computer make a poster for a video at all: by its own built-in
+/// decoder, or failing that with ffmpeg?
+pub fn can_make_posters(tools: Option<&VideoTools>) -> bool {
+    keevoro_frame::available() || tools.is_some()
+}
+
+/// Makes a poster for a video.
+///
+/// The computer's own video decoder is asked first: it needs nothing
+/// installed and starts no other program. ffmpeg, if it happens to be
+/// there, is only a second try for the formats the computer cannot play
+/// (and the only way on computers with no decoder of their own).
+pub fn still(tools: Option<&VideoTools>, video: &Path) -> Result<Still, MediaError> {
+    let native = if keevoro_frame::available() {
+        match keevoro_frame::still(video, DISPLAY_EDGE) {
+            Ok(frame) => return still_from_frame(frame),
+            Err(e) => Some(e.to_string()),
+        }
+    } else {
+        None
+    };
+    match tools {
+        Some(tools) => {
+            let webp = poster(tools, video)?;
+            let info = probe(tools, video).ok();
+            Ok(Still {
+                webp,
+                duration_secs: info.as_ref().map(|i| i.duration_secs),
+                width: info.as_ref().map_or(0, |i| i.width),
+                height: info.as_ref().map_or(0, |i| i.height),
+            })
+        }
+        None if !video.is_file() => Err(MediaError::Io(std::io::ErrorKind::NotFound.into())),
+        None => Err(MediaError::CannotPlay(native.unwrap_or_else(|| {
+            "This computer has no built-in way to read videos".to_string()
+        }))),
+    }
+}
+
+fn still_from_frame(frame: keevoro_frame::Frame) -> Result<Still, MediaError> {
+    let (width, height, duration) = (frame.width, frame.height, frame.duration_secs);
+    let picture = image::RgbaImage::from_raw(width, height, frame.rgba).ok_or(MediaError::Damaged)?;
+    let webp = to_webp(&shrink(&image::DynamicImage::ImageRgba8(picture), DISPLAY_EDGE))?;
+    Ok(Still {
+        webp,
+        duration_secs: duration.map(|secs| secs as f64),
+        width,
+        height,
+    })
+}
+
 /// The ffmpeg arguments, between input and output, for a conversion.
 /// `None` when there is nothing to do.
 pub fn conversion_args(action: Conversion) -> Option<Vec<&'static str>> {

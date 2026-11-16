@@ -485,7 +485,9 @@ pub(crate) mod tests {
             said[2],
             "1 photo can't be previewed yet. The originals are safe in your library."
         );
-        assert!(said[3].contains("ffmpeg isn't installed"), "{said:?}");
+        // Whether the computer has no decoder at all or one that cannot play
+        // this (pretend) video, the person is told the same plain thing.
+        assert!(said[3].contains("no preview picture"), "{said:?}");
     }
 
     #[test]
