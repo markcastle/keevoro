@@ -456,6 +456,76 @@ h3 {
   margin-bottom: 14px;
 }
 
+/* ---------- inside a collection ---------- */
+
+.collage[role='button'],
+.open {
+  cursor: pointer;
+  display: block;
+  width: 100%;
+}
+
+.open:hover .picture,
+.collage[role='button']:hover {
+  filter: brightness(1.04);
+}
+
+.back {
+  display: inline-block;
+  margin-bottom: 6px;
+  font-size: 15px;
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+.tile {
+  position: relative;
+  border-radius: 14px;
+  text-align: left;
+}
+
+.tile .picture {
+  aspect-ratio: 1;
+  transition: opacity 0.15s, filter 0.15s;
+}
+
+.tile.out .picture {
+  opacity: 0.4;
+  filter: grayscale(0.7);
+}
+
+.tick {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--accent);
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+.tile.out .tick {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.why {
+  display: block;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--quiet);
+}
+
 /* ---------- archive ---------- */
 
 .panel {

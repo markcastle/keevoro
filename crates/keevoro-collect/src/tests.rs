@@ -179,7 +179,7 @@ fn a_file_changed_since_the_scan_is_reported_not_copied() {
         "one bad file does not stop the rest"
     );
     assert!(g.failed[0].path.ends_with("a.jpg"));
-    assert!(g.failed[0].reason.contains("changed since the drive was scanned"));
+    assert!(g.failed[0].reason.contains("changed since the source was scanned"));
     assert_eq!(
         snapshot(&w.library()).keys().collect::<Vec<_>>(),
         ["originals/Family/b.jpg"],
@@ -195,7 +195,7 @@ fn an_unplugged_drive_is_reported_file_by_file() {
     fs::remove_dir_all(w.drive()).unwrap();
     let g = w.gather(&report);
     assert_eq!((g.copied, g.failed.len()), (0, 1));
-    assert!(g.failed[0].reason.starts_with("Couldn't read it from the old drive"));
+    assert!(g.failed[0].reason.starts_with("Couldn't read it from the source"));
     assert_eq!(w.catalog.collected_totals().unwrap().0, 0);
 }
 

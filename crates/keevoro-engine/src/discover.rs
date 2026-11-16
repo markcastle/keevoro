@@ -210,6 +210,67 @@ pub fn set_collection_kept(catalog: &Catalog, key: &str, keep: bool) -> Result<u
     Ok(changed)
 }
 
+/// One file inside a collection, for the screen where single photos are
+/// ticked and unticked.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PhotoChoice {
+    #[serde(flatten)]
+    pub photo: PhotoView,
+    /// When it was taken, as precisely as is known, or `None`.
+    pub taken: Option<String>,
+    pub kept: bool,
+    /// Why it was set aside, for pictures in the junk list.
+    pub junk_reason: Option<String>,
+}
+
+fn choice(library: &Path, catalog: &Catalog, item: &FoundItem) -> Result<PhotoChoice> {
+    Ok(PhotoChoice {
+        photo: photo_view(library, catalog, item)?,
+        taken: item.date.map(|d| d.date.to_string()),
+        kept: wanted(catalog, item)?,
+        junk_reason: item.junk.map(|r| r.describe().to_string()),
+    })
+}
+
+/// Every file in the collection with this key, in date order.
+pub fn collection_photos(library: &Path, catalog: &Catalog, key: &str) -> Result<Vec<PhotoChoice>> {
+    let reports = catalog.load_reports()?;
+    let rescued = catalog.kept_hashes()?;
+    let (summary, items) = summary::summarise_with(&reports, &rescued);
+    let Some(collection) = summary.collections.iter().find(|c| key_of(&c.parents, &c.title) == key) else {
+        bail!("That collection isn't there any more. It may have changed since the screen was drawn.");
+    };
+    collection
+        .members
+        .iter()
+        .filter_map(|&m| items.get(m))
+        .map(|item| choice(library, catalog, item))
+        .collect()
+}
+
+/// The pictures set aside as probably not memories, each with its reason.
+/// One the user has since chosen to keep is no longer listed.
+pub fn set_aside(library: &Path, catalog: &Catalog) -> Result<Vec<PhotoChoice>> {
+    let reports = catalog.load_reports()?;
+    let rescued = catalog.kept_hashes()?;
+    let (everything, _) = summary::unique_items(&reports);
+    everything
+        .into_iter()
+        .filter(|i| i.junk.is_some() && !i.blake3.as_ref().is_some_and(|h| rescued.contains(h)))
+        .map(|item| choice(library, catalog, item))
+        .collect()
+}
+
+/// Keeps or skips the one file whose content id starts with `id`.
+pub fn set_photo_kept(catalog: &Catalog, id: &str, keep: bool) -> Result<()> {
+    let Some((_, _, hash)) = catalog.find_item(id)? else {
+        bail!("That photo isn't known to this library.");
+    };
+    catalog.set_choice(&hash, keep)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -369,6 +430,58 @@ mod tests {
             "1 photo can't be previewed yet. The originals are safe in your library."
         );
         assert!(said[3].contains("ffmpeg isn't installed"), "{said:?}");
+    }
+
+    #[test]
+    fn single_photos_in_a_collection_can_be_listed_and_chosen() {
+        let (_dir, library, catalog) = world();
+        let photos = collection_photos(&library, &catalog, "Holidays / Cornwall").unwrap();
+        assert_eq!(photos.len(), 2);
+        assert!(photos.iter().all(|p| p.kept && p.junk_reason.is_none()));
+        assert_eq!(photos[0].taken.as_deref(), Some("2008-08-12T10:15:00"), "in date order");
+        let json = serde_json::to_value(&photos[0]).unwrap();
+        assert_eq!(
+            json["name"], "IMG_20080812_101500.jpg",
+            "the photo's own fields sit alongside"
+        );
+        assert_eq!(json["kept"], true);
+
+        set_photo_kept(&catalog, &photos[1].photo.id, false).unwrap();
+        let after = collection_photos(&library, &catalog, "Holidays / Cornwall").unwrap();
+        assert_eq!((after[0].kept, after[1].kept), (true, false));
+        let d = discover(&library, &catalog).unwrap();
+        assert!(d.collections[1].kept, "one photo skipped does not skip the collection");
+        assert_eq!(d.waiting_to_gather, 2);
+
+        assert!(collection_photos(&library, &catalog, "Narnia").is_err());
+        let err = set_photo_kept(&catalog, "0000", true).unwrap_err();
+        assert_eq!(err.to_string(), "That photo isn't known to this library.");
+    }
+
+    #[test]
+    fn pictures_set_aside_are_listed_with_reasons_and_can_be_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let drive = dir.path().join("drive");
+        fs::create_dir_all(drive.join("Grandad")).unwrap();
+        fs::write(drive.join("Grandad/portrait.jpg"), real_jpeg(30)).unwrap();
+        let tiny = image::RgbImage::from_pixel(240, 180, image::Rgb([90, 90, 90]));
+        tiny.save(drive.join("Grandad/1952.png")).unwrap();
+        let library = dir.path().join("library");
+        let mut catalog = Catalog::open_in_library(&library).unwrap();
+        scan_into(&mut catalog, &drive, None, &mut |_| {}).unwrap();
+
+        assert_eq!(discover(&library, &catalog).unwrap().junk, 1);
+        let aside = set_aside(&library, &catalog).unwrap();
+        assert_eq!(aside.len(), 1);
+        assert_eq!(aside[0].photo.name, "1952.png");
+        assert_eq!(aside[0].junk_reason.as_deref(), Some("Tiny images (under 300 px)"));
+        assert!(!aside[0].kept, "set aside means not kept until the user says so");
+
+        set_photo_kept(&catalog, &aside[0].photo.id, true).unwrap();
+        assert!(set_aside(&library, &catalog).unwrap().is_empty());
+        let d = discover(&library, &catalog).unwrap();
+        assert_eq!((d.junk, d.photos), (0, 2), "it is back among the photos");
+        assert_eq!(collection_photos(&library, &catalog, "Grandad").unwrap().len(), 2);
     }
 
     #[test]

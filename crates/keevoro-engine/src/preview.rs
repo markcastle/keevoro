@@ -62,7 +62,7 @@ pub fn preview(
         if source.exists() {
             "This one can't be previewed"
         } else {
-            "The drive this is on isn't plugged in"
+            "The source this is on isn't plugged in"
         }
     })?;
     // Failing to cache is not a reason to withhold the picture.
@@ -165,6 +165,6 @@ mod tests {
 
         fs::remove_dir_all(&drive).unwrap();
         let err = preview(&library, &catalog, &cache, &id_of("a.jpg"), None).unwrap_err();
-        assert_eq!(err.to_string(), "The drive this is on isn't plugged in");
+        assert_eq!(err.to_string(), "The source this is on isn't plugged in");
     }
 }

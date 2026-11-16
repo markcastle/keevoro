@@ -45,11 +45,11 @@ try {
   await page.getByRole('button', { name: 'Use my Pictures folder' }).click()
 
   // --- With nothing found yet, Discover says what to do.
-  await page.getByRole('heading', { name: 'Plug in an old drive' }).waitFor()
+  await page.getByRole('heading', { name: 'Add your first source' }).waitFor()
   await shot('2-discover-empty')
 
   // --- Adding a place finds photos and shows them as collections.
-  await page.getByRole('button', { name: 'Add a place to look' }).click()
+  await page.getByRole('button', { name: 'Add a source', exact: true }).click()
   await page.getByRole('heading', { name: 'More discoveries' }).waitFor()
   assert.match(await text('.status'), /^\s*[\d,]+ photos and \d+ videos found$/)
   assert.equal(await page.locator('.sources .source').count(), 1)
@@ -85,6 +85,34 @@ try {
   await page.locator('.grid .card').first().getByRole('button', { name: 'Keep collection' }).click()
   await page.getByRole('button', { name: 'Archive' }).click()
   await page.getByRole('button', { name: 'Gather my photos' }).waitFor()
+
+  // --- Opening a collection shows its photos, and one can be left out.
+  await page.getByRole('button', { name: 'Discover', exact: true }).click()
+  const opened = await page.locator('.hero h2').innerText()
+  await page.getByRole('button', { name: `Open ${opened}` }).click()
+  await page.getByRole('heading', { name: opened, level: 1 }).waitFor()
+  const tiles = page.locator('.tiles .tile')
+  const howMany = await tiles.count()
+  assert.ok(howMany >= 3, 'the collection lists its photos')
+  assert.match(await text('.photos .status'), new RegExp(`^Keeping ${howMany} of ${howMany}\\.`))
+  await tiles.nth(1).click()
+  assert.equal(await tiles.nth(1).getAttribute('aria-pressed'), 'false')
+  assert.match(await text('.photos .status'), new RegExp(`^Keeping ${howMany - 1} of ${howMany}\\.`))
+  await page.waitForFunction(() => [...document.images].every((i) => i.complete && i.naturalWidth > 0))
+  await shot('9-collection')
+  await page.getByRole('button', { name: '‹ Discover' }).click()
+  await page.getByRole('heading', { name: 'More discoveries' }).waitFor()
+
+  // --- What was set aside can be looked at, with the reason, and rescued.
+  await page.getByRole('button', { name: /set aside as probably not memories$/ }).click()
+  await page.getByRole('heading', { name: 'Set aside', level: 1 }).waitFor()
+  assert.equal(await page.locator('.tiles .tile').count(), 3)
+  assert.equal(await text('.tiles .tile .why'), 'Looks like app icons')
+  await shot('10-set-aside')
+  await page.locator('.tiles .tile').last().click()
+  assert.equal(await page.locator('.tiles .tile').count(), 2, 'a rescued picture leaves the list')
+  await page.getByRole('button', { name: '‹ Discover' }).click()
+  assert.match(await text('.tidied'), /2 pictures set aside/)
 
   // --- A library that already has photos opens straight onto them, in dark mode too.
   await page.emulateMedia({ colorScheme: 'dark' })

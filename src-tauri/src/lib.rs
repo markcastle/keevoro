@@ -61,6 +61,9 @@ pub fn run() {
             commands::discover,
             commands::scan_place,
             commands::keep_collection,
+            commands::collection_photos,
+            commands::set_aside,
+            commands::keep_photo,
             commands::preview,
             commands::gather,
         ])

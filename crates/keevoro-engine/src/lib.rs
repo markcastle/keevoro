@@ -23,7 +23,10 @@ pub mod discover;
 pub mod preview;
 pub mod summary;
 
-pub use discover::{discover, set_collection_kept, CollectionView, Discover, PhotoView, SourceView};
+pub use discover::{
+    collection_photos, discover, set_aside, set_collection_kept, set_photo_kept, CollectionView, Discover, PhotoChoice,
+    PhotoView, SourceView,
+};
 pub use preview::preview;
 
 use anyhow::{bail, Context, Result};
@@ -113,7 +116,7 @@ impl GatherOutcome {
         }
         if !c.failed.is_empty() {
             said.push(format!(
-                "{} couldn't be copied. Nothing was lost: plug the drive in and gather again to retry.",
+                "{} couldn't be copied. Nothing was lost: plug the source in and gather again to retry.",
                 summary::count(c.failed.len(), "file")
             ));
         }
@@ -133,7 +136,7 @@ impl GatherOutcome {
 /// Copies everything the user is keeping into the library, verifies each
 /// copy, then makes previews. `Ok(None)` means there was nothing to gather.
 ///
-/// The old drives are only read. Safe to stop and run again.
+/// Sources are only read. Safe to stop and run again.
 pub fn gather_everything(
     library: &Path,
     catalog: &Catalog,

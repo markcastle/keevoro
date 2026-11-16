@@ -41,6 +41,7 @@ All four must succeed before you finish.
 - Plain names over clever ones. Small functions. Comments explain why, not what.
 - Every module starts with a short doc comment saying what it is for, in human terms.
 - User-facing text is plain English for non-technical people: "Couldn't read 2 files", never "IO error". No em dashes.
+- Call the places Keevoro looks for photos **sources**, never "old drives": "Add a source", "Your sources are only ever read". A source can be a drive, a USB stick or a folder. Say what one is the first time a screen mentions it.
 - Use British spelling in prose and user-facing text (organise, colour), and Rust conventions in code.
 
 ## The user experience bar

@@ -100,7 +100,7 @@ Done when a non-technical tester gets from a drive to a backup without help.
 - [x] Installers: the Release workflow builds a Windows installer (NSIS, per-user) and a universal macOS disk image; CI builds them on main as downloadable artefacts
 - [ ] In-app updates (Tauri updater, as Task Rail does); needs an updater signing key in repository secrets
 - [ ] Archive screen: backup status, "Back up now", "Check my backup"
-- [ ] Open a collection to see and tick its photos; show what was set aside as junk
+- [x] Open a collection to see and tick its photos; show what was set aside as junk, with one click to keep
 - [ ] Notice when a drive is plugged in and offer to look through it
 - [ ] Time left ("About 20 minutes"), and cancel for a search or a gather
 - [ ] Storage setup: provider logos, paste keys, connection check in plain words
