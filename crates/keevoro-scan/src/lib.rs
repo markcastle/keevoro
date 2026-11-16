@@ -106,7 +106,13 @@ pub struct ScanProgress {
     pub bytes: u64,
     /// The folder of the file most recently looked at.
     pub folder: PathBuf,
+    /// A large file being read right now, and its size. Reading one can
+    /// take minutes, during which nothing else here changes.
+    pub reading: Option<(PathBuf, u64)>,
 }
+
+/// Files at least this big are announced before they are read.
+const WORTH_ANNOUNCING: u64 = 64 * 1024 * 1024;
 
 /// What became of one thing the walk came across.
 enum Looked {
@@ -114,6 +120,8 @@ enum Looked {
     Other,
     Unreadable(String),
     Skipped(SkipReason),
+    /// A reader is about to start on a large file of this many bytes.
+    Reading(u64),
 }
 
 /// How many files to look at at once. More than one because most of a
@@ -154,6 +162,13 @@ pub fn scan(root: &Path, opts: &ScanOptions, on_progress: &mut dyn FnMut(&ScanPr
                     Err(_) => break,
                 };
                 let Ok((order, path)) = next else { break };
+                if let Some(bytes) = std::fs::metadata(&path)
+                    .ok()
+                    .map(|m| m.len())
+                    .filter(|b| *b >= WORTH_ANNOUNCING)
+                {
+                    let _ = done.send((order, path.clone(), Looked::Reading(bytes)));
+                }
                 let looked = match examine(root, &path, opts) {
                     Ok(Some(item)) => Looked::Media(Box::new(item)),
                     Ok(None) => Looked::Other,
@@ -167,7 +182,15 @@ pub fn scan(root: &Path, opts: &ScanOptions, on_progress: &mut dyn FnMut(&ScanPr
         threads.spawn(move || walk(root, opts, &to_read, &done));
 
         for (order, path, looked) in results {
+            if progress.reading.as_ref().is_some_and(|(reading, _)| *reading == path) {
+                progress.reading = None;
+            }
             match looked {
+                Looked::Reading(bytes) => {
+                    progress.reading = Some((path, bytes));
+                    on_progress(&progress);
+                    continue;
+                }
                 Looked::Skipped(reason) => {
                     skipped.push((order, SkippedFolder { path, reason }));
                     continue;

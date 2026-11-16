@@ -20,6 +20,7 @@
 
 mod commands;
 mod events;
+mod log;
 mod places;
 mod settings;
 mod updates;
@@ -32,6 +33,8 @@ use tauri::Manager;
 /// What the running app holds in memory.
 pub struct Shared {
     settings: Mutex<settings::Settings>,
+    /// The record of what the app did, for when someone asks.
+    log: log::Log,
     /// The app's own settings folder.
     config_dir: PathBuf,
     /// Where previews of not-yet-gathered photos are kept. Safe to delete.
@@ -51,7 +54,15 @@ pub fn run() {
         .setup(|app| {
             let config_dir = app.path().app_config_dir()?;
             let cache_dir = app.path().app_cache_dir()?.join("previews");
+            let log = log::Log::open(&app.path().app_log_dir()?);
+            log.say(&format!(
+                "Keevoro {} started on {} ({})",
+                env!("CARGO_PKG_VERSION"),
+                std::env::consts::OS,
+                std::env::consts::ARCH
+            ));
             app.manage(Shared {
+                log,
                 settings: Mutex::new(settings::Settings::load(&config_dir)),
                 config_dir,
                 cache_dir,
@@ -69,6 +80,8 @@ pub fn run() {
             commands::places,
             commands::open_library,
             commands::check_update,
+            commands::log_tail,
+            commands::open_log,
             commands::open_release_page,
             commands::install_update,
             commands::keep_collection,

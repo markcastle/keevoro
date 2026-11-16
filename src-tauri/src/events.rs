@@ -22,6 +22,13 @@ pub struct ScanEvent {
     /// The folder being looked in right now, for the curious.
     #[serde(skip_serializing_if = "String::is_empty")]
     pub folder: String,
+    /// A large file being read right now: where it is and its size in
+    /// bytes. Reading one can take minutes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reading: Option<(String, u64)>,
+    /// True once the looking is over and what was found is being saved.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub saving: bool,
     pub finished: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub problem: Option<String>,
@@ -167,6 +174,8 @@ mod tests {
             videos: 312,
             files: 98_000,
             folder: String::new(),
+            reading: None,
+            saving: false,
             finished: false,
             problem: None,
         };

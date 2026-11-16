@@ -64,6 +64,19 @@ pub fn scan_into(
     name: Option<&str>,
     on_progress: &mut dyn FnMut(&ScanProgress),
 ) -> Result<ScanReport> {
+    scan_into_noting(catalog, source, name, on_progress, &mut || {})
+}
+
+/// As [`scan_into`], and calls `on_saving` once the looking is over and
+/// what was found is about to be written down, which on a big source takes
+/// a noticeable moment of its own.
+pub fn scan_into_noting(
+    catalog: &mut Catalog,
+    source: &Path,
+    name: Option<&str>,
+    on_progress: &mut dyn FnMut(&ScanProgress),
+    on_saving: &mut dyn FnMut(),
+) -> Result<ScanReport> {
     // A remembered drive is recognised by its full path, so `D:` and
     // `D:\.` must come out the same.
     let root = std::fs::canonicalize(source).unwrap_or_else(|_| source.to_path_buf());
@@ -71,6 +84,7 @@ pub fn scan_into(
     let fallback = root
         .file_name()
         .map_or_else(|| root.display().to_string(), |n| n.to_string_lossy().to_string());
+    on_saving();
     catalog.save_scan(name.unwrap_or(&fallback), &report, now())?;
     Ok(report)
 }

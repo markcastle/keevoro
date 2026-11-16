@@ -182,16 +182,29 @@ export function demoBackend(): Backend {
     },
     discover: async () => view(),
     places: async () => [
-      { path: 'E:\\', name: 'KINGSTON (E:)', detail: 'USB or external drive \u00b7 32 GB', removable: true },
-      { path: 'C:\\', name: 'Windows (C:)', detail: 'This computer\u2019s disk \u00b7 512 GB', removable: false },
+      { path: 'E:\\', name: 'KINGSTON (E:)', detail: 'USB or external drive \u00b7 32 GB', removable: true, askFirst: false },
+      { path: 'C:\\', name: 'Windows (C:)', detail: 'This computer\u2019s disk \u00b7 512 GB', removable: false, askFirst: true },
     ],
     async scanPlace(path) {
-      look(path.startsWith('E') ? 'KINGSTON (E:)' : 'Windows (C:)', path)
+      const name = path.startsWith('E')
+        ? 'KINGSTON (E:)'
+        : path === 'C:\\'
+          ? 'Windows (C:)'
+          : sources.length === 0
+            ? 'Family hard drive'
+            : `Old laptop ${sources.length}`
+      look(name, path)
     },
-    async addPlace() {
-      look(sources.length === 0 ? 'Family hard drive' : `Old laptop ${sources.length}`, 'D:\\Photos')
-      return true
-    },
+    // The folder window is the system's own, so the stand-in just answers.
+    pickPlace: async () => 'D:\\Photos',
+    logTail: async () =>
+      [
+        '2026-11-16 14:02:09  Keevoro 9.8.0 started on windows (x86_64)',
+        '2026-11-16 14:02:11  Looking through E:\\',
+        '2026-11-16 14:02:19  Reading a large file (3.9 GB): E:\\Video\\wedding.mov',
+        '2026-11-16 14:03:40  Looked through E:\\ in 89 seconds: 238 photos and videos, 11,204 other files, 3 folders skipped, 0 unreadable',
+      ].join('\n'),
+    openLog: async () => {},
     checkUpdate: async () =>
       new URLSearchParams(window.location.search).has('update')
         ? { version: '9.9.0', page: 'https://github.com/markcastle/keevoro/releases' }

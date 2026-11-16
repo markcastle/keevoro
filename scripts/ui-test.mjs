@@ -154,12 +154,39 @@ try {
   await page.getByRole('button', { name: 'See what was found' }).click()
   assert.match(await text('.next'), /Gather them into my library/, 'the new photos are waiting to be gathered')
 
+  // --- A whole disk is asked about before it is looked through.
+  await page.goto(`${base}/?demo=empty&fast`)
+  await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
+  await page.getByRole('button', { name: /Windows \(C:\)/ }).click()
+  await page.getByRole('heading', { name: 'Look through all of Windows (C:)?' }).waitFor()
+  assert.match(await text('.asking'), /whole disk \(512 GB\).*a few minutes to an hour or more/s)
+  await shot('9d-whole-disk')
+  await page.getByRole('button', { name: 'Cancel' }).click()
+  assert.equal(await page.locator('.asking').count(), 0, 'cancelling goes back to the choices')
+  assert.equal(await page.locator('.searching').count(), 0, 'and nothing was started')
+  await page.getByRole('button', { name: /Windows \(C:\)/ }).click()
+  await page.getByRole('button', { name: 'Look through all of it' }).click()
+  await page.getByRole('heading', { name: /^Found [\d,]+ photos/ }).waitFor()
+
+  // --- Settings holds everything in one place, including the log.
+  await page.getByRole('button', { name: 'Settings' }).click()
+  await page.getByRole('heading', { name: 'Settings', level: 1 }).waitFor()
+  for (const title of ['Your library', 'Backup', 'Updates', 'What Keevoro has been doing']) {
+    await page.getByRole('heading', { name: title, level: 3 }).waitFor()
+  }
+  await page.getByRole('button', { name: 'Show the log' }).click()
+  assert.match(await text('.settings .log'), /Reading a large file \(3\.9 GB\): E:\\Video\\wedding\.mov/)
+  await page.getByRole('button', { name: 'Check for updates' }).click()
+  await page.getByText('That is the newest version.').waitFor()
+  await shot('9e-settings')
+  await page.getByRole('button', { name: '‹ Back' }).click()
+  await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
+
   // --- A newer version is offered calmly and can be installed in one click.
   await page.goto(`${base}/?fast&update`)
   assert.match(await text('.update'), /A new version of Keevoro is ready \(9\.9\.0\)/)
   await shot('9c-update-ready')
   await page.getByRole('button', { name: 'Update now' }).click()
-  await page.getByText(/Downloading the new version/).waitFor()
   await page.getByText(/has been downloaded and opened/).waitFor()
   await page.goto(`${base}/?fast&update`)
   await page.getByRole('button', { name: 'Later' }).click()

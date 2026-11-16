@@ -404,3 +404,25 @@ fn a_big_source_comes_out_in_the_same_order_every_time() {
     sorted.sort();
     assert_eq!(paths(&first), sorted, "in folder and name order");
 }
+
+#[test]
+fn a_large_file_is_announced_before_it_is_read() {
+    let t = Tree::new();
+    let mut big = mp4();
+    big.resize(usize::try_from(WORTH_ANNOUNCING).unwrap() + 1, 0);
+    t.add("holiday.mp4", &big);
+    t.add("small.jpg", &plain_jpeg(1));
+    let mut announced = Vec::new();
+    let mut last = ScanProgress::default();
+    scan(t.root(), &ScanOptions::default(), &mut |p| {
+        if let Some((path, bytes)) = &p.reading {
+            announced.push((path.file_name().unwrap().to_owned(), *bytes));
+        }
+        last = p.clone();
+    });
+    assert!(announced
+        .iter()
+        .any(|(name, bytes)| name == "holiday.mp4" && *bytes > WORTH_ANNOUNCING));
+    assert_eq!(last.reading, None, "and it is cleared once read");
+    assert_eq!((last.files_seen, last.videos, last.photos), (2, 1, 1));
+}

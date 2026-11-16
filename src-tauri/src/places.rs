@@ -20,6 +20,9 @@ pub struct Place {
     pub detail: String,
     /// A USB stick, SD card or external disk: the likeliest place to look.
     pub removable: bool,
+    /// A whole disk big enough that looking through all of it can take a
+    /// long while, so it is worth asking before starting.
+    pub ask_first: bool,
 }
 
 /// Every drive worth offering, removable ones first.
@@ -40,6 +43,10 @@ pub fn plugged_in() -> Vec<Place> {
     places.dedup_by(|a, b| a.path == b.path);
     places
 }
+
+/// Removable drives larger than this are external hard disks, not sticks or
+/// cards, and are asked about before being looked through whole.
+const ASK_ABOVE: u64 = 64_000_000_000;
 
 /// Turns what the system says about a drive into what a person would call
 /// it. `None` for things that are not drives a person would recognise.
@@ -82,6 +89,10 @@ pub fn describe(mount: &str, label: &str, bytes: u64, removable: bool) -> Option
         name,
         detail: format!("{kind} · {}", size(bytes)),
         removable,
+        // A USB stick or memory card is what people come here to look
+        // through, and is quick. A computer's own disk, or a big external
+        // one, is mostly not photos and can take a long time.
+        ask_first: !removable || bytes > ASK_ABOVE,
     })
 }
 
@@ -159,5 +170,14 @@ mod tests {
         let mut sorted = removable_then_fixed.clone();
         sorted.sort_by(|a, b| b.cmp(a));
         assert_eq!(removable_then_fixed, sorted, "removable drives come first");
+    }
+
+    #[test]
+    fn big_disks_are_asked_about_and_sticks_are_not() {
+        let gb = 1_000_000_000;
+        let ask = |bytes, removable| describe("E:\\", "X", bytes, removable).unwrap().ask_first;
+        assert!(!ask(32 * gb, true), "a USB stick just starts");
+        assert!(ask(2000 * gb, true), "an external hard disk is asked about");
+        assert!(ask(512 * gb, false), "so is the computer's own disk");
     }
 }
