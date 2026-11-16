@@ -43,6 +43,9 @@ pub struct Shared {
     scanning: AtomicBool,
     /// True while photos are being gathered.
     gathering: AtomicBool,
+    /// True while files a quick search only sampled are being read in the
+    /// background.
+    checking: AtomicBool,
     /// True while a backup or a check of one is running.
     backing_up: AtomicBool,
 }
@@ -68,6 +71,7 @@ pub fn run() {
                 cache_dir,
                 scanning: AtomicBool::new(false),
                 gathering: AtomicBool::new(false),
+                checking: AtomicBool::new(false),
                 backing_up: AtomicBool::new(false),
             });
             Ok(())
@@ -80,6 +84,7 @@ pub fn run() {
             commands::places,
             commands::open_library,
             commands::check_update,
+            commands::keep_checking,
             commands::log_tail,
             commands::open_log,
             commands::open_release_page,

@@ -292,6 +292,7 @@ mod tests {
             mime: "image/jpeg".into(),
             bytes: 1024 * 1024,
             blake3: hash.map(str::to_string),
+            hashed: true,
             date: date.map(|(source, date)| DateGuess { date, source }),
             folder: FolderHints {
                 album: album.iter().map(|s| (*s).to_string()).collect(),

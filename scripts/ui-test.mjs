@@ -63,6 +63,9 @@ try {
   await shot('2b-searching')
   await page.getByRole('heading', { name: /^Found [\d,]+ photos and \d+ videos on KINGSTON \(E:\)$/ }).waitFor()
   assert.equal(await text('.kept li span'), 'KINGSTON (E:)', 'what has been looked through is listed')
+  // The careful checking carries on behind, and says so quietly.
+  assert.match(await text('.foot .checking'), /Checking for duplicates in the background: [\d,]+ of [\d,]+/)
+  await page.locator('.foot .checking').waitFor({ state: 'detached' })
   await shot('3-found')
   await page.getByRole('button', { name: 'See what was found' }).click()
 

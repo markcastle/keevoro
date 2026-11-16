@@ -114,6 +114,12 @@ const MIGRATIONS: &[&str] = &[
          mp4      INTEGER NOT NULL DEFAULT 0,
          reason   TEXT
      );",
+    // 5: whether an item's fingerprint covers the whole file (1) or is a
+    // quick one from a fast search (0). Everything found before this was
+    // whole. `quick` keeps the quick fingerprint once the whole one is known.
+    "ALTER TABLE items ADD COLUMN hashed INTEGER NOT NULL DEFAULT 1;
+     ALTER TABLE items ADD COLUMN quick TEXT;
+     CREATE INDEX items_unhashed ON items(hashed) WHERE hashed = 0;",
 ];
 
 #[derive(Debug, thiserror::Error)]
@@ -142,6 +148,14 @@ pub struct Source {
     pub scanned_at: i64,
 }
 
+/// A file known only by a quick fingerprint so far.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Unhashed {
+    pub path: PathBuf,
+    pub quick: String,
+    pub bytes: u64,
+}
+
 pub struct Catalog {
     conn: Connection,
 }
@@ -167,6 +181,9 @@ impl Catalog {
 
     fn prepare(mut conn: Connection) -> Result<Self> {
         conn.pragma_update(None, "foreign_keys", true)?;
+        // The app reads and writes from more than one thread (a search, and
+        // the checking that follows it), so wait for a turn, do not fail.
+        conn.busy_timeout(std::time::Duration::from_secs(30))?;
         let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         let done = usize::try_from(version).unwrap_or(usize::MAX);
         if done > MIGRATIONS.len() {
@@ -189,6 +206,21 @@ impl Catalog {
     pub fn save_scan(&mut self, name: &str, report: &ScanReport, scanned_at: i64) -> Result<i64> {
         let tx = self.conn.transaction()?;
         let root = path_text(&report.root);
+        // Reading a whole file is the slow part of knowing it, so whole-file
+        // fingerprints worked out for this source before are kept: a file
+        // still at the same place with the same quick fingerprint has not
+        // changed.
+        let mut known: std::collections::HashMap<(String, String), String> = std::collections::HashMap::new();
+        {
+            let mut q = tx.prepare(
+                "SELECT i.path, i.quick, i.blake3 FROM items i JOIN sources s ON s.id = i.source_id
+                 WHERE s.root = ?1 AND i.hashed = 1 AND i.quick IS NOT NULL",
+            )?;
+            let mut rows = q.query([&root])?;
+            while let Some(r) = rows.next()? {
+                known.insert((r.get(0)?, r.get(1)?), r.get(2)?);
+            }
+        }
         tx.execute("DELETE FROM sources WHERE root = ?1", [&root])?;
         tx.execute(
             "INSERT INTO sources (name, root, other_files, scanned_at) VALUES (?1, ?2, ?3, ?4)",
@@ -198,17 +230,25 @@ impl Catalog {
         {
             let mut insert = tx.prepare(
                 "INSERT INTO items (source_id, path, kind, mime, bytes, blake3, date, date_source,
-                                    album, folder_date, width, height, junk)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                                    album, folder_date, width, height, junk, hashed, quick)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             )?;
             for i in &report.items {
+                let path = path_text(&i.path);
+                // A quick fingerprint is remembered beside the whole one, so
+                // the next search of this source can recognise the file.
+                let quick = if i.hashed { None } else { i.blake3.clone() };
+                let whole = quick
+                    .as_ref()
+                    .and_then(|q| known.get(&(path.clone(), q.clone())).cloned());
+                let hashed = i.hashed || whole.is_some();
                 insert.execute(params![
                     source,
-                    path_text(&i.path),
+                    path,
                     to_name(&i.kind)?,
                     i.mime,
                     to_i64(i.bytes),
-                    i.blake3,
+                    whole.or_else(|| i.blake3.clone()),
                     i.date.map(|d| d.date.to_string()),
                     i.date.map(|d| d.source.as_str()),
                     serde_json::to_string(&i.folder.album).map_err(damaged)?,
@@ -216,6 +256,8 @@ impl Catalog {
                     i.width,
                     i.height,
                     i.junk.map(JunkReason::as_str),
+                    hashed,
+                    quick,
                 ])?;
             }
             let mut skipped = tx.prepare("INSERT INTO skipped (source_id, path, reason) VALUES (?1, ?2, ?3)")?;
@@ -247,6 +289,50 @@ impl Catalog {
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Every file whose fingerprint is still a quick one: its path, that
+    /// quick fingerprint and its size, in the order found.
+    pub fn unhashed(&self) -> Result<Vec<Unhashed>> {
+        let mut q = self
+            .conn
+            .prepare("SELECT path, blake3, bytes FROM items WHERE hashed = 0 AND blake3 IS NOT NULL ORDER BY id")?;
+        let rows = q.query_map([], |r| {
+            Ok(Unhashed {
+                path: PathBuf::from(r.get::<_, String>(0)?),
+                quick: r.get(1)?,
+                bytes: u64::try_from(r.get::<_, i64>(2)?).unwrap_or(0),
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Records the whole-file fingerprint of a file that had only a quick
+    /// one. A keep choice made while only the quick one was known follows
+    /// the file to its real fingerprint, so nothing the user decided is
+    /// lost, and two different files that happened to share a quick
+    /// fingerprint each keep the choice.
+    pub fn set_whole_hash(&self, path: &Path, quick: &str, whole: &str) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        let changed = tx.execute(
+            "UPDATE items SET blake3 = ?1, quick = ?2, hashed = 1 WHERE path = ?3 AND blake3 = ?2 AND hashed = 0",
+            params![whole, quick, path_text(path)],
+        )?;
+        if changed > 0 {
+            tx.execute(
+                "INSERT INTO choices (blake3, keep) SELECT ?1, keep FROM choices WHERE blake3 = ?2
+                 ON CONFLICT(blake3) DO NOTHING",
+                params![whole, quick],
+            )?;
+            // Once no file goes by the quick fingerprint, its choice is spent.
+            tx.execute(
+                "DELETE FROM choices WHERE blake3 = ?1
+                 AND NOT EXISTS (SELECT 1 FROM items WHERE blake3 = ?1 AND hashed = 0)",
+                [quick],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
     }
 
     /// Forgets a source and everything found on it. Keep choices stay.
@@ -282,7 +368,8 @@ impl Catalog {
 
     fn items_of(&self, source: i64) -> Result<Vec<FoundItem>> {
         let mut q = self.conn.prepare(
-            "SELECT path, kind, mime, bytes, blake3, date, date_source, album, folder_date, width, height, junk
+            "SELECT path, kind, mime, bytes, blake3, date, date_source, album, folder_date, width, height, junk,
+                    hashed
              FROM items WHERE source_id = ?1 ORDER BY id",
         )?;
         let mut rows = q.query([source])?;
@@ -305,6 +392,7 @@ impl Catalog {
                 mime: r.get(2)?,
                 bytes: u64::try_from(r.get::<_, i64>(3)?).unwrap_or(0),
                 blake3: r.get(4)?,
+                hashed: r.get(12)?,
                 date,
                 folder: FolderHints {
                     album: serde_json::from_str(&r.get::<_, String>(7)?).map_err(damaged)?,
@@ -364,7 +452,10 @@ impl Catalog {
         let row = self
             .conn
             .query_row(
-                "SELECT path, kind, blake3 FROM items WHERE blake3 LIKE ?1 || '%' ORDER BY id LIMIT 1",
+                // A picture already on screen may still be known by the id
+                // made from its quick fingerprint.
+                "SELECT path, kind, blake3 FROM items
+                 WHERE blake3 LIKE ?1 || '%' OR quick LIKE ?1 || '%' ORDER BY id LIMIT 1",
                 [id.to_lowercase()],
                 |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)),
             )

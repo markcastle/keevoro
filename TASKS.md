@@ -113,7 +113,9 @@ Done when a non-technical tester gets from a drive to a backup without help.
 - [x] Ask before looking through a whole disk or top-level folder
 - [x] Settings screen: library, backup, updates and the log in one place
 - [x] A log of what the app did (`keevoro.log` in the app's log folder), viewable from Settings
-- [ ] Search without reading every file to the end: take a quick fingerprint while searching and the full one while gathering, when the file is read anyway
+- [x] Snappy search: a quick fingerprint while searching, the whole-file one afterwards in the background, and always before a file is gathered
+- [ ] Fingerprint a file while copying it, so a file gathered straight after a search is read once, not twice
+- [ ] `keevoro scan --quick` for the command line (it still reads every file whole)
 - [ ] Stop a search part-way, and show roughly how long is left
 - [ ] Notice when a drive is plugged in and offer to look through it
 - [ ] Time left ("About 20 minutes"), and cancel for a search or a gather

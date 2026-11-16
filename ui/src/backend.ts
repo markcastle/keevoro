@@ -83,9 +83,12 @@ export type ScanEvent = {
   problem?: string
 }
 
+/** Sent while files a quick search only sampled are read in the background. */
+export type CheckEvent = { done: number; total: number; finished: boolean }
+
 /** Sent while photos are being gathered, and once more when done. */
 export type GatherEvent = {
-  step: 'copying' | 'previews' | 'videos' | 'finished'
+  step: 'checking' | 'copying' | 'previews' | 'videos' | 'finished'
   done: number
   total: number
   /** On the last event: what happened, as sentences to show. */
@@ -155,6 +158,9 @@ export interface Backend {
   checkBackup(): Promise<void>
   onBackup(listener: (event: BackupEvent) => void): () => void
   onScan(listener: (event: ScanEvent) => void): () => void
+  /** Carries on with any background checking left over from last time. */
+  keepChecking(): Promise<void>
+  onCheck(listener: (event: CheckEvent) => void): () => void
   onGather(listener: (event: GatherEvent) => void): () => void
 }
 
@@ -220,6 +226,8 @@ async function tauriBackend(): Promise<Backend> {
     checkBackup: () => invoke('check_backup'),
     onBackup: (listener) => subscribe('backup', listener),
     onScan: (listener) => subscribe('scan', listener),
+    keepChecking: () => invoke('keep_checking'),
+    onCheck: (listener) => subscribe('check', listener),
     onGather: (listener) => subscribe('gather', listener),
   }
 }

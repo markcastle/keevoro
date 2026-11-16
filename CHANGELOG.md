@@ -13,6 +13,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Keevoro asks before looking through a whole disk.** Choosing your computer's disk, a large external drive or a top-level folder now asks first, says it may take a while, and offers "Choose a folder inside it" as the quicker way. USB sticks and memory cards start straight away as before.
 - **The search says when it is on a large file, and when it is saving.** A long video can take minutes to read, during which the counts do not move; the screen now names the file and its size, and says "Saving what was found" at the end.
 
+### Changed
+
+- **Looking through a source no longer reads every file to the end.** The search now only identifies what is there (a few samples from each large file, not the whole thing), so a drive full of long videos is listed in a fraction of the time. The careful work happens afterwards, in the background, while you carry on: Keevoro reads each file fully to confirm which are true duplicates, and a quiet line in the side bar says how far it has got. Until that finishes, the duplicate count is a close estimate.
+- **Gathering checks before it copies.** Any file not yet fully read is read first ("checked before copying"), so a copy is still proved exact against its original and two different files are never mistaken for one. A file that cannot be read in full is reported and not copied.
+
 ## [0.10.0] - 2026-11-16
 
 ### Added

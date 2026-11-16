@@ -12,6 +12,7 @@ import type {
   AppState,
   BackupEvent,
   Backend,
+  CheckEvent,
   Collection,
   Discover,
   GatherEvent,
@@ -114,6 +115,7 @@ export function demoBackend(): Backend {
   ]
   const junk: PhotoChoice[] = collections.length === 0 ? [] : junkFound()
   const scanListeners = new Set<(e: ScanEvent) => void>()
+  const checkListeners = new Set<(event: CheckEvent) => void>()
   const gatherListeners = new Set<(e: GatherEvent) => void>()
   const backupListeners = new Set<(e: BackupEvent) => void>()
   let backedUpTo: string | null = null
@@ -167,6 +169,14 @@ export function demoBackend(): Backend {
         if (junk.length === 0) junk.push(...junkFound())
         sources.push({ id: Date.now(), name, root, items: photos + videos })
         scanListeners.forEach((l) => l({ name, photos, videos, finished: true }))
+        // Then, as the real app does, the careful checking carries on behind.
+        const total = Math.max(1, Math.round((photos + videos) / 6))
+        for (let done = 0; done < total; done += Math.ceil(total / 5)) {
+          checkListeners.forEach((l) => l({ done, total, finished: false }))
+          // Long enough to be seen, however fast the rest is asked to go.
+          await later(300)
+        }
+        checkListeners.forEach((l) => l({ done: total, total, finished: true }))
       })()
   }
 
@@ -335,6 +345,11 @@ export function demoBackend(): Backend {
     onScan(listener) {
       scanListeners.add(listener)
       return () => scanListeners.delete(listener)
+    },
+    keepChecking: async () => {},
+    onCheck(listener) {
+      checkListeners.add(listener)
+      return () => checkListeners.delete(listener)
     },
     onGather(listener) {
       gatherListeners.add(listener)

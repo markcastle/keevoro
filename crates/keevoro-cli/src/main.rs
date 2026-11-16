@@ -589,6 +589,7 @@ fn run_gather(
             return;
         }
         let line = match step {
+            GatherStep::Checking { done, total } => format!("Checking files: {} of {}", n(done), n(total)),
             GatherStep::Copying { done, total } => format!("{} of {} safely copied", n(done), n(total)),
             GatherStep::MakingPreviews { done, total } => format!("Making previews: {} of {}", n(done), n(total)),
             GatherStep::WorkingOnVideos { done, total } => format!("Working on videos: {} of {}", n(done), n(total)),
@@ -1866,6 +1867,7 @@ mod tests {
             mime: "image/jpeg".into(),
             bytes: 1,
             blake3: Some("abcd1111".into()),
+            hashed: true,
             date: None,
             folder: Default::default(),
             width: None,

@@ -1230,3 +1230,18 @@ button.danger {
   white-space: pre;
   user-select: text;
 }
+
+/* Quiet word in the side bar while files are checked behind the scenes. */
+.foot .checking {
+  display: block;
+  line-height: 1.45;
+  margin-bottom: 4px;
+}
+
+.foot .checking .spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  vertical-align: -1px;
+  margin-right: 4px;
+}

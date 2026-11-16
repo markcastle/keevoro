@@ -8,6 +8,7 @@ fn photo(path: &str, hash: &str) -> FoundItem {
         mime: "image/jpeg".into(),
         bytes: 2_483_312,
         blake3: Some(hash.repeat(64)),
+        hashed: true,
         date: Some(DateGuess {
             date: PartialDate::parse("2009-07-14T21:03:11").unwrap(),
             source: DateSource::Exif,
@@ -432,4 +433,110 @@ fn a_file_can_be_found_by_the_start_of_its_content_id() {
     for odd in ["", "%", "a%", "_", "zz"] {
         assert_eq!(c.find_item(odd).unwrap(), None, "{odd:?}");
     }
+}
+
+/// A source with two files known only by quick fingerprints.
+fn quick_report() -> ScanReport {
+    let mut a = photo("/mnt/usb/a.jpg", "1");
+    a.hashed = false;
+    let mut b = photo("/mnt/usb/b.jpg", "1");
+    b.hashed = false;
+    ScanReport {
+        root: PathBuf::from("/mnt/usb"),
+        items: vec![a, b, photo("/mnt/usb/c.jpg", "c")],
+        ..Default::default()
+    }
+}
+
+#[test]
+fn quick_fingerprints_are_listed_until_the_whole_one_is_known() {
+    let mut c = Catalog::in_memory().unwrap();
+    c.save_scan("USB", &quick_report(), 1).unwrap();
+    let waiting = c.unhashed().unwrap();
+    assert_eq!(waiting.len(), 2);
+    assert_eq!(waiting[0].path, PathBuf::from("/mnt/usb/a.jpg"));
+    assert_eq!(waiting[0].quick, "1".repeat(64));
+
+    c.set_whole_hash(&waiting[0].path, &waiting[0].quick, &"a".repeat(64))
+        .unwrap();
+    assert_eq!(c.unhashed().unwrap().len(), 1);
+    let items = &c.load_reports().unwrap()[0].items;
+    assert_eq!(
+        (items[0].blake3.as_deref(), items[0].hashed),
+        (Some("a".repeat(64).as_str()), true)
+    );
+    assert!(!items[1].hashed);
+    // Asking again, or for a file that is not there, changes nothing.
+    c.set_whole_hash(&waiting[0].path, &waiting[0].quick, &"f".repeat(64))
+        .unwrap();
+    assert_eq!(c.load_reports().unwrap()[0].items[0].blake3, Some("a".repeat(64)));
+}
+
+#[test]
+fn a_choice_made_early_follows_each_file_to_its_real_fingerprint() {
+    let mut c = Catalog::in_memory().unwrap();
+    c.save_scan("USB", &quick_report(), 1).unwrap();
+    let quick = "1".repeat(64);
+    c.set_choice(&quick, false).unwrap();
+
+    // The two files shared a quick fingerprint but are really different.
+    c.set_whole_hash(Path::new("/mnt/usb/a.jpg"), &quick, &"a".repeat(64))
+        .unwrap();
+    assert_eq!(c.choice(&"a".repeat(64)).unwrap(), Some(false));
+    assert_eq!(c.choice(&quick).unwrap(), Some(false), "b.jpg still goes by it");
+    c.set_whole_hash(Path::new("/mnt/usb/b.jpg"), &quick, &"b".repeat(64))
+        .unwrap();
+    assert_eq!(c.choice(&"b".repeat(64)).unwrap(), Some(false));
+    assert_eq!(c.choice(&quick).unwrap(), None, "nothing goes by it any more");
+}
+
+#[test]
+fn a_later_choice_is_not_overwritten_by_an_earlier_one() {
+    let mut c = Catalog::in_memory().unwrap();
+    c.save_scan("USB", &quick_report(), 1).unwrap();
+    let quick = "1".repeat(64);
+    c.set_choice(&quick, false).unwrap();
+    c.set_choice(&"a".repeat(64), true).unwrap();
+    c.set_whole_hash(Path::new("/mnt/usb/a.jpg"), &quick, &"a".repeat(64))
+        .unwrap();
+    assert_eq!(c.choice(&"a".repeat(64)).unwrap(), Some(true));
+}
+
+#[test]
+fn looking_again_does_not_forget_fingerprints_already_worked_out() {
+    let mut c = Catalog::in_memory().unwrap();
+    c.save_scan("USB", &quick_report(), 1).unwrap();
+    let quick = "1".repeat(64);
+    c.set_whole_hash(Path::new("/mnt/usb/a.jpg"), &quick, &"a".repeat(64))
+        .unwrap();
+
+    // The same quick search again: a.jpg is recognised, b.jpg still waits.
+    c.save_scan("USB", &quick_report(), 2).unwrap();
+    let waiting = c.unhashed().unwrap();
+    assert_eq!(waiting.len(), 1);
+    assert_eq!(waiting[0].path, PathBuf::from("/mnt/usb/b.jpg"));
+    assert_eq!(c.load_reports().unwrap()[0].items[0].blake3, Some("a".repeat(64)));
+
+    // A file that changed (a different quick fingerprint) is not trusted.
+    let mut changed = quick_report();
+    changed.items[0].blake3 = Some("2".repeat(64));
+    c.save_scan("USB", &changed, 3).unwrap();
+    assert_eq!(c.unhashed().unwrap().len(), 2);
+}
+
+#[test]
+fn a_picture_can_still_be_found_by_the_id_from_its_quick_fingerprint() {
+    let mut c = Catalog::in_memory().unwrap();
+    c.save_scan("USB", &quick_report(), 1).unwrap();
+    let quick = "1".repeat(64);
+    c.set_whole_hash(Path::new("/mnt/usb/a.jpg"), &quick, &"a".repeat(64))
+        .unwrap();
+    assert_eq!(
+        c.find_item(&quick[..16]).unwrap().unwrap().0,
+        PathBuf::from("/mnt/usb/a.jpg")
+    );
+    assert_eq!(
+        c.find_item(&"a".repeat(16)).unwrap().unwrap().0,
+        PathBuf::from("/mnt/usb/a.jpg")
+    );
 }

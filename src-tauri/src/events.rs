@@ -9,6 +9,16 @@ use serde::Serialize;
 pub const SCAN: &str = "scan";
 pub const GATHER: &str = "gather";
 pub const BACKUP: &str = "backup";
+pub const CHECK: &str = "check";
+
+/// Progress reading, in the background, the files a quick search only
+/// sampled, and a last one when the pass ends.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CheckEvent {
+    pub done: usize,
+    pub total: usize,
+    pub finished: bool,
+}
 
 /// Progress looking through a drive, and a last one when it is done.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -91,6 +101,7 @@ pub struct GatherEvent {
 impl From<GatherStep> for GatherEvent {
     fn from(step: GatherStep) -> Self {
         let (step, done, total) = match step {
+            GatherStep::Checking { done, total } => ("checking", done, total),
             GatherStep::Copying { done, total } => ("copying", done, total),
             GatherStep::MakingPreviews { done, total } => ("previews", done, total),
             GatherStep::WorkingOnVideos { done, total } => ("videos", done, total),

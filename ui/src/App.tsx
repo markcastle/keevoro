@@ -34,6 +34,7 @@ import type {
   Photo,
   PhotoChoice,
   Place,
+  CheckEvent,
   ScanEvent,
   Update,
 } from './backend'
@@ -61,6 +62,8 @@ export function App() {
   const [scan, setScan] = useState<ScanEvent | null>(null)
   const [justFound, setJustFound] = useState<ScanEvent | null>(null)
   const [gather, setGather] = useState<GatherEvent | null>(null)
+  // Background checking of files a quick search only sampled.
+  const [check, setCheck] = useState<CheckEvent | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   // A newer Keevoro, and how far along installing it is.
   const [update, setUpdate] = useState<Update | null>(null)
@@ -78,6 +81,7 @@ export function App() {
   useEffect(() => {
     let stopScan = () => {}
     let stopGather = () => {}
+    let stopCheck = () => {}
     let closed = false
     void backend().then(async (b) => {
       if (closed) return
@@ -91,6 +95,11 @@ export function App() {
           setJustFound(event.problem ? null : event)
           void refresh(b)
         }
+      })
+      stopCheck = b.onCheck((event) => {
+        setCheck(event.finished ? null : event)
+        // Duplicates may have been confirmed or ruled out, so count again.
+        if (event.finished && event.done > 0) void refresh(b)
       })
       stopGather = b.onGather((event) => {
         setGather(event)
@@ -107,6 +116,7 @@ export function App() {
           setBackedUpTo(where)
           // Open on whichever step still needs doing.
           setStep(nextToDo(d, where))
+          void b.keepChecking().catch(() => {})
         }
       } catch (error) {
         report(error)
@@ -116,6 +126,7 @@ export function App() {
       closed = true
       stopScan()
       stopGather()
+      stopCheck()
     }
   }, [refresh, report])
 
@@ -209,6 +220,12 @@ export function App() {
           <button className="link" onClick={() => api.openLibrary().catch(report)}>
             Open my library
           </button>
+          {check && (
+            <span className="checking" role="status">
+              <Spinner /> Checking for duplicates in the background: {thousands(check.done)} of {thousands(check.total)}.
+              You can carry on.
+            </span>
+          )}
           <button className="link" onClick={() => setOverlay('settings')}>
             Settings
           </button>
@@ -870,7 +887,13 @@ function GatherScreen(props: {
   next: ReactNode
 }) {
   const { gather, gathering, waiting, safe } = props
-  const doing = { copying: 'safely copied', previews: 'previews made', videos: 'videos done', finished: '' }
+  const doing = {
+    checking: 'checked before copying',
+    copying: 'safely copied',
+    previews: 'previews made',
+    videos: 'videos done',
+    finished: '',
+  }
 
   return (
     <section className="archive">
