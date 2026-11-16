@@ -123,6 +123,23 @@ Every upload writes a v2 JSON index under an unguessable name (`index/<128-bit r
 | Hashing | BLAKE3. Item id is the first 16 hex characters. |
 | Audience | Personal use first. Commercial options kept open. |
 
+## Several libraries (profiles)
+
+People want to keep different things apart: family photos in one place, drone footage in another, perhaps a client's work in a third, each backed up to its own storage. Keevoro should let you have several, each with a name, and switch between them.
+
+The engine is already shaped for this. A library is a folder that holds its own catalog, so its sources, its keep choices, what has been gathered and where it backs up to all travel with it. Two libraries never share anything. What is missing is only in the app, which remembers one library.
+
+The plan:
+
+- **A library is the profile.** No second concept on top. "Family photos" and "Drone footage" are two libraries, each a folder the person can see.
+- **The app remembers a list of libraries**, each with a name and a folder, and which one is open. The name sits at the top of the side bar; clicking it offers the others and "Start a new library".
+- **Starting a new library asks two things:** what to call it and (quietly, with a sensible default) where to put it. It then begins at step 1 like a first run.
+- **The same source can be in more than one library.** Looking through a drone's memory card for the drone library does not stop it being looked through for the family one.
+- **Backups are per library**, as they already are. Keys in the keychain need to be stored per library rather than per computer, which is the one engine change.
+- **What a library is for** (photos and videos today) could later become a choice, such as "videos only" for drone footage, which would also make that search faster.
+
+Things to decide before building: whether a library can be renamed or moved after it is made, whether to offer "copy my storage settings from another library", and what the command line calls this (`--library` already selects one).
+
 ## Open questions
 
 - Which encoder for MP4 conversion: bundled ffmpeg with x264 (GPL), or the OS encoders?

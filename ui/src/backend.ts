@@ -60,7 +60,17 @@ export type AppState = {
 }
 
 /** Sent while a drive is being looked through, and once more when done. */
-export type ScanEvent = { name: string; photos: number; videos: number; finished: boolean; problem?: string }
+export type ScanEvent = {
+  name: string
+  photos: number
+  videos: number
+  /** Every file looked at so far, photos or not. */
+  files?: number
+  /** The folder being looked in right now. */
+  folder?: string
+  finished: boolean
+  problem?: string
+}
 
 /** Sent while photos are being gathered, and once more when done. */
 export type GatherEvent = {

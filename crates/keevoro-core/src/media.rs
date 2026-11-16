@@ -45,9 +45,54 @@ pub fn kind_from_extension(ext: &str) -> Option<MediaKind> {
     }
 }
 
+/// Is a file with this extension certainly not a photo or video?
+///
+/// A drive holds far more programs, documents and music than photos, and
+/// opening each one to check is most of the time a search takes. Files
+/// with these endings are passed over without being opened. The list only
+/// names kinds of file that are never a memory; anything unfamiliar, or
+/// with no ending at all, is still opened and judged by what is inside.
+pub fn never_media_extension(ext: &str) -> bool {
+    let ext = ext.trim_start_matches('.').to_ascii_lowercase();
+    matches!(
+        ext.as_str(),
+        // Programs and their parts
+        "exe" | "dll" | "sys" | "msi" | "cab" | "ocx" | "drv" | "bat" | "cmd" | "ps1" | "sh" | "so" | "dylib"
+        | "lib" | "obj" | "o" | "a" | "class" | "jar" | "pyc" | "pdb" | "mui" | "manifest" | "cat" | "inf" | "nls"
+        // Documents
+        | "txt" | "log" | "md" | "rtf" | "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx" | "pdf" | "odt" | "ods"
+        | "csv" | "epub" | "chm" | "hlp"
+        // Web pages and code
+        | "html" | "htm" | "css" | "js" | "mjs" | "ts" | "tsx" | "jsx" | "json" | "xml" | "yml" | "yaml" | "ini"
+        | "cfg" | "conf" | "toml" | "c" | "h" | "cpp" | "hpp" | "cs" | "java" | "py" | "rb" | "go" | "rs" | "php"
+        | "sql" | "map" | "lock"
+        // Archives and disk images
+        | "zip" | "rar" | "7z" | "gz" | "tar" | "bz2" | "xz" | "iso"
+        // Music and sound
+        | "mp3" | "wav" | "flac" | "ogg" | "m4a" | "wma" | "aac" | "mid"
+        // Fonts and shortcuts
+        | "ttf" | "otf" | "woff" | "woff2" | "lnk" | "url"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn programs_documents_and_music_are_passed_over_by_name() {
+        for ext in ["exe", "DLL", ".txt", "Pdf", "mp3", "zip", "js"] {
+            assert!(never_media_extension(ext), "{ext}");
+        }
+    }
+
+    #[test]
+    fn anything_that_could_be_a_memory_is_still_opened() {
+        // Photos, videos, RAW, and the vague endings old software used.
+        for ext in ["jpg", "HEIC", "mov", "cr2", "mts", "dat", "bin", "tmp", "bak", ""] {
+            assert!(!never_media_extension(ext), "{ext}");
+        }
+    }
 
     #[test]
     fn photos_and_videos_by_mime() {

@@ -227,16 +227,12 @@ fn reports_progress_as_it_goes() {
     t.add("b.mp4", &mp4());
     t.add("c.txt", b"text");
     let mut seen = Vec::new();
-    scan(t.root(), &ScanOptions::default(), &mut |p| seen.push(*p));
+    scan(t.root(), &ScanOptions::default(), &mut |p| seen.push(p.clone()));
     assert_eq!(seen.len(), 3);
-    assert_eq!(
-        seen.last().unwrap(),
-        &ScanProgress {
-            files_seen: 3,
-            photos: 1,
-            videos: 1
-        }
-    );
+    let last = seen.last().unwrap();
+    assert_eq!((last.files_seen, last.photos, last.videos), (3, 1, 1));
+    assert!(last.bytes > 0, "the bytes read are counted");
+    assert_eq!(last.folder, t.root(), "and it says where it is looking");
 }
 
 #[test]
@@ -376,4 +372,35 @@ fn scanning_a_library_directly_works_too() {
     let r = scan(&root, &ScanOptions::default(), &mut |_| {});
     assert_eq!(r.items.len(), 1);
     assert!(r.items[0].path.ends_with("Masters/2014/05/06/IMG_1.JPG"));
+}
+
+#[test]
+fn programs_and_documents_are_counted_without_being_opened() {
+    let t = Tree::new();
+    // A photo's bytes under a program's name: proof it was never opened.
+    t.add("Program Files X/setup.exe", &plain_jpeg(1));
+    t.add("Letters/notes.txt", &plain_jpeg(2));
+    t.add("Letters/scan.jpg", &plain_jpeg(3));
+    let r = t.scan();
+    assert_eq!(r.items.len(), 1);
+    assert_eq!(r.other_files, 2);
+}
+
+#[test]
+fn a_big_source_comes_out_in_the_same_order_every_time() {
+    let t = Tree::new();
+    for folder in 0..12u32 {
+        for file in 0..25u32 {
+            let shade = u8::try_from((folder * 25 + file) % 251).unwrap();
+            t.add(&format!("f{folder:02}/img{file:03}.jpg"), &plain_jpeg(shade));
+        }
+    }
+    let first = t.scan();
+    let second = t.scan();
+    let paths = |r: &ScanReport| r.items.iter().map(|i| i.path.clone()).collect::<Vec<_>>();
+    assert_eq!(first.items.len(), 300);
+    assert_eq!(paths(&first), paths(&second));
+    let mut sorted = paths(&first);
+    sorted.sort();
+    assert_eq!(paths(&first), sorted, "in folder and name order");
 }

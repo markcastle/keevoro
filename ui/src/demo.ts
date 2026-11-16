@@ -150,7 +150,14 @@ export function demoBackend(): Backend {
           for (let step = 1; step <= 4; step++) {
             await later(220 * pace)
             scanListeners.forEach((l) =>
-              l({ name, photos: photos + Math.round((found.photos * step) / 4), videos, finished: false }),
+              l({
+                name,
+                photos: photos + Math.round((found.photos * step) / 4),
+                videos,
+                files: (photos + found.photos * step) * 37,
+                folder: `${root}Users\\Family\\Pictures\\${found.title}`,
+                finished: false,
+              }),
             )
           }
           photos += found.photos
