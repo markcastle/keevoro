@@ -70,6 +70,7 @@ pub fn run() {
             commands::keep_collection,
             commands::collection_photos,
             commands::set_aside,
+            commands::forget_source,
             commands::keep_photo,
             commands::preview,
             commands::gather,

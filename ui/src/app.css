@@ -1110,3 +1110,36 @@ progress::-webkit-progress-value {
 .archive .panel .primary {
   margin-top: 10px;
 }
+
+/* A source row has a fourth column for Remove, and room below to confirm. */
+.kept li.source {
+  grid-template-columns: minmax(140px, 1fr) 2fr 150px auto;
+}
+
+.kept li.source .quiet {
+  overflow-wrap: anywhere;
+}
+
+.kept li.source .confirm {
+  display: flex;
+  gap: 8px;
+}
+
+.kept li.source .explain {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+button.danger {
+  background: #c62828;
+  color: #fff;
+  border-color: transparent;
+}
+
+.kept li.source .confirm button {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font: inherit;
+  cursor: pointer;
+}

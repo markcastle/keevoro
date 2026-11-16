@@ -6,7 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Remove a source.** Each source on "Where are your photos?" now has a Remove button. It only takes the source off Keevoro's list: nothing in the source itself is changed or deleted, photos you have already gathered stay in your library, and you can add the source again whenever you like.
+
+### Fixed
+
+- Folders on Windows are shown the ordinary way (`C:\Users\...`) without `\\?\` in front.
+- A source with one file says "1 photo or video", not "1 photo and video".
 
 ## [0.7.0] - 2026-11-16
 

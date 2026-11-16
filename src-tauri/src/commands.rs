@@ -101,6 +101,14 @@ pub fn collection_photos(shared: State<'_, Shared>, key: String) -> Said<Vec<Pho
     keevoro_engine::collection_photos(&library, &catalog, &key).map_err(say)
 }
 
+/// Stops remembering a source. Its files are never touched.
+#[tauri::command]
+pub fn forget_source(shared: State<'_, Shared>, id: i64) -> Said<()> {
+    let mut catalog = Catalog::open_in_library(&library(&shared)?).map_err(say)?;
+    keevoro_engine::forget_source(&mut catalog, id).map_err(say)?;
+    Ok(())
+}
+
 /// The pictures set aside as probably not memories, with the reason.
 #[tauri::command]
 pub fn set_aside(shared: State<'_, Shared>) -> Said<Vec<PhotoChoice>> {

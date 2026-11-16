@@ -29,6 +29,7 @@ pub use discover::{
     collection_photos, discover, set_aside, set_collection_kept, set_photo_kept, CollectionView, Discover, PhotoChoice,
     PhotoView, SourceView,
 };
+pub use discover::{forget_source, friendly_path};
 pub use preview::preview;
 
 use anyhow::{bail, Context, Result};
