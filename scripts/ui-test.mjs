@@ -195,9 +195,25 @@ try {
   // --- Settings holds everything in one place, including the log.
   await page.getByRole('button', { name: 'Settings' }).click()
   await page.getByRole('heading', { name: 'Settings', level: 1 }).waitFor()
-  for (const title of ['This session', 'Where it sends to', 'Updates', 'What Keevoro has been doing']) {
+  for (const title of ['This session', 'Where it sends to', 'Appearance', 'Updates', 'What Keevoro has been doing']) {
     await page.getByRole('heading', { name: title, level: 3 }).waitFor()
   }
+  // Appearance: light, dark, or the same as the computer, and it is remembered.
+  const ground = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor)
+  assert.equal(await ground(), 'rgb(254, 247, 235)', 'the cream ground of the light theme')
+  assert.equal(await page.getByRole('button', { name: 'Match my computer' }).getAttribute('aria-pressed'), 'true')
+  await page.getByRole('button', { name: 'Dark', exact: true }).click()
+  assert.equal(await ground(), 'rgb(7, 30, 30)', 'the deep teal ground of the dark theme')
+  assert.match(await page.locator('.brand img:visible').getAttribute('src'), /lockup-dark/, 'the logo for dark grounds')
+  await page.waitForTimeout(400) // let the colours finish easing across
+  await shot('9f-settings-dark')
+  await page.getByRole('button', { name: 'Light', exact: true }).click()
+  assert.equal(await ground(), 'rgb(254, 247, 235)')
+  assert.doesNotMatch(await page.locator('.brand img:visible').getAttribute('src'), /lockup-dark/)
+  assert.equal(await page.evaluate(() => localStorage.getItem('keevoro-theme')), 'light', 'the choice is remembered')
+  await page.getByRole('button', { name: 'Match my computer' }).click()
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), undefined)
+  assert.equal(await page.evaluate(() => getComputedStyle(document.body).fontFamily.includes('Figtree')), true)
   await page.getByRole('button', { name: 'Show the log' }).click()
   assert.match(await text('.settings .log'), /Reading a large file \(3\.9 GB\): E:\\Video\\wedding\.mov/)
   await page.getByRole('button', { name: 'Check for updates' }).click()

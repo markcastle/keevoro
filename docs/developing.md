@@ -92,7 +92,7 @@ npm run ui:test
 
 Every push to main builds real installers (the **installer** jobs in CI); download them from the run's page under Artifacts to try a change before it is released. To build one yourself on Windows or a Mac, run `scripts/build-installer.sh` (see the comment at its top).
 
-The app icon is drawn by `scripts/make-icon.mjs`; the comment at the top of that file says how to regenerate the icon set.
+The look comes from the Keevoro design system. Its tokens are kept in `design/tokens.json` and turned into `ui/src/tokens.css` by `npm run tokens`; `ui/src/app.css` uses only those names, so never write a colour, radius or shadow by hand. Light, dark and "match my computer" are the same tokens with different values (`ui/src/theme.ts` sets which). The logo files in `design/` are used as supplied (`keevoro-lockup-dark.png`, for dark grounds, had a faint haze cleaned from its background); the app icon set is made from one with `npx tauri icon design/keevoro-icon.png`.
 
 ### Tests that need a server
 
