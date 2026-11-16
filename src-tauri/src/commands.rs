@@ -7,7 +7,7 @@
 use crate::events::{GatherEvent, ScanEvent, GATHER, SCAN};
 use crate::Shared;
 use keevoro_catalog::Catalog;
-use keevoro_engine::Discover;
+use keevoro_engine::{Discover, PhotoChoice};
 use keevoro_media::VideoTools;
 use serde::Serialize;
 use std::path::PathBuf;
@@ -89,6 +89,28 @@ pub fn keep_collection(shared: State<'_, Shared>, key: String, keep: bool) -> Sa
     let catalog = Catalog::open_in_library(&library(&shared)?).map_err(say)?;
     keevoro_engine::set_collection_kept(&catalog, &key, keep).map_err(say)?;
     Ok(())
+}
+
+/// Every file in one collection, for ticking and unticking.
+#[tauri::command]
+pub fn collection_photos(shared: State<'_, Shared>, key: String) -> Said<Vec<PhotoChoice>> {
+    let library = library(&shared)?;
+    let catalog = Catalog::open_in_library(&library).map_err(say)?;
+    keevoro_engine::collection_photos(&library, &catalog, &key).map_err(say)
+}
+
+/// The pictures set aside as probably not memories, with the reason.
+#[tauri::command]
+pub fn set_aside(shared: State<'_, Shared>) -> Said<Vec<PhotoChoice>> {
+    let library = library(&shared)?;
+    let catalog = Catalog::open_in_library(&library).map_err(say)?;
+    keevoro_engine::set_aside(&library, &catalog).map_err(say)
+}
+
+#[tauri::command]
+pub fn keep_photo(shared: State<'_, Shared>, id: String, keep: bool) -> Said<()> {
+    let catalog = Catalog::open_in_library(&library(&shared)?).map_err(say)?;
+    keevoro_engine::set_photo_kept(&catalog, &id, keep).map_err(say)
 }
 
 /// A small picture of one found file, as raw WebP bytes.

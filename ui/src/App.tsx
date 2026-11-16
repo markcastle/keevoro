@@ -15,10 +15,11 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { backend } from './backend'
-import type { AppState, Backend, Collection, Discover, GatherEvent, Photo, ScanEvent } from './backend'
+import type { AppState, Backend, Collection, Discover, GatherEvent, Photo, PhotoChoice, ScanEvent } from './backend'
 import { count, photosAndVideos, size, thousands } from './format'
 
-type Screen = 'discover' | 'archive'
+/** Where the user is. Opening a collection or the set-aside list sits on top of Discover. */
+type Screen = 'discover' | 'archive' | { collection: Collection } | 'setAside'
 
 export function App() {
   const [api, setApi] = useState<Backend | null>(null)
@@ -121,7 +122,7 @@ export function App() {
           <span>Keevoro</span>
         </div>
         <nav>
-          <button className={screen === 'discover' ? 'nav on' : 'nav'} onClick={() => setScreen('discover')}>
+          <button className={screen !== 'archive' ? 'nav on' : 'nav'} onClick={() => setScreen('discover')}>
             <SearchIcon /> Discover
           </button>
           <button className={screen === 'archive' ? 'nav on' : 'nav'} onClick={() => setScreen('archive')}>
@@ -158,7 +159,25 @@ export function App() {
           </div>
         )}
         {screen === 'discover' ? (
-          <DiscoverScreen api={api} found={found} scan={scan} onAdd={addPlace} onKeep={keep} />
+          <DiscoverScreen
+            api={api}
+            found={found}
+            scan={scan}
+            onAdd={addPlace}
+            onKeep={keep}
+            onOpen={(collection) => setScreen({ collection })}
+            onSetAside={() => setScreen('setAside')}
+          />
+        ) : screen === 'setAside' || typeof screen === 'object' ? (
+          <PhotosScreen
+            api={api}
+            collection={typeof screen === 'object' ? screen.collection : null}
+            onBack={() => {
+              setScreen('discover')
+              void refresh(api)
+            }}
+            onProblem={report}
+          />
         ) : (
           <ArchiveScreen
             found={found}
@@ -212,6 +231,8 @@ function DiscoverScreen(props: {
   scan: ScanEvent | null
   onAdd: () => void
   onKeep: (collection: Collection, kept: boolean) => void
+  onOpen: (collection: Collection) => void
+  onSetAside: () => void
 }) {
   const { found, scan } = props
   const [hero, ...rest] = found?.collections ?? []
@@ -246,7 +267,14 @@ function DiscoverScreen(props: {
 
       {hero && (
         <article className="hero">
-          <div className={`collage n${Math.min(hero.previews.length, 3)}`}>
+          <div
+            className={`collage n${Math.min(hero.previews.length, 3)}`}
+            role="button"
+            tabIndex={0}
+            aria-label={`Open ${hero.title}`}
+            onClick={() => props.onOpen(hero)}
+            onKeyDown={(e) => e.key === 'Enter' && props.onOpen(hero)}
+          >
             {hero.previews.slice(0, 3).map((p) => (
               <Picture key={p.id} api={props.api} photo={p} />
             ))}
@@ -270,7 +298,9 @@ function DiscoverScreen(props: {
           <div className="grid">
             {rest.map((c) => (
               <article className={c.kept ? 'card' : 'card skipped'} key={c.key}>
-                <Picture key={c.cover.id} api={props.api} photo={c.cover} />
+                <button className="open" onClick={() => props.onOpen(c)} aria-label={`Open ${c.title}`}>
+                  <Picture key={c.cover.id} api={props.api} photo={c.cover} />
+                </button>
                 <h4>{c.title}</h4>
                 <p>{c.summary}</p>
                 <KeepButton collection={c} onKeep={props.onKeep} small />
@@ -282,12 +312,13 @@ function DiscoverScreen(props: {
 
       {found && hero && (found.duplicates > 0 || found.junk > 0) && (
         <p className="tidied">
-          {[
-            found.duplicates > 0 && `${count(found.duplicates, 'duplicate')} will be kept once`,
-            found.junk > 0 && `${count(found.junk, 'picture')} set aside as probably not memories`,
-          ]
-            .filter(Boolean)
-            .join(' · ')}
+          {found.duplicates > 0 && <span>{count(found.duplicates, 'duplicate')} will be kept once</span>}
+          {found.duplicates > 0 && found.junk > 0 && ' · '}
+          {found.junk > 0 && (
+            <button className="link" onClick={props.onSetAside}>
+              {count(found.junk, 'picture')} set aside as probably not memories
+            </button>
+          )}
         </p>
       )}
     </section>
@@ -395,6 +426,77 @@ function ArchiveScreen(props: {
           <p className="tidied">About {size(found.bytes)} in all.</p>
         </>
       )}
+    </section>
+  )
+}
+
+/**
+ * The files in one collection, or the pictures that were set aside, each
+ * with a tick. Ticking is the only thing this screen does.
+ */
+function PhotosScreen(props: {
+  api: Backend
+  collection: Collection | null
+  onBack: () => void
+  onProblem: (error: unknown) => void
+}) {
+  const { api, collection, onProblem } = props
+  const [photos, setPhotos] = useState<PhotoChoice[] | null>(null)
+
+  useEffect(() => {
+    let current = true
+    const asked = collection ? api.collectionPhotos(collection.key) : api.setAside()
+    asked.then((list) => current && setPhotos(list)).catch(onProblem)
+    return () => {
+      current = false
+    }
+  }, [api, collection, onProblem])
+
+  const toggle = (photo: PhotoChoice) => {
+    const kept = !photo.kept
+    // In the set-aside list, keeping a picture takes it off the list.
+    setPhotos((list) =>
+      list && (collection ? list.map((p) => (p.id === photo.id ? { ...p, kept } : p)) : list.filter((p) => p.id !== photo.id)),
+    )
+    api.keepPhoto(photo.id, kept).catch(onProblem)
+  }
+  const keeping = photos?.filter((p) => p.kept).length ?? 0
+
+  return (
+    <section className="photos">
+      <header>
+        <button className="link back" onClick={props.onBack}>
+          ‹ Discover
+        </button>
+        <h1>{collection ? collection.title : 'Set aside'}</h1>
+        <p className="status">
+          {collection
+            ? photos
+              ? `Keeping ${thousands(keeping)} of ${thousands(photos.length)}. Click a picture to leave it out or put it back.`
+              : collection.summary
+            : 'These look like app pictures or leftovers, not memories. Click any you want to keep after all.'}
+        </p>
+      </header>
+      {photos && photos.length === 0 && (
+        <div className="empty quiet">{collection ? 'Nothing here.' : 'Nothing is set aside.'}</div>
+      )}
+      <div className="tiles">
+        {photos?.map((photo) => (
+          <button
+            key={photo.id}
+            className={photo.kept ? 'tile' : 'tile out'}
+            onClick={() => toggle(photo)}
+            aria-pressed={photo.kept}
+            aria-label={`${photo.name}, ${photo.kept ? 'keeping' : 'not keeping'}`}
+          >
+            <Picture api={api} photo={photo} />
+            <span className="tick" aria-hidden>
+              {photo.kept ? '✓' : ''}
+            </span>
+            {photo.junkReason && <span className="why">{photo.junkReason}</span>}
+          </button>
+        ))}
+      </div>
     </section>
   )
 }

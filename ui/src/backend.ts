@@ -32,6 +32,9 @@ export type Collection = {
   previews: Photo[]
 }
 
+/** One file inside a collection, or one picture set aside as junk. */
+export type PhotoChoice = Photo & { taken: string | null; kept: boolean; junkReason: string | null }
+
 export type Source = { id: number; name: string; root: string; items: number }
 
 export type Discover = {
@@ -75,6 +78,11 @@ export interface Backend {
   /** Asks for a source (a drive or folder) and starts looking through it. False if cancelled. */
   addPlace(): Promise<boolean>
   keepCollection(key: string, keep: boolean): Promise<void>
+  /** Every file in a collection, in date order. */
+  collectionPhotos(key: string): Promise<PhotoChoice[]>
+  /** The pictures set aside as probably not memories. */
+  setAside(): Promise<PhotoChoice[]>
+  keepPhoto(id: string, keep: boolean): Promise<void>
   /** An address for a small picture of this file, usable in an <img>. */
   preview(id: string): Promise<string>
   gather(): Promise<void>
@@ -116,6 +124,9 @@ async function tauriBackend(): Promise<Backend> {
       return true
     },
     keepCollection: (key, keep) => invoke('keep_collection', { key, keep }),
+    collectionPhotos: (key) => invoke('collection_photos', { key }),
+    setAside: () => invoke('set_aside'),
+    keepPhoto: (id, keep) => invoke('keep_photo', { id, keep }),
     preview(id) {
       // Each picture is fetched once and reused; the bytes come back raw.
       let url = previews.get(id)

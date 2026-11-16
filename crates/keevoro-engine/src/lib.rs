@@ -23,7 +23,10 @@ pub mod discover;
 pub mod preview;
 pub mod summary;
 
-pub use discover::{discover, set_collection_kept, CollectionView, Discover, PhotoView, SourceView};
+pub use discover::{
+    collection_photos, discover, set_aside, set_collection_kept, set_photo_kept, CollectionView, Discover, PhotoChoice,
+    PhotoView, SourceView,
+};
 pub use preview::preview;
 
 use anyhow::{bail, Context, Result};

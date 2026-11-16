@@ -8,7 +8,7 @@
 // Add ?demo=new to the address to start as a first-time user with no
 // library, or ?demo=empty for a library with nothing found yet.
 
-import type { AppState, Backend, Collection, Discover, GatherEvent, Photo, ScanEvent } from './backend'
+import type { AppState, Backend, Collection, Discover, GatherEvent, Photo, PhotoChoice, ScanEvent } from './backend'
 
 const SCENES: [string, string, string][] = [
   ['#7ec8e3', '#f6d365', '#2e7d6b'], // beach
@@ -84,6 +84,25 @@ export function demoBackend(): Backend {
   let library: string | null = mode === 'new' ? null : suggested
   const collections: Collection[] = mode === 'new' || mode === 'empty' ? [] : FOUND.slice(0, 5).map((make) => make())
   const sources = collections.length > 0 ? [{ id: 1, name: 'Family hard drive', root: 'E:\\', items: 240 }] : []
+  // The files inside each collection are made up the first time it is opened.
+  const inside = new Map<string, PhotoChoice[]>()
+  const filesOf = (c: Collection) => {
+    let files = inside.get(c.key)
+    if (!files) {
+      const more = Math.min(c.photos + c.videos, 12) - c.previews.length
+      const all = [...c.previews, ...Array.from({ length: Math.max(more, 0) }, (_, i) => photo(`IMG_${2000 + i}.jpg`))]
+      files = all.map((p, i) => ({ ...p, taken: `2008-08-${String(12 + (i % 9)).padStart(2, '0')}`, kept: c.kept, junkReason: null }))
+      inside.set(c.key, files)
+    }
+    return files
+  }
+  // Every source turns up a few pictures that are not memories.
+  const junkFound = (): PhotoChoice[] => [
+    { ...photo('save_icon.png'), taken: null, kept: false, junkReason: 'Looks like app icons' },
+    { ...photo('thumb_0001.jpg'), taken: null, kept: false, junkReason: 'Tiny images (under 300 px)' },
+    { ...photo('1952 scan.png'), taken: null, kept: false, junkReason: 'Tiny images (under 300 px)' },
+  ]
+  const junk: PhotoChoice[] = collections.length === 0 ? [] : junkFound()
   const scanListeners = new Set<(e: ScanEvent) => void>()
   const gatherListeners = new Set<(e: GatherEvent) => void>()
   const later = (ms: number) => new Promise((done) => setTimeout(done, ms))
@@ -98,7 +117,7 @@ export function demoBackend(): Backend {
       videos: collections.reduce((n, c) => n + c.videos, 0),
       bytes: collections.reduce((n, c) => n + (c.photos * 3.2 + c.videos * 48) * 1024 * 1024, 0),
       duplicates: collections.length * 31,
-      junk: collections.length * 12,
+      junk: junk.length,
       waitingToGather: kept.reduce((n, c) => n + c.photos + c.videos - c.gathered, 0),
       sources: [...sources],
       collections: collections.map((c) => ({ ...c })),
@@ -134,6 +153,7 @@ export function demoBackend(): Backend {
           videos += found.videos
           collections.unshift(found)
         }
+        if (junk.length === 0) junk.push(...junkFound())
         sources.push({ id: sources.length + 1, name, root: 'E:\\', items: photos + videos })
         scanListeners.forEach((l) => l({ name, photos, videos, finished: true }))
       })()
@@ -141,7 +161,29 @@ export function demoBackend(): Backend {
     },
     async keepCollection(key, keep) {
       const found = collections.find((c) => c.key === key)
-      if (found) found.kept = keep
+      if (!found) return
+      found.kept = keep
+      inside.get(key)?.forEach((file) => (file.kept = keep))
+    },
+    async collectionPhotos(key) {
+      const found = collections.find((c) => c.key === key)
+      if (!found) throw new Error('That collection isn\u2019t there any more.')
+      return filesOf(found).map((file) => ({ ...file }))
+    },
+    setAside: async () => junk.map((file) => ({ ...file })),
+    async keepPhoto(id, keep) {
+      const at = junk.findIndex((file) => file.id === id)
+      if (at >= 0 && keep) {
+        junk.splice(at, 1)
+        return
+      }
+      for (const c of collections) {
+        const file = inside.get(c.key)?.find((f) => f.id === id)
+        if (!file) continue
+        file.kept = keep
+        // A collection is kept while anything in it is.
+        c.kept = filesOf(c).some((f) => f.kept)
+      }
     },
     preview: async (id) => pictures.get(id) ?? Promise.reject(new Error('This one can\u2019t be previewed')),
     async gather() {
