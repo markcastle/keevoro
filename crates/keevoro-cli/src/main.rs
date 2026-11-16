@@ -23,7 +23,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 #[command(
     name = "keevoro",
     version,
-    about = "Find photos and videos on old drives and gather them into one library."
+    about = "Find photos and videos on your sources (old drives, folders) and gather them into one library."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -152,7 +152,7 @@ enum Command {
         junk: bool,
     },
     /// Copy everything you are keeping into the library and check every
-    /// copy. Your old drives are only read. Safe to stop and run again.
+    /// copy. Your sources are only read. Safe to stop and run again.
     Gather {
         #[arg(long)]
         library: PathBuf,
@@ -245,7 +245,7 @@ fn run(cli: Cli, out: &mut dyn Write, world: &connect::World<'_>) -> Result<()> 
             name,
         } => {
             if name.is_some() && paths.len() > 1 {
-                bail!("Give one drive at a time when using --name.");
+                bail!("Give one source at a time when using --name.");
             }
             let reports = run_scan(&paths, no_hash, library.is_some());
             if let Some(library) = &library {
@@ -886,7 +886,7 @@ mod tests {
         assert!(keevoro(&["sources", "--library", &missing]).is_err());
 
         let err = keevoro(&["scan", "--library", &missing, "--name", "x", "a", "b"]).unwrap_err();
-        assert_eq!(err.to_string(), "Give one drive at a time when using --name.");
+        assert_eq!(err.to_string(), "Give one source at a time when using --name.");
         assert!(
             keevoro(&["scan", "--name", "x", "a"]).is_err(),
             "--name needs --library"
@@ -943,7 +943,7 @@ mod tests {
         fs::remove_dir_all(Path::new(&dell).join("Backup")).unwrap();
         let said = keevoro(&["gather", "--library", &lib]).unwrap();
         assert!(said.starts_with("Couldn't copy 2 files:"), "{said}");
-        assert!(said.contains("Couldn't read it from the old drive"), "{said}");
+        assert!(said.contains("Couldn't read it from the source"), "{said}");
         assert!(
             said.ends_with("Nothing was lost. Run `keevoro gather` again to retry.\n"),
             "{said}"

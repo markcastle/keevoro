@@ -142,10 +142,10 @@ export function App() {
             </div>
           )}
           <button className="add" onClick={addPlace} disabled={scan !== null}>
-            + Add a place
+            + Add a source
           </button>
         </div>
-        <div className="foot">Your old drives are only ever read.</div>
+        <div className="foot">Your sources are only ever read.</div>
       </aside>
 
       <main>
@@ -185,8 +185,8 @@ function Welcome(props: { suggested: string; onSuggested: () => void; onChoose: 
       <Logo large />
       <h1>Let’s find your photos</h1>
       <p>
-        Keevoro looks through old drives, finds your photos and videos, and gathers the ones you want into one tidy
-        library. It never changes anything on the drives it looks through.
+        Keevoro looks through your sources (old drives, USB sticks, folders), finds your photos and videos, and gathers the ones you want into one tidy
+        library. It never changes anything on a source.
       </p>
       <h2>Where should your library live?</h2>
       <p className="quiet">Pick somewhere with plenty of room. You can back it up later.</p>
@@ -235,10 +235,10 @@ function DiscoverScreen(props: {
       {!hero && !scan && (
         <div className="empty">
           <DriveIcon large />
-          <h2>Plug in an old drive</h2>
-          <p>A hard drive, a USB stick, an old laptop’s disk, or just a folder. Then show Keevoro where it is.</p>
+          <h2>Add your first source</h2>
+          <p>A source is anywhere your photos might be: a hard drive, a USB stick, an old laptop’s disk, or just a folder. Plug it in, then show Keevoro where it is.</p>
           <button className="primary big" onClick={props.onAdd}>
-            Add a place to look
+            Add a source
           </button>
         </div>
       )}
@@ -350,8 +350,8 @@ function ArchiveScreen(props: {
           <>
             <h2>{count(waiting, 'photo and video').replace('photo and videos', 'photos and videos')} ready to gather</h2>
             <p>
-              They will be copied into your library and every copy checked against the original. Nothing on your old
-              drives is changed.
+              They will be copied into your library and every copy checked against the original. Nothing on your
+              sources is changed.
             </p>
             <button className="primary big" onClick={props.onGather}>
               Gather my photos
@@ -368,7 +368,7 @@ function ArchiveScreen(props: {
         ) : (
           <>
             <h2>Nothing to gather yet</h2>
-            <p>Add a place on the Discover screen and choose what to keep. It will appear here.</p>
+            <p>Add a source on the Discover screen and choose what to keep. It will appear here.</p>
           </>
         )}
         {!gathering && gather?.summary?.map((line) => (

@@ -72,7 +72,7 @@ export interface Backend {
   chooseLibrary(): Promise<AppState | null>
   useLibrary(path: string): Promise<AppState>
   discover(): Promise<Discover>
-  /** Asks for a drive or folder and starts looking through it. False if cancelled. */
+  /** Asks for a source (a drive or folder) and starts looking through it. False if cancelled. */
   addPlace(): Promise<boolean>
   keepCollection(key: string, keep: boolean): Promise<void>
   /** An address for a small picture of this file, usable in an <img>. */
@@ -110,7 +110,7 @@ async function tauriBackend(): Promise<Backend> {
     },
     discover: () => invoke('discover'),
     async addPlace() {
-      const path = await pickFolder('Choose a drive or folder to look through')
+      const path = await pickFolder('Choose a source: a drive or folder to look through')
       if (!path) return false
       await invoke('scan_place', { path })
       return true

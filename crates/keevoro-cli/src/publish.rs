@@ -309,7 +309,7 @@ pub fn check(
         }
         writeln!(
             out,
-            "To put these right, plug in the drive they came from and run `keevoro gather`, or copy them back from your backup."
+            "To put these right, plug in the source they came from and run `keevoro gather`, or copy them back from your backup."
         )?;
     }
 

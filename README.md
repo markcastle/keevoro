@@ -2,7 +2,7 @@
 
 Find every photo and video on your old drives, keep the ones that matter, and back them up safely.
 
-Keevoro looks through old laptops, USB sticks and backup disks, finds your photos and videos, ignores the junk and the duplicates, and gathers everything into one library that you can back up to cloud storage such as Cloudflare R2 or Amazon S3. It never changes anything on your old drives.
+Keevoro looks through old laptops, USB sticks and backup disks, finds your photos and videos, ignores the junk and the duplicates, and gathers everything into one library that you can back up to cloud storage such as Cloudflare R2 or Amazon S3. It never changes anything on a source. (A **source** is anywhere Keevoro looks for photos: an old drive, a USB stick, a folder.)
 
 It is in early development. The engine and a command-line tool work today, from scanning a drive through to a verified backup on another disk; the desktop app for Windows and macOS comes next.
 
@@ -139,7 +139,7 @@ Cornwall (August 2008 · 83 photos · 6 videos)
 
 Give a code to `skip --photo` or `keep --photo` to leave one out or put it back. `photos --junk` lists the pictures Keevoro set aside as junk, with the reason; `keep --photo` on one of those brings it back into its album. A tiny scan of an old print is small, but it may be the only copy there is.
 
-Then, with the old drive plugged in, gather the keepers into the library:
+Then, with the source plugged in, gather the keepers into the library:
 
 ```sh
 cargo run --release -p keevoro-cli -- gather --library "D:\Keevoro Library"
@@ -245,7 +245,7 @@ This has been tested against MinIO, a stand-in that speaks the same language as 
 
 When the same photo turns up in several places, the copy that was filed most carefully (the deepest named folder, then the best date) decides where it goes.
 
-What Keevoro remembers lives in one file, `.keevoro/catalog.sqlite`, inside the library folder. It is only working notes: it is safe to delete, and scanning again rebuilds it. Your old drives are never written to.
+What Keevoro remembers lives in one file, `.keevoro/catalog.sqlite`, inside the library folder. It is only working notes: it is safe to delete, and scanning again rebuilds it. Your sources are never written to.
 
 ## How it is organised
 

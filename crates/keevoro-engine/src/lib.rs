@@ -113,7 +113,7 @@ impl GatherOutcome {
         }
         if !c.failed.is_empty() {
             said.push(format!(
-                "{} couldn't be copied. Nothing was lost: plug the drive in and gather again to retry.",
+                "{} couldn't be copied. Nothing was lost: plug the source in and gather again to retry.",
                 summary::count(c.failed.len(), "file")
             ));
         }
@@ -133,7 +133,7 @@ impl GatherOutcome {
 /// Copies everything the user is keeping into the library, verifies each
 /// copy, then makes previews. `Ok(None)` means there was nothing to gather.
 ///
-/// The old drives are only read. Safe to stop and run again.
+/// Sources are only read. Safe to stop and run again.
 pub fn gather_everything(
     library: &Path,
     catalog: &Catalog,

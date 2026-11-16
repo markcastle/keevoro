@@ -45,11 +45,11 @@ try {
   await page.getByRole('button', { name: 'Use my Pictures folder' }).click()
 
   // --- With nothing found yet, Discover says what to do.
-  await page.getByRole('heading', { name: 'Plug in an old drive' }).waitFor()
+  await page.getByRole('heading', { name: 'Add your first source' }).waitFor()
   await shot('2-discover-empty')
 
   // --- Adding a place finds photos and shows them as collections.
-  await page.getByRole('button', { name: 'Add a place to look' }).click()
+  await page.getByRole('button', { name: 'Add a source', exact: true }).click()
   await page.getByRole('heading', { name: 'More discoveries' }).waitFor()
   assert.match(await text('.status'), /^\s*[\d,]+ photos and \d+ videos found$/)
   assert.equal(await page.locator('.sources .source').count(), 1)

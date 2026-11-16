@@ -114,7 +114,7 @@ pub async fn preview(shared: State<'_, Shared>, id: String) -> Said<tauri::ipc::
 pub fn scan_place(app: AppHandle, shared: State<'_, Shared>, path: String) -> Said<()> {
     let library = library(&shared)?;
     if shared.scanning.swap(true, Ordering::SeqCst) {
-        return Err("Keevoro is already looking through a drive. Let that finish first.".into());
+        return Err("Keevoro is already looking through a source. Let that finish first.".into());
     }
     let source = PathBuf::from(path);
     let name = source

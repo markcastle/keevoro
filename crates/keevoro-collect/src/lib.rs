@@ -42,15 +42,15 @@ const MAX_NAME_TRIES: u32 = 10_000;
 /// Why one file could not be gathered. The wording is shown to the user.
 #[derive(Debug, thiserror::Error)]
 pub enum CopyError {
-    #[error("Couldn't read it from the old drive ({0})")]
+    #[error("Couldn't read it from the source ({0})")]
     Read(#[source] io::Error),
     #[error("Couldn't write it to the library ({0})")]
     Write(#[source] io::Error),
-    #[error("It has changed since the drive was scanned. Scan the drive again to pick up the new version")]
+    #[error("It has changed since the source was scanned. Scan the source again to pick up the new version")]
     SourceChanged,
     #[error("The copy didn't match the original, so it was thrown away. The library disk may be faulty")]
     VerifyFailed,
-    #[error("It was scanned without checking for duplicates. Scan the drive again without --no-hash")]
+    #[error("It was scanned without checking for duplicates. Scan the source again without --no-hash")]
     NotHashed,
     #[error("Too many different files share this name")]
     NameTaken,
