@@ -35,6 +35,9 @@ export type Collection = {
 /** One file inside a collection, or one picture set aside as junk. */
 export type PhotoChoice = Photo & { taken: string | null; kept: boolean; junkReason: string | null }
 
+/** A drive plugged into this computer, offered as somewhere to look. */
+export type Place = { path: string; name: string; detail: string; removable: boolean }
+
 export type Source = { id: number; name: string; root: string; items: number }
 
 export type Discover = {
@@ -88,8 +91,14 @@ export interface Backend {
   chooseLibrary(): Promise<AppState | null>
   useLibrary(path: string): Promise<AppState>
   discover(): Promise<Discover>
-  /** Asks for a source (a drive or folder) and starts looking through it. False if cancelled. */
+  /** The drives plugged in right now, likeliest first. */
+  places(): Promise<Place[]>
+  /** Starts looking through the drive or folder at this path. */
+  scanPlace(path: string): Promise<void>
+  /** Asks for a folder and starts looking through it. False if cancelled. */
   addPlace(): Promise<boolean>
+  /** Shows the library folder in the system's file manager. */
+  openLibrary(): Promise<void>
   keepCollection(key: string, keep: boolean): Promise<void>
   /** Every file in a collection, in date order. */
   collectionPhotos(key: string): Promise<PhotoChoice[]>
@@ -140,6 +149,9 @@ async function tauriBackend(): Promise<Backend> {
       return path ? invoke<AppState>('use_library', { path }) : null
     },
     discover: () => invoke('discover'),
+    places: () => invoke('places'),
+    scanPlace: (path) => invoke('scan_place', { path }),
+    openLibrary: () => invoke('open_library'),
     async addPlace() {
       const path = await pickFolder('Choose a source: a drive or folder to look through')
       if (!path) return false

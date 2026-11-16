@@ -20,6 +20,7 @@
 
 mod commands;
 mod events;
+mod places;
 mod settings;
 
 use std::path::PathBuf;
@@ -45,6 +46,7 @@ pub struct Shared {
 pub fn run() {
     let built = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let config_dir = app.path().app_config_dir()?;
             let cache_dir = app.path().app_cache_dir()?.join("previews");
@@ -63,6 +65,8 @@ pub fn run() {
             commands::use_library,
             commands::discover,
             commands::scan_place,
+            commands::places,
+            commands::open_library,
             commands::keep_collection,
             commands::collection_photos,
             commands::set_aside,

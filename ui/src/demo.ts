@@ -137,19 +137,10 @@ export function demoBackend(): Backend {
     }
   }
 
-  return {
-    state: async () => state(),
-    async chooseLibrary() {
-      library = suggested
-      return state()
-    },
-    async useLibrary(path) {
-      library = path
-      return state()
-    },
-    discover: async () => view(),
-    async addPlace() {
-      const name = sources.length === 0 ? 'Family hard drive' : `Old laptop ${sources.length}`
+  let opened = 0
+  void opened
+  // Pretends to look through a place, finding collections as it goes.
+  const look = (name: string, root: string) => {
       const adding = FOUND.filter((_, i) => i >= collections.length).slice(0, sources.length === 0 ? 5 : 2)
       void (async () => {
         let photos = 0
@@ -167,10 +158,35 @@ export function demoBackend(): Backend {
           collections.unshift(found)
         }
         if (junk.length === 0) junk.push(...junkFound())
-        sources.push({ id: sources.length + 1, name, root: 'E:\\', items: photos + videos })
+        sources.push({ id: sources.length + 1, name, root, items: photos + videos })
         scanListeners.forEach((l) => l({ name, photos, videos, finished: true }))
       })()
+  }
+
+  return {
+    state: async () => state(),
+    async chooseLibrary() {
+      library = suggested
+      return state()
+    },
+    async useLibrary(path) {
+      library = path
+      return state()
+    },
+    discover: async () => view(),
+    places: async () => [
+      { path: 'E:\\', name: 'KINGSTON (E:)', detail: 'USB or external drive \u00b7 32 GB', removable: true },
+      { path: 'C:\\', name: 'Windows (C:)', detail: 'This computer\u2019s disk \u00b7 512 GB', removable: false },
+    ],
+    async scanPlace(path) {
+      look(path.startsWith('E') ? 'KINGSTON (E:)' : 'Windows (C:)', path)
+    },
+    async addPlace() {
+      look(sources.length === 0 ? 'Family hard drive' : `Old laptop ${sources.length}`, 'D:\\Photos')
       return true
+    },
+    openLibrary: async () => {
+      opened += 1
     },
     async keepCollection(key, keep) {
       const found = collections.find((c) => c.key === key)
