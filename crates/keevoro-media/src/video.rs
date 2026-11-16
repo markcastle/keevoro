@@ -33,6 +33,26 @@ use std::process::{Command, Stdio};
 /// A converted video may differ from its original by this much and no more.
 pub const DURATION_TOLERANCE_SECS: f64 = 0.5;
 
+/// Starts building a command for one of the video tools, set up so that it
+/// never shows a window of its own.
+///
+/// ffmpeg is a console program. On Windows, a console program started by an
+/// app that has no console gets a new black window each time, so making
+/// thumbnails for a screen of videos would flash dozens of them, which
+/// looks alarming. The flag below asks Windows not to make one.
+fn quiet(tool: impl AsRef<OsStr>) -> Command {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let mut command = Command::new(tool);
+        // CREATE_NO_WINDOW
+        command.creation_flags(0x0800_0000);
+        command
+    }
+    #[cfg(not(windows))]
+    Command::new(tool)
+}
+
 /// Where ffmpeg and its companion ffprobe live on this computer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VideoTools {
@@ -44,7 +64,16 @@ impl VideoTools {
     /// Looks for the tools beside the keevoro program first (where a future
     /// installer will put them), then on the PATH. `None` when either is
     /// missing or will not run.
+    ///
+    /// The answer is worked out once and remembered. Finding the tools
+    /// means running them, and doing that for every thumbnail would start
+    /// several programs per picture.
     pub fn find() -> Option<Self> {
+        static FOUND: std::sync::OnceLock<Option<VideoTools>> = std::sync::OnceLock::new();
+        FOUND.get_or_init(Self::look).clone()
+    }
+
+    fn look() -> Option<Self> {
         let beside = std::env::current_exe()
             .ok()
             .and_then(|exe| exe.parent().map(Path::to_path_buf));
@@ -67,7 +96,7 @@ impl VideoTools {
 
     fn works(&self) -> bool {
         [&self.ffmpeg, &self.ffprobe].iter().all(|tool| {
-            Command::new(tool)
+            quiet(tool)
                 .arg("-version")
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
@@ -205,7 +234,7 @@ pub fn parse_probe(json: &str) -> Result<VideoInfo, MediaError> {
 
 /// Asks ffprobe about a video. The file is only read.
 pub fn probe(tools: &VideoTools, video: &Path) -> Result<VideoInfo, MediaError> {
-    let out = Command::new(&tools.ffprobe)
+    let out = quiet(&tools.ffprobe)
         .args(["-v", "error", "-print_format", "json", "-show_format", "-show_streams"])
         .arg(video)
         .stdin(Stdio::null())
@@ -225,7 +254,7 @@ pub fn probe(tools: &VideoTools, video: &Path) -> Result<VideoInfo, MediaError> 
 /// that is typical of the opening, which avoids the black first frame many
 /// camcorders record.
 pub fn poster(tools: &VideoTools, video: &Path) -> Result<Vec<u8>, MediaError> {
-    let out = Command::new(&tools.ffmpeg)
+    let out = quiet(&tools.ffmpeg)
         .args(["-v", "error", "-nostdin", "-i"])
         .arg(video)
         .args(["-map", "0:v:0", "-vf", "thumbnail", "-frames:v", "1"])
@@ -302,7 +331,7 @@ pub fn convert(
     let temp = dir.join(format!(".keevoro-part-{name}"));
     let _ = std::fs::remove_file(&temp);
 
-    let made = Command::new(&tools.ffmpeg)
+    let made = quiet(&tools.ffmpeg)
         .args(["-v", "error", "-nostdin", "-y", "-i"])
         .arg(video)
         .args(&args)
@@ -331,7 +360,7 @@ fn check_conversion(tools: &VideoTools, original: &VideoInfo, converted: &Path) 
     if (result.duration_secs - original.duration_secs).abs() > DURATION_TOLERANCE_SECS {
         return Err(MediaError::Damaged);
     }
-    let played = Command::new(&tools.ffmpeg)
+    let played = quiet(&tools.ffmpeg)
         .args(["-v", "error", "-nostdin", "-i"])
         .arg(converted)
         .args(["-f", "null", "-"])

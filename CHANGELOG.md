@@ -6,7 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **No more black windows flashing up on Windows.** Making a thumbnail for a video uses a helper program (ffmpeg), and each time it ran Windows opened a console window for it, so opening a collection with videos in it filled the screen with them. The helper now runs with no window at all. Keevoro also looks for it once instead of once per picture, and makes at most three previews at a time, so opening a large collection no longer slows the computer down.
 
 ## [0.12.0] - 2026-11-16
 
