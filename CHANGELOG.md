@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.6.0] - 2026-11-16
+
 ### Added
 
 - **Back up from the app.** Once your photos are gathered, the Archive screen offers a second copy somewhere else: another disk, or cloud storage of your own (Cloudflare R2, Amazon S3, or another service that works the same way). Keevoro checks the storage works before remembering it, keeps the keys in your computer's keychain, and never replaces an original that is already backed up.
@@ -78,7 +82,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/markcastle/keevoro/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/markcastle/keevoro/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/markcastle/keevoro/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/markcastle/keevoro/compare/v0.2.0...v0.3.0
