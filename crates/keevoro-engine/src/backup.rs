@@ -1,13 +1,19 @@
-//! `keevoro publish`: back the library up and describe it with an index.
+//! Backing a library up, and checking it afterwards.
 //!
-//! The order matters. Originals and previews go first and the index goes
-//! last, so the index never points at something that is not there yet. Only
-//! files that are confirmed stored are listed in it.
+//! `run` sends originals and previews to a destination and then writes the
+//! index. The order matters: the index goes last, so it never points at
+//! something that is not there yet, and it lists only files confirmed
+//! stored. `check` re-reads the library and, if asked, the backup.
+//!
+//! Both say what happened by writing plain sentences to `out`, one per
+//! line, and report progress as a short line of text through a callback.
+//! The command line prints both as they are; the app shows the progress
+//! line while it runs and the sentences when it is done.
 
+use crate::summary;
 use anyhow::{Context, Result};
 use keevoro_catalog::{Catalog, RenditionState, VideoState};
 use keevoro_core::{group_into_collections, CollectionInput, DateSource};
-use keevoro_engine::summary;
 use keevoro_index::{build_index, gallery_v1, index_key, rendition_path, AlbumInput, ItemInput, Rendition};
 use keevoro_publish::{publish, put_document, PublishOptions, Upload};
 use keevoro_scan::FoundItem;
@@ -15,7 +21,7 @@ use keevoro_storage::{MultipartStore, ObjectKey, ObjectStore};
 use keevoro_storage_folder::FolderStore;
 use keevoro_storage_s3::{Preset, S3Settings, S3Store};
 use std::collections::BTreeMap;
-use std::io::{IsTerminal, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -72,7 +78,7 @@ pub const SECRET_KEY_VAR: &str = "KEEVORO_SECRET_ACCESS_KEY";
 /// to use in the index when the user gives none.
 type Opened = (Box<dyn MultipartStore>, String, String);
 
-pub(crate) fn open(out: &mut dyn Write, runtime: &tokio::runtime::Runtime, destination: Destination) -> Result<Opened> {
+pub fn open(out: &mut dyn Write, runtime: &tokio::runtime::Runtime, destination: Destination) -> Result<Opened> {
     match destination {
         Destination::Folder(folder) => {
             let store = runtime
@@ -123,6 +129,7 @@ pub fn run(
     destination: Destination,
     base_url: Option<&str>,
     new_link: bool,
+    on_progress: &mut dyn FnMut(&str),
 ) -> Result<()> {
     let reports = catalog.load_reports()?;
     let (unique, _) = summary::unique_items(&reports);
@@ -158,18 +165,11 @@ pub fn run(
     let base_url = base_url.map_or(default_url, str::to_string);
 
     let uploads = uploads_for(library, &kept)?;
-    let live = std::io::stderr().is_terminal();
     let n = summary::thousands;
     let opts = PublishOptions::default();
     let report = runtime.block_on(publish(store, catalog, &target, &uploads, &opts, &mut |p| {
-        if live {
-            eprint!("\r\x1b[2K  {} of {} safely backed up", n(p.done), n(p.total));
-            let _ = std::io::stderr().flush();
-        }
+        on_progress(&format!("{} of {} safely backed up", n(p.done), n(p.total)));
     }))?;
-    if live {
-        eprint!("\r\x1b[2K");
-    }
 
     // The index lists only what is confirmed to be in the storage.
     let mut stored = Vec::new();
@@ -269,8 +269,8 @@ pub fn check(
     library: &Path,
     backup: Option<Destination>,
     read_back: bool,
+    on_progress: &mut dyn FnMut(&str),
 ) -> Result<()> {
-    let live = std::io::stderr().is_terminal();
     let n = summary::thousands;
     let files = catalog.collected()?;
     if files.is_empty() {
@@ -282,14 +282,8 @@ pub fn check(
     }
 
     let report = keevoro_collect::verify_library(library, catalog, &mut |done, total| {
-        if live {
-            eprint!("\r\x1b[2K  Checking your library: {} of {}", n(done), n(total));
-            let _ = std::io::stderr().flush();
-        }
+        on_progress(&format!("Checking your library: {} of {}", n(done), n(total)));
     })?;
-    if live {
-        eprint!("\r\x1b[2K");
-    }
     let mut wrong = report.problems.len();
     if report.problems.is_empty() {
         writeln!(
@@ -333,15 +327,9 @@ pub fn check(
             read_back,
             &opts,
             &mut |p| {
-                if live {
-                    eprint!("\r\x1b[2K  Checking your backup: {} of {}", n(p.done), n(p.total));
-                    let _ = std::io::stderr().flush();
-                }
+                on_progress(&format!("Checking your backup: {} of {}", n(p.done), n(p.total)));
             },
         ));
-        if live {
-            eprint!("\r\x1b[2K");
-        }
         wrong += result.problems.len();
         if result.problems.is_empty() {
             let how = if read_back && result.read_back == result.present {

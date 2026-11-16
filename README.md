@@ -38,7 +38,7 @@ keevoro update
 
 ## The desktop app (early)
 
-The app is the friendly face of the same engine. Today it covers the first half of the journey: choose where your library lives, add a drive, see what was found as collections with big photos, keep or leave out each one, and gather the keepers. Backing up is still done from the command line.
+The app is the friendly face of the same engine. It covers the whole journey: choose where your library lives, add a source, see what was found as collections with big photos, keep or leave out each one (or open it and choose photo by photo), gather the keepers, then back them up to another disk or to cloud storage and check the backup. Converting old videos and changing the private link are still command-line only.
 
 Download the installer from the latest release:
 

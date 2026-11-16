@@ -14,12 +14,19 @@ keevoro-collect.workspace = true
 keevoro-core.workspace = true
 keevoro-index.workspace = true
 keevoro-media.workspace = true
+keevoro-publish.workspace = true
+keevoro-storage.workspace = true
+keevoro-storage-folder.workspace = true
+keevoro-storage-s3.workspace = true
+keyring.workspace = true
+getrandom.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["time"] }
 keevoro-scan.workspace = true
 serde.workspace = true
 
 [dev-dependencies]
 image.workspace = true
-serde_json.workspace = true
 tempfile.workspace = true
 
 [lints]

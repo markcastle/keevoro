@@ -5,13 +5,11 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-mod connect;
-mod publish;
-
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use keevoro_catalog::Catalog;
 pub(crate) use keevoro_engine::wanted;
+use keevoro_engine::{backup as publish, connect};
 use keevoro_engine::{gather_everything, summary, GatherStep};
 use keevoro_scan::FoundItem;
 use keevoro_scan::{scan, ScanOptions, ScanReport};
@@ -226,11 +224,47 @@ fn main() {
     // stack trace: the messages are written for people, not debuggers.
     let world = connect::World {
         secrets: &connect::Keychain,
-        ask: &connect::ask_at_terminal,
+        ask: &ask_at_terminal,
     };
     if let Err(e) = run(Cli::parse(), &mut std::io::stdout().lock(), &world) {
         eprintln!("{e:#}");
         std::process::exit(1);
+    }
+}
+
+/// Asks at the terminal. Secrets are not shown as they are typed.
+fn ask_at_terminal(question: &str, hidden: bool) -> Result<String> {
+    let answer = if hidden {
+        rpassword::prompt_password(format!("{question}: "))
+    } else {
+        eprint!("{question}: ");
+        let _ = std::io::stderr().flush();
+        let mut line = String::new();
+        std::io::stdin().read_line(&mut line).map(|_| line)
+    };
+    match answer {
+        Ok(a) if !a.trim().is_empty() => Ok(a.trim().to_string()),
+        _ => bail!(
+            "Keevoro needs the storage keys. Set {} and {}, or run this again and paste them when asked.",
+            publish::ACCESS_KEY_VAR,
+            publish::SECRET_KEY_VAR
+        ),
+    }
+}
+
+/// Shows one line of progress on the terminal, rewritten in place. Silent
+/// when the output is being captured by a script.
+fn progress_line(text: &str) {
+    if std::io::stderr().is_terminal() {
+        eprint!("\r\x1b[2K  {text}");
+        let _ = std::io::stderr().flush();
+    }
+}
+
+/// Clears the progress line once the work is done.
+fn progress_done() {
+    if std::io::stderr().is_terminal() {
+        eprint!("\r\x1b[2K");
     }
 }
 
@@ -327,14 +361,17 @@ fn run(cli: Cli, out: &mut dyn Write, world: &connect::World<'_>) -> Result<()> 
                 },
             };
             let destination = saved.open(world)?;
-            publish::run(
+            let done = publish::run(
                 out,
                 &catalog,
                 &library,
                 destination,
                 saved.base_url.as_deref(),
                 new_link,
-            )
+                &mut progress_line,
+            );
+            progress_done();
+            done
         }
         Command::Connect { library, to } => {
             let Some(saved) = connect::Saved::from_flags(&to.flags()) else {
@@ -367,7 +404,9 @@ fn run(cli: Cli, out: &mut dyn Write, world: &connect::World<'_>) -> Result<()> 
             } else {
                 None
             };
-            publish::check(out, &catalog, &library, destination, read_back)
+            let done = publish::check(out, &catalog, &library, destination, read_back, &mut progress_line);
+            progress_done();
+            done
         }
         Command::Disconnect { library } => connect::disconnect(out, &open_existing(&library)?, world),
         Command::Sources { library } => {

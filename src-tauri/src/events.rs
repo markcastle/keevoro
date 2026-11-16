@@ -8,6 +8,7 @@ use serde::Serialize;
 
 pub const SCAN: &str = "scan";
 pub const GATHER: &str = "gather";
+pub const BACKUP: &str = "backup";
 
 /// Progress looking through a drive, and a last one when it is done.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -19,6 +20,48 @@ pub struct ScanEvent {
     pub finished: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub problem: Option<String>,
+}
+
+/// Progress backing up or checking, and a last one when it is done.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct BackupEvent {
+    /// A short line saying how far it has got, while it runs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<String>,
+    pub finished: bool,
+    /// On the last event: what happened, as sentences to show.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub summary: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub problem: Option<String>,
+}
+
+impl BackupEvent {
+    pub fn progress(line: &str) -> Self {
+        Self {
+            line: Some(line.to_string()),
+            finished: false,
+            summary: Vec::new(),
+            problem: None,
+        }
+    }
+
+    /// The last event: the sentences the engine wrote, and any problem.
+    pub fn finished(said: &[u8], problem: Option<String>) -> Self {
+        Self {
+            line: None,
+            finished: true,
+            summary: String::from_utf8_lossy(said)
+                .lines()
+                .map(str::trim_end)
+                // Advice about commands to type belongs to the command
+                // line; the app offers a button instead.
+                .filter(|l| !l.is_empty() && !l.contains("`keevoro "))
+                .map(str::to_string)
+                .collect(),
+            problem,
+        }
+    }
 }
 
 /// Progress gathering, and a last one (`step: "finished"`) when it is done.
@@ -87,6 +130,30 @@ mod tests {
         assert_eq!(
             serde_json::to_value(&failed).unwrap()["problem"],
             "There isn't enough room."
+        );
+
+        let going = BackupEvent::progress("3,412 of 9,870 safely backed up");
+        assert_eq!(
+            serde_json::to_value(&going).unwrap(),
+            serde_json::json!({ "line": "3,412 of 9,870 safely backed up", "finished": false })
+        );
+        let done = BackupEvent::finished(b"Safely backed up 3 files (1.2 MB).\n\nYour private index: x\n", None);
+        assert_eq!(
+            done.summary,
+            ["Safely backed up 3 files (1.2 MB).", "Your private index: x"]
+        );
+        assert!(done.finished && done.line.is_none());
+        let hinted = BackupEvent::finished(b"Couldn't back up 1 file:\n  a.jpg: The connection kept dropping.\nRun `keevoro publish` again to retry.\n", None);
+        assert_eq!(
+            hinted.summary.len(),
+            2,
+            "command-line advice is left out: {:?}",
+            hinted.summary
+        );
+        let failed = BackupEvent::finished(b"", Some("Couldn't connect to the storage.".into()));
+        assert_eq!(
+            serde_json::to_value(&failed).unwrap(),
+            serde_json::json!({ "finished": true, "problem": "Couldn't connect to the storage." })
         );
 
         let scan = ScanEvent {

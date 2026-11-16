@@ -99,11 +99,12 @@ Done when a non-technical tester gets from a drive to a backup without help.
 - [x] Archive screen: what is kept, gathering with progress in human terms
 - [x] Installers: the Release workflow builds a Windows installer (NSIS, per-user) and a universal macOS disk image; CI builds them on main as downloadable artefacts
 - [ ] In-app updates (Tauri updater, as Task Rail does); needs an updater signing key in repository secrets
-- [ ] Archive screen: backup status, "Back up now", "Check my backup"
+- [x] Archive screen: connect a backup (another disk, or R2, S3 or another S3-compatible service), "Back up now", "Check my backup", disconnect
+- [x] Backup and connect logic moved into `keevoro-engine`, shared by the app and the command line
+- [ ] Storage setup with provider logos, and a link to instructions for making a scoped key
 - [x] Open a collection to see and tick its photos; show what was set aside as junk, with one click to keep
 - [ ] Notice when a drive is plugged in and offer to look through it
 - [ ] Time left ("About 20 minutes"), and cancel for a search or a gather
-- [ ] Storage setup: provider logos, paste keys, connection check in plain words
 - [ ] "Show folders" view with tick boxes, for people who want control
 - [ ] Old video conversion prompt
 

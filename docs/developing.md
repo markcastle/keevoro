@@ -38,7 +38,7 @@ The app is three layers, and almost all the thinking is in the bottom one:
 | --- | --- | --- |
 | Screens | `ui/src` | React and TypeScript. They show what they are given and send one request per button. |
 | Shell | `src-tauri/src` | A Tauri window and a handful of commands. Each command finds the library, calls the engine, and turns an error into a sentence. |
-| Engine | `crates/keevoro-engine` | Everything Keevoro actually does. Shared with the command line, and tested without a window. |
+| Engine | `crates/keevoro-engine` | Everything Keevoro actually does: the Discover view, choosing, gathering, previews, backing up and connecting storage. Shared with the command line, and tested without a window. |
 
 If you are about to write a rule about photos in the shell or the screens, it belongs in the engine instead.
 

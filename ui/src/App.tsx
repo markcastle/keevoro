@@ -15,7 +15,18 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { backend } from './backend'
-import type { AppState, Backend, Collection, Discover, GatherEvent, Photo, PhotoChoice, ScanEvent } from './backend'
+import type {
+  AppState,
+  Backend,
+  BackupEvent,
+  Collection,
+  ConnectRequest,
+  Discover,
+  GatherEvent,
+  Photo,
+  PhotoChoice,
+  ScanEvent,
+} from './backend'
 import { count, photosAndVideos, size, thousands } from './format'
 
 /** Where the user is. Opening a collection or the set-aside list sits on top of Discover. */
@@ -180,6 +191,8 @@ export function App() {
           />
         ) : (
           <ArchiveScreen
+            api={api}
+            onProblem={report}
             found={found}
             library={state.library}
             gather={gather}
@@ -348,6 +361,8 @@ function KeepButton(props: { collection: Collection; onKeep: (c: Collection, kep
 }
 
 function ArchiveScreen(props: {
+  api: Backend
+  onProblem: (error: unknown) => void
   found: Discover | null
   library: string
   gather: GatherEvent | null
@@ -409,6 +424,8 @@ function ArchiveScreen(props: {
         ))}
       </div>
 
+      {safe > 0 && <BackupPanel api={props.api} onProblem={props.onProblem} busy={gathering} />}
+
       {found && keptCollections.length > 0 && (
         <>
           <h3>What you’re keeping</h3>
@@ -427,6 +444,206 @@ function ArchiveScreen(props: {
         </>
       )}
     </section>
+  )
+}
+
+/**
+ * A second copy somewhere else. Until a destination is connected this asks
+ * one question, "where?"; after that it is two buttons.
+ */
+function BackupPanel(props: { api: Backend; onProblem: (error: unknown) => void; busy: boolean }) {
+  const { api, onProblem } = props
+  const [where, setWhere] = useState<string | null | undefined>(undefined)
+  const [form, setForm] = useState<ConnectRequest | null>(null)
+  const [connecting, setConnecting] = useState(false)
+  const [refused, setRefused] = useState<string | null>(null)
+  const [running, setRunning] = useState<string | null>(null)
+  const [said, setSaid] = useState<BackupEvent | null>(null)
+
+  useEffect(() => {
+    api.backupState().then(setWhere).catch(onProblem)
+    return api.onBackup((event) => {
+      if (event.finished) {
+        setRunning(null)
+        setSaid(event)
+      } else if (event.line) {
+        setRunning(event.line)
+      }
+    })
+  }, [api, onProblem])
+
+  const connect = (request: ConnectRequest) => {
+    setConnecting(true)
+    setRefused(null)
+    api
+      .connectBackup(request)
+      .then((description) => {
+        setWhere(description)
+        setForm(null)
+      })
+      // A wrong key is the user's to fix, so it is said beside the form.
+      .catch((error) => setRefused(error instanceof Error ? error.message : String(error)))
+      .finally(() => setConnecting(false))
+  }
+  const start = (what: string, job: () => Promise<void>) => {
+    setSaid(null)
+    setRunning(what)
+    job().catch((error) => {
+      setRunning(null)
+      onProblem(error)
+    })
+  }
+
+  if (where === undefined) return null
+  return (
+    <div className="panel backup">
+      {where === null ? (
+        <>
+          <h2>Keep a second copy somewhere else</h2>
+          <p>
+            One copy is not a backup. Keevoro can keep another on a separate disk, or in cloud storage of your own, and
+            will never replace an original that is already there.
+          </p>
+          {!form && (
+            <div className="choices">
+              <button
+                className="primary"
+                onClick={() =>
+                  api
+                    .chooseBackupFolder()
+                    .then((folder) => folder && connect({ kind: 'folder', place: folder }))
+                    .catch(onProblem)
+                }
+                disabled={connecting}
+              >
+                Back up to another disk…
+              </button>
+              <button className="link" onClick={() => setForm({ kind: 'r2', place: '', bucket: '' })}>
+                Use cloud storage instead
+              </button>
+            </div>
+          )}
+          {form && (
+            <form
+              className="connect"
+              onSubmit={(e) => {
+                e.preventDefault()
+                connect(form)
+              }}
+            >
+              <label>
+                Storage
+                <select
+                  value={form.kind}
+                  onChange={(e) => setForm({ ...form, kind: e.target.value as ConnectRequest['kind'], place: '' })}
+                >
+                  <option value="r2">Cloudflare R2</option>
+                  <option value="s3">Amazon S3</option>
+                  <option value="endpoint">Another S3-compatible service</option>
+                </select>
+              </label>
+              <label>
+                {form.kind === 'r2' ? 'Cloudflare account ID' : form.kind === 's3' ? 'Region' : 'Address'}
+                <input
+                  value={form.place}
+                  onChange={(e) => setForm({ ...form, place: e.target.value })}
+                  placeholder={form.kind === 'r2' ? '32 letters and numbers' : form.kind === 's3' ? 'eu-west-2' : 'https://…'}
+                  required
+                />
+              </label>
+              <label>
+                Bucket name
+                <input value={form.bucket ?? ''} onChange={(e) => setForm({ ...form, bucket: e.target.value })} required />
+              </label>
+              <label>
+                Access key ID
+                <input
+                  value={form.accessKeyId ?? ''}
+                  onChange={(e) => setForm({ ...form, accessKeyId: e.target.value })}
+                  autoComplete="off"
+                  required
+                />
+              </label>
+              <label>
+                Secret access key
+                <input
+                  type="password"
+                  value={form.secretAccessKey ?? ''}
+                  onChange={(e) => setForm({ ...form, secretAccessKey: e.target.value })}
+                  autoComplete="off"
+                  required
+                />
+              </label>
+              <p className="quiet">
+                Use a key that can read and write this one bucket only. It is kept in your computer’s keychain, not in
+                your library.
+              </p>
+              {refused && (
+                <p className="refused" role="alert">
+                  {refused}
+                </p>
+              )}
+              <div className="choices">
+                <button className="primary" type="submit" disabled={connecting}>
+                  {connecting ? 'Checking…' : 'Connect'}
+                </button>
+                <button className="link" type="button" onClick={() => setForm(null)}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
+          {!form && refused && (
+            <p className="refused" role="alert">
+              {refused}
+            </p>
+          )}
+        </>
+      ) : (
+        <>
+          <h2>Backup</h2>
+          <p>Your library is backed up to {where}.</p>
+          {running ? (
+            <p className="running">
+              <Spinner /> {running}
+            </p>
+          ) : (
+            <div className="choices">
+              <button className="primary" onClick={() => start('Starting…', api.backUp)} disabled={props.busy}>
+                Back up now
+              </button>
+              <button className="link" onClick={() => start('Checking…', api.checkBackup)} disabled={props.busy}>
+                Check my backup
+              </button>
+              <button
+                className="link quiet"
+                onClick={() =>
+                  api
+                    .disconnectBackup()
+                    .then(() => {
+                      setWhere(null)
+                      setSaid(null)
+                    })
+                    .catch(onProblem)
+                }
+              >
+                Disconnect
+              </button>
+            </div>
+          )}
+          {said?.summary?.map((line) => (
+            <p className="done" key={line}>
+              {line}
+            </p>
+          ))}
+          {said?.problem && (
+            <p className="refused" role="alert">
+              {said.problem}
+            </p>
+          )}
+        </>
+      )}
+    </div>
   )
 }
 

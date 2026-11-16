@@ -4,11 +4,13 @@
 //! the engine, and turn any error into a sentence the screen can show. If a
 //! function grows beyond that, the extra belongs in `keevoro-engine`.
 
-use crate::events::{GatherEvent, ScanEvent, GATHER, SCAN};
+use crate::events::{BackupEvent, GatherEvent, ScanEvent, BACKUP, GATHER, SCAN};
 use crate::Shared;
 use keevoro_catalog::Catalog;
-use keevoro_engine::{Discover, PhotoChoice};
+use keevoro_engine::connect::{self, Flags, Keychain, Saved, World};
+use keevoro_engine::{backup, Discover, PhotoChoice};
 use keevoro_media::VideoTools;
+use serde::Deserialize;
 use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
@@ -209,4 +211,160 @@ pub fn gather(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
         let _ = app.emit(GATHER, last);
     });
     Ok(())
+}
+
+/// Where this library is backed up to, in words, or `None` if nowhere yet.
+#[tauri::command]
+pub fn backup_state(shared: State<'_, Shared>) -> Said<Option<String>> {
+    let catalog = Catalog::open_in_library(&library(&shared)?).map_err(say)?;
+    Ok(Saved::load(&catalog).map_err(say)?.map(|s| s.describe()))
+}
+
+/// What the "connect" form sends. The keys are held only for the length of
+/// this request: they go to the system keychain, never to disk or a log.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectRequest {
+    /// `folder`, `r2`, `s3` or `endpoint`.
+    kind: String,
+    /// The folder, Cloudflare account ID, Amazon region or server address.
+    place: String,
+    #[serde(default)]
+    bucket: Option<String>,
+    #[serde(default)]
+    access_key_id: String,
+    #[serde(default)]
+    secret_access_key: String,
+}
+
+/// Checks a backup destination works, then remembers it. Returns it in words.
+#[tauri::command]
+pub async fn connect_backup(shared: State<'_, Shared>, request: ConnectRequest) -> Said<String> {
+    let library = library(&shared)?;
+    // Connecting talks to the storage, which can take a few seconds.
+    tauri::async_runtime::spawn_blocking(move || {
+        let place = Some(request.place.trim().to_string()).filter(|p| !p.is_empty());
+        let mut flags = Flags {
+            bucket: request.bucket.clone().filter(|b| !b.trim().is_empty()),
+            ..Flags::default()
+        };
+        match request.kind.as_str() {
+            "folder" => flags.to_folder = place.map(Into::into),
+            "r2" => flags.to_r2 = place,
+            "s3" => flags.to_s3 = place,
+            _ => flags.to_endpoint = place,
+        }
+        let saved = Saved::from_flags(&flags).ok_or_else(|| anyhow::anyhow!("Say where to back up to first."))?;
+        // The form supplies what a terminal would be asked for.
+        let (access, secret) = (
+            request.access_key_id.trim().to_string(),
+            request.secret_access_key.trim().to_string(),
+        );
+        let ask = move |_: &str, hidden: bool| {
+            let answer = if hidden { &secret } else { &access };
+            if answer.is_empty() {
+                anyhow::bail!("Enter both keys for the storage.");
+            }
+            Ok(answer.clone())
+        };
+        let world = World {
+            secrets: &Keychain,
+            ask: &ask,
+        };
+        let catalog = Catalog::open_in_library(&library)?;
+        // Any warning (such as a publicly listable bucket) is said before
+        // the confirmation; keep the warning, drop the command-line hints.
+        let mut said = Vec::new();
+        connect::connect(&mut said, &catalog, &saved, &world)?;
+        Ok(saved.describe())
+    })
+    .await
+    .map_err(say)?
+    .map_err(|e: anyhow::Error| say(e))
+}
+
+/// Forgets the destination and removes its keys from the keychain.
+#[tauri::command]
+pub fn disconnect_backup(shared: State<'_, Shared>) -> Said<()> {
+    let catalog = Catalog::open_in_library(&library(&shared)?).map_err(say)?;
+    let world = World {
+        secrets: &Keychain,
+        ask: &connect::testing::nobody_to_ask,
+    };
+    connect::disconnect(&mut Vec::new(), &catalog, &world).map_err(say)
+}
+
+/// Runs a backup job on its own thread, reporting with `backup` events.
+fn backup_job(
+    app: AppHandle,
+    shared: &Shared,
+    job: impl FnOnce(
+            &std::path::Path,
+            &Catalog,
+            backup::Destination,
+            Option<&str>,
+            &mut Vec<u8>,
+            &mut dyn FnMut(&str),
+        ) -> anyhow::Result<()>
+        + Send
+        + 'static,
+) -> Said<()> {
+    let library = library(shared)?;
+    if shared.backing_up.swap(true, Ordering::SeqCst) {
+        return Err("Keevoro is already working on your backup. Let that finish first.".into());
+    }
+    std::thread::spawn(move || {
+        let mut said = Vec::new();
+        let mut last_said = Instant::now() - PROGRESS_EVERY;
+        let result = (|| {
+            let catalog = Catalog::open_in_library(&library)?;
+            let saved = Saved::load(&catalog)?.ok_or_else(|| anyhow::anyhow!("Choose where to back up to first."))?;
+            let world = World {
+                secrets: &Keychain,
+                ask: &connect::testing::nobody_to_ask,
+            };
+            let destination = saved.open(&world)?;
+            let web_address = saved.base_url.clone();
+            job(
+                &library,
+                &catalog,
+                destination,
+                web_address.as_deref(),
+                &mut said,
+                &mut |line| {
+                    if last_said.elapsed() >= PROGRESS_EVERY {
+                        last_said = Instant::now();
+                        let _ = app.emit(BACKUP, BackupEvent::progress(line));
+                    }
+                },
+            )
+        })();
+        app.state::<Shared>().backing_up.store(false, Ordering::SeqCst);
+        let _ = app.emit(BACKUP, BackupEvent::finished(&said, result.err().map(say)));
+    });
+    Ok(())
+}
+
+/// Starts backing the library up to where it is connected.
+#[tauri::command]
+pub fn back_up(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
+    backup_job(
+        app,
+        &shared,
+        |library, catalog, destination, base_url, said, progress| {
+            backup::run(said, catalog, library, destination, base_url, false, progress)
+        },
+    )
+}
+
+/// Starts checking the library and its backup are both intact.
+#[tauri::command]
+pub fn check_backup(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
+    backup_job(
+        app,
+        &shared,
+        |library, catalog, destination, _base_url, said, progress| {
+            backup::check(said, catalog, library, Some(destination), false, progress)
+        },
+    )
 }

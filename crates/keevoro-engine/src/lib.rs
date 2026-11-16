@@ -19,6 +19,8 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
+pub mod backup;
+pub mod connect;
 pub mod discover;
 pub mod preview;
 pub mod summary;

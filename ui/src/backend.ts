@@ -69,6 +69,19 @@ export type GatherEvent = {
   problem?: string
 }
 
+/** Sent while a backup or a check runs, and once more when it is done. */
+export type BackupEvent = { line?: string; finished: boolean; summary?: string[]; problem?: string }
+
+/** What the "connect" form collects. Keys go to the system keychain. */
+export type ConnectRequest = {
+  kind: 'folder' | 'r2' | 's3' | 'endpoint'
+  /** The folder, Cloudflare account ID, Amazon region or server address. */
+  place: string
+  bucket?: string
+  accessKeyId?: string
+  secretAccessKey?: string
+}
+
 export interface Backend {
   state(): Promise<AppState>
   /** Asks the user to pick a folder for the library. Null if they cancel. */
@@ -86,6 +99,16 @@ export interface Backend {
   /** An address for a small picture of this file, usable in an <img>. */
   preview(id: string): Promise<string>
   gather(): Promise<void>
+  /** Where the library is backed up to, in words, or null if nowhere yet. */
+  backupState(): Promise<string | null>
+  /** Asks for a folder to back up to. Null if they cancel. */
+  chooseBackupFolder(): Promise<string | null>
+  /** Checks a destination works, then remembers it. Returns it in words. */
+  connectBackup(request: ConnectRequest): Promise<string>
+  disconnectBackup(): Promise<void>
+  backUp(): Promise<void>
+  checkBackup(): Promise<void>
+  onBackup(listener: (event: BackupEvent) => void): () => void
   onScan(listener: (event: ScanEvent) => void): () => void
   onGather(listener: (event: GatherEvent) => void): () => void
 }
@@ -140,6 +163,13 @@ async function tauriBackend(): Promise<Backend> {
       return url
     },
     gather: () => invoke('gather'),
+    backupState: () => invoke('backup_state'),
+    chooseBackupFolder: () => pickFolder('Choose a folder to back up to'),
+    connectBackup: (request) => invoke('connect_backup', { request }),
+    disconnectBackup: () => invoke('disconnect_backup'),
+    backUp: () => invoke('back_up'),
+    checkBackup: () => invoke('check_backup'),
+    onBackup: (listener) => subscribe('backup', listener),
     onScan: (listener) => subscribe('scan', listener),
     onGather: (listener) => subscribe('gather', listener),
   }
