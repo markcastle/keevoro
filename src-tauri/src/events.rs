@@ -17,6 +17,11 @@ pub struct ScanEvent {
     pub name: String,
     pub photos: u64,
     pub videos: u64,
+    /// Every file looked at so far, photos or not.
+    pub files: u64,
+    /// The folder being looked in right now, for the curious.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub folder: String,
     pub finished: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub problem: Option<String>,
@@ -160,12 +165,14 @@ mod tests {
             name: "Dad's old Dell".into(),
             photos: 4210,
             videos: 312,
+            files: 98_000,
+            folder: String::new(),
             finished: false,
             problem: None,
         };
         assert_eq!(
             serde_json::to_value(&scan).unwrap(),
-            serde_json::json!({ "name": "Dad's old Dell", "photos": 4210, "videos": 312, "finished": false })
+            serde_json::json!({ "name": "Dad's old Dell", "photos": 4210, "videos": 312, "files": 98000, "finished": false })
         );
     }
 }

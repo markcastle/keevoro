@@ -467,6 +467,16 @@ function FindScreen(props: {
           <h2>Looking through {scan.name}…</h2>
           <p className="big-count">{photosAndVideos(scan.photos, scan.videos)}</p>
           <p className="quiet">found so far. Nothing on it is being changed. You can leave this running.</p>
+          {scan.files !== undefined && (
+            <p className="quiet small doing" aria-live="off">
+              Looked at {count(scan.files, 'file')} so far
+              {scan.folder && (
+                <>
+                  . Now in <span className="where">{scan.folder}</span>
+                </>
+              )}
+            </p>
+          )}
         </div>
       ) : (
         <>

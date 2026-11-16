@@ -155,12 +155,12 @@ pub fn scan_place(app: AppHandle, shared: State<'_, Shared>, path: String) -> Sa
 
     std::thread::spawn(move || {
         let mut last_said = Instant::now();
-        let mut latest = (0, 0);
+        let mut latest = (0, 0, 0);
         let result = Catalog::open_in_library(&library)
             .map_err(anyhow::Error::from)
             .and_then(|mut catalog| {
                 keevoro_engine::scan_into(&mut catalog, &source, Some(&name), &mut |p| {
-                    latest = (p.photos, p.videos);
+                    latest = (p.photos, p.videos, p.files_seen);
                     if last_said.elapsed() >= PROGRESS_EVERY {
                         last_said = Instant::now();
                         let _ = app.emit(
@@ -169,6 +169,8 @@ pub fn scan_place(app: AppHandle, shared: State<'_, Shared>, path: String) -> Sa
                                 name: name.clone(),
                                 photos: p.photos,
                                 videos: p.videos,
+                                files: p.files_seen,
+                                folder: keevoro_engine::friendly_path(&p.folder),
                                 finished: false,
                                 problem: None,
                             },
@@ -183,6 +185,8 @@ pub fn scan_place(app: AppHandle, shared: State<'_, Shared>, path: String) -> Sa
                 name,
                 photos: latest.0,
                 videos: latest.1,
+                files: latest.2,
+                folder: String::new(),
                 finished: true,
                 problem: result.err().map(say),
             },

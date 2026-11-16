@@ -108,10 +108,23 @@ Done when a non-technical tester gets from a drive to a backup without help.
 - [ ] Storage setup with provider logos, and a link to instructions for making a scoped key
 - [x] Open a collection to see and tick its photos; show what was set aside as junk, with one click to keep
 - [x] Remove a source from the list (the source itself is never touched; gathered photos stay)
+- [x] Faster search: programs, documents and music are passed over without being opened, and several files are read at once
+- [x] The search says what it is doing: files looked at and the folder it is in
+- [ ] Stop a search part-way, and show roughly how long is left
 - [ ] Notice when a drive is plugged in and offer to look through it
 - [ ] Time left ("About 20 minutes"), and cancel for a search or a gather
 - [ ] "Show folders" view with tick boxes, for people who want control
 - [ ] Old video conversion prompt
+
+### Several libraries (profiles)
+
+So drone footage can be kept and backed up apart from family photos. The thinking is in [PLANNING.md](PLANNING.md#several-libraries-profiles).
+
+- [ ] App settings hold a list of named libraries and which one is open (moving the single `library` setting across)
+- [ ] Library name at the top of the side bar, with a switcher and "Start a new library"
+- [ ] Backup keys stored per library in the keychain, not per computer
+- [ ] Decide: renaming and moving a library; copying storage settings between libraries
+- [ ] Later: a library that only looks for videos, or only photos
 
 ## Phase 4: macOS
 

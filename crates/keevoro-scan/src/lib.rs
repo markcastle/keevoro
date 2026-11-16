@@ -1,9 +1,10 @@
 //! Finds photos and videos under a source folder or drive.
 //!
-//! The scanner only ever reads. It walks the tree in one pass (one reader per
-//! physical drive is kinder to old spinning disks), detects media by content
-//! rather than extension, hashes each file with BLAKE3 while reading it, and
-//! collects every date clue it can find.
+//! The scanner only ever reads. It walks the tree once, passes over files
+//! that are plainly programs, documents or music without opening them, and
+//! opens the rest a few at a time: it detects media by content rather than
+//! extension, hashes each file with BLAKE3 while reading it, and collects
+//! every date clue it can find.
 //!
 //! Problems never stop a scan. Unreadable files and folders are reported so
 //! the user can try again later.
@@ -14,13 +15,14 @@ mod video;
 
 use keevoro_core::{
     best_date, date_from_filename, folder_hints, holds_originals, junk_hint, kind_from_extension, kind_from_mime,
-    library_album_segments, photo_library, DateGuess, DateSource, FolderHints, JunkInput, JunkReason, MediaKind,
-    PartialDate, SkipReason, SkipRules,
+    library_album_segments, never_media_extension, photo_library, DateGuess, DateSource, FolderHints, JunkInput,
+    JunkReason, MediaKind, PartialDate, SkipReason, SkipRules,
 };
 use serde::Serialize;
 use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::sync::{mpsc, Mutex};
 use std::time::UNIX_EPOCH;
 use walkdir::WalkDir;
 
@@ -94,33 +96,141 @@ pub struct ScanReport {
     pub other_files: u64,
 }
 
-/// Live counts for a progress display.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// Live counts for a progress display, and where the search has got to.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ScanProgress {
     pub files_seen: u64,
     pub photos: u64,
     pub videos: u64,
+    /// Bytes of photos and videos read so far.
+    pub bytes: u64,
+    /// The folder of the file most recently looked at.
+    pub folder: PathBuf,
+}
+
+/// What became of one thing the walk came across.
+enum Looked {
+    Media(Box<FoundItem>),
+    Other,
+    Unreadable(String),
+    Skipped(SkipReason),
+}
+
+/// How many files to look at at once. More than one because most of a
+/// search is waiting for the drive; not many, because an old spinning disk
+/// gets slower, not faster, when asked for too much at the same time.
+fn readers() -> usize {
+    std::thread::available_parallelism().map_or(2, |n| n.get().clamp(2, 4))
 }
 
 /// Scans `root`, calling `on_progress` after every file.
+///
+/// One thread walks the folders and hands likely files to a few readers.
+/// The report comes out in the same order whatever order they finish in.
 pub fn scan(root: &Path, opts: &ScanOptions, on_progress: &mut dyn FnMut(&ScanProgress)) -> ScanReport {
     let mut report = ScanReport {
         root: root.to_path_buf(),
         ..Default::default()
     };
-    let mut progress = ScanProgress::default();
-    // Sorted, so the same drive always gives the same report.
-    let mut walk = WalkDir::new(root).follow_links(false).sort_by_file_name().into_iter();
+    let mut progress = ScanProgress {
+        folder: root.to_path_buf(),
+        ..Default::default()
+    };
+    // A short queue, so the walk cannot run far ahead of the reading.
+    let (to_read, waiting) = mpsc::sync_channel::<(u64, PathBuf)>(256);
+    let waiting = Mutex::new(waiting);
+    let (done, results) = mpsc::channel::<(u64, PathBuf, Looked)>();
+    let mut found: Vec<(u64, FoundItem)> = Vec::new();
+    let mut skipped: Vec<(u64, SkippedFolder)> = Vec::new();
+    let mut unreadable: Vec<(u64, Unreadable)> = Vec::new();
 
+    std::thread::scope(|threads| {
+        for _ in 0..readers() {
+            let done = done.clone();
+            let waiting = &waiting;
+            threads.spawn(move || loop {
+                let next = match waiting.lock() {
+                    Ok(queue) => queue.recv(),
+                    Err(_) => break,
+                };
+                let Ok((order, path)) = next else { break };
+                let looked = match examine(root, &path, opts) {
+                    Ok(Some(item)) => Looked::Media(Box::new(item)),
+                    Ok(None) => Looked::Other,
+                    Err(e) => Looked::Unreadable(e.to_string()),
+                };
+                if done.send((order, path, looked)).is_err() {
+                    break;
+                }
+            });
+        }
+        threads.spawn(move || walk(root, opts, &to_read, &done));
+
+        for (order, path, looked) in results {
+            match looked {
+                Looked::Skipped(reason) => {
+                    skipped.push((order, SkippedFolder { path, reason }));
+                    continue;
+                }
+                Looked::Unreadable(error) if !path.is_file() => {
+                    // A folder that could not be opened, not a file.
+                    unreadable.push((order, Unreadable { path, error }));
+                    continue;
+                }
+                Looked::Unreadable(error) => unreadable.push((
+                    order,
+                    Unreadable {
+                        path: path.clone(),
+                        error,
+                    },
+                )),
+                Looked::Other => report.other_files += 1,
+                Looked::Media(item) => {
+                    match item.kind {
+                        MediaKind::Photo => progress.photos += 1,
+                        MediaKind::Video => progress.videos += 1,
+                    }
+                    progress.bytes += item.bytes;
+                    found.push((order, *item));
+                }
+            }
+            progress.files_seen += 1;
+            if let Some(folder) = path.parent() {
+                if folder != progress.folder {
+                    progress.folder = folder.to_path_buf();
+                }
+            }
+            on_progress(&progress);
+        }
+    });
+
+    // Sorted, so the same drive always gives the same report.
+    found.sort_by_key(|(order, _)| *order);
+    skipped.sort_by_key(|(order, _)| *order);
+    unreadable.sort_by_key(|(order, _)| *order);
+    report.items = found.into_iter().map(|(_, item)| item).collect();
+    report.skipped = skipped.into_iter().map(|(_, s)| s).collect();
+    report.unreadable = unreadable.into_iter().map(|(_, u)| u).collect();
+    report
+}
+
+/// Walks the folders under `root` in name order. Files worth opening go to
+/// the readers; everything already decided goes straight to the results.
+fn walk(
+    root: &Path,
+    opts: &ScanOptions,
+    to_read: &mpsc::SyncSender<(u64, PathBuf)>,
+    done: &mpsc::Sender<(u64, PathBuf, Looked)>,
+) {
+    let mut order = 0u64;
+    let mut walk = WalkDir::new(root).follow_links(false).sort_by_file_name().into_iter();
     while let Some(entry) = walk.next() {
+        order += 1;
         let entry = match entry {
             Ok(e) => e,
             Err(e) => {
                 let path = e.path().map_or_else(|| root.to_path_buf(), Path::to_path_buf);
-                report.unreadable.push(Unreadable {
-                    path,
-                    error: e.to_string(),
-                });
+                let _ = done.send((order, path, Looked::Unreadable(e.to_string())));
                 continue;
             }
         };
@@ -134,10 +244,7 @@ pub fn scan(root: &Path, opts: &ScanOptions, on_progress: &mut dyn FnMut(&ScanPr
             }
             if entry.depth() > 0 {
                 if let Some(reason) = opts.skip.skip_folder(&name) {
-                    report.skipped.push(SkippedFolder {
-                        path: entry.path().to_path_buf(),
-                        reason,
-                    });
+                    let _ = done.send((order, entry.path().to_path_buf(), Looked::Skipped(reason)));
                     walk.skip_current_dir();
                 }
             }
@@ -146,25 +253,20 @@ pub fn scan(root: &Path, opts: &ScanOptions, on_progress: &mut dyn FnMut(&ScanPr
         if !entry.file_type().is_file() || opts.skip.skip_file(&name).is_some() {
             continue;
         }
-
-        progress.files_seen += 1;
-        match examine(root, entry.path(), opts) {
-            Ok(Some(item)) => {
-                match item.kind {
-                    MediaKind::Photo => progress.photos += 1,
-                    MediaKind::Video => progress.videos += 1,
-                }
-                report.items.push(item);
-            }
-            Ok(None) => report.other_files += 1,
-            Err(e) => report.unreadable.push(Unreadable {
-                path: entry.path().to_path_buf(),
-                error: e.to_string(),
-            }),
+        let path = entry.into_path();
+        let plainly_not_media = path
+            .extension()
+            .is_some_and(|ext| never_media_extension(&ext.to_string_lossy()));
+        let sent = if plainly_not_media {
+            // Programs, documents and music are not opened at all.
+            done.send((order, path, Looked::Other)).is_ok()
+        } else {
+            to_read.send((order, path)).is_ok()
+        };
+        if !sent {
+            break;
         }
-        on_progress(&progress);
     }
-    report
 }
 
 /// Looks at one file. `Ok(None)` means it is not a photo or video.

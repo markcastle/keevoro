@@ -58,6 +58,9 @@ try {
   await shot('2-find')
 
   await places.first().click()
+  // While it looks, it says what it is doing for anyone who wonders.
+  await page.getByText(/^Looked at [\d,]+ files so far\. Now in E:\\/).first().waitFor()
+  await shot('2b-searching')
   await page.getByRole('heading', { name: /^Found [\d,]+ photos and \d+ videos on KINGSTON \(E:\)$/ }).waitFor()
   assert.equal(await text('.kept li span'), 'KINGSTON (E:)', 'what has been looked through is listed')
   await shot('3-found')

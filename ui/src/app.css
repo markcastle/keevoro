@@ -1169,3 +1169,18 @@ button.danger {
   vertical-align: -3px;
   margin-right: 8px;
 }
+
+/* What the search is doing right now, for anyone who wonders. */
+.searching .doing {
+  margin-top: 14px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.searching .doing .where {
+  font-family: ui-monospace, 'Cascadia Mono', Menlo, monospace;
+  font-size: 0.92em;
+}
