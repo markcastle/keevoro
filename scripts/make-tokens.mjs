@@ -22,11 +22,28 @@ const value = (token, theme) => (typeof token.value === 'string' ? token.value :
 const lines = (list, theme, indent) => list.map((t) => `${indent}--${t.name}: ${value(t, theme)};`).join('\n')
 const changed = themed.filter((t) => value(t, 'dark') !== value(t, 'light'))
 
+// The brand's own typeface ships inside the app, one file per weight, so
+// the app looks right with no internet connection.
+const faces = tokens.type.fonts
+  .map(
+    (f) => `@font-face {
+  font-family: '${f.family}';
+  src: url('./assets/${f.file}') format('woff2');
+  font-weight: ${f.weight};
+  font-style: ${f.style ?? 'normal'};
+  font-display: swap;
+}`,
+  )
+  .join('\n\n')
+
 const css = `/* Keevoro design tokens. Generated from design/tokens.json by scripts/make-tokens.mjs: do not edit. */
+
+${faces}
 
 :root {
   color-scheme: light;
-  --font-sans: ${tokens.type.families.sans.replace('"Figtree"', '"Figtree Variable", "Figtree"')};
+  --font-display: ${tokens.type.families.display};
+  --font-sans: ${tokens.type.families.sans};
   --font-mono: ${tokens.type.families.mono};
 ${lines(themed, 'light', '  ')}
 ${lines(plain, 'light', '  ')}

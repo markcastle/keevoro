@@ -6,7 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **Sessions are now called backups.** "Family photos" and "Drone footage" are backups: the name at the top of the side bar says Backup, and you "Start a new backup". Nothing about how they work has changed, and yours are all still there.
+- **Keevoro's own typeface.** The app is now set in Keevoro Sans, drawn from the logo's lettering, in place of the stand-in it used before.
+- **A lighter light and a softer dark.** Light is now near-white with cream kept for photo mats and the step you are on, so screens feel brighter. Dark is a soft deep teal with calmer text.
+- The logo shown when the app is dark is now the design system's own reversed version.
 
 ## [0.13.0] - 2026-11-16
 

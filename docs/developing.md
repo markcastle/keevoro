@@ -76,6 +76,8 @@ Its real test (`tests/native.rs`) decodes a tiny sample video and only runs on W
 
 The app keeps a log (`src-tauri/src/log.rs`): one line per event with the time in front, in the system's usual log folder for the app, shown in Settings. Log anything a person might later ask "what was it doing?" about, in the same plain words as the screens. Never log keys.
 
+People know them as **backups** ("Family photos", "Drone footage"); in the code and in `settings.json` they are still `Session`, the name they were built under. Always say "backup" in anything a person reads.
+
 The app works in sessions (see `src-tauri/src/settings.rs`): each is a named job with its own home folder for its catalog. Within a session there are three steps (`find`, `choose`, `backup` in `ui/src/App.tsx`; the last is shown as "Send them somewhere safe") and the steps in the sidebar are the only navigation. The rule for any new screen: one question as the heading, one main button in the bar at the bottom, and words a person who has never heard of Keevoro would understand. The drives offered on the first step come from `src-tauri/src/places.rs`, which decides what a drive is called and which system volumes to hide.
 
 `ui/src/backend.ts` is the only place the screens touch the outside world. Its types mirror the Rust structs in `crates/keevoro-engine/src/discover.rs` and `src-tauri/src/events.rs`; change them together.
@@ -92,7 +94,7 @@ npm run ui:test
 
 Every push to main builds real installers (the **installer** jobs in CI); download them from the run's page under Artifacts to try a change before it is released. To build one yourself on Windows or a Mac, run `scripts/build-installer.sh` (see the comment at its top).
 
-The look comes from the Keevoro design system. Its tokens are kept in `design/tokens.json` and turned into `ui/src/tokens.css` by `npm run tokens`; `ui/src/app.css` uses only those names, so never write a colour, radius or shadow by hand. Light, dark and "match my computer" are the same tokens with different values (`ui/src/theme.ts` sets which). The logo files in `design/` are used as supplied (`keevoro-lockup-dark.png`, for dark grounds, had a faint haze cleaned from its background); the app icon set is made from one with `npx tauri icon design/keevoro-icon.png`.
+The look comes from the Keevoro design system. Its tokens are kept in `design/tokens.json` and turned into `ui/src/tokens.css` by `npm run tokens`; `ui/src/app.css` uses only those names, so never write a colour, radius or shadow by hand. Light, dark and "match my computer" are the same tokens with different values (`ui/src/theme.ts` sets which). The logo files in `design/` are used as supplied (`keevoro-lockup-reversed.png` is the one for dark grounds). The typeface, Keevoro Sans, is three files in `ui/src/assets/fonts/`, declared by the generated `tokens.css`: Bold for names and headings, Medium for controls, Regular for sentences, and no other weights; the app icon set is made from one with `npx tauri icon design/keevoro-icon.png`.
 
 ### Tests that need a server
 

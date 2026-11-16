@@ -44,8 +44,8 @@ try {
   await page.goto(`${base}/?demo=new&fast`)
   await page.getByRole('heading', { name: 'Let’s find your photos' }).waitFor()
   assert.equal(await page.getByRole('button').count(), 1, 'one way forward')
-  assert.equal(await page.getByLabel('What shall we call this?').inputValue(), 'My photos', 'with a name already suggested')
-  await page.getByLabel('What shall we call this?').fill('Family photos')
+  assert.equal(await page.getByLabel('What shall we call this backup?').inputValue(), 'My photos', 'with a name already suggested')
+  await page.getByLabel('What shall we call this backup?').fill('Family photos')
   await shot('1-welcome')
   await page.getByRole('button', { name: 'Get started' }).click()
 
@@ -140,22 +140,22 @@ try {
   assert.equal(await page.locator('.steps li').count(), 3, 'there are three steps, not four')
   await shot('9-sent')
 
-  // --- Sessions: a second job, kept apart, and the first is still there afterwards.
+  // --- Backups: a second job, kept apart, and the first is still there afterwards.
   assert.match(await text('.session .current'), /Family photos/)
-  await page.getByRole('button', { name: 'Session' }).click()
-  await page.getByRole('button', { name: 'Start a new session…' }).click()
-  await page.getByLabel('Name for the new session').fill('Drone footage')
+  await page.getByRole('button', { name: 'Backup', exact: true }).click()
+  await page.getByRole('button', { name: 'Start a new backup…' }).click()
+  await page.getByLabel('Name for the new backup').fill('Drone footage')
   await shot('9a-new-session')
   await page.getByRole('button', { name: 'Start', exact: true }).click()
   await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
   assert.match(await text('.session .current'), /Drone footage/)
-  assert.equal(await page.locator('.kept li.source').count(), 0, 'a new session starts with no sources')
+  assert.equal(await page.locator('.kept li.source').count(), 0, 'a new backup starts with no sources')
   assert.ok(await page.locator('.steps button').nth(1).isDisabled(), 'and nothing chosen')
-  await page.getByRole('button', { name: 'Session' }).click()
+  await page.getByRole('button', { name: 'Backup', exact: true }).click()
   await page.getByRole('button', { name: 'Family photos' }).click()
   await page.locator('.kept li.source').first().waitFor()
   assert.match(await text('.session .current'), /Family photos/)
-  assert.equal(await page.locator('.steps li.done').count(), 2, 'the first session is exactly as it was left')
+  assert.equal(await page.locator('.steps li.done').count(), 2, 'the first backup is exactly as it was left')
   await page.getByRole('button', { name: 'Send them somewhere safe' }).click()
   await page.getByRole('heading', { name: 'Sending to the folder F:\\Family Backup' }).waitFor()
 
@@ -195,25 +195,25 @@ try {
   // --- Settings holds everything in one place, including the log.
   await page.getByRole('button', { name: 'Settings' }).click()
   await page.getByRole('heading', { name: 'Settings', level: 1 }).waitFor()
-  for (const title of ['This session', 'Where it sends to', 'Appearance', 'Updates', 'What Keevoro has been doing']) {
+  for (const title of ['This backup', 'Where it sends to', 'Appearance', 'Updates', 'What Keevoro has been doing']) {
     await page.getByRole('heading', { name: title, level: 3 }).waitFor()
   }
   // Appearance: light, dark, or the same as the computer, and it is remembered.
   const ground = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor)
-  assert.equal(await ground(), 'rgb(254, 247, 235)', 'the cream ground of the light theme')
+  assert.equal(await ground(), 'rgb(255, 254, 251)', 'the cream ground of the light theme')
   assert.equal(await page.getByRole('button', { name: 'Match my computer' }).getAttribute('aria-pressed'), 'true')
   await page.getByRole('button', { name: 'Dark', exact: true }).click()
-  assert.equal(await ground(), 'rgb(7, 30, 30)', 'the deep teal ground of the dark theme')
-  assert.match(await page.locator('.brand img:visible').getAttribute('src'), /lockup-dark/, 'the logo for dark grounds')
+  assert.equal(await ground(), 'rgb(16, 39, 37)', 'the deep teal ground of the dark theme')
+  assert.match(await page.locator('.brand img:visible').getAttribute('src'), /lockup-reversed/, 'the logo for dark grounds')
   await page.waitForTimeout(400) // let the colours finish easing across
   await shot('9f-settings-dark')
   await page.getByRole('button', { name: 'Light', exact: true }).click()
-  assert.equal(await ground(), 'rgb(254, 247, 235)')
-  assert.doesNotMatch(await page.locator('.brand img:visible').getAttribute('src'), /lockup-dark/)
+  assert.equal(await ground(), 'rgb(255, 254, 251)')
+  assert.doesNotMatch(await page.locator('.brand img:visible').getAttribute('src'), /lockup-reversed/)
   assert.equal(await page.evaluate(() => localStorage.getItem('keevoro-theme')), 'light', 'the choice is remembered')
   await page.getByRole('button', { name: 'Match my computer' }).click()
   assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), undefined)
-  assert.equal(await page.evaluate(() => getComputedStyle(document.body).fontFamily.includes('Figtree')), true)
+  assert.equal(await page.evaluate(() => getComputedStyle(document.body).fontFamily.includes('Keevoro Sans')), true)
   await page.getByRole('button', { name: 'Show the log' }).click()
   assert.match(await text('.settings .log'), /Reading a large file \(3\.9 GB\): E:\\Video\\wedding\.mov/)
   await page.getByRole('button', { name: 'Check for updates' }).click()
