@@ -177,6 +177,35 @@ impl ObjectStore for FolderStore {
         }
     }
 
+    async fn holds_exactly(&self, key: &ObjectKey, blake3: &str) -> Result<Option<bool>, StorageError> {
+        let path = self.path_for(key)?;
+        let expected = blake3.to_string();
+        // Read in pieces, so a long video is never held in memory whole.
+        tokio::task::spawn_blocking(move || {
+            use std::io::Read;
+            let mut file = match std::fs::File::open(&path) {
+                Ok(file) => file,
+                Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Some(false)),
+                Err(e) => return Err(StorageError::from(e)),
+            };
+            let mut hasher = blake3::Hasher::new();
+            let mut buffer = vec![0u8; COPY_BUFFER];
+            loop {
+                match file.read(&mut buffer) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        hasher.update(&buffer[..n]);
+                    }
+                    Err(e) if e.kind() == ErrorKind::Interrupted => {}
+                    Err(e) => return Err(e.into()),
+                }
+            }
+            Ok(Some(hasher.finalize().to_hex().as_str() == expected))
+        })
+        .await
+        .map_err(|e| StorageError::Provider(e.to_string()))?
+    }
+
     async fn get(&self, key: &ObjectKey) -> Result<Vec<u8>, StorageError> {
         fs::read(self.path_for(key)?).await.map_err(|e| not_found_or(e, key))
     }

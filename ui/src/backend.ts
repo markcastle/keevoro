@@ -143,6 +143,9 @@ export type ScanEvent = {
   stopped?: boolean
   finished: boolean
   problem?: string
+  /** On the last event: how many files could not be read, and the first few by name. */
+  unreadable?: number
+  unreadableNames?: string[]
 }
 
 /** Sent while files a quick search only sampled are read in the background. */

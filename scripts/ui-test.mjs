@@ -339,7 +339,7 @@ try {
   assert.deepEqual(await page.locator('.about .promises dt').allInnerTexts(), [
     'Your sources are only ever read',
     'A copy only counts when it is proved exact',
-    'Nothing in a backup is ever replaced or removed',
+    'No original in a backup is ever replaced or removed',
     'Duplicates are exact, never guesses',
     'Nothing is hidden from you',
     'You never need Keevoro to get your photos back',
