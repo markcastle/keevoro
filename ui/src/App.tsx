@@ -1176,6 +1176,9 @@ function ceiling(peak: number, floor: number) {
  * One measure over the last two minutes: a single thin line on a quiet
  * grid, with the figure under the pointer shown as you move across it.
  */
+/** Keevoro's home on the web: the source, the licence and the releases. */
+const PROJECT = 'https://github.com/markcastle/keevoro'
+
 /** How many seconds each point on a chart is averaged over. */
 const STEADIED_OVER = 5
 
@@ -1451,6 +1454,27 @@ function SettingsScreen(props: {
           they were.
         </p>
         <p className="quiet small">Version {state.version}</p>
+        <h4>Licence</h4>
+        <p>
+          Copyright 2026 Mark Castle. Keevoro’s source is open to read, use, change and share under the Functional
+          Source License (FSL-1.1-MIT). You may use it freely, at home or at work. You may not sell it or offer it as
+          a product that competes with Keevoro. Each version becomes plain MIT two years after it comes out.
+        </p>
+        <p className="quiet small">
+          That is a summary; the licence itself is what counts. The Keevoro name and logo are not covered by it. It
+          comes with no warranty: keep another copy of anything you cannot afford to lose.
+        </p>
+        <p className="choices">
+          <button className="button small" onClick={() => api.openReleasePage(`${PROJECT}/blob/main/LICENSE.md`).catch(onProblem)}>
+            Read the licence
+          </button>
+          <button className="button small" onClick={() => api.openReleasePage(`${PROJECT}/blob/main/TRADEMARKS.md`).catch(onProblem)}>
+            The name and logo
+          </button>
+          <button className="button small" onClick={() => api.openReleasePage(PROJECT).catch(onProblem)}>
+            See the source
+          </button>
+        </p>
       </div>
 
       <div className="setting">
