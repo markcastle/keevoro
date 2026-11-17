@@ -47,6 +47,24 @@ pub fn kind_from_extension(ext: &str) -> Option<MediaKind> {
     }
 }
 
+/// A guess at what a file is from its name alone, without opening it.
+///
+/// This is for surveying a drive at speed, where opening every file to be
+/// sure would take hours. It is a hint, never a verdict: a proper search
+/// still looks inside each file before calling it a photo.
+pub fn kind_by_ending(ext: &str) -> Option<MediaKind> {
+    let lower = ext.trim_start_matches('.').to_ascii_lowercase();
+    match lower.as_str() {
+        "jpg" | "jpeg" | "jpe" | "png" | "heic" | "heif" | "tif" | "tiff" | "webp" | "bmp" | "avif" | "jxl" => {
+            Some(MediaKind::Photo)
+        }
+        "mp4" | "mov" | "m4v" | "avi" | "mkv" | "wmv" | "mpg" | "mpeg" | "webm" | "insv" | "asf" | "flv" => {
+            Some(MediaKind::Video)
+        }
+        _ => kind_from_extension(&lower),
+    }
+}
+
 /// Is this the ending of a camera's raw format?
 ///
 /// A raw file is the camera's own untouched record of a picture, and for

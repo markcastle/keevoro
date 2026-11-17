@@ -19,13 +19,15 @@
 // back. Wording follows the house rules: plain English, no jargon, and
 // progress in human terms ("3,412 of 9,870 safely copied").
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 
 import { backend } from './backend'
 import type {
   Acceleration,
+  Survey,
+  SurveyProgress,
   Duplicate,
   Activity,
   AppState,
@@ -92,6 +94,39 @@ export function App() {
   const report = useCallback((error: unknown) => {
     setProblem(error instanceof Error ? error.message : String(error))
   }, [])
+
+  // What Keevoro is busy with, in a line, shown in the side bar on every
+  // screen. Asked every couple of seconds; it costs next to nothing.
+  const [doing, setDoing] = useState<string | null>(null)
+  useEffect(() => {
+    if (!api) return
+    let open = true
+    const ask = () =>
+      api
+        .activity()
+        .then((a) => open && setDoing(a.doing))
+        .catch(() => {})
+    void ask()
+    const timer = window.setInterval(ask, 2000)
+    return () => {
+      open = false
+      window.clearInterval(timer)
+    }
+  }, [api])
+
+  // Opening a collection or a list covers the screen; coming back should
+  // land where the person was, not at the top. The place is noted when an
+  // overlay opens and restored when it closes.
+  const main = useRef<HTMLElement>(null)
+  const wasAt = useRef(0)
+  const show = (next: Overlay) => {
+    if (overlay === null) wasAt.current = main.current?.scrollTop ?? 0
+    setOverlay(next)
+  }
+  useLayoutEffect(() => {
+    if (!main.current) return
+    main.current.scrollTop = overlay === null ? wasAt.current : 0
+  }, [overlay])
 
   const refresh = useCallback((from: Backend) => from.discover().then(setFound).catch(report), [report])
 
@@ -257,17 +292,22 @@ export function App() {
               </button>
             </span>
           )}
-          <button className="link" onClick={() => setOverlay('activity')}>
+          <button className="link doing" onClick={() => show('activity')}>
             What Keevoro is doing
+            {doing && !paused && (
+              <span className="quiet small" role="status">
+                <Spinner /> {doing}
+              </span>
+            )}
           </button>
-          <button className="link" onClick={() => setOverlay('settings')}>
+          <button className="link" onClick={() => show('settings')}>
             Settings
           </button>
           <span>Your sources are only ever read.</span>
         </div>
       </aside>
 
-      <main>
+      <main ref={main}>
         {update && (
           <div className="update" role="status">
             {updating === 'no' && (
@@ -385,9 +425,9 @@ export function App() {
             api={api}
             found={found}
             onKeep={keep}
-            onOpen={(collection) => setOverlay({ collection })}
-            onSetAside={() => setOverlay('setAside')}
-            onDuplicates={() => setOverlay('duplicates')}
+            onOpen={(collection) => show({ collection })}
+            onSetAside={() => show('setAside')}
+            onDuplicates={() => show('duplicates')}
             next={
               waiting > 0 ? (
                 <Next
@@ -588,6 +628,17 @@ function FindScreen(props: {
   // The source whose kinds of file are being looked at, if any.
   const [typesOf, setTypesOf] = useState<number | null>(null)
   const [stopping, setStopping] = useState(false)
+  // A quick survey of a drive: where it is, how far it has got, and then
+  // the folders it suggests, with a tick beside each one to look through.
+  const [survey, setSurvey] = useState<{
+    name: string
+    progress: SurveyProgress | null
+    found: Survey | null
+    chosen: Set<string>
+  } | null>(null)
+  // Folders waiting their turn to be looked through, one after another.
+  const [queue, setQueue] = useState<string[]>([])
+  useEffect(() => api.onSurvey((progress) => setSurvey((s) => (s && !s.found ? { ...s, progress } : s))), [api])
 
   const look = useCallback(() => {
     api.places().then(setPlaces).catch(onProblem)
@@ -598,6 +649,58 @@ function FindScreen(props: {
     window.addEventListener('focus', look)
     return () => window.removeEventListener('focus', look)
   }, [look])
+
+  const findFolders = (place: { path: string; name: string }) => {
+    setAsking(null)
+    setSurvey({ name: place.name, progress: null, found: null, chosen: new Set() })
+    api
+      .surveyPlace(place.path)
+      .then((found) =>
+        setSurvey((s) =>
+          s && {
+            ...s,
+            found,
+            // Ticked to begin with: the real photos not already added.
+            chosen: new Set(found.hints.filter((h) => h.likelyPhotos && !h.alreadyASource).map((h) => h.folder)),
+          },
+        ),
+      )
+      .catch((error) => {
+        setSurvey(null)
+        onProblem(error)
+      })
+  }
+  // A search has ended when one was showing and now is not. The next
+  // folder in the queue, if there is one, starts then.
+  const searching = scan !== null
+  const wasSearching = useRef(false)
+  useEffect(() => {
+    if (searching) {
+      wasSearching.current = true
+      return
+    }
+    if (!wasSearching.current) return
+    wasSearching.current = false
+    if (stopping) {
+      setQueue([])
+      return
+    }
+    const [next, ...rest] = queue
+    if (next === undefined) return
+    setQueue(rest)
+    props.onStarted()
+    api.scanPlace(next).catch(onProblem)
+    // Only the end of a search moves the queue on.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searching])
+  const lookThroughChosen = () => {
+    if (!survey?.found) return
+    const [first, ...rest] = survey.found.hints.map((h) => h.folder).filter((f) => survey.chosen.has(f))
+    setSurvey(null)
+    if (first === undefined) return
+    setQueue(rest)
+    start(first)
+  }
 
   const start = (path: string) => {
     setAsking(null)
@@ -640,6 +743,11 @@ function FindScreen(props: {
           <p className="quiet">found so far. Nothing on it is being changed. You can leave this running.</p>
           {!scan.saving && (
             <p className="choices stop">
+              {queue.length > 0 && (
+                <span className="quiet small">
+                  {count(queue.length, 'more folder')} to look through after this.
+                </span>
+              )}
               <button
                 disabled={stopping}
                 onClick={() => {
@@ -670,6 +778,42 @@ function FindScreen(props: {
             </p>
           )}
         </div>
+      ) : survey && !survey.found ? (
+        <div className="panel searching">
+          <Spinner />
+          <h2>Finding where the photos are on {survey.name}…</h2>
+          <p className="big-count">
+            {survey.progress ? photosAndVideos(survey.progress.photos, survey.progress.videos) : 'Starting…'}
+          </p>
+          <p className="quiet">
+            spotted so far, by name. This only reads the list of what is in each folder. No file is opened.
+          </p>
+          <p className="choices stop">
+            <button onClick={() => api.stopSurvey().catch(onProblem)}>Stop and show what was found</button>
+          </p>
+          {survey.progress && (
+            <p className="quiet small doing" aria-live="off">
+              Looked at {count(survey.progress.files, 'file')} in {count(survey.progress.folders, 'folder')} so far.
+            </p>
+          )}
+        </div>
+      ) : survey?.found ? (
+        <SurveyResult
+          name={survey.name}
+          found={survey.found}
+          chosen={survey.chosen}
+          onToggle={(folder) =>
+            setSurvey(
+              (s) =>
+                s && {
+                  ...s,
+                  chosen: new Set(s.chosen.has(folder) ? [...s.chosen].filter((f) => f !== folder) : [...s.chosen, folder]),
+                },
+            )
+          }
+          onGo={lookThroughChosen}
+          onCancel={() => setSurvey(null)}
+        />
       ) : asking ? (
         <div className="panel asking" role="alertdialog" aria-labelledby="asking-title">
           <h2 id="asking-title">Look through all of {asking.name}?</h2>
@@ -678,11 +822,15 @@ function FindScreen(props: {
             it will not be photos. It can take anything from a few minutes to an hour or more. You can leave it
             running, and nothing on it is changed.
           </p>
-          <p className="quiet">If you know roughly where your photos are, choosing that folder is much quicker.</p>
+          <p className="quiet">
+            Not sure where your photos are? Keevoro can find the folders that hold them first. That takes seconds, not
+            hours, because it only reads the list of what is in each folder and opens nothing.
+          </p>
           <p className="choices">
-            <button className="primary" onClick={pick}>
-              Choose a folder inside it
+            <button className="primary" onClick={() => findFolders(asking)}>
+              Find the folders with photos
             </button>
+            <button onClick={pick}>Choose a folder inside it</button>
             <button onClick={() => start(asking.path)}>Look through all of it</button>
             <button className="button" onClick={() => setAsking(null)}>
               Cancel
@@ -921,7 +1069,7 @@ function ActivityScreen(props: {
           {now.paused
             ? 'Paused. Keevoro is waiting and using almost nothing.'
             : busy
-              ? 'Keevoro is working. Here is what on, why, and how much of your computer it is using.'
+              ? `${now.doing ?? 'Working'}. Here is why, and how much of your computer it is using.`
               : 'Nothing at the moment. Keevoro is idle.'}
         </p>
       </header>
@@ -1931,6 +2079,14 @@ function PhotosScreen(props: {
     api.keepPhoto(photo.id, kept).catch(onProblem)
   }
   const keeping = photos?.filter((p) => p.kept).length ?? 0
+  // Keeps or leaves out everything here in one go.
+  const keepAll = (kept: boolean) => {
+    if (!collection) return
+    setPhotos((list) => list && list.map((p) => ({ ...p, kept })))
+    api.keepCollection(collection.key, kept).catch(onProblem)
+  }
+  // The folders these files are in on their sources, for opening.
+  const folders = [...new Set((photos ?? []).map((p) => p.sourcePath.replace(/[\\/][^\\/]*$/, '')))].sort()
 
   // Holding down on a picture (or right-clicking it) opens it large,
   // without changing whether it is kept. `held` remembers that the press
@@ -1964,6 +2120,30 @@ function PhotosScreen(props: {
               : collection.summary
             : 'These look like app pictures or leftovers, not memories. Click any you want to keep after all. Hold down on one to see it larger.'}
         </p>
+        {collection && photos && photos.length > 0 && (
+          <p className="choices within">
+            <button className="button small" onClick={() => keepAll(true)} disabled={keeping === photos.length}>
+              Keep all
+            </button>
+            <button className="button small" onClick={() => keepAll(false)} disabled={keeping === 0}>
+              Keep none
+            </button>
+          </p>
+        )}
+        {folders.length > 0 && (
+          <p className="quiet small from">
+            {folders.length === 1 ? 'From ' : `From ${folders.length} folders: `}
+            {folders.slice(0, 4).map((folder, i) => (
+              <span key={folder}>
+                {i > 0 && ', '}
+                <button className="link where" onClick={() => api.openPlace(folder).catch(onProblem)} title="Open this folder">
+                  {folder}
+                </button>
+              </span>
+            ))}
+            {folders.length > 4 && ` and ${folders.length - 4} more`}
+          </p>
+        )}
       </header>
       {photos && photos.length === 0 && (
         <div className="empty quiet">{collection ? 'Nothing here.' : 'Nothing is set aside.'}</div>
@@ -2111,6 +2291,90 @@ function Viewer(props: {
       </figure>
     </div>,
     document.body,
+  )
+}
+
+/**
+ * What a survey of a drive found: the folders that seem to hold photos
+ * and videos, each with a tick. The person chooses, then Keevoro looks
+ * through the ticked ones properly, one after another.
+ */
+function SurveyResult(props: {
+  name: string
+  found: Survey
+  chosen: Set<string>
+  onToggle: (folder: string) => void
+  onGo: () => void
+  onCancel: () => void
+}) {
+  const { found, chosen } = props
+  const picked = found.hints.filter((h) => chosen.has(h.folder))
+  const photos = picked.reduce((n, h) => n + h.photos, 0)
+  const videos = picked.reduce((n, h) => n + h.videos, 0)
+  const bytes = picked.reduce((n, h) => n + h.bytes, 0)
+  return (
+    <div className="panel survey">
+      <h2>
+        {found.hints.length === 0
+          ? `No photos or videos were spotted on ${props.name}`
+          : `${count(found.hints.length, 'folder')} on ${props.name} ${found.hints.length === 1 ? 'seems' : 'seem'} to hold photos and videos`}
+      </h2>
+      <p className="quiet">
+        Looked at {count(found.files, 'file')} in {count(found.folders, 'folder')} in{' '}
+        {found.seconds < 10 ? found.seconds.toFixed(1) : Math.round(found.seconds)} seconds, without opening any of
+        them{found.stopped ? ', and stopped before the end, so there may be more' : ''}. This goes by file names, so
+        it is a good guess, not a promise. Tick the folders you want and Keevoro will look through those properly.
+      </p>
+      {found.hints.length > 0 && (
+        <ul className="hints">
+          {found.hints.map((hint) => (
+            <li key={hint.folder} className={hint.alreadyASource ? 'done' : undefined}>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={chosen.has(hint.folder)}
+                  disabled={hint.alreadyASource}
+                  onChange={() => props.onToggle(hint.folder)}
+                />
+                <span className="where">{hint.folder}</span>
+              </label>
+              <span className="quiet small">
+                {photosAndVideos(hint.photos, hint.videos)} · {size(hint.bytes)}
+              </span>
+              {hint.alreadyASource && <span className="badge">Already a source</span>}
+              {!hint.likelyPhotos && !hint.alreadyASource && (
+                <span className="badge" title="The pictures here are very small and there are no videos">
+                  Small pictures, probably not photos
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {found.unreadable > 0 && (
+        <p className="quiet small">
+          {count(found.unreadable, 'folder')} could not be listed, usually because this account is not allowed to
+          look in {found.unreadable === 1 ? 'it' : 'them'}.
+        </p>
+      )}
+      <p className="choices">
+        {found.hints.length > 0 && (
+          <button className="primary" onClick={props.onGo} disabled={picked.length === 0}>
+            {picked.length === 0
+              ? 'Tick a folder to look through'
+              : `Look through ${picked.length === 1 ? 'this folder' : `these ${picked.length} folders`}`}
+          </button>
+        )}
+        <button className="button" onClick={props.onCancel}>
+          {found.hints.length > 0 ? 'Cancel' : 'Back'}
+        </button>
+        {picked.length > 0 && (
+          <span className="quiet small">
+            About {photosAndVideos(photos, videos)}, {size(bytes)}.
+          </span>
+        )}
+      </p>
+    </div>
   )
 }
 

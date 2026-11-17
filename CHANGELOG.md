@@ -6,7 +6,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Find the folders with photos, in seconds.** Not sure where on a drive your photos are? Choose the whole drive and pick "Find the folders with photos". Keevoro reads only the list of what is in each folder, never opening a file, so it gets through hundreds of thousands of files in a few seconds. It then shows the folders that seem to hold photos and videos, with how many and how big, each with a tick. Tick the ones you want and Keevoro looks through those properly, one after another.
+- **Probable icons are spotted.** A folder of very small pictures with no videos is marked "Small pictures, probably not photos" and left unticked, so a program's own pictures do not sneak in.
+- **What Keevoro is doing, in plain words, at a glance.** The side bar now says what Keevoro is busy with on every screen, under "What Keevoro is doing": for example "Making previews" or "Backing up your files and making thumbnails". Nothing is shown when it is idle.
+- **More kinds of work are named.** "What Keevoro is doing" now also names making previews, making video previews, making thumbnails for the screen you are on and finding where your photos are, each with a sentence on why and what it costs your computer.
+- **Keep all or keep none inside a collection.** Two buttons at the top of a collection keep or leave out everything in it at once.
+- **See where a collection came from.** The folder, or folders, its files are in on your source are named at the top of a collection. Click one to open it.
+- **`keevoro survey` on the command line.** The same quick survey, for those who prefer a terminal.
+
+### Changed
+
+- **Back takes you back to where you were.** Coming back from a collection, the duplicates list, Settings or "What Keevoro is doing" returns to the same place on the screen, not the top.
+- **The top line of "What Keevoro is doing" says what, not just that it is working.**
+
+### Fixed
+
+- **Opening a collection could show a different one.** When photos from two separate occasions in the same month were both titled, say, "October 2004", opening either showed the first, and "Don't keep" on one could act on the other. Each now opens and keeps its own. Where two share a month they are named to the day, such as "2 to 3 October 2004" and "20 October 2004".
 
 ## [0.24.0] - 2026-11-17
 

@@ -74,6 +74,19 @@ cargo check -p keevoro-frame --target aarch64-apple-darwin --tests
 
 Its real test (`tests/native.rs`) decodes a tiny sample video and only runs on Windows and macOS, so CI is where it proves itself.
 
+### Finding where the photos are
+
+Knowing which folder to point Keevoro at is the hard part on a big disk, so there is a survey that answers it first: `crates/keevoro-scan/src/survey.rs`. It reads folder listings only, the names and sizes a file manager shows, and never opens a file. That is why it gets through hundreds of thousands of files in seconds where a search takes much longer.
+
+It is in two halves, kept apart on purpose:
+
+- `survey` walks the disk on several threads and counts what each folder holds directly.
+- `suggest` turns those counts into folders to offer. It is pure arithmetic and never touches the disk, so its rules are tested with made-up counts.
+
+The rules in `suggest` aim for the folder a person would have picked themselves. A folder that is mostly photos and videos, everything beneath it counted, is offered whole (`Pictures`, not each of its two hundred subfolders). A folder with photos loose in it is offered too, so they are not lost. Anything else is only a container and its subfolders are considered one by one. A whole drive is offered only when nine files in ten on it are photos, which is a memory card and not a system disk. No suggestion is ever inside another.
+
+A survey guesses from file endings (`keevoro_core::kind_by_ending`), so it is a hint and nothing more. Nothing it finds is remembered. The person ticks folders and each becomes an ordinary source, searched properly. Try it from the command line with `keevoro survey D:\`.
+
 ### What a backup looks like on disk
 
 A backup has three folders: `originals` (the files themselves, never altered), `renditions` (thumb, display, poster and video versions made for looking at, each named after a fingerprint of its original) and `index` (the list a gallery reads). `crates/keevoro-engine/src/layout.rs` holds the explanation of these in plain words and writes it into every backup as "What is in this backup.txt". The app shows the same on the backup screen.

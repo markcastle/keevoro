@@ -10,6 +10,16 @@ pub const SCAN: &str = "scan";
 pub const GATHER: &str = "gather";
 pub const SEND: &str = "send";
 pub const CHECK: &str = "check";
+pub const SURVEY: &str = "survey";
+
+/// How far a survey of a drive has got. Counts are by file name alone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct SurveyEvent {
+    pub folders: usize,
+    pub files: usize,
+    pub photos: usize,
+    pub videos: usize,
+}
 
 /// Progress reading, in the background, the files a quick search only
 /// sampled, and a last one when the pass ends.

@@ -58,6 +58,7 @@ pub fn make_video_previews_while(
     on_progress: &mut dyn FnMut(usize, usize),
     keep_going: &dyn Fn() -> bool,
 ) -> Result<VideoReport, CatalogError> {
+    let _busy = keevoro_core::doing::doing(keevoro_core::doing::Work::MakingVideoPreviews);
     let mut report = VideoReport::default();
     let mut todo = Vec::new();
     for item in items.iter().filter(|i| i.kind == MediaKind::Video) {
