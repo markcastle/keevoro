@@ -13,6 +13,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- **Mac and Linux versions come at milestones for now.** While Keevoro is changing quickly, each release is built for Windows only, and Mac and Linux versions are made at bigger milestones. A Mac that has Keevoro is not offered an update it cannot install.
 - **Pictures on their way show a shimmer.** A thumbnail that has not arrived yet used to be a blank tile, which looked as if nothing was happening. It now shimmers gently until the picture appears.
 
 ## [0.23.0] - 2026-11-17

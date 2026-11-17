@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      all_platforms:
+        description: 'Also test and build for macOS. Off day to day; on before a milestone.'
+        type: boolean
+        default: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -45,7 +50,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
+        # Windows is where Keevoro is used and tried day to day, so it is
+        # the one tested on every change. Linux is covered by the coverage
+        # job, which runs the same tests. macOS runners are slow to come by
+        # and held changes up for hours, so they are saved for milestones:
+        # run this workflow by hand with "all platforms" ticked.
+        os: ${{ fromJSON(inputs.all_platforms && '["windows-latest","macos-latest"]' || '["windows-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -150,13 +160,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: Windows x64
-            os: windows-latest
-            args: ''
-          - name: macOS universal
-            os: macos-latest
-            args: '--target universal-apple-darwin'
+        # macOS only when asked for; see the note on the test job.
+        include: ${{ fromJSON(inputs.all_platforms && '[{"name":"Windows x64","os":"windows-latest","args":""},{"name":"macOS universal","os":"macos-latest","args":"--target universal-apple-darwin"}]' || '[{"name":"Windows x64","os":"windows-latest","args":""}]') }}
     runs-on: ${{ matrix.os }}
     defaults:
       run:
