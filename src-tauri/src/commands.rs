@@ -521,7 +521,7 @@ pub struct ActivityView {
 }
 
 #[tauri::command]
-pub fn activity(shared: State<'_, Shared>) -> ActivityView {
+pub fn activity() -> ActivityView {
     let (samples, memory_bytes) = HISTORY
         .lock()
         .map(|h| (h.samples(), h.memory_bytes()))
