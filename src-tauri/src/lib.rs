@@ -102,6 +102,7 @@ pub fn run() {
             commands::open_destination,
             commands::room,
             commands::activity,
+            commands::duplicates,
             commands::acceleration,
             commands::set_acceleration,
             commands::send_progress,

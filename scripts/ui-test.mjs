@@ -125,6 +125,18 @@ try {
   await shot('6-inside-a-collection')
   await page.getByRole('button', { name: '‹ Back' }).click()
 
+  // Duplicates can be looked at before anything is backed up: which copy
+  // is kept, which are left out, and how Keevoro knows they are the same.
+  await page.getByRole('button', { name: /duplicates will be kept only once$/ }).click()
+  await page.getByRole('heading', { name: 'Duplicates', level: 1 }).waitFor()
+  await page.locator('.duplicates .groups li').first().waitFor()
+  assert.equal(await text('.duplicates .status'), '2 files were found more than once. One copy of each is kept, and 3 extra copies are left out.')
+  assert.match(await text('.duplicates .knows'), /only when every byte of one matches every byte of the other/)
+  assert.match(await text('.duplicates .knows'), /1 file below is marked still being checked/)
+  assert.deepEqual(await page.locator('.duplicates .groups li').first().locator('.mark').allInnerTexts(), ['Kept', 'Left out', 'Left out'])
+  await shot('9o-duplicates')
+  await page.getByRole('button', { name: '‹ Back' }).click()
+
   // What was set aside can be looked at, with the reason, and rescued.
   await page.getByRole('button', { name: /that don’t look like photos were set aside$/ }).click()
   await page.getByRole('heading', { name: 'Set aside', level: 1 }).waitFor()
