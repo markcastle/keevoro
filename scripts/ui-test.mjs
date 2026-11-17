@@ -160,6 +160,11 @@ try {
   await page.getByText(/^Previews added: [\d,]+ files\.$/).waitFor()
   // When it is done, it says how long it took and how fast it went.
   await page.getByText(/^That took about \d+ minutes: [\d.]+ GB at an average of [\d.]+ MB a second\.$/).waitFor()
+  // The backup's folders are explained, a rendition included.
+  await page.getByText('What is in the backup', { exact: true }).click()
+  assert.match(await text('.sends.layout'), /A rendition is a version of a photo or video made for looking at, not for keeping\./)
+  assert.deepEqual(await page.locator('.sends.layout dt').allInnerTexts(), ['originals', 'renditions', 'index', 'What is in this backup.txt'])
+  await shot('9n-what-is-in-the-backup')
   await page.getByText('How earlier backups went').click()
   assert.deepEqual(await page.locator('.sends th').allInnerTexts(), ['When', 'Backed up', 'Took', 'Average speed'])
   assert.equal(await page.locator('.sends tbody tr').count(), 2, 'this send and the one before')

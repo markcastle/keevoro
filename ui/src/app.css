@@ -1081,6 +1081,11 @@ progress::-webkit-progress-value {
   margin-top: 10px;
 }
 
+/* In a row of buttons the main one lines up with the rest. */
+.archive .panel .choices .primary {
+  margin-top: 0;
+}
+
 /* A source row has a fourth column for Remove, and room below to confirm. */
 .kept li.source {
   grid-template-columns: minmax(140px, 1fr) 2fr 150px auto;
@@ -2392,4 +2397,29 @@ main > section > :nth-last-child(2) {
 
 .running .button {
   margin-left: var(--space-3);
+}
+
+/* What is in the backup: each folder, and what it is for. */
+.sends.layout {
+  max-width: 720px;
+}
+
+.sends.layout p,
+.sends.layout dd {
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--ink-secondary, var(--ink));
+}
+
+.sends.layout dl {
+  margin: var(--space-3) 0;
+}
+
+.sends.layout dt {
+  margin-top: var(--space-3);
+  font-weight: 500;
+}
+
+.sends.layout dd {
+  margin: var(--space-1) 0 0;
 }

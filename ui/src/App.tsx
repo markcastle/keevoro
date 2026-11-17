@@ -572,6 +572,9 @@ function FindScreen(props: {
   next: ReactNode
 }) {
   const { api, found, scan, justFound, onProblem } = props
+  // A search passes through folders far faster than anyone can read, so the
+  // one named on screen changes only every second and a half.
+  const folder = useSteady(scan?.folder, 1500)
   const [places, setPlaces] = useState<Place[] | null>(null)
   // The source the person has asked to remove, until they confirm.
   const [removing, setRemoving] = useState<number | null>(null)
@@ -654,9 +657,9 @@ function FindScreen(props: {
           {scan.files !== undefined && !scan.saving && (
             <p className="quiet small doing" aria-live="off">
               Looked at {count(scan.files, 'file')} so far
-              {scan.folder && (
+              {(folder ?? scan.folder) && (
                 <>
-                  . Now in <span className="where">{scan.folder}</span>
+                  . Now in <span className="where">{folder ?? scan.folder}</span>
                 </>
               )}
             </p>
@@ -1783,6 +1786,58 @@ function SendPanel(props: {
               {said.problem}
             </p>
           )}
+          <details className="sends layout">
+            <summary>What is in the backup</summary>
+            <p>
+              Your photos and videos are in <code>originals</code>, untouched.
+              Everything else is there to make them quick to look through, and
+              can be made again.
+            </p>
+            <dl>
+              <dt>
+                <code>originals</code>
+              </dt>
+              <dd>
+                Your photos and videos exactly as they were on your sources,
+                each checked against the original after it was copied. This
+                folder is the backup. Inside, there is one folder per
+                collection, and <code>By date</code> for anything that did not
+                belong to one.
+              </dd>
+              <dt>
+                <code>renditions</code>
+              </dt>
+              <dd>
+                A rendition is a version of a photo or video made for looking
+                at, not for keeping. Keevoro makes them so a gallery can show
+                your photos quickly: <code>thumb</code> for small pictures in a
+                grid, <code>display</code> for screen-sized ones,{' '}
+                <code>poster</code> for a still of each video, and{' '}
+                <code>video</code> for versions of old videos that modern
+                devices can play. Safe to delete if you need the room.
+              </dd>
+              <dt>
+                <code>index</code>
+              </dt>
+              <dd>
+                The list of what is in the backup: every photo and video, its
+                date, its collection and where its renditions are. A gallery
+                website or app reads <code>gallery.json</code> from here.
+              </dd>
+              <dt>
+                <code>What is in this backup.txt</code>
+              </dt>
+              <dd>
+                This same explanation, kept with the backup so it is there even
+                without Keevoro.
+              </dd>
+            </dl>
+            <p>
+              To get your photos back you do not need Keevoro: copy the{' '}
+              <code>originals</code> folder to wherever you want them. They are
+              ordinary files.
+            </p>
+          </details>
         {history.length > 0 && !running && (
             <details className="sends">
               <summary>How earlier backups went</summary>
@@ -1921,6 +1976,24 @@ function Picture(props: { api: Backend; photo: Photo }) {
       {photo.isVideo && url && <span className="play" aria-label="Video" />}
     </div>
   )
+}
+
+/**
+ * A value that changes on screen no more often than `every` milliseconds,
+ * however fast it really changes. For words a person is meant to read:
+ * text replaced many times a second is only a flicker.
+ */
+function useSteady<T>(value: T, every: number): T {
+  const [shown, setShown] = useState(value)
+  const latest = useRef(value)
+  useEffect(() => {
+    latest.current = value
+  }, [value])
+  useEffect(() => {
+    const timer = window.setInterval(() => setShown(latest.current), every)
+    return () => window.clearInterval(timer)
+  }, [every])
+  return shown
 }
 
 function Spinner() {
