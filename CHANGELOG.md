@@ -6,7 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **The index in a folder no longer spells out where the folder is.** When you send to a folder, the list of what was sent (in its `index` folder) used to contain the folder's full location for every file, such as `file:///Z:/Backups/...`. It now points to each file relative to itself. So the folder can be moved to another disk or drive letter and the list still works, and it no longer records how your disks are laid out. Folders you have already sent to are put right the next time you send to them.
 
 ## [0.14.0] - 2026-11-17
 

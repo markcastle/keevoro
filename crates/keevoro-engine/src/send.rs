@@ -91,7 +91,11 @@ pub fn open(out: &mut dyn Write, runtime: &tokio::runtime::Runtime, destination:
                 .block_on(FolderStore::open(&folder))
                 .with_context(|| format!("Couldn't use {} as a backup folder", folder.display()))?;
             let home = std::fs::canonicalize(&folder).unwrap_or(folder);
-            Ok((Box::new(store), format!("folder:{}", home.display()), file_url(&home)))
+            Ok((
+                Box::new(store),
+                format!("folder:{}", home.display()),
+                BESIDE_THE_INDEX.to_string(),
+            ))
         }
         Destination::Bucket {
             preset,
@@ -415,7 +419,13 @@ pub fn run_until(
         summary::count(index.items.len(), "file"),
         summary::count(index.albums.len(), "album")
     )?;
-    writeln!(out, "Your private index: {}{key}", index.base_url)?;
+    if index.base_url == BESIDE_THE_INDEX {
+        // In a folder the index is named by where it sits among the files
+        // that were sent, not by where the folder happens to be.
+        writeln!(out, "Your private index: {key}")?;
+    } else {
+        writeln!(out, "Your private index: {}{key}", index.base_url)?;
+    }
     Ok(())
 }
 
@@ -633,31 +643,19 @@ fn albums_for(stored: &[&Kept<'_>]) -> Vec<AlbumInput> {
         .collect()
 }
 
-/// A `file://` address for a local folder, so the index's links work when
-/// it is opened straight from the backup disk.
-fn file_url(folder: &Path) -> String {
-    let text = folder.to_string_lossy().replace('\\', "/");
-    // Windows gives `\\?\D:\Backup`; a browser wants `file:///D:/Backup/`.
-    let text = text.trim_start_matches("//?/");
-    let encoded = keevoro_index::url_encode_path(text).replace("%3A", ":");
-    format!("file:///{}/", encoded.trim_matches('/'))
-}
+/// The address a folder's index uses for its own files: relative to the
+/// index, which sits in `index/` one level down.
+///
+/// A folder of photos gets moved: to another disk, another drive letter,
+/// another computer. Addresses that spell out where the folder was on the
+/// day it was made (`file:///Z:/Backups/...`) would break the moment it
+/// moved, and would tell anyone handed the index how the owner's disks are
+/// laid out. Relative ones go wherever the folder goes and say nothing.
+const BESIDE_THE_INDEX: &str = "../";
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn local_folders_become_file_addresses() {
-        assert_eq!(
-            file_url(Path::new("/mnt/backup disk/photos")),
-            "file:///mnt/backup%20disk/photos/"
-        );
-        assert_eq!(
-            file_url(Path::new(r"\\?\D:\Family Backup")),
-            "file:///D:/Family%20Backup/"
-        );
-    }
 
     /// A source with two photos, searched quickly into a backup whose
     /// home folder is somewhere else entirely.
@@ -846,5 +844,57 @@ mod tests {
             .join("Flights")
             .join("IMG_20240601_100500.jpg")
             .is_file());
+    }
+
+    #[test]
+    fn a_folders_index_never_says_where_the_folder_is() {
+        let (dir, _card, home, catalog) = one_backup();
+        let to = dir.path().join("Drone footage");
+        let said = send(&catalog, &home, &to);
+        assert!(said.contains("Your private index: index/"), "{said}");
+        assert!(!said.contains("file://"), "{said}");
+
+        let here = to.to_string_lossy().replace('\\', "/");
+        let mut seen = 0;
+        for entry in std::fs::read_dir(to.join("index")).unwrap() {
+            let file = entry.unwrap().path();
+            let text = std::fs::read_to_string(&file).unwrap();
+            assert!(!text.contains("file://"), "{} has a file address", file.display());
+            assert!(!text.contains(&here), "{} names the folder it is in", file.display());
+            assert!(
+                !text.contains(&*dir.path().to_string_lossy()),
+                "{} names a path",
+                file.display()
+            );
+            seen += 1;
+        }
+        assert_eq!(seen, 2, "the index and the gallery list");
+
+        // Every address in the gallery list leads, from the index's own
+        // folder, to a file that was really sent.
+        let gallery: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(to.join("index").join("gallery.json")).unwrap()).unwrap();
+        let mut urls = Vec::new();
+        fn collect(v: &serde_json::Value, urls: &mut Vec<String>) {
+            match v {
+                serde_json::Value::Object(map) => {
+                    for (key, value) in map {
+                        match (key.as_str(), value.as_str()) {
+                            ("url" | "thumbnail", Some(text)) => urls.push(text.to_string()),
+                            _ => collect(value, urls),
+                        }
+                    }
+                }
+                serde_json::Value::Array(list) => list.iter().for_each(|v| collect(v, urls)),
+                _ => {}
+            }
+        }
+        collect(&gallery, &mut urls);
+        assert!(urls.len() >= 4, "{urls:?}");
+        for url in urls {
+            assert!(url.starts_with("../"), "{url}");
+            let decoded = url.trim_start_matches("../").replace("%20", " ");
+            assert!(to.join(decoded).is_file(), "{url} leads nowhere");
+        }
     }
 }

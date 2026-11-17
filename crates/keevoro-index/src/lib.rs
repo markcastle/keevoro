@@ -143,7 +143,10 @@ pub struct Index {
     pub schema: String,
     /// UTC, `2026-11-15T13:30:00Z`.
     pub generated_at: String,
-    /// Always ends with `/`.
+    /// Where the files are, always ending with `/`. Either a web address
+    /// (`https://photos.example.com/`), or one relative to this index
+    /// (`../`, when it sits in a folder with the files) so the folder can
+    /// be moved without breaking it.
     pub base_url: String,
     pub renditions: BTreeMap<Rendition, RenditionRule>,
     pub albums: Vec<Album>,

@@ -11,7 +11,7 @@
       }
     },
     "baseUrl": {
-      "description": "Always ends with `/`.",
+      "description": "Where the files are, always ending with `/`. Either a web address\n(`https://photos.example.com/`), or one relative to this index\n(`../`, when it sits in a folder with the files) so the folder can\nbe moved without breaking it.",
       "type": "string"
     },
     "generatedAt": {

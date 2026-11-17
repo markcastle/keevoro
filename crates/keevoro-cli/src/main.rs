@@ -1172,11 +1172,7 @@ mod tests {
         let after = keevoro(&["publish", "--library", &lib, "--to-folder", &to]).unwrap();
         assert!(after.contains("Index written for 2 files in 2 albums."), "{after}");
         assert!(
-            after
-                .lines()
-                .last()
-                .unwrap()
-                .starts_with("Your private index: file:///"),
+            after.lines().last().unwrap().starts_with("Your private index: index/"),
             "{after}"
         );
         assert!(backup
@@ -1447,7 +1443,7 @@ mod tests {
         let said = keevoro(&["publish", "--library", &lib, "--to-folder", &to]).unwrap();
         // Two originals, two posters, two MP4 copies.
         assert!(said.starts_with("Safely backed up 6 files ("), "{said}");
-        let key = said.lines().last().unwrap().rsplit("/index/").next().unwrap();
+        let key = said.lines().last().unwrap().rsplit("index/").next().unwrap();
         let index: serde_json::Value =
             serde_json::from_slice(&fs::read(backup.join("index").join(key)).unwrap()).unwrap();
         let speech = index["items"]
