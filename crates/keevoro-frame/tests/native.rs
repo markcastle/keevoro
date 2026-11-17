@@ -57,3 +57,46 @@ fn a_missing_file_is_refused_plainly() {
         Err(FrameError::CannotDecode(_))
     ));
 }
+
+/// `fixtures/red.jpg` is a plain red JPEG, 640 by 480.
+#[cfg(windows)]
+#[test]
+fn a_photo_is_decoded_by_the_system_at_full_size_and_shrunk_on_request() {
+    let whole = keevoro_frame::photo(&fixture("red.jpg"), 0).expect("this computer can open a JPEG");
+    assert_eq!((whole.width, whole.height), (640, 480));
+    assert_eq!((whole.full_width, whole.full_height), (640, 480));
+    assert_eq!(whole.rgba.len(), 640 * 480 * 4);
+
+    let small = keevoro_frame::photo(&fixture("red.jpg"), 160).unwrap();
+    assert_eq!(
+        (small.width, small.height),
+        (160, 120),
+        "shrunk to fit, keeping its shape"
+    );
+    assert_eq!(
+        (small.full_width, small.full_height),
+        (640, 480),
+        "and it still says how big the photo is"
+    );
+    for (x, y) in [(2, 2), (157, 2), (2, 117), (157, 117), (80, 60)] {
+        let at = (y * 160 + x) * 4;
+        let (r, g, b, a) = (
+            small.rgba[at],
+            small.rgba[at + 1],
+            small.rgba[at + 2],
+            small.rgba[at + 3],
+        );
+        assert!(r > 180 && g < 70 && b < 70, "pixel {x},{y} is {r},{g},{b}");
+        assert_eq!(a, 255);
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn a_file_that_is_not_a_picture_is_refused_plainly() {
+    let not_picture = std::env::temp_dir().join(format!("keevoro-not-a-picture-{}.jpg", std::process::id()));
+    std::fs::write(&not_picture, b"this is not a picture").unwrap();
+    let result = keevoro_frame::photo(&not_picture, 512);
+    let _ = std::fs::remove_file(&not_picture);
+    assert!(matches!(result, Err(FrameError::CannotDecode(_))), "{result:?}");
+}

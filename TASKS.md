@@ -129,6 +129,16 @@ Done when a non-technical tester gets from a drive to a backup without help.
 - [ ] "Show folders" view with tick boxes, for people who want control
 - [ ] Old video conversion prompt
 
+### Speed
+
+- [x] Photos opened by the computer's own codecs on Windows (WIC), with Keevoro's own decoder as the fallback; on unless switched off in Settings
+- [x] Previews made several at a time, on half the processor cores at most
+- [x] One `Decoder` trait so a new way of opening photos is one new type, not a change everywhere
+- [ ] macOS: open photos with ImageIO (the trait is ready for it; only the Windows half is built)
+- [ ] Let the graphics card decode video for stills (Media Foundation can do this through DXVA; today it decodes in software)
+- [ ] Measure previews per second with the switch on and off on a real Windows computer, and show the figure on the Activity page
+- [ ] Not planned: CUDA. NVIDIA only, a large runtime to install, and little to gain on still photos
+
 ### Look and feel
 
 - [x] Reskin with the Keevoro design system: tokens, Keevoro Sans, the logo, soft-square photo tiles

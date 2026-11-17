@@ -2310,6 +2310,25 @@ main > section > :nth-last-child(2) {
   font-weight: 500;
 }
 
+/* A switch with its name and what it does beside it. */
+.switch-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  max-width: 760px;
+  font-weight: 400;
+  font-family: var(--font-sans);
+}
+
+.switch-row > span {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.switch-row .kv-switch {
+  margin-top: 2px;
+}
+
 /* How a send is getting on: how much, how fast, how long. */
 .speed {
   margin: var(--space-3) 0;

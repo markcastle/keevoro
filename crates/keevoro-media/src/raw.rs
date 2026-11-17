@@ -79,7 +79,7 @@ fn largest_jpeg(bytes: &[u8]) -> Option<DynamicImage> {
         .find_map(|(_, at)| image::load_from_memory_with_format(&bytes[at..], ImageFormat::Jpeg).ok())
 }
 
-fn container_orientation(path: &Path) -> Option<image::metadata::Orientation> {
+pub(crate) fn container_orientation(path: &Path) -> Option<image::metadata::Orientation> {
     let file = std::fs::File::open(path).ok()?;
     let tags = exif::Reader::new()
         .read_from_container(&mut BufReader::new(file))

@@ -435,6 +435,51 @@ pub fn keep_checking(app: AppHandle) {
     check_in_background(&app);
 }
 
+/// Whether Keevoro is using the computer's own codecs, and what that means
+/// on this computer.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccelerationView {
+    /// The person's choice. On unless they switched it off.
+    on: bool,
+    /// False on a computer where Keevoro has no system codecs to ask, so
+    /// the switch would change nothing.
+    available: bool,
+    /// The ways a photo will be decoded, in the order they are tried.
+    ways: Vec<&'static str>,
+    /// How many previews are made at once.
+    cores: usize,
+}
+
+#[tauri::command]
+pub fn acceleration() -> AccelerationView {
+    let on = keevoro_media::decode::use_system();
+    let cores = std::thread::available_parallelism().map_or(2, std::num::NonZero::get);
+    AccelerationView {
+        on,
+        available: keevoro_media::decode::system_codecs_available(),
+        ways: keevoro_media::Decoders::for_this_computer(on).names(),
+        cores: (cores / 2).clamp(1, 4),
+    }
+}
+
+/// Switches the use of the computer's own codecs on or off, and remembers.
+#[tauri::command]
+pub fn set_acceleration(shared: State<'_, Shared>, on: bool) -> Said<AccelerationView> {
+    keevoro_media::decode::set_use_system(on);
+    {
+        let mut settings = shared.settings.lock().map_err(say)?;
+        settings.plain_decoding = !on;
+        settings.save(&shared.config_dir).map_err(say)?;
+    }
+    shared.log.say(if on {
+        "Using this computer's own picture codecs again"
+    } else {
+        "Switched to the built-in picture decoder only"
+    });
+    Ok(acceleration())
+}
+
 /// The record of how hard Keevoro has been working, kept for as long as
 /// the app runs.
 pub static HISTORY: std::sync::Mutex<crate::activity::History> = std::sync::Mutex::new(crate::activity::History {

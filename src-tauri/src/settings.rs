@@ -24,6 +24,10 @@ pub struct Settings {
     /// The id of the backup that is open.
     #[serde(default)]
     pub current: Option<String>,
+    /// False when the person has switched off the use of the computer's
+    /// own picture codecs and graphics hardware. On unless they say so.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub plain_decoding: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

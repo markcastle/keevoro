@@ -125,6 +125,17 @@ export function demoBackend(): Backend {
   let sendingTo: string | null = null
   let stopAsked = false
   let stopLooking = false
+  let systemCodecs = true
+  const speed = () => ({
+    on: systemCodecs,
+    available: true,
+    ways: [
+      ...(systemCodecs ? ['this computer’s own codecs'] : []),
+      'the built-in decoder',
+      'the picture inside the raw file',
+    ],
+    cores: 4,
+  })
   // One earlier send, so there is something to compare a new one with.
   const sends: Sent[] = [
     { finishedAt: Date.UTC(2026, 10, 9, 14, 2) / 1000, seconds: 41 * 60, bytes: 30.1 * 1024 ** 3, to: 'the folder F:\\Family Backup', stopped: false },
@@ -321,6 +332,11 @@ export function demoBackend(): Backend {
     sendHistory: async () => [...sends],
     pauseWork: async (paused) => {
       pausedNow = paused
+    },
+    acceleration: async () => speed(),
+    setAcceleration: async (on) => {
+      systemCodecs = on
+      return speed()
     },
     stopScanning: async () => {
       stopLooking = true

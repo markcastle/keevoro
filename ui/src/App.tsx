@@ -24,6 +24,7 @@ import type { ReactNode } from 'react'
 
 import { backend } from './backend'
 import type {
+  Acceleration,
   Activity,
   AppState,
   Backend,
@@ -1074,6 +1075,10 @@ function SettingsScreen(props: {
   const [log, setLog] = useState<string | null>(null)
   const [checked, setChecked] = useState<'no' | 'checking' | 'current'>('no')
   const [theme, setTheme] = useState<Theme>(savedTheme)
+  const [speed, setSpeed] = useState<Acceleration | null>(null)
+  useEffect(() => {
+    api.acceleration().then(setSpeed).catch(onProblem)
+  }, [api, onProblem])
   // Resetting asks first, and says exactly what it does and does not do.
   const [resetting, setResetting] = useState(false)
   const logBox = useRef<HTMLPreElement>(null)
@@ -1144,6 +1149,38 @@ function SettingsScreen(props: {
             ))}
           </span>
         </p>
+      </div>
+
+      <div className="setting">
+        <h3>Speed</h3>
+        {speed && (
+          <>
+            <label className="switch-row">
+              <button
+                className={speed.on && speed.available ? 'kv-switch on' : 'kv-switch'}
+                role="switch"
+                aria-checked={speed.on && speed.available}
+                aria-label="Use this computer’s own picture codecs"
+                disabled={!speed.available}
+                onClick={() => api.setAcceleration(!speed.on).then(setSpeed).catch(onProblem)}
+              >
+                <span className="knob" />
+              </button>
+              <span>
+                <b>Use this computer’s own picture codecs</b>
+                <span className="quiet small">
+                  {speed.available
+                    ? 'They are usually the fastest way to open a photo, use your graphics hardware where they can, and open kinds of photo Keevoro’s own decoder cannot, such as HEIC. If a photo will not open that way, Keevoro falls back to its own decoder by itself. Switch this off only if previews look wrong.'
+                    : 'On this kind of computer Keevoro uses its own decoder for photos, so there is nothing to switch.'}
+                </span>
+              </span>
+            </label>
+            <p className="quiet small">
+              Photos are opened by: {speed.ways.join(', then ')}. Previews are made {speed.cores} at a time, on half of
+              this computer’s processor cores at most, so the rest stays free for you.
+            </p>
+          </>
+        )}
       </div>
 
       <div className="setting">

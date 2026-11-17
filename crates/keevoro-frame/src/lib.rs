@@ -22,6 +22,8 @@ use std::path::Path;
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(windows)]
+mod photo_windows;
+#[cfg(windows)]
 mod windows;
 
 /// One decoded picture: `width * height` pixels, four bytes each, in red,
@@ -74,6 +76,54 @@ pub fn still(video: &Path, max_edge: u32) -> Result<Frame, FrameError> {
     }
 }
 
+/// One decoded photo: `width * height` pixels, four bytes each, in red,
+/// green, blue, alpha order, top row first, exactly as stored in the file.
+/// It is not turned upright: a photo taken with the camera on its side is
+/// still on its side here, and the caller turns it using the note the
+/// camera left.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Picture {
+    pub width: u32,
+    pub height: u32,
+    /// The size of the photo in the file, before any shrinking.
+    pub full_width: u32,
+    pub full_height: u32,
+    pub rgba: Vec<u8>,
+}
+
+/// The size that fits a `width` by `height` picture inside a square of
+/// `max_edge`, keeping its shape and never making it bigger. A `max_edge`
+/// of zero means "as it is".
+pub fn fit_within(width: u32, height: u32, max_edge: u32) -> (u32, u32) {
+    let longest = width.max(height);
+    if max_edge == 0 || longest <= max_edge {
+        return (width, height);
+    }
+    let scale =
+        |side: u32| ((u64::from(side) * u64::from(max_edge) + u64::from(longest) / 2) / u64::from(longest)).max(1);
+    (scale(width) as u32, scale(height) as u32)
+}
+
+/// Decodes a photo with the operating system's own picture codecs, shrunk
+/// to fit `max_edge` where the codec can do that cheaply. The file is only
+/// read.
+pub fn photo(file: &Path, max_edge: u32) -> Result<Picture, FrameError> {
+    #[cfg(windows)]
+    {
+        photo_windows::photo(file, max_edge)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (file, max_edge);
+        Err(FrameError::NotAvailable)
+    }
+}
+
+/// Can photos be decoded by the operating system on this kind of computer?
+pub const fn photos_available() -> bool {
+    cfg!(windows)
+}
+
 /// Is there a built-in decoder to ask on this kind of computer?
 pub const fn available() -> bool {
     cfg!(any(windows, target_os = "macos"))
@@ -89,6 +139,15 @@ mod tests {
         assert_eq!(moment_for(Some(0)), 0.0);
         assert_eq!(moment_for(Some(30)), 3.0);
         assert_eq!(moment_for(Some(7200)), 10.0, "never far into a long video");
+    }
+
+    #[test]
+    fn a_picture_is_fitted_without_being_stretched_or_enlarged() {
+        assert_eq!(fit_within(4000, 3000, 2048), (2048, 1536));
+        assert_eq!(fit_within(3000, 4000, 2048), (1536, 2048));
+        assert_eq!(fit_within(800, 600, 2048), (800, 600), "never made bigger");
+        assert_eq!(fit_within(8000, 6000, 0), (8000, 6000), "zero means as it is");
+        assert_eq!(fit_within(10_000, 3, 100), (100, 1), "never squeezed to nothing");
     }
 
     #[cfg(not(any(windows, target_os = "macos")))]

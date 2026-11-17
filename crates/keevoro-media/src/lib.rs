@@ -26,13 +26,15 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
+pub mod decode;
 pub mod raw;
 pub mod video;
 
+pub use decode::{Decoder, Decoders};
 pub use video::{Conversion, Still, VideoInfo, VideoTools};
 
 use image::imageops::FilterType;
-use image::{DynamicImage, ImageDecoder, ImageReader};
+use image::DynamicImage;
 use std::io::Write;
 use std::path::Path;
 
@@ -73,15 +75,15 @@ pub struct PhotoRenditions {
 /// Makes the thumbnail, display copy and blurhash for the photo at `path`.
 /// The file is only read.
 pub fn render_photo(path: &Path) -> Result<PhotoRenditions, MediaError> {
-    let picture = match decode_upright(path) {
-        Ok(picture) => picture,
-        // A camera RAW file cannot be decoded directly, but it carries a
-        // finished picture inside it. A missing file stays a missing file.
-        Err(MediaError::Io(e)) => return Err(MediaError::Io(e)),
-        Err(e) if raw::is_raw(path) => raw::embedded_preview(path).ok_or(e)?,
-        Err(e) => return Err(e),
-    };
-    let (width, height) = (picture.width(), picture.height());
+    render_photo_with(&Decoders::for_this_computer(decode::use_system()), path)
+}
+
+/// As [`render_photo`], decoding by the ways given, in their order.
+pub fn render_photo_with(decoders: &Decoders, path: &Path) -> Result<PhotoRenditions, MediaError> {
+    // Asked for no bigger than the display copy, so a decoder that can
+    // shrink while decoding never builds the full-size picture at all.
+    let decoded = decoders.decode(path, DISPLAY_EDGE)?;
+    let picture = decoded.picture;
 
     let display = shrink(&picture, DISPLAY_EDGE);
     // The thumbnail is made from the display copy: same result, far less
@@ -92,29 +94,12 @@ pub fn render_photo(path: &Path) -> Result<PhotoRenditions, MediaError> {
         blurhash::encode(4, 3, tiny.width(), tiny.height(), tiny.as_raw()).map_err(|_| MediaError::Damaged)?;
 
     Ok(PhotoRenditions {
-        width,
-        height,
+        width: decoded.full_width,
+        height: decoded.full_height,
         blurhash,
         thumb: to_webp(&thumb)?,
         display: to_webp(&display)?,
     })
-}
-
-/// Decodes an ordinary picture file and turns it the right way up.
-fn decode_upright(path: &Path) -> Result<DynamicImage, MediaError> {
-    let reader = ImageReader::open(path)?.with_guessed_format()?;
-    if reader.format().is_none() {
-        return Err(MediaError::Unsupported);
-    }
-    let mut decoder = reader.into_decoder().map_err(decode_error)?;
-    let (w, h) = decoder.dimensions();
-    if u64::from(w) * u64::from(h) > MAX_PIXELS || w == 0 || h == 0 {
-        return Err(MediaError::Damaged);
-    }
-    let orientation = raw::orientation_of(&mut decoder);
-    let mut picture = DynamicImage::from_decoder(decoder).map_err(decode_error)?;
-    picture.apply_orientation(orientation);
-    Ok(picture)
 }
 
 /// Writes rendition bytes to `file`, replacing any earlier version in one
@@ -167,7 +152,7 @@ pub(crate) fn to_webp(picture: &DynamicImage) -> Result<Vec<u8>, MediaError> {
     Ok(bytes)
 }
 
-fn decode_error(e: image::ImageError) -> MediaError {
+pub(crate) fn decode_error(e: image::ImageError) -> MediaError {
     match e {
         image::ImageError::IoError(io) => MediaError::Io(io),
         image::ImageError::Unsupported(_) => MediaError::Unsupported,
