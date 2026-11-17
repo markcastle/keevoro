@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.27.2] - 2026-11-17
+
 ### Changed
 
 - **Click a picture to open it; double-click to keep or leave it out.** Inside a collection, a single click now opens a photo or video large, as you would expect. To keep it or leave it out, double-click it or click the tick in its corner. Before, a click changed the tick and you had to hold down to look. The line under the heading says how it works now. In the large view the Keeping switch, the arrows and Escape work as before.
@@ -416,7 +420,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.27.1...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.27.2...HEAD
+[0.27.2]: https://github.com/markcastle/keevoro/compare/v0.27.1...v0.27.2
 [0.27.1]: https://github.com/markcastle/keevoro/compare/v0.27.0...v0.27.1
 [0.27.0]: https://github.com/markcastle/keevoro/compare/v0.26.1...v0.27.0
 [0.26.1]: https://github.com/markcastle/keevoro/compare/v0.26.0...v0.26.1
