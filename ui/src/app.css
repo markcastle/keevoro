@@ -2714,3 +2714,12 @@ main > section > :nth-last-child(2) {
   gap: var(--space-3);
   align-items: center;
 }
+
+.setting.about h4 {
+  margin: var(--space-5) 0 var(--space-2);
+  font-size: 14px;
+}
+
+.setting.about .choices {
+  gap: var(--space-3);
+}

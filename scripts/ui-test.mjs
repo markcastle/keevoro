@@ -343,6 +343,10 @@ try {
   // About: where the name comes from.
   assert.match(await text('.setting.about'), /Keep things as they were\./)
   assert.match(await text('.setting.about'), /voro, an old Swedish word meaning “were”/)
+  assert.match(await text('.setting.about'), /Copyright 2026 Mark Castle\..*Functional Source License \(FSL-1\.1-MIT\)/s)
+  for (const name of ['Read the licence', 'The name and logo', 'See the source']) {
+    await page.getByRole('button', { name }).waitFor()
+  }
 
   // Appearance: light, dark, or the same as the computer, and it is remembered.
   const ground = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor)
