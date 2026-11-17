@@ -72,7 +72,7 @@ Choose a destination and press **Back up now**. Files go straight from the sourc
 These are rules the code is built around, each with tests, not hopes.
 
 - **Your sources are only ever read.** Keevoro never edits, moves, renames or deletes anything on a source. Removing a source from a backup only takes it off a list.
-- **A copy counts only when it is proved exact.** Every file is fingerprinted from its full contents, and a backed-up copy is compared with the original before it is called safe.
+- **A copy counts only when it is proved exact.** Every file is fingerprinted from its full contents. A copy written to a folder or drive is read back and compared with that fingerprint before it is called safe, and one that does not match is thrown away and said so. A copy sent to cloud storage travels over an encrypted, error-checked connection, and "Check they all arrived" confirms each one is there and the right size.
 - **Nothing in a backup is ever replaced.** Originals are written once. Two different photos called `IMG_0001.jpg` both survive.
 - **Duplicates are exact, never guesses.** Two files are the same only when every byte matches. Same name, size or date is never enough, and photos that merely look alike are both kept.
 - **Nothing is hidden without saying so.** Pictures set aside as junk are listed with the reason and can be brought back.

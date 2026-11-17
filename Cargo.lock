@@ -3063,6 +3063,7 @@ name = "keevoro-storage-folder"
 version = "0.26.1"
 dependencies = [
  "async-trait",
+ "blake3",
  "keevoro-storage",
  "tempfile",
  "tokio",

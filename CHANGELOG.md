@@ -6,7 +6,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Back up the originals alone.** The backup screen has a new switch, "Also make previews for a gallery". It is on to begin with. Switch it off and only your original files are backed up, exactly as they are, with no thumbnails or other versions made, which is quicker. Switch it back on later and the previews are added then. Each backup remembers its own choice.
+- **An About page, with what Keevoro promises.** "About Keevoro" in the side bar opens a page headed "Your photos are safe with Keevoro". It sets out the rules Keevoro never breaks: your sources are only ever read, a copy only counts when it is proved exact, nothing in a backup is ever replaced or removed, duplicates are exact, nothing is hidden, you never need Keevoro to get your photos back, and your photos go only where you send them. The page also has the origin of the name and the licence, with buttons to read the licence, the note on the name and logo, and the source.
+- **A progress bar for every step of a backup.** The bar used to show only while original files were going, and vanished while previews were made and sent. There is now always a bar, counting files when it cannot count bytes.
+- **The file just backed up is named.** Under the progress, "Just done:" shows the file Keevoro has just dealt with, so you can see what is going by.
+
+### Changed
+
+- **Every copy written to a folder or drive is read back and proved exact.** When Keevoro backs a file up to a folder, it now fingerprints what it reads from your source, writes it, makes sure it is on the disk, reads it back and fingerprints it again. If either does not match the fingerprint taken when the file was found, the copy is thrown away, the file is reported, and it is tried again next time. This makes backups to a folder somewhat slower, because each file is read back once. Backups to cloud storage are unchanged.
+- **Several files at once to a network drive.** A backup to a folder on a file share, such as a mapped drive letter that is really storage elsewhere, now sends four files at a time, which is much quicker for many small files. A disk in the computer still gets one at a time. This is worked out on Windows; on a Mac a network folder is still treated as a disk.
+- **"Your sources are only ever read" has moved** from the bottom of the side bar to the About page, where it is explained properly.
 
 ## [0.26.1] - 2026-11-17
 

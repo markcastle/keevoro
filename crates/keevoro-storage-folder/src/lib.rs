@@ -184,7 +184,7 @@ impl ObjectStore for FolderStore {
     async fn put(&self, key: &ObjectKey, body: ByteSource, opts: &PutOptions) -> Result<PutReceipt, StorageError> {
         let dest = self.path_for(key)?;
         let tmp = self.temp_path().await;
-        let bytes = write_source(&tmp, body, self.watcher.clone()).await?;
+        let bytes = write_source(&tmp, body, self.watcher.clone(), opts.expect_blake3.clone()).await?;
         self.publish(&tmp, &dest, key, opts.create_only).await?;
         Ok(PutReceipt {
             key: key.clone(),
@@ -254,7 +254,7 @@ impl MultipartStore for FolderStore {
             return Err(StorageError::InvalidParts("part numbers start at 1".into()));
         }
         let tmp = dir.join(format!("part-{number:05}.tmp"));
-        let bytes = write_source(&tmp, body, None).await?;
+        let bytes = write_source(&tmp, body, None, None).await?;
         fs::rename(&tmp, dir.join(part_name(number))).await?;
         Ok(PartReceipt {
             number,
@@ -350,7 +350,12 @@ impl FolderStore {
     }
 }
 
-async fn write_source(dest: &Path, body: ByteSource, watcher: Option<Watcher>) -> Result<u64, StorageError> {
+async fn write_source(
+    dest: &Path,
+    body: ByteSource,
+    watcher: Option<Watcher>,
+    expect: Option<String>,
+) -> Result<u64, StorageError> {
     match body {
         ByteSource::Bytes(b) => {
             let mut f = fs::File::create(dest).await?;
@@ -360,29 +365,45 @@ async fn write_source(dest: &Path, body: ByteSource, watcher: Option<Watcher>) -
         }
         ByteSource::File(src) => {
             let dest = dest.to_path_buf();
-            tokio::task::spawn_blocking(move || copy_file(&src, &dest, watcher.as_ref()))
+            tokio::task::spawn_blocking(move || copy_file(&src, &dest, watcher.as_ref(), expect.as_deref()))
                 .await
                 .map_err(|e| StorageError::Provider(e.to_string()))?
-                .map_err(Into::into)
         }
     }
 }
 
-/// Copies `src` to `dest` in large pieces, read once and written once,
-/// telling `watcher` after each piece. The source is only ever read.
-fn copy_file(src: &Path, dest: &Path, watcher: Option<&Watcher>) -> std::io::Result<u64> {
+/// Copies `src` to `dest` in large pieces, telling `watcher` after each
+/// piece. The source is only ever read.
+///
+/// When the file's fingerprint is known (`expect`), the copy is proved
+/// exact in two steps, because a backup nobody has checked is only a hope:
+///
+/// 1. What is read from the source is fingerprinted as it goes by. If that
+///    is not the expected fingerprint, the file has changed since it was
+///    looked at or the source is not reading back what it holds.
+/// 2. What was written is flushed to the disk, read back from start to
+///    finish and fingerprinted again. If that differs, the destination did
+///    not keep what it was given.
+///
+/// Either way the copy is removed and the failure reported; nothing wrong
+/// is ever left under a real name.
+fn copy_file(src: &Path, dest: &Path, watcher: Option<&Watcher>, expect: Option<&str>) -> Result<u64, StorageError> {
     use std::io::{Read, Write};
     let mut input = std::fs::File::open(src)?;
     let mut output = std::fs::File::create(dest)?;
     let mut buffer = vec![0u8; COPY_BUFFER];
     let mut total = 0u64;
+    let mut read = blake3::Hasher::new();
     loop {
         let n = match input.read(&mut buffer) {
             Ok(0) => break,
             Ok(n) => n,
             Err(e) if e.kind() == ErrorKind::Interrupted => continue,
-            Err(e) => return Err(e),
+            Err(e) => return Err(e.into()),
         };
+        if expect.is_some() {
+            read.update(&buffer[..n]);
+        }
         output.write_all(&buffer[..n])?;
         total += n as u64;
         if let Some(tell) = watcher {
@@ -390,6 +411,32 @@ fn copy_file(src: &Path, dest: &Path, watcher: Option<&Watcher>) -> std::io::Res
         }
     }
     output.flush()?;
+    let Some(expected) = expect else { return Ok(total) };
+    let refuse = |why: &str| {
+        let _ = std::fs::remove_file(dest);
+        Err(StorageError::NotTheSame(why.to_string()))
+    };
+    if read.finalize().to_hex().as_str() != expected {
+        return refuse("the file is not as it was when it was looked at");
+    }
+    // Past the system's own memory and onto the disk before it is read back.
+    output.sync_all()?;
+    drop(output);
+    let mut written = blake3::Hasher::new();
+    let mut back = std::fs::File::open(dest)?;
+    loop {
+        match back.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(n) => {
+                written.update(&buffer[..n]);
+            }
+            Err(e) if e.kind() == ErrorKind::Interrupted => {}
+            Err(e) => return Err(e.into()),
+        }
+    }
+    if written.finalize().to_hex().as_str() != expected {
+        return refuse("what was written did not read back the same");
+    }
     Ok(total)
 }
 
@@ -547,6 +594,39 @@ mod tests {
             bytes.len(),
             "the source is untouched"
         );
+    }
+
+    #[tokio::test]
+    async fn a_copy_is_proved_exact_or_it_is_not_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = FolderStore::open(dir.path().join("to")).await.unwrap();
+        let photo = dir.path().join("photo.jpg");
+        let bytes = vec![42u8; 300_000];
+        std::fs::write(&photo, &bytes).unwrap();
+        let fingerprint = blake3::hash(&bytes).to_hex().to_string();
+
+        // The right fingerprint: stored, and the same as the original.
+        let good = ObjectKey::new("originals/photo.jpg").unwrap();
+        let known = PutOptions {
+            expect_blake3: Some(fingerprint.clone()),
+            ..Default::default()
+        };
+        store.put(&good, ByteSource::File(photo.clone()), &known).await.unwrap();
+        assert!(store.get(&good).await.unwrap() == bytes);
+
+        // The file has changed since it was fingerprinted: refused, and
+        // nothing is left under its name or in the work area.
+        std::fs::write(&photo, vec![43u8; 300_000]).unwrap();
+        let bad = ObjectKey::new("originals/changed.jpg").unwrap();
+        let refused = store.put(&bad, ByteSource::File(photo.clone()), &known).await;
+        assert!(matches!(refused, Err(StorageError::NotTheSame(_))), "{refused:?}");
+        assert!(store.head(&bad).await.unwrap().is_none());
+        assert!(
+            std::fs::read_dir(store.work()).unwrap().next().is_none(),
+            "no half-made copy is left"
+        );
+        // The source was only read.
+        assert_eq!(std::fs::read(&photo).unwrap(), vec![43u8; 300_000]);
     }
 
     #[tokio::test]

@@ -181,12 +181,14 @@ async fn sends_everything_then_nothing_the_second_time() {
         w.file("renditions/thumb/9f2c4be1a07d33e8.webp", b"thumb", false),
     ];
     let mut seen = Vec::new();
-    let first = publish(&w.store, &w.catalog, "test", &uploads, &quick(), &mut |p| seen.push(*p))
-        .await
-        .unwrap();
+    let first = publish(&w.store, &w.catalog, "test", &uploads, &quick(), &mut |p| {
+        seen.push((p.done, p.total))
+    })
+    .await
+    .unwrap();
     assert_eq!((first.uploaded, first.already_there, first.failed.len()), (2, 0, 0));
     assert_eq!(first.uploaded_bytes, 14);
-    assert_eq!(seen.last(), Some(&PublishProgress { done: 2, total: 2 }));
+    assert_eq!(seen.last(), Some(&(2, 2)));
     assert_eq!(
         w.stored("originals/Holidays/Spain 2009/IMG_1234.jpg").await,
         b"photo one"
@@ -603,12 +605,12 @@ async fn a_good_backup_checks_out_and_reading_back_proves_it() {
     let want: Vec<Expected> = uploads.iter().map(expected).collect();
 
     let mut seen = Vec::new();
-    let quick_check = check_backup(&w.store, &want, false, &quick(), &mut |p| seen.push(*p)).await;
+    let quick_check = check_backup(&w.store, &want, false, &quick(), &mut |p| seen.push((p.done, p.total))).await;
     assert_eq!(
         (quick_check.present, quick_check.read_back, quick_check.problems.len()),
         (2, 0, 0)
     );
-    assert_eq!(seen.last(), Some(&PublishProgress { done: 2, total: 2 }));
+    assert_eq!(seen.last(), Some(&(2, 2)));
 
     let deep = check_backup(&w.store, &want, true, &quick(), &mut |_| {}).await;
     assert_eq!((deep.present, deep.read_back, deep.problems.len()), (2, 2, 0));

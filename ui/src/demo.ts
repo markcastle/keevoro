@@ -128,6 +128,7 @@ export function demoBackend(): Backend {
   let stopAsked = false
   let stopLooking = false
   let systemCodecs = true
+  let previews = true
   const speed = () => ({
     on: systemCodecs,
     available: true,
@@ -361,6 +362,10 @@ export function demoBackend(): Backend {
       stopAsked = true
     },
     // A folder has a disk that can be measured; cloud storage does not.
+    previewsWanted: async () => previews,
+    setPreviewsWanted: async (wanted) => {
+      previews = wanted
+    },
     room: async () => {
       const folder = sendingTo?.startsWith('the folder') ? sendingTo.replace('the folder ', '') : null
       // `?full` pretends the chosen disk is nearly full.
@@ -564,7 +569,7 @@ export function demoBackend(): Backend {
             return
           }
           sendListeners.forEach((l) =>
-            l({ line: `${done.toLocaleString('en-GB')} of ${total.toLocaleString('en-GB')} safely backed up`, finished: false }),
+            l({ line: `${done.toLocaleString('en-GB')} of ${total.toLocaleString('en-GB')} safely backed up\toriginals/Holidays/Cornwall/IMG_${1000 + done}.jpg`, finished: false }),
           )
         }
         const fresh = total - sentSoFar

@@ -912,6 +912,26 @@ pub struct RoomView {
     enough: bool,
 }
 
+/// Whether this backup also makes and sends previews for a gallery.
+#[tauri::command]
+pub fn previews_wanted(shared: State<'_, Shared>) -> Said<bool> {
+    let catalog = Catalog::open_in_library(&library(&shared)?).map_err(say)?;
+    keevoro_engine::send::wants_previews(&catalog).map_err(say)
+}
+
+/// Sets, for this backup, whether previews are made and sent.
+#[tauri::command]
+pub fn set_previews_wanted(shared: State<'_, Shared>, wanted: bool) -> Said<()> {
+    let catalog = Catalog::open_in_library(&library(&shared)?).map_err(say)?;
+    keevoro_engine::send::set_wants_previews(&catalog, wanted).map_err(say)?;
+    shared.log.say(if wanted {
+        "This backup will also make and send previews"
+    } else {
+        "This backup will send the originals alone, with no previews"
+    });
+    Ok(())
+}
+
 /// Weighs what is waiting to be sent against where it is going.
 #[tauri::command]
 pub fn room(shared: State<'_, Shared>) -> Said<RoomView> {
@@ -1193,13 +1213,21 @@ pub fn places() -> Vec<crate::places::Place> {
     crate::places::plugged_in()
 }
 
-/// Opens the page describing a release in the person's browser. Only
-/// Keevoro's own release pages are opened, whatever the screen asks for.
+/// Is this one of Keevoro's own pages: the project's home, or something
+/// beneath it such as a release or the licence?
+fn is_a_keevoro_page(page: &str) -> bool {
+    const HOME: &str = "https://github.com/markcastle/keevoro";
+    page == HOME || page.strip_prefix(HOME).is_some_and(|rest| rest.starts_with('/'))
+}
+
+/// Opens one of Keevoro's own pages in the person's browser: a release,
+/// the licence, the source. Nothing else is opened, whatever the screen
+/// asks for.
 #[tauri::command]
 pub fn open_release_page(app: AppHandle, page: String) -> Said<()> {
     use tauri_plugin_opener::OpenerExt;
-    if !page.starts_with("https://github.com/markcastle/keevoro/releases") {
-        return Err("That isn't one of Keevoro's release pages.".to_string());
+    if !is_a_keevoro_page(&page) {
+        return Err("That isn't one of Keevoro's own pages.".to_string());
     }
     app.opener().open_url(page, None::<&str>).map_err(say)
 }
@@ -1268,6 +1296,26 @@ pub fn open_library(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_keevoros_own_pages_are_opened() {
+        assert!(is_a_keevoro_page("https://github.com/markcastle/keevoro"));
+        assert!(is_a_keevoro_page(
+            "https://github.com/markcastle/keevoro/releases/tag/v0.26.0"
+        ));
+        assert!(is_a_keevoro_page(
+            "https://github.com/markcastle/keevoro/blob/main/LICENSE.md"
+        ));
+        // A look-alike that merely starts the same way is not.
+        assert!(!is_a_keevoro_page(
+            "https://github.com/markcastle/keevoro-evil/releases"
+        ));
+        assert!(!is_a_keevoro_page("https://github.com/someone/keevoro"));
+        assert!(!is_a_keevoro_page(
+            "https://example.com/https://github.com/markcastle/keevoro/"
+        ));
+        assert!(!is_a_keevoro_page("file:///C:/Windows"));
+    }
     use std::sync::atomic::AtomicUsize;
 
     #[test]

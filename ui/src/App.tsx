@@ -60,7 +60,7 @@ import type { Theme } from './theme'
 
 type Step = 'find' | 'choose' | 'send'
 /** Looking inside a collection, or at what was set aside, sits on top of step 2. */
-type Overlay = { collection: Collection } | 'setAside' | 'duplicates' | 'settings' | 'activity' | null
+type Overlay = { collection: Collection } | 'setAside' | 'duplicates' | 'settings' | 'activity' | 'about' | null
 
 const STEPS: { id: Step; title: string }[] = [
   { id: 'find', title: 'Find your photos' },
@@ -303,7 +303,9 @@ export function App() {
           <button className="link" onClick={() => show('settings')}>
             Settings
           </button>
-          <span>Your sources are only ever read.</span>
+          <button className="link" onClick={() => show('about')}>
+            About Keevoro
+          </button>
         </div>
       </aside>
 
@@ -360,6 +362,8 @@ export function App() {
 
         {overlay === 'activity' ? (
           <ActivityScreen api={api} onPaused={setPaused} onBack={() => setOverlay(null)} onProblem={report} />
+        ) : overlay === 'about' ? (
+          <AboutScreen api={api} version={state.version} onBack={() => setOverlay(null)} onProblem={report} />
         ) : overlay === 'settings' ? (
           <SettingsScreen
             api={api}
@@ -1176,6 +1180,117 @@ function ceiling(peak: number, floor: number) {
  * One measure over the last two minutes: a single thin line on a quiet
  * grid, with the figure under the pointer shown as you move across it.
  */
+/**
+ * What Keevoro is, what it promises, and the terms it comes under. The
+ * promises are the ones the code is built around and tested for; nothing
+ * is claimed here that the tests do not hold it to.
+ */
+function AboutScreen(props: { api: Backend; version: string; onBack: () => void; onProblem: (error: unknown) => void }) {
+  const { api, onProblem } = props
+  const open = (page: string) => api.openReleasePage(page).catch(onProblem)
+  return (
+    <section className="about">
+      <header>
+        <button className="link" onClick={props.onBack}>
+          ‹ Back
+        </button>
+        <h1>About Keevoro</h1>
+        <p className="status">Keep things as they were.</p>
+      </header>
+
+      <div className="panel">
+        <h2>Your photos are safe with Keevoro</h2>
+        <p>
+          These are the only copies some people have of the people and places they love. Keevoro is built around a few
+          rules that it never breaks, and each one is checked by tests every time the app changes.
+        </p>
+        <dl className="promises">
+          <dt>Your sources are only ever read</dt>
+          <dd>
+            Keevoro never changes, moves, renames or deletes anything on a drive, card or folder it looks through.
+            Removing a source only takes it off a list. If a source is damaged or vanishes mid-way, nothing on it has
+            been touched.
+          </dd>
+          <dt>A copy only counts when it is proved exact</dt>
+          <dd>
+            Every file is fingerprinted from its whole contents. A copy written to a folder or a drive is read back
+            and compared with that fingerprint before Keevoro calls it safe, and one that does not match is thrown
+            away and said so. A copy sent to cloud storage travels over an encrypted, error-checked connection, and
+            “Check they all arrived” confirms each one is there and the right size.
+          </dd>
+          <dt>Nothing in a backup is ever replaced or removed</dt>
+          <dd>
+            An original, once backed up, is never overwritten. Two different photos with the same name are both kept.
+            Deleting a photo from a source does not delete it from your backup.
+          </dd>
+          <dt>Duplicates are exact, never guesses</dt>
+          <dd>
+            A file is left out as a duplicate only when every byte matches the copy being kept. Photos that merely
+            look alike are both kept, and you can see every duplicate before anything is backed up.
+          </dd>
+          <dt>Nothing is hidden from you</dt>
+          <dd>
+            Anything set aside is listed with the reason and can be brought back. Anything that could not be read or
+            sent is said, by name.
+          </dd>
+          <dt>You never need Keevoro to get your photos back</dt>
+          <dd>
+            A backup is ordinary files in ordinary folders, with a plain note inside explaining them. Copy the{' '}
+            <code>originals</code> folder and you have everything.
+          </dd>
+          <dt>Your photos go only where you send them</dt>
+          <dd>
+            There is no Keevoro account and no Keevoro server. Your files go from your source to the destination you
+            chose and nowhere else. Storage keys are kept in this computer’s own keychain. The only thing Keevoro
+            contacts by itself is GitHub, to see whether there is a newer version.
+          </dd>
+        </dl>
+        <p className="quiet small">
+          What no program can promise is that a disk will not fail. Keep more than one copy of anything you cannot
+          afford to lose, in more than one place, and use “Check they all arrived” now and then.
+        </p>
+      </div>
+
+      <div className="panel">
+        <h2>The name</h2>
+        <p>
+          The name blends the sound of English <i>keep</i> with <i>voro</i>, an old Swedish word meaning “were”.
+          Together they capture why we save photos and videos in the first place: to remember people and places as
+          they were.
+        </p>
+      </div>
+
+      <div className="panel">
+        <h2>Licence</h2>
+        <p>
+          Copyright 2026 Mark Castle. Keevoro’s source is open to read, use, change and share under the Functional
+          Source License (FSL-1.1-MIT). You may use it freely, at home or at work. You may not sell it or offer it as
+          a product that competes with Keevoro. Each version becomes plain MIT two years after it comes out.
+        </p>
+        <p className="quiet small">
+          That is a summary; the licence itself is what counts. The Keevoro name and logo are not covered by it, and
+          it comes with no warranty.
+        </p>
+        <p className="choices">
+          <button className="button small" onClick={() => open(`${PROJECT}/blob/main/LICENSE.md`)}>
+            Read the licence
+          </button>
+          <button className="button small" onClick={() => open(`${PROJECT}/blob/main/TRADEMARKS.md`)}>
+            The name and logo
+          </button>
+          <button className="button small" onClick={() => open(PROJECT)}>
+            See the source
+          </button>
+        </p>
+        <p className="quiet small">Version {props.version}</p>
+      </div>
+    </section>
+  )
+}
+
+/** Keevoro's home on the web: the source, the licence and the releases. */
+const PROJECT = 'https://github.com/markcastle/keevoro'
+
 /** How many seconds each point on a chart is averaged over. */
 const STEADIED_OVER = 5
 
@@ -1442,17 +1557,6 @@ function SettingsScreen(props: {
         )}
       </div>
 
-      <div className="setting about">
-        <h3>About Keevoro</h3>
-        <p className="motto">Keep things as they were.</p>
-        <p>
-          The name blends the sound of English <i>keep</i> with <i>voro</i>, an old Swedish word meaning “were”.
-          Together they capture why we save photos and videos in the first place: to remember people and places as
-          they were.
-        </p>
-        <p className="quiet small">Version {state.version}</p>
-      </div>
-
       <div className="setting">
         <h3>Start again</h3>
         <p className="quiet">
@@ -1670,11 +1774,25 @@ function SendPanel(props: {
   const [running, setRunning] = useState<string | null>(null)
   const [said, setSaid] = useState<SendEvent | null>(null)
   const [stopping, setStopping] = useState(false)
+  // Whether this backup also makes previews, or sends the originals alone.
+  const [previews, setPreviews] = useState(true)
+  useEffect(() => {
+    api.previewsWanted().then(setPreviews).catch(() => {})
+  }, [api])
   // How the send in hand is getting on, asked once a second while it runs.
   const [progress, setProgress] = useState<SendProgress | null>(null)
   // Earlier sends of this backup, for comparing one with another.
   const [history, setHistory] = useState<Sent[]>([])
   const sending = running !== null
+  // The engine's line is what it is doing, then after a tab the file it
+  // has just dealt with. Any "3 of 10" in it also drives a progress bar,
+  // whatever the step: checking, backing up, or making previews.
+  const [doingNow, latestFile] = (running ?? '').split('\t')
+  const steadyFile = useSteady(latestFile, 700)
+  const counts = /([\d,]+) of ([\d,]+)/.exec(doingNow)
+  const counted = counts
+    ? { done: Number(counts[1].replace(/,/g, '')), total: Number(counts[2].replace(/,/g, '')) }
+    : null
   useEffect(() => {
     if (!sending) return
     let open = true
@@ -1916,7 +2034,24 @@ function SendPanel(props: {
               )}
             </p>
           )}
-          {running && progress && progress.bytesTotal > 0 && (
+          {running && counted && !(progress && progress.bytesTotal > 0 && progress.bytesDone < progress.bytesTotal) && (
+            <div className="speed" role="status" aria-live="off">
+              <progress value={counted.done} max={counted.total} />
+              <p>
+                <b>
+                  {thousands(counted.done)} of {thousands(counted.total)}
+                </b>{' '}
+                files done
+                {progress && progress.speed > 0 && (
+                  <>
+                    {' '}
+                    at <b>{size(progress.speed)}/s</b>
+                  </>
+                )}
+              </p>
+            </div>
+          )}
+          {running && progress && progress.bytesTotal > 0 && progress.bytesDone < progress.bytesTotal && (
             <div className="speed" role="status" aria-live="off">
               <progress value={progress.bytesDone} max={progress.bytesTotal} />
               <p>
@@ -1937,8 +2072,9 @@ function SendPanel(props: {
             </div>
           )}
           {running ? (
+            <>
             <p className="running">
-              <Spinner /> {stopping ? 'Stopping after this file…' : running}
+              <Spinner /> {stopping ? 'Stopping after this file…' : doingNow}
               {!stopping && (
                 <button
                   className="button small"
@@ -1951,7 +2087,37 @@ function SendPanel(props: {
                 </button>
               )}
             </p>
+            {steadyFile && !stopping && (
+              <p className="quiet small latest" aria-live="off">
+                Just done: <span className="where">{steadyFile}</span>
+              </p>
+            )}
+            </>
           ) : (
+            <>
+            <label className="switch-row previews">
+              <button
+                className={previews ? 'kv-switch on' : 'kv-switch'}
+                role="switch"
+                aria-checked={previews}
+                aria-label="Also make previews for a gallery"
+                onClick={() => {
+                  const wanted = !previews
+                  setPreviews(wanted)
+                  api.setPreviewsWanted(wanted).catch(onProblem)
+                }}
+              >
+                <span className="knob" />
+              </button>
+              <span>
+                <b>Also make previews for a gallery</b>
+                <span className="quiet small">
+                  {previews
+                    ? 'After your files are safely backed up, Keevoro makes small and screen-sized versions of each photo and a still of each video, and backs those up too. Switch this off to back up the originals alone, which is quicker.'
+                    : 'Only your original files will be backed up, exactly as they are. No thumbnails or other versions are made. You can switch this back on later and they will be added then.'}
+                </span>
+              </span>
+            </label>
             <div className="choices">
               <button
                 className="primary"
@@ -1984,6 +2150,7 @@ function SendPanel(props: {
                 Back up somewhere else
               </button>
             </div>
+            </>
           )}
           {said?.summary?.map((line) => (
             <p className="done" key={line}>

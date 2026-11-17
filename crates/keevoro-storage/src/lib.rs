@@ -67,6 +67,11 @@ pub enum ByteSource {
 pub struct PutOptions {
     /// Fail with [`StorageError::AlreadyExists`] if the key exists.
     pub create_only: bool,
+    /// The BLAKE3 fingerprint the file is known to have, as lower-case hex.
+    /// A store that can check its own writes uses it to prove the stored
+    /// copy exact, and fails with [`StorageError::NotTheSame`] if it is
+    /// not. A store that cannot ignores it.
+    pub expect_blake3: Option<String>,
     pub content_type: Option<String>,
     /// Stored when [`Capabilities::custom_metadata`] is true, for example the
     /// BLAKE3 hash and capture date.

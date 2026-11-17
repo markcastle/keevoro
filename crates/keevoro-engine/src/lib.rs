@@ -25,6 +25,7 @@ pub mod discover;
 pub mod history;
 pub mod layout;
 pub mod preview;
+pub mod reach;
 pub mod room;
 pub mod send;
 pub mod summary;

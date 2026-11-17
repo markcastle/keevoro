@@ -216,6 +216,13 @@ try {
   assert.match(await text('.sends.layout'), /A rendition is a version of a photo or video made for looking at, not for keeping\./)
   assert.deepEqual(await page.locator('.sends.layout dt').allInnerTexts(), ['originals', 'renditions', 'index', 'What is in this backup.txt'])
   await shot('9n-what-is-in-the-backup')
+  // A backup can be the originals alone: the switch says what each choice means.
+  const withPreviews = page.getByRole('switch', { name: 'Also make previews for a gallery' })
+  assert.equal(await withPreviews.getAttribute('aria-checked'), 'true', 'previews are made unless switched off')
+  await withPreviews.click()
+  assert.equal(await withPreviews.getAttribute('aria-checked'), 'false')
+  assert.match(await text('.switch-row.previews'), /Only your original files will be backed up, exactly as they are/)
+  await withPreviews.click()
   await page.getByText('How earlier backups went').click()
   assert.deepEqual(await page.locator('.sends th').allInnerTexts(), ['When', 'Backed up', 'Took', 'Average speed'])
   assert.equal(await page.locator('.sends tbody tr').count(), 2, 'this send and the one before')
@@ -326,10 +333,31 @@ try {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto(`${base}/?demo=empty&fast`)
 
+  // --- About has its own page: what Keevoro promises, the name, the licence.
+  await page.getByRole('button', { name: 'About Keevoro' }).click()
+  await page.getByRole('heading', { name: 'About Keevoro', level: 1 }).waitFor()
+  assert.deepEqual(await page.locator('.about .promises dt').allInnerTexts(), [
+    'Your sources are only ever read',
+    'A copy only counts when it is proved exact',
+    'Nothing in a backup is ever replaced or removed',
+    'Duplicates are exact, never guesses',
+    'Nothing is hidden from you',
+    'You never need Keevoro to get your photos back',
+    'Your photos go only where you send them',
+  ])
+  assert.match(await text('.about'), /voro, an old Swedish word meaning “were”/)
+  assert.match(await text('.about'), /Copyright 2026 Mark Castle\..*Functional Source License \(FSL-1\.1-MIT\)/s)
+  for (const name of ['Read the licence', 'The name and logo', 'See the source']) {
+    await page.getByRole('button', { name }).waitFor()
+  }
+  assert.equal(await page.getByText('Your sources are only ever read.', { exact: true }).count(), 0, 'no longer a stray line in the side bar')
+  await shot('9r-about')
+  await page.getByRole('button', { name: '‹ Back' }).click()
+
   // --- Settings holds everything in one place, including the log.
   await page.getByRole('button', { name: 'Settings' }).click()
   await page.getByRole('heading', { name: 'Settings', level: 1 }).waitFor()
-  for (const title of ['This backup', 'Where it backs up to', 'Appearance', 'Speed', 'Updates', 'What Keevoro has been doing', 'About Keevoro']) {
+  for (const title of ['This backup', 'Where it backs up to', 'Appearance', 'Speed', 'Updates', 'What Keevoro has been doing']) {
     await page.getByRole('heading', { name: title, level: 3 }).waitFor()
   }
   // Speed: the computer's own codecs are used unless switched off, and it says what that means.
@@ -340,10 +368,6 @@ try {
   assert.equal(await codecs.getAttribute('aria-checked'), 'false')
   await page.getByText(/Photos are opened by: the built-in decoder, then/).waitFor()
   await codecs.click()
-  // About: where the name comes from.
-  assert.match(await text('.setting.about'), /Keep things as they were\./)
-  assert.match(await text('.setting.about'), /voro, an old Swedish word meaning “were”/)
-
   // Appearance: light, dark, or the same as the computer, and it is remembered.
   const ground = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor)
   assert.equal(await ground(), 'rgb(255, 254, 251)', 'the cream ground of the light theme')
@@ -396,6 +420,8 @@ try {
   await page.getByRole('button', { name: 'Stop', exact: true }).waitFor()
   assert.equal(await page.getByRole('button', { name: 'Back up now' }).count(), 0, 'no second start is offered')
   await page.locator('.speed').waitFor()
+  // There is always a bar while a backup runs, whatever step it is on.
+  await page.locator('.send .speed progress').first().waitFor()
   await shot('9m-came-back-to-a-running-backup')
 
   // --- Pictures that have not arrived yet show a shimmering placeholder.
@@ -412,6 +438,8 @@ try {
   // While it sends, it says how much, how fast and how long is left.
   await page.locator('.speed').waitFor()
   assert.match(await text('.speed p'), /^[\d.]+ GB of [\d.]+ GB backed up at [\d.]+ MB\/s, about \d+ minutes left$/)
+  // And the file just dealt with is named beneath.
+  await page.getByText(/^Just done: originals\/Holidays\/Cornwall\/IMG_\d+\.jpg$/).waitFor()
   await shot('9l-send-speed')
   await page.getByRole('button', { name: 'Stop', exact: true }).click()
   await page.getByText('Stopping after this file…').waitFor()

@@ -105,10 +105,13 @@ pub struct PublishReport {
 }
 
 /// Counts for "3,412 of 9,870 safely backed up".
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PublishProgress {
     pub done: usize,
     pub total: usize,
+    /// The file most recently dealt with, as it is named in the storage,
+    /// so a person can see what is going by. Empty before the first.
+    pub latest: String,
 }
 
 enum Outcome {
@@ -132,6 +135,7 @@ pub async fn publish(
     let mut progress = PublishProgress {
         done: 0,
         total: uploads.len(),
+        latest: String::new(),
     };
     let stop_asked = || {
         opts.stop
@@ -158,6 +162,7 @@ pub async fn publish(
             if catalog.is_uploaded(target, upload.key.as_str())? {
                 report.already_there += 1;
                 progress.done += 1;
+                progress.latest = upload.key.to_string();
                 on_progress(&progress);
                 continue;
             }
@@ -184,6 +189,7 @@ pub async fn publish(
             }),
         }
         progress.done += 1;
+        progress.latest = upload.key.to_string();
         on_progress(&progress);
     }
     Ok(report)
@@ -199,6 +205,7 @@ pub async fn put_document(
 ) -> Result<(), StorageError> {
     let put = PutOptions {
         create_only: false,
+        expect_blake3: None,
         content_type: Some(content_type.to_string()),
         metadata: BTreeMap::new(),
     };
@@ -243,6 +250,7 @@ pub async fn check_backup(
     let mut progress = PublishProgress {
         done: 0,
         total: expected.len(),
+        latest: String::new(),
     };
     for want in expected {
         let problem = match with_retries(opts, || store.head(&want.key)).await {
@@ -291,6 +299,9 @@ pub fn plain_reason(e: &StorageError) -> String {
             "A different file is already stored under this name, and Keevoro never replaces an original".into()
         }
         StorageError::Io(io) => format!("Couldn't read it from the library ({io})"),
+        StorageError::NotTheSame(why) => format!(
+            "The copy was not the same as the original, so it was not kept ({why}). It will be tried again next time"
+        ),
         // Messages already written for the user, such as a mistyped
         // account ID, are passed on as they are.
         StorageError::Provider(said) if said.starts_with("That doesn't look like") => said.clone(),
@@ -337,6 +348,9 @@ async fn send(
     }
     let put = PutOptions {
         create_only: upload.write_once && caps.conditional_create,
+        // The fingerprint goes along whatever the store keeps of it, so a
+        // store that can prove its copy exact does.
+        expect_blake3: upload.metadata.get("blake3").cloned(),
         content_type: upload.content_type.clone(),
         metadata: if caps.custom_metadata {
             upload.metadata.clone()
