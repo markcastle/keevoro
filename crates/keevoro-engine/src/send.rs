@@ -419,12 +419,12 @@ pub fn run_until(
         summary::count(index.items.len(), "file"),
         summary::count(index.albums.len(), "album")
     )?;
-    if index.base_url.contains("://") {
-        writeln!(out, "Your private index: {}{key}", index.base_url)?;
-    } else {
-        // No web address was given, so the index is named by where it sits
-        // among the files that were sent.
+    if index.base_url == BESIDE_THE_INDEX {
+        // In a folder the index is named by where it sits among the files
+        // that were sent, not by where the folder happens to be.
         writeln!(out, "Your private index: {key}")?;
+    } else {
+        writeln!(out, "Your private index: {}{key}", index.base_url)?;
     }
     Ok(())
 }
