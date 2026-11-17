@@ -16,6 +16,7 @@
   <a href="https://github.com/markcastle/keevoro/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/markcastle/keevoro?label=release&color=0b3d3a"></a>
   <a href="https://github.com/markcastle/keevoro/actions/workflows/ci.yml"><img alt="Checks" src="https://img.shields.io/github/actions/workflow/status/markcastle/keevoro/ci.yml?branch=main&label=checks"></a>
   <a href="https://github.com/markcastle/keevoro/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/markcastle/keevoro/total?color=0b3d3a"></a>
+  <a href="LICENSE"><img alt="MIT licence" src="https://img.shields.io/badge/licence-MIT-0b3d3a"></a>
   <img alt="Windows and macOS" src="https://img.shields.io/badge/app-Windows%20%7C%20macOS-0b3d3a">
   <img alt="Built with Rust and Tauri" src="https://img.shields.io/badge/built%20with-Rust%20%2B%20Tauri-b7410e">
 </p>
@@ -235,6 +236,10 @@ cargo test --workspace
 ```sh
 npm run lint && npm run ui:test
 ```
+
+## ⚖️ Licence
+
+Keevoro is free to use, change and share under the [MIT licence](LICENSE).
 
 ## 📖 The name
 
