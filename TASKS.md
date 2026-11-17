@@ -118,6 +118,9 @@ Done when a non-technical tester gets from a drive to a backup without help.
 - [ ] `keevoro scan --quick` for the command line (it still reads every file whole)
 - [x] Stop a search part-way (nothing from a stopped search is kept)
 - [ ] Show roughly how long a search has left
+- [x] Camera raw files are never judged by the preview size in their header
+- [x] Per-source choice of which kinds of file to include, folded away for those who want it
+- [ ] Show a raw file's true pixel size (read from inside the file, not the header)
 - [ ] Notice when a drive is plugged in and offer to look through it
 - [ ] Time left ("About 20 minutes"), and cancel for a search or a gather
 - [ ] "Show folders" view with tick boxes, for people who want control
