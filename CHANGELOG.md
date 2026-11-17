@@ -6,7 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Stop a search.** While Keevoro is looking through a source there is now a "Stop looking" button. It stops within a moment. Nothing from a stopped search is added, because only part of the source had been looked at; whatever Keevoro already knew about that source stays as it was, and you can choose it again whenever you like.
 
 ## [0.15.1] - 2026-11-17
 

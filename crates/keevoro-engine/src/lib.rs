@@ -83,6 +83,12 @@ pub fn scan_into_with(
     // `D:\.` must come out the same.
     let root = std::fs::canonicalize(source).unwrap_or_else(|_| source.to_path_buf());
     let report = scan(&root, options, on_progress);
+    // A search that was stopped has only seen part of the source. Saving
+    // that would make the rest look as if it were not there, so nothing
+    // is remembered: whatever was known about this source stays as it was.
+    if report.stopped {
+        return Ok(report);
+    }
     let fallback = root
         .file_name()
         .map_or_else(|| root.display().to_string(), |n| n.to_string_lossy().to_string());

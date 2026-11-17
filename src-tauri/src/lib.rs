@@ -47,6 +47,8 @@ pub struct Shared {
     /// True while files a quick search only sampled are being read in the
     /// background.
     checking: AtomicBool,
+    /// Set to stop a search that is running.
+    stop_scanning: std::sync::Arc<AtomicBool>,
     /// Set to stop a send after the file in hand.
     stop_sending: keevoro_engine::send::Stop,
     /// True while a backup or a check of one is running.
@@ -75,6 +77,7 @@ pub fn run() {
                 scanning: AtomicBool::new(false),
                 gathering: AtomicBool::new(false),
                 checking: AtomicBool::new(false),
+                stop_scanning: std::sync::Arc::new(AtomicBool::new(false)),
                 stop_sending: keevoro_engine::send::Stop::default(),
                 sending: AtomicBool::new(false),
             });
@@ -92,6 +95,7 @@ pub fn run() {
             commands::open_place,
             commands::discover,
             commands::scan_place,
+            commands::stop_scanning,
             commands::places,
             commands::open_library,
             commands::check_update,

@@ -39,6 +39,10 @@ pub struct ScanEvent {
     /// True once the looking is over and what was found is being saved.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub saving: bool,
+    /// On the last event: true when the search was stopped part-way, so
+    /// nothing from it was kept.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub stopped: bool,
     pub finished: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub problem: Option<String>,
@@ -187,6 +191,7 @@ mod tests {
             folder: String::new(),
             reading: None,
             saving: false,
+            stopped: false,
             finished: false,
             problem: None,
         };
