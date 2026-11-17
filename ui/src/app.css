@@ -2035,3 +2035,23 @@ h2 .folder {
 .update .actions button.primary:hover {
   background: var(--primary-hover);
 }
+
+/* Resetting: said plainly, in two halves, before anything happens. */
+.resetting {
+  margin-top: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  max-width: 720px;
+}
+
+.resetting h4 {
+  font-size: 16px;
+  line-height: 24px;
+  margin-bottom: var(--space-2);
+}
+
+.resetting p {
+  margin-top: var(--space-2);
+}

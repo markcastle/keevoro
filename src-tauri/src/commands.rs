@@ -114,6 +114,50 @@ pub fn switch_backup(app: AppHandle, shared: State<'_, Shared>, id: String) -> S
     Ok(current_state(&app, &shared))
 }
 
+/// Puts Keevoro back as it was when first installed: every backup is
+/// forgotten, along with what it found and chose, the previews, and any
+/// storage keys in the keychain. Nothing on a source, nothing that was sent
+/// anywhere, and no folder outside Keevoro's own data is touched.
+#[tauri::command]
+pub fn reset_everything(app: AppHandle, shared: State<'_, Shared>) -> Said<AppState> {
+    if shared.scanning.load(Ordering::SeqCst)
+        || shared.sending.load(Ordering::SeqCst)
+        || shared.gathering.load(Ordering::SeqCst)
+    {
+        return Err(
+            "Keevoro is in the middle of something. Let that finish, or stop it, before starting again.".into(),
+        );
+    }
+    let data_dir = app.path().app_data_dir().map_err(say)?;
+    {
+        let mut settings = shared.settings.lock().map_err(say)?;
+        // Keys first, while each backup's notes can still be read. A key
+        // that cannot be removed is not a reason to stop.
+        for backup in &settings.backups {
+            if let Ok(catalog) = Catalog::open_in_library(&backup.home) {
+                let world = World {
+                    secrets: &Keychain,
+                    ask: &connect::testing::nobody_to_ask,
+                };
+                let _ = connect::disconnect(&mut Vec::new(), &catalog, &world);
+            }
+        }
+        let done = crate::reset::reset(&mut settings, &shared.config_dir, &data_dir, &shared.cache_dir).map_err(say)?;
+        shared.log.say(&format!(
+            "Reset to how Keevoro was when first installed: {} backups removed, {} folders left where they are",
+            done.removed.len(),
+            done.left_alone.len()
+        ));
+        for folder in &done.left_alone {
+            shared.log.say(&format!(
+                "Left alone, because it is not Keevoro's own: {}",
+                keevoro_engine::friendly_path(folder)
+            ));
+        }
+    }
+    Ok(current_state(&app, &shared))
+}
+
 /// Shows the folder this backup sends to, if it sends to a folder.
 #[tauri::command]
 pub fn open_destination(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {

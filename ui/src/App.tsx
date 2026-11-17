@@ -296,6 +296,14 @@ export function App() {
               setOverlay(null)
               setStep('send')
             }}
+            onReset={(s) => {
+              setOverlay(null)
+              setFound(null)
+              setSendingTo(null)
+              setJustFound(null)
+              setStep('find')
+              setState(s)
+            }}
             onBack={() => setOverlay(null)}
             onProblem={report}
           />
@@ -730,6 +738,8 @@ function SettingsScreen(props: {
   update: Update | null
   onUpdate: (update: Update | null) => void
   onLibrary: (state: AppState) => void
+  /** Called after a reset, with the app as it is when first installed. */
+  onReset: (state: AppState) => void
   onSend: () => void
   onBack: () => void
   onProblem: (error: unknown) => void
@@ -738,6 +748,8 @@ function SettingsScreen(props: {
   const [log, setLog] = useState<string | null>(null)
   const [checked, setChecked] = useState<'no' | 'checking' | 'current'>('no')
   const [theme, setTheme] = useState<Theme>(savedTheme)
+  // Resetting asks first, and says exactly what it does and does not do.
+  const [resetting, setResetting] = useState(false)
   const logBox = useRef<HTMLPreElement>(null)
 
   const showLog = () =>
@@ -856,6 +868,55 @@ function SettingsScreen(props: {
           <pre className="log" ref={logBox} tabIndex={0}>
             {log || 'Nothing has been recorded yet.'}
           </pre>
+        )}
+      </div>
+
+      <div className="setting">
+        <h3>Start again</h3>
+        <p className="quiet">
+          Put Keevoro back as it was when you first installed it. Use this to clear out a trial run, or before passing
+          the computer on.
+        </p>
+        {!resetting ? (
+          <p className="choices">
+            <button className="danger" onClick={() => setResetting(true)}>
+              Reset Keevoro…
+            </button>
+          </p>
+        ) : (
+          <div className="resetting" role="alertdialog" aria-labelledby="reset-title">
+            <h4 id="reset-title">Reset Keevoro?</h4>
+            <p>
+              <b>This removes:</b>{' '}
+              {props.state.backups.length === 1 ? 'your backup' : `all ${props.state.backups.length} of your backups`} from
+              Keevoro, with what was found and what you chose to keep; the previews Keevoro made; and any storage
+              keys it saved.
+            </p>
+            <p>
+              <b>This does not touch:</b> anything on your sources, or any photo or video you have already sent
+              anywhere. Those stay exactly where they are. Keevoro simply forgets about them.
+            </p>
+            <p className="choices">
+              <button
+                className="danger"
+                onClick={() =>
+                  api
+                    .resetEverything()
+                    .then((s) => {
+                      chooseTheme('system')
+                      props.onReset(s)
+                    })
+                    .catch((e) => {
+                      setResetting(false)
+                      onProblem(e)
+                    })
+                }
+              >
+                Yes, reset Keevoro
+              </button>
+              <button onClick={() => setResetting(false)}>Cancel</button>
+            </p>
+          </div>
         )}
       </div>
     </section>

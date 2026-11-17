@@ -22,6 +22,7 @@ mod commands;
 mod events;
 mod log;
 mod places;
+mod reset;
 mod settings;
 mod updates;
 
@@ -86,6 +87,7 @@ pub fn run() {
             commands::switch_backup,
             commands::open_destination,
             commands::room,
+            commands::reset_everything,
             commands::stop_sending,
             commands::open_place,
             commands::discover,

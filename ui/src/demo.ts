@@ -243,6 +243,18 @@ export function demoBackend(): Backend {
     },
     openDestination: async () => {},
     openPlace: async () => {},
+    async resetEverything() {
+      shelf.clear()
+      backups = []
+      open = null
+      library = null
+      collections.length = 0
+      sources.length = 0
+      junk.length = 0
+      sendingTo = null
+      sentSoFar = 0
+      return state()
+    },
     stopSending: async () => {
       stopAsked = true
     },

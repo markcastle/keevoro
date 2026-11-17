@@ -140,6 +140,11 @@ export interface Backend {
   startBackup(name: string): Promise<AppState>
   /** Opens another backup; the one that was open is left as it was. */
   switchBackup(id: string): Promise<AppState>
+  /**
+   * Puts Keevoro back as it was when first installed. Sources and anything
+   * already sent are not touched.
+   */
+  resetEverything(): Promise<AppState>
   /** Asks a running send to stop after the file in hand. */
   stopSending(): Promise<void>
   /** How much room what is waiting needs, against where it is going. */
@@ -221,6 +226,7 @@ async function tauriBackend(): Promise<Backend> {
     switchBackup: (id) => invoke('switch_backup', { id }),
     openDestination: () => invoke('open_destination'),
     room: () => invoke('room'),
+    resetEverything: () => invoke('reset_everything'),
     stopSending: () => invoke('stop_sending'),
     openPlace: (path) => invoke('open_place', { path }),
     async chooseLibrary() {
