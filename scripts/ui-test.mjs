@@ -247,6 +247,20 @@ try {
   await page.getByText(/^Stopped\. Everything sent so far is safe where it is\./).waitFor()
   await shot('9h-stopped')
 
+  // --- Starting again: asked first, told exactly what goes and what stays.
+  await page.goto(`${base}/?fast`)
+  await page.getByRole('button', { name: 'Settings' }).click()
+  await page.getByRole('button', { name: 'Reset Keevoro…' }).click()
+  assert.match(await text('.resetting'), /This removes:.*your backup.*This does not touch:.*anything on your sources.*already sent/s)
+  await shot('9i-reset')
+  await page.getByRole('button', { name: 'Cancel' }).click()
+  assert.equal(await page.locator('.resetting').count(), 0, 'cancelling changes nothing')
+  assert.match(await text('.backup .current'), /My photos/)
+  await page.getByRole('button', { name: 'Reset Keevoro…' }).click()
+  await page.getByRole('button', { name: 'Yes, reset Keevoro' }).click()
+  await page.getByRole('heading', { name: 'Let’s find your photos' }).waitFor()
+  assert.equal(await page.getByLabel('What shall we call this backup?').inputValue(), 'My photos', 'as on first install')
+
   // --- A newer version is offered calmly and can be installed in one click.
   await page.goto(`${base}/?fast&update`)
   assert.match(await text('.update'), /A new version of Keevoro is ready \(9\.9\.0\)/)

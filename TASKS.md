@@ -153,6 +153,7 @@ Separate, remembered jobs ("Drone footage to R2", "Family photos to a folder"), 
 - [ ] Stop part-way through one very large file (it currently finishes the file in hand)
 - [ ] Show how much room a cloud bucket has, where the provider will say
 - [ ] More than one destination per backup
+- [x] Reset to factory settings from Settings (only ever removes Keevoro's own data)
 - [ ] Rename and remove a backup
 - [ ] A backup that only looks for videos, or only photos
 - [ ] Verify a folder destination by reading it back automatically after sending

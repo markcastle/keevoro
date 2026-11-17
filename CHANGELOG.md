@@ -6,7 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Reset Keevoro.** Settings has a new "Start again" section that puts Keevoro back as it was when first installed. It removes your backups from Keevoro (with what each found and what you chose), the previews it made and any storage keys it saved. It never touches your sources or anything you have already sent: those stay exactly where they are. It asks first and says all of this before doing anything.
 
 ## [0.14.1] - 2026-11-17
 
