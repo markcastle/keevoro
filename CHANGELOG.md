@@ -6,7 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **Click a picture to open it; double-click to keep or leave it out.** Inside a collection, a single click now opens a photo or video large, as you would expect. To keep it or leave it out, double-click it or click the tick in its corner. Before, a click changed the tick and you had to hold down to look. The line under the heading says how it works now. In the large view the Keeping switch, the arrows and Escape work as before.
 
 ## [0.27.1] - 2026-11-17
 
