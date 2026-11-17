@@ -24,7 +24,7 @@
 <p align="center">
   <a href="https://github.com/markcastle/keevoro/releases/latest/download/Keevoro-windows-x64-setup.exe"><b>⬇️ Download for Windows</b></a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/markcastle/keevoro/releases/latest/download/Keevoro-macos-universal.dmg"><b>⬇️ Download for Mac</b></a>
+  <a href="https://github.com/markcastle/keevoro/releases/download/v0.23.0/Keevoro-macos-universal.dmg"><b>⬇️ Download for Mac</b> (0.23.0)</a>
   &nbsp;·&nbsp;
   <a href="CHANGELOG.md">What’s new</a>
 </p>
@@ -103,7 +103,9 @@ These are rules the code is built around, each with tests, not hopes.
 | Computer | Download |
 | --- | --- |
 | Windows 10 or 11 | [Keevoro-windows-x64-setup.exe](https://github.com/markcastle/keevoro/releases/latest/download/Keevoro-windows-x64-setup.exe) |
-| Mac (Apple silicon or Intel) | [Keevoro-macos-universal.dmg](https://github.com/markcastle/keevoro/releases/latest/download/Keevoro-macos-universal.dmg) |
+| Mac (Apple silicon or Intel) | [Keevoro-macos-universal.dmg](https://github.com/markcastle/keevoro/releases/download/v0.23.0/Keevoro-macos-universal.dmg) (version 0.23.0) |
+
+While Keevoro is changing quickly, each release is built for Windows, and the Mac version is brought up to date at bigger milestones. That is why the Mac download is an earlier version.
 
 The app is not yet signed with a paid certificate, so each system asks once whether you trust it.
 
@@ -122,7 +124,7 @@ One line installs the `keevoro` command, and running it again updates it. Nothin
 irm https://raw.githubusercontent.com/markcastle/keevoro/main/install.ps1 | iex
 ```
 
-**macOS and Linux:**
+**macOS and Linux** (these too are built at milestones, so if the newest release has no file for your computer, the installer says so):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/markcastle/keevoro/main/install.sh | sh
@@ -166,6 +168,7 @@ Honest limits today:
 - One destination per backup.
 - The quick survey is offered for a whole drive, not yet for any folder.
 - On a Mac, photos are decoded by Keevoro's own decoder, not the system's, so fewer formats get a preview.
+- Mac and Linux versions are built at milestones, so they trail Windows.
 - The app is not code-signed, hence the one-time trust prompt.
 - Cloud backups are tested against MinIO, which speaks the same language as R2 and S3. Try a spare bucket first.
 
