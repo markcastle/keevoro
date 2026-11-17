@@ -519,6 +519,46 @@ pub fn activity(shared: State<'_, Shared>) -> ActivityView {
     }
 }
 
+/// This backup's earlier sends, newest first: when, how much, how long.
+#[tauri::command]
+pub fn send_history(shared: State<'_, Shared>) -> Said<Vec<keevoro_engine::history::Sent>> {
+    let catalog = Catalog::open_in_library(&library(&shared)?).map_err(say)?;
+    keevoro_engine::history::recent(&catalog).map_err(say)
+}
+
+/// How a send is getting on: how much has arrived, how fast, and roughly
+/// how long is left.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SendProgress {
+    bytes_done: u64,
+    bytes_total: u64,
+    /// Bytes a second, steadied over the last few seconds.
+    speed: u64,
+    /// `None` while nothing is arriving, when no honest guess can be made.
+    seconds_left: Option<u64>,
+    /// True when this send goes over the network, to cloud storage.
+    over_network: bool,
+}
+
+#[tauri::command]
+pub fn send_progress(shared: State<'_, Shared>) -> SendProgress {
+    let total = shared.send_total.load(Ordering::SeqCst);
+    let done = keevoro_core::meter::totals()
+        .0
+        .saturating_sub(shared.send_began_at.load(Ordering::SeqCst))
+        .min(total);
+    let samples = HISTORY.lock().map(|h| h.samples()).unwrap_or_default();
+    let (speed, seconds_left) = crate::activity::speed_and_time_left(&samples, total - done);
+    SendProgress {
+        bytes_done: done,
+        bytes_total: total,
+        speed,
+        seconds_left,
+        over_network: samples.iter().rev().take(10).any(|s| s.network > 0.0),
+    }
+}
+
 /// Pauses or resumes every heavy job. Each waits at its next safe point,
 /// between one file and the next, and carries on from there when resumed.
 #[tauri::command]
@@ -874,6 +914,7 @@ pub fn disconnect_destination(shared: State<'_, Shared>) -> Said<()> {
 fn send_job(
     app: AppHandle,
     shared: &Shared,
+    record: bool,
     job: impl FnOnce(
             &std::path::Path,
             &Catalog,
@@ -892,6 +933,9 @@ fn send_job(
     std::thread::spawn(move || {
         let mut said = Vec::new();
         let mut last_said = Instant::now() - PROGRESS_EVERY;
+        let started = Instant::now();
+        let began_at = keevoro_core::meter::totals().0;
+        let mut going_to = String::new();
         let result = (|| {
             let catalog = Catalog::open_in_library(&library)?;
             let saved = Saved::load(&catalog)?.ok_or_else(|| anyhow::anyhow!("Choose where to back up to first."))?;
@@ -899,6 +943,7 @@ fn send_job(
                 secrets: &Keychain,
                 ask: &connect::testing::nobody_to_ask,
             };
+            going_to = saved.describe();
             let destination = saved.open(&world)?;
             let web_address = saved.base_url.clone();
             job(
@@ -917,6 +962,28 @@ fn send_job(
         })();
         let state = app.state::<Shared>();
         state.sending.store(false, Ordering::SeqCst);
+        // How it went, said to the person and written into the backup's
+        // record, so "was that slow?" has an answer afterwards.
+        if record && result.is_ok() {
+            let sent = keevoro_engine::history::Sent {
+                finished_at: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .ok()
+                    .and_then(|d| i64::try_from(d.as_secs()).ok())
+                    .unwrap_or(0),
+                seconds: started.elapsed().as_secs(),
+                bytes: keevoro_core::meter::totals().0.saturating_sub(began_at),
+                to: going_to.clone(),
+                stopped: state.stop_sending.load(Ordering::SeqCst),
+            };
+            if let Some(sentence) = sent.sentence() {
+                said.extend_from_slice(sentence.as_bytes());
+                said.push(b'\n');
+                if let Ok(catalog) = Catalog::open_in_library(&library) {
+                    let _ = keevoro_engine::history::record(&catalog, &sent);
+                }
+            }
+        }
         match &result {
             Ok(()) => state.log.say(&format!(
                 "Backup job finished: {}",
@@ -935,9 +1002,21 @@ pub fn send(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
     // A fresh start: an earlier request to stop does not carry over.
     shared.stop_sending.store(false, Ordering::SeqCst);
     let stop = shared.stop_sending.clone();
+    // What this send sets out to do, so its speed can become a time left.
+    if let Ok(library) = library(&shared) {
+        let waiting = Catalog::open_in_library(&library)
+            .ok()
+            .and_then(|catalog| keevoro_engine::discover(&library, &catalog).ok())
+            .map_or(0, |found| found.waiting_bytes);
+        shared.send_total.store(waiting, Ordering::SeqCst);
+        shared
+            .send_began_at
+            .store(keevoro_core::meter::totals().0, Ordering::SeqCst);
+    }
     send_job(
         app,
         &shared,
+        true,
         move |library, catalog, destination, base_url, said, progress| {
             // The files themselves go first; previews are made and sent after.
             keevoro_engine::send::originals_first(
@@ -970,6 +1049,7 @@ pub fn check_arrived(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
     send_job(
         app,
         &shared,
+        false,
         |library, catalog, destination, _base_url, said, progress| {
             keevoro_engine::send::check(said, catalog, library, Some(destination), false, progress)
         },

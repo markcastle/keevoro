@@ -320,6 +320,7 @@ pub fn run_until(
     }
 
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    let over_network = matches!(destination, Destination::Bucket { .. });
     let (store, target, default_url) = open(out, &runtime, destination)?;
     let store = store.as_ref();
     let base_url = base_url.map_or(default_url, str::to_string);
@@ -328,6 +329,7 @@ pub fn run_until(
     let n = summary::thousands;
     let opts = PublishOptions {
         stop: stop.cloned(),
+        over_network,
         ..PublishOptions::default()
     };
     let report = runtime.block_on(publish(store, catalog, &target, &uploads, &opts, &mut |p| {

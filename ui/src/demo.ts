@@ -20,6 +20,7 @@ import type {
   Photo,
   PhotoChoice,
   Sample,
+  Sent,
   ScanEvent,
   Backup,
 } from './backend'
@@ -135,11 +136,17 @@ export function demoBackend(): Backend {
     ],
     cores: 4,
   })
+  // One earlier send, so there is something to compare a new one with.
+  const sends: Sent[] = [
+    { finishedAt: Date.UTC(2026, 10, 9, 14, 2) / 1000, seconds: 41 * 60, bytes: 30.1 * 1024 ** 3, to: 'the folder F:\\Family Backup', stopped: false },
+  ]
   let pausedNow = false
   let tick = 0
   const usage: Sample[] = Array.from({ length: 60 }, (_, i) => ({
     cpu: 11 + 6 * Math.sin(i / 5),
     disk: 78 + 22 * Math.sin(i / 3),
+    sent: 12 + 4 * Math.sin(i / 4),
+    network: 12 + 4 * Math.sin(i / 4),
   }))
   const kinds: FileType[] = [
     { ending: 'jpg', files: 198, bytes: 620 * 1024 * 1024, included: true },
@@ -297,6 +304,8 @@ export function demoBackend(): Backend {
       usage.push({
         cpu: busy ? 11 + 6 * Math.sin(tick / 5) + (tick % 17 === 0 ? 9 : 0) : 0.3,
         disk: busy ? 78 + 22 * Math.sin(tick / 3) : 0,
+        sent: busy ? 12 + 4 * Math.sin(tick / 4) : 0,
+        network: busy ? 12 + 4 * Math.sin(tick / 4) : 0,
       })
       if (usage.length > 120) usage.shift()
       return {
@@ -312,6 +321,15 @@ export function demoBackend(): Backend {
         cores: 20,
       }
     },
+    // A send a third of the way through 30 GB, at a steady 12.4 MB a second.
+    sendProgress: async () => ({
+      bytesDone: 9.6 * 1024 ** 3,
+      bytesTotal: 30.1 * 1024 ** 3,
+      speed: 12.4 * 1024 * 1024,
+      secondsLeft: Math.round(((30.1 - 9.6) * 1024) / 12.4),
+      overNetwork: false,
+    }),
+    sendHistory: async () => [...sends],
     pauseWork: async (paused) => {
       pausedNow = paused
     },
@@ -478,6 +496,7 @@ export function demoBackend(): Backend {
           )
         }
         const fresh = total - sentSoFar
+        sends.unshift({ finishedAt: Date.now() / 1000, seconds: 96, bytes: 1.2 * 1024 ** 3, to: sendingTo ?? '', stopped: false })
         sentSoFar = total
         // Sent means safe: nothing is waiting any more.
         kept.forEach((c) => (c.gathered = c.photos + c.videos))
@@ -489,6 +508,7 @@ export function demoBackend(): Backend {
                 ? `Safely backed up ${fresh.toLocaleString('en-GB')} files.`
                 : `${total.toLocaleString('en-GB')} files already there.`,
               ...(fresh > 0 ? [`Previews added: ${(fresh * 2).toLocaleString('en-GB')} files.`] : []),
+              ...(fresh > 0 ? ['That took about 2 minutes: 1.2 GB at an average of 12.8 MB a second.'] : []),
             ],
           }),
         )

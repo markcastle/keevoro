@@ -129,6 +129,16 @@ Done when a non-technical tester gets from a drive to a backup without help.
 - [ ] "Show folders" view with tick boxes, for people who want control
 - [ ] Old video conversion prompt
 
+### Speed
+
+- [x] Photos opened by the computer's own codecs on Windows (WIC), with Keevoro's own decoder as the fallback; on unless switched off in Settings
+- [x] Previews made several at a time, on half the processor cores at most
+- [x] One `Decoder` trait so a new way of opening photos is one new type, not a change everywhere
+- [ ] macOS: open photos with ImageIO (the trait is ready for it; only the Windows half is built)
+- [ ] Let the graphics card decode video for stills (Media Foundation can do this through DXVA; today it decodes in software)
+- [ ] Measure previews per second with the switch on and off on a real Windows computer, and show the figure on the Activity page
+- [ ] Not planned: CUDA. NVIDIA only, a large runtime to install, and little to gain on still photos
+
 ### Look and feel
 
 - [x] Reskin with the Keevoro design system: tokens, Keevoro Sans, the logo, soft-square photo tiles
@@ -157,6 +167,9 @@ Separate, remembered jobs ("Drone footage to R2", "Family photos to a folder"), 
 - [x] Say how much room is needed; refuse a folder whose disk does not have it
 - [x] Stop a send between files
 - [x] Folder names open the folder
+- [x] Live speed and time left while sending; a summary when it finishes; a record of earlier sends
+- [x] Network graph on the Activity page (what Keevoro sends to cloud storage)
+- [ ] Count bytes as they are read, so a single huge file to a folder shows steady progress and not one jump at the end
 - [ ] Stop part-way through one very large file (it currently finishes the file in hand)
 - [ ] Show how much room a cloud bucket has, where the provider will say
 - [ ] More than one destination per backup

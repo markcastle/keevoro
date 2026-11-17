@@ -50,6 +50,10 @@ pub struct Shared {
     checking: AtomicBool,
     /// Set to stop a search that is running.
     stop_scanning: std::sync::Arc<AtomicBool>,
+    /// How many bytes the send in hand set out to send, and what the
+    /// running total stood at when it began.
+    send_total: std::sync::atomic::AtomicU64,
+    send_began_at: std::sync::atomic::AtomicU64,
     /// Set to stop a send after the file in hand.
     stop_sending: keevoro_engine::send::Stop,
     /// True while a backup or a check of one is running.
@@ -83,6 +87,8 @@ pub fn run() {
                 gathering: AtomicBool::new(false),
                 checking: AtomicBool::new(false),
                 stop_scanning: std::sync::Arc::new(AtomicBool::new(false)),
+                send_total: std::sync::atomic::AtomicU64::new(0),
+                send_began_at: std::sync::atomic::AtomicU64::new(0),
                 stop_sending: keevoro_engine::send::Stop::default(),
                 sending: AtomicBool::new(false),
             });
@@ -98,6 +104,8 @@ pub fn run() {
             commands::activity,
             commands::acceleration,
             commands::set_acceleration,
+            commands::send_progress,
+            commands::send_history,
             commands::pause_work,
             commands::reset_everything,
             commands::stop_sending,

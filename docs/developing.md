@@ -74,6 +74,36 @@ cargo check -p keevoro-frame --target aarch64-apple-darwin --tests
 
 Its real test (`tests/native.rs`) decodes a tiny sample video and only runs on Windows and macOS, so CI is where it proves itself.
 
+### How a photo gets opened
+
+Opening a photo is the slow part of making previews, and there is more than one way to do it, so the ways sit behind one small trait in `crates/keevoro-media/src/decode.rs`:
+
+```rust
+pub trait Decoder: Send + Sync {
+    fn name(&self) -> &'static str;
+    fn decode(&self, file: &Path, max_edge: u32) -> Result<Decoded, MediaError>;
+}
+```
+
+`Decoders` holds a list of them and asks each in turn. The first one that manages it wins, so a photo the computer's codecs cannot open still gets opened by the next way down. Today the list is:
+
+- `SystemCodecs`: the computer's own picture codecs through `keevoro_frame::photo` (WIC on Windows). Usually the fastest, hardware-assisted where the codec is, and the only way HEIC and some raw files open at all.
+- `BuiltIn`: the `image` crate. Works everywhere, which is why Linux and the tests use it.
+- `EmbeddedPreview`: the JPEG a camera tucks inside its raw file.
+
+Nothing else in the workspace knows which one did the work. To add a way of decoding (ImageIO on macOS is the obvious next one), write a type that implements `Decoder` and add it to `Decoders::for_this_computer`. Nothing that calls `render_photo` has to change.
+
+Two rules worth knowing before touching it:
+
+- A file that cannot be read at all stops the search straight away. Trying three more decoders on a drive that has been unplugged only wastes time.
+- When every way fails, the reason given is the most useful one, not the last one: "this JPEG is damaged" beats "not a kind of file I know".
+
+The switch in Settings ("Use this computer's own picture codecs") only decides whether `SystemCodecs` is in the list. It is on unless someone turns it off, and is kept as `plain_decoding` in the settings file so that an old settings file means "on".
+
+Previews are made several at a time (`keevoro-collect/src/previews.rs`), on half the processor cores and never more than four, so the computer stays usable. The worker threads only decode and shrink; one thread writes to the catalog, so there is nothing to lock.
+
+We looked at CUDA and chose not to use it. It only works on NVIDIA cards, needs a large runtime installed, and shrinking a still photo is not where a graphics card earns its keep: reading the file and unpacking the JPEG dominate. The system codecs give most of the gain on every computer with nothing to install.
+
 Keevoro should be a good guest on someone's computer. Any loop that may run for more than a moment calls `keevoro_core::pause::wait_while_paused()` once per file, so the Pause button on the Activity page reaches it, and any new kind of long job gets an entry in `src-tauri/src/activity.rs` saying what it is and why, in words a person would accept as a reason.
 
 The app keeps a log (`src-tauri/src/log.rs`): one line per event with the time in front, in the system's usual log folder for the app, shown in Settings. Log anything a person might later ask "what was it doing?" about, in the same plain words as the screens. Never log keys.
