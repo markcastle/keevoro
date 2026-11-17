@@ -145,6 +145,7 @@ fn quick() -> PublishOptions {
         retries: 3,
         retry_pause: Duration::ZERO,
         stop: None,
+        over_network: false,
     }
 }
 

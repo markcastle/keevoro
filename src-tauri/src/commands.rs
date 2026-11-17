@@ -474,6 +474,39 @@ pub fn activity(shared: State<'_, Shared>) -> ActivityView {
     }
 }
 
+/// How a send is getting on: how much has arrived, how fast, and roughly
+/// how long is left.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SendProgress {
+    bytes_done: u64,
+    bytes_total: u64,
+    /// Bytes a second, steadied over the last few seconds.
+    speed: u64,
+    /// `None` while nothing is arriving, when no honest guess can be made.
+    seconds_left: Option<u64>,
+    /// True when this send goes over the network, to cloud storage.
+    over_network: bool,
+}
+
+#[tauri::command]
+pub fn send_progress(shared: State<'_, Shared>) -> SendProgress {
+    let total = shared.send_total.load(Ordering::SeqCst);
+    let done = keevoro_core::meter::totals()
+        .0
+        .saturating_sub(shared.send_began_at.load(Ordering::SeqCst))
+        .min(total);
+    let samples = HISTORY.lock().map(|h| h.samples()).unwrap_or_default();
+    let (speed, seconds_left) = crate::activity::speed_and_time_left(&samples, total - done);
+    SendProgress {
+        bytes_done: done,
+        bytes_total: total,
+        speed,
+        seconds_left,
+        over_network: samples.iter().rev().take(10).any(|s| s.network > 0.0),
+    }
+}
+
 /// Pauses or resumes every heavy job. Each waits at its next safe point,
 /// between one file and the next, and carries on from there when resumed.
 #[tauri::command]
@@ -890,6 +923,17 @@ pub fn send(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
     // A fresh start: an earlier request to stop does not carry over.
     shared.stop_sending.store(false, Ordering::SeqCst);
     let stop = shared.stop_sending.clone();
+    // What this send sets out to do, so its speed can become a time left.
+    if let Ok(library) = library(&shared) {
+        let waiting = Catalog::open_in_library(&library)
+            .ok()
+            .and_then(|catalog| keevoro_engine::discover(&library, &catalog).ok())
+            .map_or(0, |found| found.waiting_bytes);
+        shared.send_total.store(waiting, Ordering::SeqCst);
+        shared
+            .send_began_at
+            .store(keevoro_core::meter::totals().0, Ordering::SeqCst);
+    }
     send_job(
         app,
         &shared,

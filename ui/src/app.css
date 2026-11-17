@@ -2309,3 +2309,19 @@ main > section > :nth-last-child(2) {
   color: var(--sun-ink);
   font-weight: 500;
 }
+
+/* How a send is getting on: how much, how fast, how long. */
+.speed {
+  margin: var(--space-3) 0;
+  max-width: 640px;
+}
+
+.speed progress {
+  width: 100%;
+  display: block;
+}
+
+.speed p {
+  margin-top: var(--space-2);
+  font-variant-numeric: tabular-nums;
+}

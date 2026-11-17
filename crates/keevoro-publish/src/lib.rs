@@ -62,6 +62,10 @@ pub struct PublishOptions {
     /// Set to true from anywhere to stop: the file being sent is finished,
     /// and no more are started. Everything already sent stays sent.
     pub stop: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    /// True when the destination is reached over the network (cloud
+    /// storage), false for a folder. Only affects how what is sent is
+    /// counted for the speed display.
+    pub over_network: bool,
 }
 
 impl Default for PublishOptions {
@@ -72,6 +76,7 @@ impl Default for PublishOptions {
             retries: 3,
             retry_pause: Duration::from_secs(2),
             stop: None,
+            over_network: false,
         }
     }
 }
@@ -317,7 +322,7 @@ async fn send(
             store.put(&upload.key, ByteSource::File(upload.file.clone()), &put)
         })
         .await
-        .map(|_| ())
+        .map(|_| keevoro_core::meter::sent(upload.bytes, opts.over_network))
         .map_err(SendError::from)
     };
     match sent {
@@ -384,7 +389,11 @@ async fn send_in_parts(
             Some(already) => already.clone(),
             None => {
                 let body = read_range(&upload.file, offset, len)?;
-                with_retries(opts, || store.put_part(&id, number, ByteSource::Bytes(body.clone()))).await?
+                let landed =
+                    with_retries(opts, || store.put_part(&id, number, ByteSource::Bytes(body.clone()))).await?;
+                // Counted part by part, so a large file shows steady progress.
+                keevoro_core::meter::sent(len, opts.over_network);
+                landed
             }
         };
         receipts.push(receipt);

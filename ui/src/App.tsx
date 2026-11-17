@@ -39,11 +39,12 @@ import type {
   CheckEvent,
   Room,
   ScanEvent,
+  SendProgress,
   Source,
   Backup,
   Update,
 } from './backend'
-import { count, photosAndVideos, size, thousands, wholePlace } from './format'
+import { about, count, photosAndVideos, size, thousands, wholePlace } from './format'
 import lockupDarkLargeUrl from './assets/keevoro-lockup-reversed-large.png'
 import lockupShadowUrl from './assets/keevoro-lockup-shadow.png'
 import lockupDarkUrl from './assets/keevoro-lockup-reversed.png'
@@ -959,6 +960,13 @@ function ActivityScreen(props: {
           values={now.samples.map((s) => s.disk)}
           floor={10}
         />
+        <UsageChart
+          title="Network"
+          unit=" MB/s"
+          about="What Keevoro is sending to cloud storage each second. Sending to a folder shows under Disk."
+          values={now.samples.map((s) => s.network)}
+          floor={5}
+        />
       </div>
       <p className="quiet small">
         These are Keevoro’s own figures, not the whole computer’s. It is using {size(now.memoryBytes)} of memory.
@@ -1400,6 +1408,24 @@ function SendPanel(props: {
   const [running, setRunning] = useState<string | null>(null)
   const [said, setSaid] = useState<SendEvent | null>(null)
   const [stopping, setStopping] = useState(false)
+  // How the send in hand is getting on, asked once a second while it runs.
+  const [progress, setProgress] = useState<SendProgress | null>(null)
+  const sending = running !== null
+  useEffect(() => {
+    if (!sending) return
+    let open = true
+    const ask = () =>
+      api
+        .sendProgress()
+        .then((p) => open && setProgress(p))
+        .catch(() => {})
+    void ask()
+    const timer = window.setInterval(ask, 1000)
+    return () => {
+      open = false
+      window.clearInterval(timer)
+    }
+  }, [api, sending])
   // How much room is needed, and whether where it is going has it.
   const [room, setRoom] = useState<Room | null>(null)
   const weigh = useCallback(() => api.room().then(setRoom).catch(onProblem), [api, onProblem])
@@ -1607,6 +1633,26 @@ function SendPanel(props: {
                 </>
               )}
             </p>
+          )}
+          {running && progress && progress.bytesTotal > 0 && (
+            <div className="speed" role="status" aria-live="off">
+              <progress value={progress.bytesDone} max={progress.bytesTotal} />
+              <p>
+                <b>
+                  {size(progress.bytesDone)} of {size(progress.bytesTotal)}
+                </b>{' '}
+                sent
+                {progress.speed > 0 ? (
+                  <>
+                    {' '}
+                    at <b>{size(progress.speed)}/s</b>
+                    {progress.secondsLeft !== null && <>, {about(progress.secondsLeft)} left</>}
+                  </>
+                ) : (
+                  <span className="quiet">. Working out the speed…</span>
+                )}
+              </p>
+            </div>
           )}
           {running ? (
             <p className="running">

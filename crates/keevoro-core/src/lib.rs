@@ -13,6 +13,7 @@ pub mod junk;
 pub mod layout;
 pub mod libraries;
 pub mod media;
+pub mod meter;
 pub mod pause;
 pub mod skip;
 

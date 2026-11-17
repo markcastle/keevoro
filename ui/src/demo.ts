@@ -129,6 +129,8 @@ export function demoBackend(): Backend {
   const usage: Sample[] = Array.from({ length: 60 }, (_, i) => ({
     cpu: 11 + 6 * Math.sin(i / 5),
     disk: 78 + 22 * Math.sin(i / 3),
+    sent: 12 + 4 * Math.sin(i / 4),
+    network: 12 + 4 * Math.sin(i / 4),
   }))
   const kinds: FileType[] = [
     { ending: 'jpg', files: 198, bytes: 620 * 1024 * 1024, included: true },
@@ -286,6 +288,8 @@ export function demoBackend(): Backend {
       usage.push({
         cpu: busy ? 11 + 6 * Math.sin(tick / 5) + (tick % 17 === 0 ? 9 : 0) : 0.3,
         disk: busy ? 78 + 22 * Math.sin(tick / 3) : 0,
+        sent: busy ? 12 + 4 * Math.sin(tick / 4) : 0,
+        network: busy ? 12 + 4 * Math.sin(tick / 4) : 0,
       })
       if (usage.length > 120) usage.shift()
       return {
@@ -301,6 +305,14 @@ export function demoBackend(): Backend {
         cores: 20,
       }
     },
+    // A send a third of the way through 30 GB, at a steady 12.4 MB a second.
+    sendProgress: async () => ({
+      bytesDone: 9.6 * 1024 ** 3,
+      bytesTotal: 30.1 * 1024 ** 3,
+      speed: 12.4 * 1024 * 1024,
+      secondsLeft: Math.round(((30.1 - 9.6) * 1024) / 12.4),
+      overNetwork: false,
+    }),
     pauseWork: async (paused) => {
       pausedNow = paused
     },

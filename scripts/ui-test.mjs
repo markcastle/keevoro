@@ -273,6 +273,10 @@ try {
   await page.getByRole('button', { name: 'Choose where they go' }).click()
   await page.getByRole('button', { name: /^A folder/ }).click()
   await page.getByRole('button', { name: 'Send them now' }).click()
+  // While it sends, it says how much, how fast and how long is left.
+  await page.locator('.speed').waitFor()
+  assert.match(await text('.speed p'), /^[\d.]+ GB of [\d.]+ GB sent at [\d.]+ MB\/s, about \d+ minutes left$/)
+  await shot('9l-send-speed')
   await page.getByRole('button', { name: 'Stop', exact: true }).click()
   await page.getByText('Stopping after this file…').waitFor()
   await page.getByText(/^Stopped\. Everything sent so far is safe where it is\./).waitFor()
@@ -284,10 +288,10 @@ try {
   await page.getByRole('heading', { name: 'What Keevoro is doing', level: 1 }).waitFor()
   await page.getByRole('heading', { name: 'Checking for duplicates' }).waitFor()
   assert.match(await text('.activity .jobs p'), /so that true copies can be told from photos that merely look alike/)
-  assert.deepEqual(await page.locator('.chart figcaption b').allInnerTexts(), ['Processor', 'Disk'])
+  assert.deepEqual(await page.locator('.chart figcaption b').allInnerTexts(), ['Processor', 'Disk', 'Network'])
   assert.match(await page.locator('.chart .now').first().innerText(), /^[\d.]+%$/)
   assert.match(await page.locator('.chart .now').nth(1).innerText(), /^[\d.]+ MB\/s$/)
-  assert.equal(await page.locator('.chart .line').count(), 2, 'one line in each chart, never two measures on one')
+  assert.equal(await page.locator('.chart .line').count(), 3, 'one line in each chart, never two measures on one')
   // Moving across a chart reads out the figure at that moment.
   const plot = await page.locator('.chart svg').first().boundingBox()
   await page.mouse.move(plot.x + plot.width * 0.9, plot.y + plot.height / 2)
