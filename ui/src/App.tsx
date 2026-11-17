@@ -40,6 +40,7 @@ import type {
   Room,
   ScanEvent,
   SendProgress,
+  Sent,
   Source,
   Backup,
   Update,
@@ -1410,6 +1411,8 @@ function SendPanel(props: {
   const [stopping, setStopping] = useState(false)
   // How the send in hand is getting on, asked once a second while it runs.
   const [progress, setProgress] = useState<SendProgress | null>(null)
+  // Earlier sends of this backup, for comparing one with another.
+  const [history, setHistory] = useState<Sent[]>([])
   const sending = running !== null
   useEffect(() => {
     if (!sending) return
@@ -1432,7 +1435,8 @@ function SendPanel(props: {
 
   useEffect(() => {
     void weigh()
-  }, [weigh, where, props.waiting])
+    api.sendHistory().then(setHistory).catch(() => {})
+  }, [api, weigh, where, props.waiting, props.safe])
 
   useEffect(() => {
     api.destination().then(setWhere).catch(onProblem)
@@ -1712,6 +1716,41 @@ function SendPanel(props: {
             <p className="refused" role="alert">
               {said.problem}
             </p>
+          )}
+        {history.length > 0 && !running && (
+            <details className="sends">
+              <summary>How earlier sends went</summary>
+              <table>
+                <thead>
+                  <tr>
+                    <th>When</th>
+                    <th>Sent</th>
+                    <th>Took</th>
+                    <th>Average speed</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.slice(0, 8).map((sent) => (
+                    <tr key={sent.finishedAt}>
+                      <td>
+                        {new Date(sent.finishedAt * 1000).toLocaleString('en-GB', {
+                          day: 'numeric',
+                          month: 'short',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </td>
+                      <td>
+                        {size(sent.bytes)}
+                        {sent.stopped && ' (stopped)'}
+                      </td>
+                      <td>{about(sent.seconds).replace('less than a minute', 'under a minute')}</td>
+                      <td>{size(sent.bytes / Math.max(sent.seconds, 1))}/s</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </details>
           )}
         </>
       )}

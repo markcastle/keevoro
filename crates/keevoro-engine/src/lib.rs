@@ -22,6 +22,7 @@
 pub mod connect;
 pub mod deep;
 pub mod discover;
+pub mod history;
 pub mod preview;
 pub mod room;
 pub mod send;

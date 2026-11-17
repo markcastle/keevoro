@@ -158,6 +158,12 @@ try {
   await page.locator('.send .done').first().waitFor()
   assert.match(await text('.send .done'), /^Safely backed up [\d,]+ files\.$/)
   await page.getByText(/^Previews added: [\d,]+ files\.$/).waitFor()
+  // When it is done, it says how long it took and how fast it went.
+  await page.getByText(/^That took about \d+ minutes: [\d.]+ GB at an average of [\d.]+ MB a second\.$/).waitFor()
+  await page.getByText('How earlier sends went').click()
+  assert.deepEqual(await page.locator('.sends th').allInnerTexts(), ['When', 'Sent', 'Took', 'Average speed'])
+  assert.equal(await page.locator('.sends tbody tr').count(), 2, 'this send and the one before')
+  assert.match(await page.locator('.sends tbody tr').nth(1).innerText(), /30\.1 GB\s+about 41 minutes\s+12\.5 MB\/s/)
   await page.getByText(/^Everything you are keeping is there: [\d,]+ files\.$/).waitFor()
   assert.ok(await page.getByRole('button', { name: 'Show me the folder' }).isVisible())
   await page.getByRole('button', { name: 'Check they all arrived' }).click()

@@ -155,6 +155,18 @@ export type Sample = {
   network: number
 }
 
+/** How one finished send went. */
+export type Sent = {
+  /** When it finished, in seconds since 1970. */
+  finishedAt: number
+  /** How long it took, from pressing Send to the end. */
+  seconds: number
+  bytes: number
+  /** Where it went, in words. */
+  to: string
+  stopped: boolean
+}
+
 /** How a send is getting on. */
 export type SendProgress = {
   bytesDone: number
@@ -195,6 +207,8 @@ export interface Backend {
   resetEverything(): Promise<AppState>
   /** What Keevoro is doing now, why, and how hard it has been working. */
   activity(): Promise<Activity>
+  /** This backup's earlier sends, newest first. */
+  sendHistory(): Promise<Sent[]>
   /** How a send in hand is getting on: how much, how fast, how long left. */
   sendProgress(): Promise<SendProgress>
   /** Pauses or resumes every heavy job, between one file and the next. */
@@ -288,6 +302,7 @@ async function tauriBackend(): Promise<Backend> {
     room: () => invoke('room'),
     activity: () => invoke('activity'),
     sendProgress: () => invoke('send_progress'),
+    sendHistory: () => invoke('send_history'),
     pauseWork: (paused) => invoke('pause_work', { paused }),
     stopScanning: () => invoke('stop_scanning'),
     resetEverything: () => invoke('reset_everything'),

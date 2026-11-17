@@ -100,6 +100,7 @@ pub fn run() {
             commands::room,
             commands::activity,
             commands::send_progress,
+            commands::send_history,
             commands::pause_work,
             commands::reset_everything,
             commands::stop_sending,
