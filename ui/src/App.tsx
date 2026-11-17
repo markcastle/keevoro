@@ -2229,7 +2229,11 @@ function Picture(props: { api: Backend; photo: Photo }) {
   }, [api, photo.id])
 
   return (
-    <div className={missing ? 'picture missing' : 'picture'} title={photo.name}>
+    <div
+      className={missing ? 'picture missing' : url ? 'picture' : 'picture loading'}
+      title={photo.name}
+      aria-busy={!url && !missing}
+    >
       {url && <img src={url} alt="" draggable={false} />}
       {missing && <span>{photo.isVideo ? 'Video' : 'No preview'}</span>}
       {photo.isVideo && url && <span className="play" aria-label="Video" />}

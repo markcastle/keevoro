@@ -2603,3 +2603,31 @@ main > section > :nth-last-child(2) {
 .viewer .choices .button {
   margin-top: 0;
 }
+
+/* A picture that has not arrived yet: a soft shimmer, so it is plain that
+   something is on its way and the screen has not stalled. */
+.picture.loading {
+  background: linear-gradient(
+    100deg,
+    var(--surface-sunken) 30%,
+    color-mix(in srgb, var(--surface-sunken) 55%, var(--surface-raised)) 50%,
+    var(--surface-sunken) 70%
+  );
+  background-size: 300% 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .picture.loading {
+    animation: none;
+  }
+}

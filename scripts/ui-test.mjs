@@ -343,6 +343,12 @@ try {
   await page.locator('.speed').waitFor()
   await shot('9m-came-back-to-a-running-backup')
 
+  // --- Pictures that have not arrived yet show a shimmering placeholder.
+  await page.goto(`${base}/?slowpictures`)
+  await page.locator('.picture.loading').first().waitFor()
+  assert.equal(await page.locator('.picture.loading').first().getAttribute('aria-busy'), 'true')
+  await shot('9p-pictures-on-their-way')
+
   // --- A send can be stopped; what was sent stays sent.
   await page.goto(`${base}/?slow`)
   await page.getByRole('button', { name: 'Choose where they go' }).click()
