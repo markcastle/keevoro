@@ -6,7 +6,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **A backup can go to more than one place.** On the backup screen, "Add another destination" adds a second (or third) place beside the first: any mix of folders, drives, Cloudflare R2, Amazon S3 and other storage. "Back up now" sends to each in turn. A new destination starts empty and catches up on the next backup; nothing already sent elsewhere is sent again.
+- **Each destination shows its own count.** With more than one, the screen lists them, each with how many files are there and how many are waiting, and a Remove button. Removing one only takes it off the backup's list. Nothing stored there is deleted.
+- **If one destination cannot be reached, the others still get their backup.** An unplugged drive or a dropped connection is reported by name and passed over; it catches up next time.
+
+### Changed
+
+- **A photo counts as safe only when it is at every destination.** With one destination this is as before. With several, a photo that has reached one but not another is still shown as waiting, so a second copy that is half made is never mistaken for a whole one.
+- **After changing where a backup goes, the counts are honest.** Before, a backup that was pointed somewhere new still showed everything as safe, because it had once been sent somewhere. It now counts what is at the destinations it has today.
+- **"Check they all arrived" checks every destination**, and each earlier backup in the history is listed with the destination it went to.
+
+### Removed
+
+- **The downloads badge on the project page.** It counted every file fetched from every release, including the fetches Keevoro's own release process makes, so the figure said nothing true about how many people use it.
 
 ## [0.28.0] - 2026-11-17
 

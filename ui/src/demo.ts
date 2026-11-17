@@ -129,7 +129,13 @@ export function demoBackend(): Backend {
   sendListeners.add((e) => {
     if (e.finished) lastSaid = e
   })
+  // Where the open backup goes: each place, and how many files are there.
+  type Place = { name: string; kind: string; folder: string | null; there: number }
+  let dests: Place[] = []
   let sendingTo: string | null = null
+  const said = () => {
+    sendingTo = dests.length === 0 ? null : dests.length === 1 ? dests[0].name : `${dests.length} places`
+  }
   let stopAsked = false
   let stopLooking = false
   let systemCodecs = true
@@ -173,19 +179,20 @@ export function demoBackend(): Backend {
   const pace = mode === 'fast' || new URLSearchParams(window.location.search).has('fast') ? 0 : 1
 
   // Backups: each keeps what it found, what was chosen and where it sends.
-  type Kept = { collections: Collection[]; sources: typeof sources; junk: PhotoChoice[]; sendingTo: string | null; sentSoFar: number }
+  type Kept = { collections: Collection[]; sources: typeof sources; junk: PhotoChoice[]; dests: Place[]; sentSoFar: number }
   let backups: Backup[] = library ? [{ id: 's1', name: 'My photos' }] : []
   let open: string | null = backups[0]?.id ?? null
   const shelf = new Map<string, Kept>()
   const putAway = () => {
-    if (open) shelf.set(open, { collections: [...collections], sources: [...sources], junk: [...junk], sendingTo, sentSoFar })
+    if (open) shelf.set(open, { collections: [...collections], sources: [...sources], junk: [...junk], dests: [...dests], sentSoFar })
   }
   const takeOut = (id: string) => {
-    const kept = shelf.get(id) ?? { collections: [], sources: [], junk: [], sendingTo: null, sentSoFar: 0 }
+    const kept = shelf.get(id) ?? { collections: [], sources: [], junk: [], dests: [], sentSoFar: 0 }
     collections.splice(0, collections.length, ...kept.collections)
     sources.splice(0, sources.length, ...kept.sources)
     junk.splice(0, junk.length, ...kept.junk)
-    sendingTo = kept.sendingTo
+    dests = [...kept.dests]
+    said()
     sentSoFar = kept.sentSoFar
     open = id
   }
@@ -208,6 +215,11 @@ export function demoBackend(): Backend {
       waitingToGather: kept.reduce((n, c) => n + c.photos + c.videos - c.gathered, 0),
       waitingBytes: waitingBytes(),
       sources: [...sources],
+      destinations: dests.map((d) => {
+        const all = kept.reduce((n, c) => n + c.photos + c.videos, 0)
+        const there = Math.min(d.there, all)
+        return { name: d.name, kind: d.kind, folder: d.folder, there, waiting: all - there, waitingBytes: (all - there) * 3.2 * 1024 * 1024 }
+      }),
       collections: collections.map((c) => ({ ...c })),
     }
   }
@@ -287,7 +299,7 @@ export function demoBackend(): Backend {
       backups = [...backups, { id, name: called }]
       library = `C:\\Users\\You\\AppData\\Keevoro\\backups\\${id}`
       // A new backup starts with nothing found, unless the page asked for a full one.
-      if (backups.length > 1) shelf.set(id, { collections: [], sources: [], junk: [], sendingTo: null, sentSoFar: 0 })
+      if (backups.length > 1) shelf.set(id, { collections: [], sources: [], junk: [], dests: [], sentSoFar: 0 })
       else putAway()
       takeOut(id)
       return state()
@@ -307,7 +319,8 @@ export function demoBackend(): Backend {
       collections.length = 0
       sources.length = 0
       junk.length = 0
-      sendingTo = null
+      dests = []
+      said()
       sentSoFar = 0
       return state()
     },
@@ -541,16 +554,28 @@ export function demoBackend(): Backend {
       await later(300 * pace)
       // The stand-in refuses one obviously wrong answer, as the real one would.
       if (request.kind !== 'folder' && !request.secretAccessKey) throw new Error('Enter both keys for the storage.')
-      sendingTo =
+      const name =
         request.kind === 'folder'
           ? `the folder ${request.place}`
           : request.kind === 'r2'
             ? `the Cloudflare R2 bucket ${request.bucket}`
             : `the bucket ${request.bucket}`
-      return sendingTo
+      // Added to the list; a new place has nothing in it yet, so nothing
+      // is safe until it has caught up.
+      if (!dests.some((d) => d.name === name)) {
+        dests.push({ name, kind: request.kind, folder: request.kind === 'folder' ? request.place : null, there: 0 })
+        if (dests.length > 1) collections.forEach((c) => (c.gathered = 0))
+      }
+      said()
+      return name
     },
-    async disconnectDestination() {
-      sendingTo = null
+    async disconnectDestination(at) {
+      if (at === undefined) dests = []
+      else dests.splice(at, 1)
+      // What is left may already have everything.
+      const all = collections.filter((c) => c.kept).reduce((n, c) => n + c.photos + c.videos, 0)
+      if (dests.length > 0 && dests.every((d) => d.there >= all)) collections.forEach((c) => c.kept && (c.gathered = c.photos + c.videos))
+      said()
     },
     async send() {
       const kept = collections.filter((c) => c.kept)
@@ -582,6 +607,7 @@ export function demoBackend(): Backend {
         const fresh = total - sentSoFar
         sends.unshift({ finishedAt: Date.now() / 1000, seconds: 96, bytes: 1.2 * 1024 ** 3, to: sendingTo ?? '', stopped: false })
         sentSoFar = total
+        dests.forEach((d) => (d.there = total))
         // Sent means safe: nothing is waiting any more.
         kept.forEach((c) => (c.gathered = c.photos + c.videos))
         sendListeners.forEach((l) =>

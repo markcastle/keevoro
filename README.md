@@ -15,7 +15,6 @@
 <p align="center">
   <a href="https://github.com/markcastle/keevoro/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/markcastle/keevoro?label=release&color=0b3d3a"></a>
   <a href="https://github.com/markcastle/keevoro/actions/workflows/ci.yml"><img alt="Checks" src="https://img.shields.io/github/actions/workflow/status/markcastle/keevoro/ci.yml?branch=main&label=checks"></a>
-  <a href="https://github.com/markcastle/keevoro/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/markcastle/keevoro/total?color=0b3d3a"></a>
   <a href="LICENSE.md"><img alt="Licence: FSL-1.1-MIT" src="https://img.shields.io/badge/licence-FSL--1.1--MIT-0b3d3a"></a>
   <img alt="Windows and macOS" src="https://img.shields.io/badge/app-Windows%20%7C%20macOS-0b3d3a">
   <img alt="Built with Rust and Tauri" src="https://img.shields.io/badge/built%20with-Rust%20%2B%20Tauri-b7410e">
@@ -41,7 +40,7 @@ Three words you will see:
 
 - A **source** is anywhere Keevoro looks for photos: a drive, a USB stick, a memory card, a folder.
 - A **backup** is a named job, such as "Family photos" or "Drone footage". Each remembers its own sources, choices and destination, so you can come back later and it sends only what is new.
-- A **destination** is where a backup goes: a folder, an external or network drive, Cloudflare R2, Amazon S3, or anything else that speaks S3.
+- A **destination** is where a backup goes: a folder, an external or network drive, Cloudflare R2, Amazon S3, or anything else that speaks S3. A backup can have several, and a photo counts as safe only once it is at all of them.
 
 ## 🧭 How it works
 
@@ -165,7 +164,7 @@ Keevoro is young and moving fast: there have been more than twenty releases, and
 
 Honest limits today:
 
-- One destination per backup.
+- A backup with several destinations sends to them one after another, not at the same time.
 - The quick survey is offered for a whole drive, not yet for any folder.
 - On a Mac, photos are decoded by Keevoro's own decoder, not the system's, so fewer formats get a preview.
 - Mac and Linux versions are built at milestones, so they trail Windows.

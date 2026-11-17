@@ -237,6 +237,35 @@ try {
   assert.equal(await page.locator('.steps li.done').count(), 2, 'finding and choosing are ticked off')
   assert.equal(await page.locator('.steps li').count(), 3, 'there are three steps, not four')
   await shot('9-sent')
+  // --- A backup can go to more than one place. A second destination is
+  // added beside the first, starts empty, and catches up on the next backup.
+  await page.getByRole('button', { name: 'Add another destination' }).click()
+  await page.getByRole('heading', { name: 'Add another destination' }).waitFor()
+  assert.match(await text('.send .adding'), /as well as the folder F:\\Family Backup\. It starts empty/)
+  await page.getByRole('button', { name: /Cloudflare R2/ }).click()
+  await page.getByLabel('Cloudflare account ID').fill('0123456789abcdef0123456789abcdef')
+  await page.getByLabel('Bucket name').fill('family-photos')
+  await page.getByLabel('Access key ID').fill('key')
+  await page.getByLabel('Secret access key').fill('secret')
+  await page.locator('.send form button[type=submit]').click()
+  await page.getByRole('heading', { name: 'Backing up to 2 places' }).waitFor()
+  const placesTo = page.locator('.places-to li')
+  assert.equal(await placesTo.count(), 2)
+  assert.match(await placesTo.nth(0).innerText(), /The folder\s+F:\\Family Backup\s+All [\d,]+ there/)
+  assert.match(await placesTo.nth(1).innerText(), /The Cloudflare R2 bucket family-photos\s+0 there · [\d,]+ waiting/)
+  // Nothing is safe again until the new place has caught up.
+  await page.getByText(/^[\d,]+ files are waiting to be backed up\.$/).waitFor()
+  await shot('9s-two-destinations')
+  await page.getByRole('button', { name: 'Back up now' }).click()
+  await page.getByText(/^Everything you are keeping is there: [\d,]+ files\.$/).waitFor()
+  assert.match(await placesTo.nth(1).innerText(), /All [\d,]+ there/)
+  // Taking one off the list leaves the other, and deletes nothing.
+  await page.getByRole('button', { name: 'Stop backing up to the Cloudflare R2 bucket family-photos' }).click()
+  await page.getByRole('heading', { name: 'Backing up to the folder F:\\Family Backup' }).waitFor()
+  assert.equal(await page.locator('.places-to').count(), 0)
+  await page.getByRole('button', { name: 'Check they all arrived' }).click()
+  await page.getByText(/^Your backup: all [\d,]+ originals are there\.$/).waitFor()
+
   // What it said at the end is still there after looking at another screen.
   await page.getByRole('button', { name: /^Choose what to keep/ }).click()
   await page.getByRole('heading', { name: 'Which of these should we keep?' }).waitFor()

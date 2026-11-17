@@ -264,6 +264,95 @@ pub fn originals_first(
     Ok(())
 }
 
+/// How one destination's turn went, for whoever keeps the record.
+pub struct Turn<'a> {
+    pub to: &'a crate::connect::Saved,
+    pub seconds: u64,
+    /// Bytes that arrived there in this turn.
+    pub bytes: u64,
+    pub stopped: bool,
+}
+
+/// Backs up to every destination of this backup, one after another, the
+/// originals first each time. A destination that cannot be reached (a
+/// drive unplugged, a connection down) is said and passed over, and the
+/// others still get their turn; it catches up next time. It is an error
+/// only when none of them could be reached.
+#[allow(clippy::too_many_arguments)]
+pub fn everywhere(
+    out: &mut dyn Write,
+    catalog: &Catalog,
+    home: &Path,
+    world: &crate::connect::World<'_>,
+    video_tools: Option<&keevoro_media::VideoTools>,
+    stop: &Stop,
+    on_progress: &mut dyn FnMut(&str),
+    after_each: &mut dyn FnMut(Turn<'_>),
+) -> Result<()> {
+    let all = crate::connect::destinations(catalog)?;
+    if all.is_empty() {
+        anyhow::bail!("Choose where to back up to first.");
+    }
+    let several = all.len() > 1;
+    let mut reached = 0;
+    let mut last_refusal = None;
+    for to in &all {
+        if stop.load(Ordering::SeqCst) {
+            break;
+        }
+        let name = to.describe();
+        if several {
+            writeln!(out, "To {name}:")?;
+        }
+        let started = std::time::Instant::now();
+        let before = keevoro_core::meter::totals().0;
+        let turn = (|| {
+            let destination = to.open(world)?;
+            if to.target.is_none() {
+                // Learn the name its records are kept under, for counting.
+                let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+                let (_, target, _) = open(&mut Vec::new(), &runtime, destination.clone())?;
+                crate::connect::note_target(catalog, to, &target)?;
+            }
+            originals_first(
+                out,
+                catalog,
+                home,
+                destination,
+                to.base_url.as_deref(),
+                video_tools,
+                stop,
+                &mut |line| {
+                    if several {
+                        on_progress(&format!("To {name}: {line}"));
+                    } else {
+                        on_progress(line);
+                    }
+                },
+            )
+        })();
+        match turn {
+            Ok(()) => {
+                reached += 1;
+                after_each(Turn {
+                    to,
+                    seconds: started.elapsed().as_secs(),
+                    bytes: keevoro_core::meter::totals().0.saturating_sub(before),
+                    stopped: stop.load(Ordering::SeqCst),
+                });
+            }
+            Err(refused) => {
+                writeln!(out, "Couldn't back up to {name}. {refused:#}")?;
+                last_refusal = Some(refused);
+            }
+        }
+    }
+    match (reached, last_refusal) {
+        (0, Some(refused)) => Err(refused),
+        _ => Ok(()),
+    }
+}
+
 /// The catalog's name for the choice of whether a backup also gets previews.
 const PREVIEWS: &str = "previews";
 
@@ -808,6 +897,134 @@ mod tests {
         let said = send(&catalog, &home, &to);
         assert!(said.contains("Previews added"), "{said}");
         assert!(to.join("renditions").join("thumb").is_dir());
+    }
+
+    #[test]
+    fn a_backup_can_go_to_two_places_and_is_safe_only_when_it_is_at_both() {
+        use crate::connect::{self, testing::MemorySecrets, Flags, Saved, World};
+        let (dir, _card, home, catalog) = one_backup();
+        let (first, second) = (dir.path().join("usb"), dir.path().join("nas"));
+        let secrets = MemorySecrets::default();
+        let world = World {
+            secrets: &secrets,
+            ask: &connect::testing::nobody_to_ask,
+        };
+        let folder = |to: &Path| {
+            Saved::from_flags(&Flags {
+                to_folder: Some(to.to_path_buf()),
+                ..Flags::default()
+            })
+            .unwrap()
+        };
+        connect::add(&mut Vec::new(), &catalog, &folder(&first), &world).unwrap();
+        let go = |catalog: &Catalog| {
+            let mut said = Vec::new();
+            let mut turns = Vec::new();
+            everywhere(
+                &mut said,
+                catalog,
+                &home,
+                &world,
+                None,
+                &Stop::default(),
+                &mut |_| {},
+                &mut |turn| turns.push(turn.to.describe()),
+            )
+            .unwrap();
+            (String::from_utf8(said).unwrap(), turns)
+        };
+        go(&catalog);
+        let found = crate::discover(&home, &catalog).unwrap();
+        assert_eq!(found.waiting_to_gather, 0, "with one destination, there is safe");
+        let all = found.destinations[0].there;
+        assert!(all > 0);
+
+        // A second destination is added. Nothing is safe until it has them too.
+        connect::add(&mut Vec::new(), &catalog, &folder(&second), &world).unwrap();
+        let found = crate::discover(&home, &catalog).unwrap();
+        assert_eq!(found.destinations.len(), 2);
+        assert_eq!((found.destinations[0].there, found.destinations[0].waiting), (all, 0));
+        assert_eq!((found.destinations[1].there, found.destinations[1].waiting), (0, all));
+        assert!(found.destinations[1].waiting_bytes > 0);
+        assert_eq!(found.waiting_to_gather, all, "at one of two is not safe yet");
+
+        // Backing up again sends only to the one that lacks them.
+        let (said, turns) = go(&catalog);
+        assert_eq!(turns.len(), 2, "each destination had its turn: {said}");
+        assert!(said.contains("To the folder"), "{said}");
+        let found = crate::discover(&home, &catalog).unwrap();
+        assert_eq!(found.waiting_to_gather, 0);
+        assert_eq!(found.destinations[1].there, all);
+        for to in [&first, &second] {
+            assert!(to.join("originals/Flights/IMG_20240601_100000.jpg").is_file());
+        }
+
+        // Taking one off the list deletes nothing there, and the other still counts.
+        connect::remove(&catalog, &world, 0).unwrap();
+        assert!(first.join("originals/Flights/IMG_20240601_100000.jpg").is_file());
+        let found = crate::discover(&home, &catalog).unwrap();
+        assert_eq!((found.destinations.len(), found.waiting_to_gather), (1, 0));
+    }
+
+    #[test]
+    fn a_destination_that_cannot_be_reached_does_not_stop_the_others() {
+        use crate::connect::{self, testing::MemorySecrets, Flags, Saved, World};
+        let (dir, _card, home, catalog) = one_backup();
+        let good = dir.path().join("usb");
+        // A file where a folder is wanted: it cannot be made into one.
+        let blocked = dir.path().join("not a folder");
+        std::fs::write(&blocked, b"in the way").unwrap();
+        let secrets = MemorySecrets::default();
+        let world = World {
+            secrets: &secrets,
+            ask: &connect::testing::nobody_to_ask,
+        };
+        connect::add(
+            &mut Vec::new(),
+            &catalog,
+            &Saved::from_flags(&Flags {
+                to_folder: Some(good.clone()),
+                ..Flags::default()
+            })
+            .unwrap(),
+            &world,
+        )
+        .unwrap();
+        // Remembered from a time it worked, as an unplugged drive would be.
+        let mut all = connect::destinations(&catalog).unwrap();
+        all.insert(
+            0,
+            Saved {
+                kind: "folder".into(),
+                place: blocked.join("inside").to_string_lossy().to_string(),
+                bucket: None,
+                base_url: None,
+                target: Some("folder:gone".into()),
+            },
+        );
+        catalog
+            .set_setting("destinations", &serde_json::to_string(&all).unwrap())
+            .unwrap();
+
+        let mut said = Vec::new();
+        let mut turns = 0;
+        everywhere(
+            &mut said,
+            &catalog,
+            &home,
+            &world,
+            None,
+            &Stop::default(),
+            &mut |_| {},
+            &mut |_| turns += 1,
+        )
+        .unwrap();
+        let said = String::from_utf8(said).unwrap();
+        assert!(said.contains("Couldn't back up to the folder"), "{said}");
+        assert_eq!(turns, 1, "the one that works had its turn");
+        assert!(good.join("originals/Flights/IMG_20240601_100000.jpg").is_file());
+        // And it is not called safe: one of its two places has nothing.
+        assert!(crate::discover(&home, &catalog).unwrap().waiting_to_gather > 0);
     }
 
     #[test]

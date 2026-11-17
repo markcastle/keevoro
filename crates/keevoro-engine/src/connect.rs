@@ -93,6 +93,12 @@ pub struct Saved {
     pub bucket: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
+    /// The name this destination's records are kept under in the catalog,
+    /// learnt the first time it is opened. It is remembered here so that
+    /// what has reached a destination can be counted while it is unplugged
+    /// or offline. `None` for a destination saved before this was kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
 }
 
 /// The destination flags shared by `connect` and `publish`.
@@ -123,6 +129,7 @@ impl Saved {
             place,
             bucket: flags.bucket.clone().filter(|_| kind != "folder"),
             base_url: flags.base_url.clone(),
+            target: None,
         })
     }
 
@@ -135,6 +142,11 @@ impl Saved {
             }),
             None => Ok(None),
         }
+    }
+
+    /// Is this the same place as `other`, whatever else is remembered about it?
+    pub fn same_place(&self, other: &Self) -> bool {
+        (&self.kind, &self.place, &self.bucket) == (&other.kind, &other.place, &other.bucket)
     }
 
     /// How to say it to the user.
@@ -222,8 +234,78 @@ fn split_keys(stored: &str) -> Option<(String, String)> {
     (!access.is_empty() && !secret.is_empty()).then(|| (access.to_string(), secret.to_string()))
 }
 
-/// Checks a destination works, then remembers it and its keys.
+/// The catalog's name for the list of a backup's destinations.
+const LIST: &str = "destinations";
+
+/// Every destination this backup goes to, in the order they were added.
+/// A backup saved when there could only be one still has its one.
+pub fn destinations(catalog: &Catalog) -> Result<Vec<Saved>> {
+    match catalog.setting(LIST)? {
+        Some(json) => serde_json::from_str(&json).map_err(|_| {
+            anyhow::anyhow!("The saved backup destinations can't be read. Choose where to back up to again.")
+        }),
+        None => Ok(Saved::load(catalog)?.into_iter().collect()),
+    }
+}
+
+/// Saves the list. The first is also kept where a single destination used
+/// to be, for anything that still asks for "the" destination.
+fn remember(catalog: &Catalog, all: &[Saved]) -> Result<()> {
+    catalog.set_setting(LIST, &serde_json::to_string(all)?)?;
+    catalog.set_setting(SETTING, &serde_json::to_string(&all.first())?)?;
+    Ok(())
+}
+
+/// Notes the name a destination's records are kept under, once it has
+/// been opened, for one saved before that was remembered.
+pub fn note_target(catalog: &Catalog, saved: &Saved, target: &str) -> Result<()> {
+    let mut all = destinations(catalog)?;
+    if let Some(found) = all
+        .iter_mut()
+        .find(|d| d.same_place(saved) && d.target.as_deref() != Some(target))
+    {
+        found.target = Some(target.to_string());
+        remember(catalog, &all)?;
+    }
+    Ok(())
+}
+
+/// Checks a destination works, then adds it to those this backup goes to.
+/// The ones already there are kept. Adding one that is already there only
+/// refreshes its keys.
+pub fn add(out: &mut dyn Write, catalog: &Catalog, saved: &Saved, world: &World<'_>) -> Result<()> {
+    prove_and_remember(out, catalog, saved, world, true)
+}
+
+/// Takes one destination off the list, by its place in it, and removes its
+/// keys from the keychain unless another on the list uses the same ones.
+/// Nothing in the storage itself is touched.
+pub fn remove(catalog: &Catalog, world: &World<'_>, at: usize) -> Result<Option<Saved>> {
+    let mut all = destinations(catalog)?;
+    if at >= all.len() {
+        return Ok(None);
+    }
+    let gone = all.remove(at);
+    if gone.preset().is_some() && !all.iter().any(|d| d.secret_name() == gone.secret_name()) {
+        world.secrets.delete(&gone.secret_name())?;
+    }
+    remember(catalog, &all)?;
+    Ok(Some(gone))
+}
+
+/// Checks a destination works, then remembers it and its keys as the one
+/// place this backup goes to, in place of any other.
 pub fn connect(out: &mut dyn Write, catalog: &Catalog, saved: &Saved, world: &World<'_>) -> Result<()> {
+    prove_and_remember(out, catalog, saved, world, false)
+}
+
+fn prove_and_remember(
+    out: &mut dyn Write,
+    catalog: &Catalog,
+    saved: &Saved,
+    world: &World<'_>,
+    also: bool,
+) -> Result<()> {
     let destination = match saved.preset() {
         None => Destination::Folder(PathBuf::from(&saved.place)),
         Some(preset) => {
@@ -255,12 +337,22 @@ pub fn connect(out: &mut dyn Write, catalog: &Catalog, saved: &Saved, world: &Wo
 
     // Prove it works before remembering anything.
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
-    crate::send::open(out, &runtime, destination)?;
+    let opened = crate::send::open(out, &runtime, destination)?;
 
+    let (_, target, _) = opened;
+    let saved = &Saved {
+        target: Some(target),
+        ..saved.clone()
+    };
     if let Some(keys) = keys {
         world.secrets.set(&saved.secret_name(), &keys)?;
     }
-    catalog.set_setting(SETTING, &serde_json::to_string(saved)?)?;
+    let mut all = if also { destinations(catalog)? } else { Vec::new() };
+    match all.iter_mut().find(|d| d.same_place(saved)) {
+        Some(already) => *already = saved.clone(),
+        None => all.push(saved.clone()),
+    }
+    remember(catalog, &all)?;
     writeln!(out, "Connected to {}.", saved.describe())?;
     if saved.preset().is_some() {
         writeln!(
@@ -278,15 +370,17 @@ pub fn connect(out: &mut dyn Write, catalog: &Catalog, saved: &Saved, world: &Wo
 /// Forgets the saved destination and removes its keys from the keychain.
 /// Nothing in the storage itself is touched.
 pub fn disconnect(out: &mut dyn Write, catalog: &Catalog, world: &World<'_>) -> Result<()> {
-    let Some(saved) = Saved::load(catalog)? else {
+    let all = destinations(catalog)?;
+    let Some(saved) = all.first() else {
         writeln!(out, "This library isn't connected to a backup destination.")?;
         return Ok(());
     };
-    if saved.preset().is_some() {
-        world.secrets.delete(&saved.secret_name())?;
+    for each in &all {
+        if each.preset().is_some() {
+            world.secrets.delete(&each.secret_name())?;
+        }
     }
-    // An empty value is "no destination"; settings have no delete.
-    catalog.set_setting(SETTING, "null")?;
+    remember(catalog, &[])?;
     writeln!(
         out,
         "Disconnected from {}. Nothing stored there was changed.",

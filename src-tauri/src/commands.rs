@@ -160,10 +160,15 @@ pub fn reset_everything(app: AppHandle, shared: State<'_, Shared>) -> Said<AppSt
 
 /// Shows the folder this backup sends to, if it sends to a folder.
 #[tauri::command]
-pub fn open_destination(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
+pub fn open_destination(app: AppHandle, shared: State<'_, Shared>, at: Option<usize>) -> Said<()> {
     use tauri_plugin_opener::OpenerExt;
     let catalog = Catalog::open_in_library(&library(&shared)?).map_err(say)?;
-    match Saved::load(&catalog).map_err(say)? {
+    // The one asked for, by its place in the list; the first otherwise.
+    match connect::destinations(&catalog)
+        .map_err(say)?
+        .into_iter()
+        .nth(at.unwrap_or(0))
+    {
         Some(saved) if saved.kind == "folder" => app.opener().open_path(saved.place, None::<&str>).map_err(say),
         _ => Err("This backup doesn't send to a folder on this computer.".to_string()),
     }
@@ -908,7 +913,12 @@ pub fn gather(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
 #[tauri::command]
 pub fn destination(shared: State<'_, Shared>) -> Said<Option<String>> {
     let catalog = Catalog::open_in_library(&library(&shared)?).map_err(say)?;
-    Ok(Saved::load(&catalog).map_err(say)?.map(|s| s.describe()))
+    let all = connect::destinations(&catalog).map_err(say)?;
+    Ok(match all.as_slice() {
+        [] => None,
+        [one] => Some(one.describe()),
+        several => Some(format!("{} places", several.len())),
+    })
 }
 
 /// How much room what is waiting needs, and how that compares with where
@@ -951,14 +961,26 @@ pub fn set_previews_wanted(shared: State<'_, Shared>, wanted: bool) -> Said<()> 
 pub fn room(shared: State<'_, Shared>) -> Said<RoomView> {
     let library = library(&shared)?;
     let catalog = Catalog::open_in_library(&library).map_err(say)?;
-    let needed = keevoro_engine::discover(&library, &catalog).map_err(say)?.waiting_bytes;
-    let folder = Saved::load(&catalog)
-        .map_err(say)?
-        .filter(|saved| saved.kind == "folder")
-        .map(|saved| saved.place);
-    let room = folder
-        .as_ref()
-        .and_then(|folder| keevoro_engine::room::room_in(std::path::Path::new(folder), needed));
+    let found = keevoro_engine::discover(&library, &catalog).map_err(say)?;
+    // Each folder destination is weighed against what it still lacks. The
+    // one reported is the first without room, or failing that the first.
+    let folders: Vec<_> = found
+        .destinations
+        .iter()
+        .filter_map(|d| {
+            let folder = d.folder.clone()?;
+            let room = keevoro_engine::room::room_in(std::path::Path::new(&folder), d.waiting_bytes);
+            Some((folder, d.waiting_bytes, room))
+        })
+        .collect();
+    let chosen = folders
+        .iter()
+        .find(|(_, _, room)| room.is_some_and(|r| !r.is_enough()))
+        .or(folders.first())
+        .cloned();
+    let needed = chosen.as_ref().map_or(found.waiting_bytes, |(_, needed, _)| *needed);
+    let room = chosen.as_ref().and_then(|(_, _, room)| *room);
+    let folder = chosen.map(|(folder, _, _)| folder);
     Ok(RoomView {
         needed,
         folder,
@@ -988,8 +1010,10 @@ pub fn open_place(app: AppHandle, shared: State<'_, Shared>, path: String) -> Sa
         known.push(shown);
         known.push(source.root.display().to_string());
     }
-    if let Some(saved) = Saved::load(&catalog).map_err(say)?.filter(|s| s.kind == "folder") {
-        known.push(saved.place);
+    for saved in connect::destinations(&catalog).map_err(say)? {
+        if saved.kind == "folder" {
+            known.push(saved.place);
+        }
     }
     if !known.contains(&path) && !inside_a_source {
         return Err("Keevoro doesn't know that folder.".to_string());
@@ -1055,7 +1079,10 @@ pub async fn connect_destination(shared: State<'_, Shared>, request: ConnectRequ
         // Any warning (such as a publicly listable bucket) is said before
         // the confirmation; keep the warning, drop the command-line hints.
         let mut said = Vec::new();
-        connect::connect(&mut said, &catalog, &saved, &world)?;
+        // Added to the places this backup goes to; those already there stay.
+        connect::add(&mut said, &catalog, &saved, &world)?;
+        // What the last backup said was about the places as they were.
+        let _ = catalog.set_setting(LAST_BACKUP_SAID, "null");
         Ok(saved.describe())
     })
     .await
@@ -1065,15 +1092,27 @@ pub async fn connect_destination(shared: State<'_, Shared>, request: ConnectRequ
 
 /// Forgets the destination and removes its keys from the keychain.
 #[tauri::command]
-pub fn disconnect_destination(shared: State<'_, Shared>) -> Said<()> {
+pub fn disconnect_destination(shared: State<'_, Shared>, at: Option<usize>) -> Said<()> {
     let catalog = Catalog::open_in_library(&library(&shared)?).map_err(say)?;
     let world = World {
         secrets: &Keychain,
         ask: &connect::testing::nobody_to_ask,
     };
-    // What the last backup said was about the old destination.
+    // What the last backup said was about the destinations as they were.
     let _ = catalog.set_setting(LAST_BACKUP_SAID, "null");
-    connect::disconnect(&mut Vec::new(), &catalog, &world).map_err(say)
+    match at {
+        // One of them, by its place in the list. Nothing there is deleted.
+        Some(at) => {
+            if let Some(gone) = connect::remove(&catalog, &world, at).map_err(say)? {
+                shared.log.say(&format!(
+                    "No longer backing up to {}. Nothing stored there was changed",
+                    gone.describe()
+                ));
+            }
+            Ok(())
+        }
+        None => connect::disconnect(&mut Vec::new(), &catalog, &world).map_err(say),
+    }
 }
 
 /// Runs a backup job on its own thread, reporting with `backup` events.
@@ -1084,10 +1123,10 @@ fn send_job(
     job: impl FnOnce(
             &std::path::Path,
             &Catalog,
-            keevoro_engine::send::Destination,
-            Option<&str>,
+            &World<'_>,
             &mut Vec<u8>,
             &mut dyn FnMut(&str),
+            &mut Vec<keevoro_engine::history::Sent>,
         ) -> anyhow::Result<()>
         + Send
         + 'static,
@@ -1099,24 +1138,18 @@ fn send_job(
     std::thread::spawn(move || {
         let mut said = Vec::new();
         let mut last_said = Instant::now() - PROGRESS_EVERY;
-        let started = Instant::now();
-        let began_at = keevoro_core::meter::totals().0;
-        let mut going_to = String::new();
+        // How each destination's turn went, for the backup's record.
+        let mut turns = Vec::new();
         let result = (|| {
             let catalog = Catalog::open_in_library(&library)?;
-            let saved = Saved::load(&catalog)?.ok_or_else(|| anyhow::anyhow!("Choose where to back up to first."))?;
             let world = World {
                 secrets: &Keychain,
                 ask: &connect::testing::nobody_to_ask,
             };
-            going_to = saved.describe();
-            let destination = saved.open(&world)?;
-            let web_address = saved.base_url.clone();
             job(
                 &library,
                 &catalog,
-                destination,
-                web_address.as_deref(),
+                &world,
                 &mut said,
                 &mut |line| {
                     if last_said.elapsed() >= PROGRESS_EVERY {
@@ -1124,6 +1157,7 @@ fn send_job(
                         let _ = app.emit(SEND, SendEvent::progress(line));
                     }
                 },
+                &mut turns,
             )
         })();
         let state = app.state::<Shared>();
@@ -1131,22 +1165,20 @@ fn send_job(
         // How it went, said to the person and written into the backup's
         // record, so "was that slow?" has an answer afterwards.
         if record && result.is_ok() {
-            let sent = keevoro_engine::history::Sent {
-                finished_at: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .ok()
-                    .and_then(|d| i64::try_from(d.as_secs()).ok())
-                    .unwrap_or(0),
-                seconds: started.elapsed().as_secs(),
-                bytes: keevoro_core::meter::totals().0.saturating_sub(began_at),
-                to: going_to.clone(),
-                stopped: state.stop_sending.load(Ordering::SeqCst),
-            };
-            if let Some(sentence) = sent.sentence() {
-                said.extend_from_slice(sentence.as_bytes());
-                said.push(b'\n');
-                if let Ok(catalog) = Catalog::open_in_library(&library) {
-                    let _ = keevoro_engine::history::record(&catalog, &sent);
+            let several = turns.len() > 1;
+            for sent in &turns {
+                if let Some(sentence) = sent.sentence() {
+                    // With more than one destination, each sentence says whose it is.
+                    let line = if several {
+                        format!("To {}: {}", sent.to, sentence.to_lowercase())
+                    } else {
+                        sentence
+                    };
+                    said.extend_from_slice(line.as_bytes());
+                    said.push(b'\n');
+                    if let Ok(catalog) = Catalog::open_in_library(&library) {
+                        let _ = keevoro_engine::history::record(&catalog, sent);
+                    }
                 }
             }
         }
@@ -1197,7 +1229,11 @@ pub fn send(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
         let waiting = Catalog::open_in_library(&library)
             .ok()
             .and_then(|catalog| keevoro_engine::discover(&library, &catalog).ok())
-            .map_or(0, |found| found.waiting_bytes);
+            .map_or(0, |found| {
+                // What every destination still lacks, added up.
+                let everywhere: u64 = found.destinations.iter().map(|d| d.waiting_bytes).sum();
+                everywhere.max(found.waiting_bytes)
+            });
         shared.send_total.store(waiting, Ordering::SeqCst);
         shared
             .send_began_at
@@ -1207,17 +1243,30 @@ pub fn send(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
         app,
         &shared,
         true,
-        move |library, catalog, destination, base_url, said, progress| {
-            // The files themselves go first; previews are made and sent after.
-            keevoro_engine::send::originals_first(
+        move |library, catalog, world, said, progress, turns| {
+            // To each destination in turn. The files themselves go first;
+            // previews are made and sent after.
+            keevoro_engine::send::everywhere(
                 said,
                 catalog,
                 library,
-                destination,
-                base_url,
+                world,
                 VideoTools::find().as_ref(),
                 &stop,
                 progress,
+                &mut |turn| {
+                    turns.push(keevoro_engine::history::Sent {
+                        finished_at: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .ok()
+                            .and_then(|d| i64::try_from(d.as_secs()).ok())
+                            .unwrap_or(0),
+                        seconds: turn.seconds,
+                        bytes: turn.bytes,
+                        to: turn.to.describe(),
+                        stopped: turn.stopped,
+                    });
+                },
             )
         },
     )
@@ -1240,8 +1289,20 @@ pub fn check_arrived(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
         app,
         &shared,
         false,
-        |library, catalog, destination, _base_url, said, progress| {
-            keevoro_engine::send::check(said, catalog, library, Some(destination), false, progress)
+        |library, catalog, world, said, progress, _turns| {
+            let all = connect::destinations(catalog)?;
+            if all.is_empty() {
+                anyhow::bail!("Choose where to back up to first.");
+            }
+            let several = all.len() > 1;
+            for to in &all {
+                if several {
+                    said.extend_from_slice(format!("At {}:\n", to.describe()).as_bytes());
+                }
+                let destination = to.open(world)?;
+                keevoro_engine::send::check(said, catalog, library, Some(destination), false, progress)?;
+            }
+            Ok(())
         },
     )
 }
