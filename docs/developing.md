@@ -160,6 +160,10 @@ On GitHub, open **Actions**, pick **Release** on the left, press **Run workflow*
 5. Builds the desktop app's installers for Windows and macOS with `scripts/build-installer.sh`, the same script CI uses, and uploads them too.
 6. Adds a `SHA256SUMS` file and publishes the release, so "latest" never points at a release with nothing to download.
 
+Day to day, steps 4 and 5 build for **Windows only**. GitHub's macOS machines are often slow to come by, and during fast development they held releases up for hours. For a milestone, tick **all platforms** and the release is built for macOS and Linux as well. The same goes for CI: every change is tested on Windows and on Linux (in the coverage job), and macOS is tested when the CI workflow is run by hand with **all platforms** ticked. Do that before a milestone release, since a Windows-only release says nothing about the Mac.
+
+A Windows-only release has no Mac or Linux files on it. The Mac app only offers an update when the release has a Mac installer, so Mac users are simply not offered it.
+
 Tick **Rehearse** to see steps 1 and 2 in the log without anything being pushed, built or published. It is also the way to ask what number the next release would be. A rehearsal can run from any branch.
 
 The moment the workflow finishes, the one-line installers and `keevoro update` pick up the new version.

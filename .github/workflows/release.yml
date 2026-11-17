@@ -41,6 +41,10 @@ on:
         description: 'Rehearse: do everything except push, build and publish'
         type: boolean
         default: false
+      all_platforms:
+        description: 'A milestone: also build for macOS and Linux. Day to day a release is Windows only.'
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       version:
@@ -48,6 +52,9 @@ on:
         type: string
       skip_ci_check:
         description: 'The tree on main was released before, so CI need not have run on this commit'
+        type: boolean
+        default: false
+      all_platforms:
         type: boolean
         default: false
   push:
@@ -266,18 +273,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: Windows x64
-            os: windows-latest
-            asset: keevoro-windows-x64.exe
-          - name: macOS universal
-            os: macos-latest
-            asset: keevoro-macos-universal
-          # An older Ubuntu on purpose: a program built here runs on newer
-          # systems, but not the other way round.
-          - name: Linux x64
-            os: ubuntu-22.04
-            asset: keevoro-linux-x64
+        # Day to day a release is for Windows only: macOS runners held
+        # releases up for hours during fast development. A milestone, run
+        # with "all platforms" ticked, builds for macOS and Linux too.
+        # Linux is built on an older Ubuntu on purpose: a program built
+        # there runs on newer systems, but not the other way round.
+        include: ${{ fromJSON(inputs.all_platforms && '[{"name":"Windows x64","os":"windows-latest","asset":"keevoro-windows-x64.exe"},{"name":"macOS universal","os":"macos-latest","asset":"keevoro-macos-universal"},{"name":"Linux x64","os":"ubuntu-22.04","asset":"keevoro-linux-x64"}]' || '[{"name":"Windows x64","os":"windows-latest","asset":"keevoro-windows-x64.exe"}]') }}
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -347,15 +348,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: Windows x64
-            os: windows-latest
-            args: ''
-            asset: Keevoro-windows-x64-setup.exe
-          - name: macOS universal
-            os: macos-latest
-            args: '--target universal-apple-darwin'
-            asset: Keevoro-macos-universal.dmg
+        include: ${{ fromJSON(inputs.all_platforms && '[{"name":"Windows x64","os":"windows-latest","args":"","asset":"Keevoro-windows-x64-setup.exe"},{"name":"macOS universal","os":"macos-latest","args":"--target universal-apple-darwin","asset":"Keevoro-macos-universal.dmg"}]' || '[{"name":"Windows x64","os":"windows-latest","args":"","asset":"Keevoro-windows-x64-setup.exe"}]') }}
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -403,7 +396,11 @@ jobs:
           version="${{ needs.prepare.outputs.version }}"
           mkdir assets && cd assets
           gh release download "v$version" --pattern 'keevoro-*' --pattern 'Keevoro-*'
-          for needed in keevoro-windows-x64.exe keevoro-macos-universal keevoro-linux-x64 Keevoro-windows-x64-setup.exe Keevoro-macos-universal.dmg; do
+          needed_files="keevoro-windows-x64.exe Keevoro-windows-x64-setup.exe"
+          if [ "${{ inputs.all_platforms }}" = "true" ]; then
+            needed_files="$needed_files keevoro-macos-universal keevoro-linux-x64 Keevoro-macos-universal.dmg"
+          fi
+          for needed in $needed_files; do
             if [ ! -s "$needed" ]; then
               echo "::error::v$version has no $needed on it, so it stays a draft. Check the build jobs."
               exit 1
