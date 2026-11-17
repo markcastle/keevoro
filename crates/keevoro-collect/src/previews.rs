@@ -36,6 +36,18 @@ pub fn make_previews(
     items: &[&FoundItem],
     on_progress: &mut dyn FnMut(usize, usize),
 ) -> Result<PreviewReport, CatalogError> {
+    make_previews_while(library, catalog, items, on_progress, &|| true)
+}
+
+/// As [`make_previews`], asking `keep_going` before each photo so the work
+/// can be stopped. Whatever was made stays made.
+pub fn make_previews_while(
+    library: &Path,
+    catalog: &Catalog,
+    items: &[&FoundItem],
+    on_progress: &mut dyn FnMut(usize, usize),
+    keep_going: &dyn Fn() -> bool,
+) -> Result<PreviewReport, CatalogError> {
     let mut report = PreviewReport::default();
     let mut todo = Vec::new();
     for item in items.iter().filter(|i| i.kind == MediaKind::Photo) {
@@ -58,6 +70,9 @@ pub fn make_previews(
 
     let total = todo.len();
     for (done, (hash, original, thumb, display)) in todo.into_iter().enumerate() {
+        if !keep_going() {
+            break;
+        }
         let made = render_photo(&original).and_then(|r| {
             write_rendition(&thumb, &r.thumb)?;
             write_rendition(&display, &r.display)?;

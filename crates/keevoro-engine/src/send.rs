@@ -27,6 +27,7 @@ use keevoro_storage_s3::{Preset, S3Settings, S3Store};
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::Ordering;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// A gathered file and everything known about its copies in the library.
@@ -61,6 +62,7 @@ impl Kept<'_> {
 }
 
 /// Where a backup goes.
+#[derive(Clone)]
 pub enum Destination {
     /// An external drive or a network share.
     Folder(PathBuf),
@@ -126,6 +128,132 @@ pub fn open(out: &mut dyn Write, runtime: &tokio::runtime::Runtime, destination:
     }
 }
 
+/// What a step of getting ready is called while it happens.
+fn step_line(step: crate::GatherStep) -> String {
+    let n = summary::thousands;
+    match step {
+        crate::GatherStep::Checking { done, total } => {
+            format!("Reading each file in full first: {} of {}", n(done), n(total))
+        }
+        crate::GatherStep::Copying { done, total } => format!("Getting ready: {} of {}", n(done), n(total)),
+        crate::GatherStep::MakingPreviews { done, total } => {
+            format!("Your files are sent. Making previews: {} of {}", n(done), n(total))
+        }
+        crate::GatherStep::WorkingOnVideos { done, total } => {
+            format!(
+                "Your files are sent. Making video previews: {} of {}",
+                n(done),
+                n(total)
+            )
+        }
+    }
+}
+
+/// Sends everything being kept, the files themselves first.
+///
+/// The order is the point. A person's photos and videos are what matter,
+/// so they start moving as soon as each has been read and checked.
+/// Previews and the index, which only make the result nicer to browse, are
+/// made and sent afterwards. If this is stopped halfway, what has arrived
+/// is the originals, and running it again carries on.
+///
+/// A folder is first checked for room, so nobody finds a disk full with
+/// half their photos sent. Setting `stop` ends it after the file in hand.
+#[allow(clippy::too_many_arguments)]
+pub fn originals_first(
+    out: &mut dyn Write,
+    catalog: &Catalog,
+    home: &Path,
+    destination: Destination,
+    base_url: Option<&str>,
+    video_tools: Option<&keevoro_media::VideoTools>,
+    stop: &Stop,
+    on_progress: &mut dyn FnMut(&str),
+) -> Result<()> {
+    let keep_going = || !stop.load(Ordering::SeqCst);
+    let said = |bytes: &[u8]| String::from_utf8_lossy(bytes).into_owned();
+    let files_sent = |out: &mut dyn Write, files: &[u8]| -> Result<()> {
+        for line in said(files).lines() {
+            if line.starts_with("Safely backed up") || line.ends_with("already there.") || line.starts_with("Warning:")
+            {
+                writeln!(out, "{line}")?;
+            }
+        }
+        Ok(())
+    };
+    let stopped = |out: &mut dyn Write| -> Result<()> {
+        writeln!(
+            out,
+            "Stopped. Everything sent so far is safe where it is. Send again whenever you like and it carries on from here."
+        )?;
+        Ok(())
+    };
+
+    crate::check_and_place(home, catalog, &keep_going, &mut |step| on_progress(&step_line(step)))?;
+    if !keep_going() {
+        return stopped(out);
+    }
+    if let Destination::Folder(folder) = &destination {
+        let needed = crate::discover(home, catalog)?.waiting_bytes;
+        if let Some(room) = crate::room::room_in(folder, needed).filter(|room| !room.is_enough()) {
+            anyhow::bail!(room.refusal(folder));
+        }
+    }
+
+    // The files themselves.
+    let mut files = Vec::new();
+    run_until(
+        &mut files,
+        catalog,
+        home,
+        destination.clone(),
+        base_url,
+        false,
+        Some(stop),
+        on_progress,
+    )?;
+    if !keep_going() {
+        files_sent(out, &files)?;
+        return stopped(out);
+    }
+
+    // Then what makes them nice to look through.
+    crate::prepare_to_send_while(home, catalog, video_tools, &keep_going, &mut |step| {
+        on_progress(&step_line(step));
+    })?;
+    let mut extras = Vec::new();
+    run_until(
+        &mut extras,
+        catalog,
+        home,
+        destination,
+        base_url,
+        false,
+        Some(stop),
+        on_progress,
+    )?;
+
+    // Said once, in the order it happened: the files, then the previews,
+    // then anything that needs attention (from the second pass, which
+    // tried again whatever the first could not send).
+    files_sent(out, &files)?;
+    for line in said(&extras).lines() {
+        if let Some(rest) = line.strip_prefix("Safely backed up ") {
+            writeln!(out, "Previews added: {rest}")?;
+        } else if !line.ends_with("already there.") && !line.starts_with("Warning:") {
+            writeln!(out, "{line}")?;
+        }
+    }
+    if !keep_going() {
+        stopped(out)?;
+    }
+    Ok(())
+}
+
+/// A switch that stops a send: set it to true from anywhere and the file
+/// in hand is finished but no more are started.
+pub type Stop = std::sync::Arc<std::sync::atomic::AtomicBool>;
+
 pub fn run(
     out: &mut dyn Write,
     catalog: &Catalog,
@@ -133,6 +261,30 @@ pub fn run(
     destination: Destination,
     base_url: Option<&str>,
     new_link: bool,
+    on_progress: &mut dyn FnMut(&str),
+) -> Result<()> {
+    run_until(
+        out,
+        catalog,
+        library,
+        destination,
+        base_url,
+        new_link,
+        None,
+        on_progress,
+    )
+}
+
+/// As [`run`], with a switch that stops it between files.
+#[allow(clippy::too_many_arguments)]
+pub fn run_until(
+    out: &mut dyn Write,
+    catalog: &Catalog,
+    library: &Path,
+    destination: Destination,
+    base_url: Option<&str>,
+    new_link: bool,
+    stop: Option<&Stop>,
     on_progress: &mut dyn FnMut(&str),
 ) -> Result<()> {
     let reports = catalog.load_reports()?;
@@ -170,7 +322,10 @@ pub fn run(
 
     let uploads = uploads_for(library, catalog, &kept)?;
     let n = summary::thousands;
-    let opts = PublishOptions::default();
+    let opts = PublishOptions {
+        stop: stop.cloned(),
+        ..PublishOptions::default()
+    };
     let report = runtime.block_on(publish(store, catalog, &target, &uploads, &opts, &mut |p| {
         on_progress(&format!("{} of {} safely backed up", n(p.done), n(p.total)));
     }))?;
@@ -524,15 +679,15 @@ mod tests {
     }
 
     fn send(catalog: &Catalog, home: &Path, to: &Path) -> String {
-        crate::prepare_to_send(home, catalog, None, &mut |_| {}).unwrap();
         let mut said = Vec::new();
-        run(
+        originals_first(
             &mut said,
             catalog,
             home,
             Destination::Folder(to.to_path_buf()),
             None,
-            false,
+            None,
+            &Stop::default(),
             &mut |_| {},
         )
         .unwrap();
@@ -577,13 +732,119 @@ mod tests {
         crate::scan_into(&mut catalog, &card, Some("Card"), &mut |_| {}).unwrap();
         assert_eq!(crate::discover(&home, &catalog).unwrap().waiting_to_gather, 1);
         let later = send(&catalog, &home, &to);
-        // The new photo and its two previews; the six from before are not sent again.
-        assert!(later.contains("Safely backed up 3 files"), "{later}");
+        // Only the new photo, then its two previews; the six files from
+        // before are not sent again.
+        assert!(later.contains("Safely backed up 1 file "), "{later}");
         assert!(later.contains("6 files already there"), "{later}");
+        assert!(later.contains("Previews added: 2 files"), "{later}");
         assert!(to
             .join("originals")
             .join("Flights")
             .join("IMG_20240702_090000.jpg")
+            .is_file());
+    }
+
+    #[test]
+    fn the_files_themselves_are_sent_before_any_preview_is_made() {
+        let (dir, _card, home, catalog) = one_backup();
+        let to = dir.path().join("Drone footage");
+        let mut lines = Vec::new();
+        let mut said = Vec::new();
+        originals_first(
+            &mut said,
+            &catalog,
+            &home,
+            Destination::Folder(to.clone()),
+            None,
+            None,
+            &Stop::default(),
+            &mut |line| {
+                // Note, each time something is said, whether the originals have arrived.
+                let arrived = to
+                    .join("originals")
+                    .join("Flights")
+                    .join("IMG_20240601_100000.jpg")
+                    .is_file();
+                lines.push((line.to_string(), arrived));
+            },
+        )
+        .unwrap();
+        let first_preview = lines
+            .iter()
+            .position(|(line, _)| line.contains("Making previews"))
+            .unwrap();
+        assert!(
+            lines[first_preview].1,
+            "the originals were already there when previews began"
+        );
+        assert!(lines[..first_preview]
+            .iter()
+            .any(|(line, _)| line.contains("safely backed up")));
+
+        let said = String::from_utf8(said).unwrap();
+        let files = said.find("Safely backed up 2 files").unwrap();
+        let previews = said.find("Previews added: 4 files").unwrap();
+        assert!(files < previews, "{said}");
+        assert_eq!(
+            said.matches("Index written").count(),
+            1,
+            "the index is spoken of once: {said}"
+        );
+    }
+
+    #[test]
+    fn a_folder_without_room_is_refused_before_anything_is_sent() {
+        let room = crate::room::Room {
+            needed: 10 << 30,
+            free: 1 << 30,
+        };
+        assert!(!room.is_enough());
+        // And a real send to a real folder with room goes ahead.
+        let (dir, _card, home, catalog) = one_backup();
+        let to = dir.path().join("out");
+        assert!(send(&catalog, &home, &to).contains("Safely backed up"));
+    }
+
+    #[test]
+    fn a_send_can_be_stopped_and_carried_on_later() {
+        let (dir, _card, home, catalog) = one_backup();
+        let to = dir.path().join("Drone footage");
+        let stop = Stop::default();
+        let mut said = Vec::new();
+        originals_first(
+            &mut said,
+            &catalog,
+            &home,
+            Destination::Folder(to.clone()),
+            None,
+            None,
+            &stop,
+            // Asked to stop as soon as the first file has gone.
+            &mut |line| {
+                if line.starts_with("1 of") {
+                    stop.store(true, Ordering::SeqCst);
+                }
+            },
+        )
+        .unwrap();
+        let said = String::from_utf8(said).unwrap();
+        assert!(said.contains("Safely backed up 1 file "), "{said}");
+        assert!(said.contains("Stopped. Everything sent so far is safe"), "{said}");
+        assert!(!said.contains("Previews added"), "nothing more was started: {said}");
+        assert!(!to
+            .join("originals")
+            .join("Flights")
+            .join("IMG_20240601_100500.jpg")
+            .exists());
+
+        // Sending again carries on from where it stopped.
+        let again = send(&catalog, &home, &to);
+        assert!(again.contains("Safely backed up 1 file "), "{again}");
+        assert!(again.contains("1 file already there"), "{again}");
+        assert!(to
+            .join("originals")
+            .join("Flights")
+            .join("IMG_20240601_100500.jpg")
             .is_file());
     }
 }

@@ -146,6 +146,12 @@ Separate, remembered jobs ("Drone footage to R2", "Family photos to a folder"), 
 - [x] Destinations as a list: a folder first, then R2, S3 and other S3-compatible storage
 - [x] Send straight from the source to the destination; no local library in between
 - [x] Sending again later only sends what is new
+- [x] Files first, previews and the index afterwards
+- [x] Say how much room is needed; refuse a folder whose disk does not have it
+- [x] Stop a send between files
+- [x] Folder names open the folder
+- [ ] Stop part-way through one very large file (it currently finishes the file in hand)
+- [ ] Show how much room a cloud bucket has, where the provider will say
 - [ ] More than one destination per backup
 - [ ] Rename and remove a backup
 - [ ] A backup that only looks for videos, or only photos

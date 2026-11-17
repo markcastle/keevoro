@@ -54,6 +54,8 @@ export type Discover = {
   duplicates: number
   junk: number
   waitingToGather: number
+  /** How much room those waiting files need, in bytes. */
+  waitingBytes: number
   sources: Source[]
   collections: Collection[]
 }
@@ -119,6 +121,13 @@ export type ConnectRequest = {
   secretAccessKey?: string
 }
 
+/**
+ * How much room the waiting files need, and what is known about where they
+ * are going. `free` is only known for a folder; `enough` is false only when
+ * the files are known not to fit.
+ */
+export type Room = { needed: number; folder: string | null; free: number | null; enough: boolean }
+
 /** A newer version of Keevoro that is ready to install. */
 export type Update = { version: string; page: string }
 
@@ -131,6 +140,12 @@ export interface Backend {
   startBackup(name: string): Promise<AppState>
   /** Opens another backup; the one that was open is left as it was. */
   switchBackup(id: string): Promise<AppState>
+  /** Asks a running send to stop after the file in hand. */
+  stopSending(): Promise<void>
+  /** How much room what is waiting needs, against where it is going. */
+  room(): Promise<Room>
+  /** Shows a folder Keevoro has mentioned (a source, a destination) in the file manager. */
+  openPlace(path: string): Promise<void>
   /** Shows the folder this backup sends to, when it sends to a folder. */
   openDestination(): Promise<void>
   discover(): Promise<Discover>
@@ -205,6 +220,9 @@ async function tauriBackend(): Promise<Backend> {
     startBackup: (name) => invoke('start_backup', { name }),
     switchBackup: (id) => invoke('switch_backup', { id }),
     openDestination: () => invoke('open_destination'),
+    room: () => invoke('room'),
+    stopSending: () => invoke('stop_sending'),
+    openPlace: (path) => invoke('open_place', { path }),
     async chooseLibrary() {
       const path = await pickFolder('Choose where your library will live')
       return path ? invoke<AppState>('use_library', { path }) : null

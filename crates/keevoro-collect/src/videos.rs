@@ -44,6 +44,20 @@ pub fn make_video_previews(
     convert_old: bool,
     on_progress: &mut dyn FnMut(usize, usize),
 ) -> Result<VideoReport, CatalogError> {
+    make_video_previews_while(library, catalog, items, tools, convert_old, on_progress, &|| true)
+}
+
+/// As [`make_video_previews`], asking `keep_going` before each video so the
+/// work can be stopped.
+pub fn make_video_previews_while(
+    library: &Path,
+    catalog: &Catalog,
+    items: &[&FoundItem],
+    tools: Option<&VideoTools>,
+    convert_old: bool,
+    on_progress: &mut dyn FnMut(usize, usize),
+    keep_going: &dyn Fn() -> bool,
+) -> Result<VideoReport, CatalogError> {
     let mut report = VideoReport::default();
     let mut todo = Vec::new();
     for item in items.iter().filter(|i| i.kind == MediaKind::Video) {
@@ -80,6 +94,9 @@ pub fn make_video_previews(
 
     let total = todo.len();
     for (done, (hash, original, poster_file, mp4_file)) in todo.into_iter().enumerate() {
+        if !keep_going() {
+            break;
+        }
         match work_on(tools, &original, &poster_file, &mp4_file, convert_old, &mut report) {
             Ok(state) => catalog.set_video(hash, &state)?,
             Err(e) => {

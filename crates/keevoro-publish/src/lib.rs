@@ -59,6 +59,9 @@ pub struct PublishOptions {
     pub retries: u32,
     /// Pause before the first retry; doubled each time.
     pub retry_pause: Duration,
+    /// Set to true from anywhere to stop: the file being sent is finished,
+    /// and no more are started. Everything already sent stays sent.
+    pub stop: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 
 impl Default for PublishOptions {
@@ -68,6 +71,7 @@ impl Default for PublishOptions {
             part_bytes: 16 * 1024 * 1024,
             retries: 3,
             retry_pause: Duration::from_secs(2),
+            stop: None,
         }
     }
 }
@@ -84,6 +88,8 @@ pub struct PublishReport {
     pub uploaded_bytes: u64,
     pub already_there: usize,
     pub failed: Vec<FailedUpload>,
+    /// True when it was asked to stop before every file had been tried.
+    pub stopped: bool,
 }
 
 /// Counts for "3,412 of 9,870 safely backed up".
@@ -115,6 +121,14 @@ pub async fn publish(
         total: uploads.len(),
     };
     for upload in uploads {
+        if opts
+            .stop
+            .as_ref()
+            .is_some_and(|stop| stop.load(std::sync::atomic::Ordering::SeqCst))
+        {
+            report.stopped = true;
+            break;
+        }
         if catalog.is_uploaded(target, upload.key.as_str())? {
             report.already_there += 1;
         } else {

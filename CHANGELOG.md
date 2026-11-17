@@ -6,7 +6,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Keevoro tells you how much room your files need.** Before you choose where to send them it says how many files there are and how big they are in all. Once you have chosen a folder it compares that with the free space on that disk, and says so either way.
+- **A disk without enough room is refused before anything is sent.** If the files will not fit, Keevoro says how much is needed and how much is free, and Send waits until there is room or you choose somewhere else. You no longer find out halfway through.
+- **Stop a send.** While files are being sent there is a Stop link. The file in hand is finished, nothing is left half-sent, and everything already sent stays where it is. Send again later and it carries on from there.
+- **Folder names open the folder.** Wherever Keevoro names a folder (where a backup sends to, each source, the backup's own folder in Settings) you can click the name to open it.
+
+### Changed
+
+- **Your files are sent first, previews afterwards.** Sending used to make a preview of every photo before the first file moved. Now each file is read, checked and sent straight away, and the previews and the index are made and sent once the files themselves are safe. If a send is interrupted, what has arrived is your photos and videos.
+
+### Fixed
+
+- The main button on the Send screen looked like an ordinary button after the redesign. It is the dark main action again.
 
 ## [0.13.2] - 2026-11-16
 

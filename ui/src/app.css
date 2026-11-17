@@ -1984,3 +1984,54 @@ label,
 .welcome input {
   user-select: text;
 }
+
+/* A folder's name is a way to open the folder. */
+.folder {
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  font-weight: 400;
+  color: var(--pine);
+  text-align: left;
+  overflow-wrap: anywhere;
+  border-radius: var(--radius-sm);
+  user-select: text;
+}
+
+.folder:hover {
+  text-decoration: underline;
+}
+
+h2 .folder {
+  font-size: 0.8em;
+}
+
+/* How much room the files need, and whether there is enough. */
+.needs {
+  color: var(--ink-muted);
+}
+
+.needs.short {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+}
+
+.running .link {
+  margin-left: var(--space-4);
+}
+
+/* The one main action keeps its colour wherever it sits. */
+.choices button.primary,
+.update .actions button.primary,
+.session .menu form button.primary,
+.backup .menu form button.primary {
+  background: var(--primary);
+  border-color: transparent;
+  color: var(--on-primary);
+}
+
+.choices button.primary:hover,
+.update .actions button.primary:hover {
+  background: var(--primary-hover);
+}

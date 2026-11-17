@@ -46,6 +46,8 @@ pub struct Shared {
     /// True while files a quick search only sampled are being read in the
     /// background.
     checking: AtomicBool,
+    /// Set to stop a send after the file in hand.
+    stop_sending: keevoro_engine::send::Stop,
     /// True while a backup or a check of one is running.
     sending: AtomicBool,
 }
@@ -72,6 +74,7 @@ pub fn run() {
                 scanning: AtomicBool::new(false),
                 gathering: AtomicBool::new(false),
                 checking: AtomicBool::new(false),
+                stop_sending: keevoro_engine::send::Stop::default(),
                 sending: AtomicBool::new(false),
             });
             Ok(())
@@ -82,6 +85,9 @@ pub fn run() {
             commands::start_backup,
             commands::switch_backup,
             commands::open_destination,
+            commands::room,
+            commands::stop_sending,
+            commands::open_place,
             commands::discover,
             commands::scan_place,
             commands::places,
