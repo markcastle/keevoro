@@ -6,7 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- The first screen now shows the whole Keevoro logo, with its name, not the picture tiles on their own.
 
 ## [0.15.0] - 2026-11-17
 
