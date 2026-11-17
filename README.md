@@ -1,14 +1,122 @@
-# Keevoro
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="design/keevoro-lockup-reversed.png">
+    <img src="design/keevoro-lockup.png" alt="Keevoro" width="360">
+  </picture>
+</p>
 
-Find every photo and video on your old drives, keep the ones that matter, and back them up safely.
+<p align="center"><b>Keep things as they were.</b></p>
 
-Keevoro looks through old laptops, USB sticks and backup disks, finds your photos and videos, ignores the junk and the duplicates, and gathers everything into one library that you can back up to cloud storage such as Cloudflare R2 or Amazon S3. It never changes anything on a source. (A **source** is anywhere Keevoro looks for photos: an old drive, a USB stick, a folder.)
+<p align="center">
+  Find every photo and video on your drives, choose what to keep,<br>
+  and back it up somewhere safe. Nothing on a source is ever changed.
+</p>
 
-It is in early development. The engine and a command-line tool work today, from scanning a drive through to a verified backup on another disk; the desktop app for Windows and macOS comes next.
+<p align="center">
+  <a href="https://github.com/markcastle/keevoro/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/markcastle/keevoro?label=release&color=0b3d3a"></a>
+  <a href="https://github.com/markcastle/keevoro/actions/workflows/ci.yml"><img alt="Checks" src="https://img.shields.io/github/actions/workflow/status/markcastle/keevoro/ci.yml?branch=main&label=checks"></a>
+  <a href="https://github.com/markcastle/keevoro/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/markcastle/keevoro/total?color=0b3d3a"></a>
+  <a href="LICENSE.md"><img alt="Licence: FSL-1.1-MIT" src="https://img.shields.io/badge/licence-FSL--1.1--MIT-0b3d3a"></a>
+  <img alt="Windows and macOS" src="https://img.shields.io/badge/app-Windows%20%7C%20macOS-0b3d3a">
+  <img alt="Built with Rust and Tauri" src="https://img.shields.io/badge/built%20with-Rust%20%2B%20Tauri-b7410e">
+</p>
 
-## Install
+<p align="center">
+  <a href="https://github.com/markcastle/keevoro/releases/latest/download/Keevoro-windows-x64-setup.exe"><b>⬇️ Download for Windows</b></a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/markcastle/keevoro/releases/download/v0.23.0/Keevoro-macos-universal.dmg"><b>⬇️ Download for Mac</b> (0.23.0)</a>
+  &nbsp;·&nbsp;
+  <a href="CHANGELOG.md">What’s new</a>
+</p>
 
-One line installs Keevoro, and running it again updates it. Nothing needs an administrator password.
+![Choosing what to keep: collections of photos, each with a keep switch](docs/screens/4-choose.png)
+
+## 👋 What Keevoro is
+
+Photos pile up in places nobody remembers: an old laptop, three USB sticks, a drone's memory card, a folder called "Backup of backup". Keevoro goes through them, finds the photos and videos, sets the junk aside, spots the exact duplicates, and backs up what you choose to a folder, another disk, or cloud storage of your own.
+
+It is a desktop app for Windows and macOS, with a command-line tool that does the same things. It is written for people who have never heard of a checksum, and built by people who care a great deal about them.
+
+Three words you will see:
+
+- A **source** is anywhere Keevoro looks for photos: a drive, a USB stick, a memory card, a folder.
+- A **backup** is a named job, such as "Family photos" or "Drone footage". Each remembers its own sources, choices and destination, so you can come back later and it sends only what is new.
+- A **destination** is where a backup goes: a folder, an external or network drive, Cloudflare R2, Amazon S3, or anything else that speaks S3.
+
+## 🧭 How it works
+
+One question at a time, in three steps.
+
+### 1. 🔎 Find your photos
+
+Pick a plugged-in drive by name, or any folder. Not sure where on a big disk the photos are? Keevoro can **find the folders that hold them first**: it reads only the list of what is in each folder, never opening a file, so it gets through hundreds of thousands of files in seconds. Tick the folders you want and it looks through those properly.
+
+![A survey of a disk: folders that seem to hold photos, each with a tick](docs/screens/9q-survey.png)
+
+### 2. ✅ Choose what to keep
+
+What was found is laid out as collections: your own folders where they mean something, and by date where they do not. Everything is kept unless you say otherwise. Open a collection to leave single photos out, hold down on one to see it large, and look over the duplicates before anything is sent.
+
+| Look closely without changing the tick | See exactly which copy is kept |
+| --- | --- |
+| ![A photo opened large over the grid](docs/screens/6b-a-closer-look.png) | ![The duplicates list: the copy kept and the copies left out](docs/screens/9o-duplicates.png) |
+
+### 3. 💾 Back them up somewhere safe
+
+Choose a destination and press **Back up now**. Files go straight from the source to the destination, each one checked against the original. You see how much has gone, how fast, and roughly how long is left.
+
+![A backup under way: how much, how fast, how long left](docs/screens/9l-send-speed.png)
+
+## 🛡️ Promises
+
+These are rules the code is built around, each with tests, not hopes.
+
+- **Your sources are only ever read.** Keevoro never edits, moves, renames or deletes anything on a source. Removing a source from a backup only takes it off a list.
+- **A copy counts only when it is proved exact.** Every file is fingerprinted from its full contents, and a backed-up copy is compared with the original before it is called safe.
+- **Nothing in a backup is ever replaced.** Originals are written once. Two different photos called `IMG_0001.jpg` both survive.
+- **Duplicates are exact, never guesses.** Two files are the same only when every byte matches. Same name, size or date is never enough, and photos that merely look alike are both kept.
+- **Nothing is hidden without saying so.** Pictures set aside as junk are listed with the reason and can be brought back.
+- **You do not need Keevoro to get your photos back.** A backup is ordinary files in ordinary folders, with a plain note inside explaining them.
+- **Stopping is safe.** Stop, pause, unplug the drive or lose the connection, and it carries on from where it was.
+
+## ✨ What it can do
+
+- 📂 **Sources:** drives, USB sticks, memory cards, folders, network shares. Several per backup, with duplicates across all of them counted once.
+- ⚡ **Quick survey:** find the folders with photos on a whole disk in seconds, opening no file.
+- 🖼️ **Formats:** JPEG, PNG, HEIC, TIFF, WebP, camera raw (DNG, CR2, CR3, NEF, ARW and more), and MP4, MOV, AVI, MTS and other video.
+- 🧹 **Tidying:** app icons, tiny images and leftovers are set aside with a reason. Per source, you can include or leave out whole kinds of file.
+- 🗂️ **Collections:** named after your own folders, or by date, with dates read from the camera data, the file name or the folder.
+- 👯 **Duplicates:** found by full-content fingerprint, with a screen showing which copy is kept and which are left out.
+- ☁️ **Destinations:** a folder or drive, Cloudflare R2, Amazon S3, MinIO or any S3-compatible storage. Keys live in the computer's own keychain.
+- 🖥️ **Previews without extra software:** photos and video stills are decoded by the computer's own codecs on Windows and macOS.
+- 📈 **A good guest on your computer:** a page saying what Keevoro is doing and why, with graphs of its own processor, disk, network and memory use, and one button to pause everything.
+- 🔁 **Incremental:** open a backup again later and it sends only what is new.
+- 🔄 **Updates itself:** downloads the new version, checks it against the published checksums, and installs it.
+- 🌗 **Light and dark:** or whatever your computer is set to.
+
+![The same screen in the dark theme](docs/screens/10-choose-dark.png)
+
+## ⬇️ Install
+
+### The app
+
+| Computer | Download |
+| --- | --- |
+| Windows 10 or 11 | [Keevoro-windows-x64-setup.exe](https://github.com/markcastle/keevoro/releases/latest/download/Keevoro-windows-x64-setup.exe) |
+| Mac (Apple silicon or Intel) | [Keevoro-macos-universal.dmg](https://github.com/markcastle/keevoro/releases/download/v0.23.0/Keevoro-macos-universal.dmg) (version 0.23.0) |
+
+While Keevoro is changing quickly, each release is built for Windows, and the Mac version is brought up to date at bigger milestones. That is why the Mac download is an earlier version.
+
+The app is not yet signed with a paid certificate, so each system asks once whether you trust it.
+
+- **Windows:** choose **More info**, then **Run anyway**.
+- **Mac:** drag Keevoro to Applications, then right-click it and choose **Open** the first time.
+
+After that it keeps itself up to date. When a newer release is out it says so across the top, and **Update now** does the rest.
+
+### 💻 The command line
+
+One line installs the `keevoro` command, and running it again updates it. Nothing needs an administrator password.
 
 **Windows** (PowerShell):
 
@@ -16,40 +124,59 @@ One line installs Keevoro, and running it again updates it. Nothing needs an adm
 irm https://raw.githubusercontent.com/markcastle/keevoro/main/install.ps1 | iex
 ```
 
-**macOS and Linux:**
+**macOS and Linux** (these too are built at milestones, so if the newest release has no file for your computer, the installer says so):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/markcastle/keevoro/main/install.sh | sh
 ```
 
-Then:
+Then a first look at a drive, which changes nothing:
 
 ```sh
-keevoro --help
+keevoro survey "D:\"
 ```
-
-To move to the newest version later:
 
 ```sh
-keevoro update
+keevoro scan "D:\Pictures"
 ```
 
-`keevoro update --check` only tells you whether there is one. Every download is checked against the release's checksum before it replaces anything. What changed in each version is in [CHANGELOG.md](CHANGELOG.md).
+The full walk-through, from a first scan to a checked backup in a bucket, is in [docs/command-line.md](docs/command-line.md). `keevoro update` moves to the newest version.
 
-## The desktop app (early)
+## 📦 What a backup looks like
 
-The app is the friendly face of the same engine. You start a **backup** (such as "Family photos" or "Drone footage"), then it walks through three steps, one question at a time: **Find your photos** (pick a plugged-in drive by name, or any folder), **Choose what to keep** (collections with big photos, each with a keep switch), and **Back them up somewhere safe** (a folder, another disk, or cloud storage of your own). Files go straight from the source to where you send them, each checked first. Backups are separate and remembered: open one again later and it sends only what is new.
+Open the destination and you will find ordinary files:
 
-Download the installer from the latest release:
+```text
+What is in this backup.txt   a plain note explaining the folders below
+originals/                   your photos and videos, untouched
+  Holidays/Cornwall/...        one folder per collection
+  By date/2008/2008-08/...     anything that did not belong to one
+renditions/                  smaller versions made for looking at
+  thumb/ display/              small and screen-sized photos
+  poster/ video/               a still of each video; playable copies of old ones
+index/                       the list of what is here, for a gallery to read
+```
 
-| Computer | Download |
-| --- | --- |
-| Windows 10 or 11 | [Keevoro-windows-x64-setup.exe](https://github.com/markcastle/keevoro/releases/latest/download/Keevoro-windows-x64-setup.exe) |
-| Mac (Apple silicon or Intel) | [Keevoro-macos-universal.dmg](https://github.com/markcastle/keevoro/releases/latest/download/Keevoro-macos-universal.dmg) |
+A **rendition** is a version of a photo or video made for looking at, not for keeping. Everything outside `originals` can be made again from it, so it is safe to delete if you need the room. To get your photos back, copy the `originals` folder. That is all.
 
-The app is not yet signed with a paid certificate, so each system asks once whether you trust it. On Windows, choose **More info** then **Run anyway**. On a Mac, drag Keevoro to Applications, then right-click it and choose **Open** the first time. After that the app keeps itself up to date: when a newer release is out it says so across the top, and **Update now** downloads it, checks it against the checksums published with the release, and installs it. On Windows Keevoro closes and reopens by itself; on a Mac the new disk image opens for you to drag across.
+## 🚧 Where it stands
 
-To run it from source instead you need [Rust](https://rustup.rs) and [Node.js](https://nodejs.org) 22 or newer.
+Keevoro is young and moving fast: there have been more than twenty releases, and [CHANGELOG.md](CHANGELOG.md) says what changed in each, in plain words. It is used for real backups, and you should still treat it as you would any new backup tool: try it on something you have another copy of first.
+
+Honest limits today:
+
+- One destination per backup.
+- The quick survey is offered for a whole drive, not yet for any folder.
+- On a Mac, photos are decoded by Keevoro's own decoder, not the system's, so fewer formats get a preview.
+- Mac and Linux versions are built at milestones, so they trail Windows.
+- The app is not code-signed, hence the one-time trust prompt.
+- Cloud backups are tested against MinIO, which speaks the same language as R2 and S3. Try a spare bucket first.
+
+What is planned is in [TASKS.md](TASKS.md).
+
+## 🛠️ Build it yourself
+
+You need [Rust](https://rustup.rs) and [Node.js](https://nodejs.org) 22 or newer.
 
 ```sh
 npm install
@@ -59,202 +186,21 @@ npm install
 npm run dev
 ```
 
-To look at the screens without the desktop shell, in an ordinary browser with made-up photos:
+To see the screens in an ordinary browser, with made-up photos and no drive needed:
 
 ```sh
 npm run ui:dev
 ```
 
-## Try the engine from source
-
-You need [Rust](https://rustup.rs) 1.82 or newer. The examples below use `cargo run`; with Keevoro installed, replace `cargo run --release -p keevoro-cli --` with `keevoro`.
-
-```sh
-cargo run --release -p keevoro-cli -- scan "D:\" "E:\Old Laptop Backup"
-```
-
-Example output:
-
-```text
-Found 12 photos and 1 video (242.7 KB).
-1 duplicate (21.8 KB) will be kept once.
-
-Collections
-  March 2012      3 photos
-  Christmas 2011  December 2011 · 3 photos
-  Cornwall        August 2008 · 5 photos · 1 video  (Holidays)
-  Stuff           1 photo
-
-Dates: 8 from camera data, 3 from file names, 2 guessed from file times.
-Skipped 2 folders (system, app and hidden).
-```
-
-Add `--json` for the full details, or `--no-hash` for a quicker first look without duplicate checking.
-
-Pictures that are clearly not memories (app icons, game artwork, web page leftovers, anything under 300 px) are listed separately with the reason, and left out of the collections. Nothing is ever hidden without saying so.
-
-### Remembering a drive
-
-A scan of a big old disk can take a while, so you can ask Keevoro to remember it. Give it a library folder and a friendly name:
-
-```sh
-cargo run --release -p keevoro-cli -- scan "E:\" --library "D:\Keevoro Library" --name "Dad's old Dell"
-```
-
-After that the drive can go back in the drawer. These work without it plugged in:
-
-```sh
-cargo run --release -p keevoro-cli -- collections --library "D:\Keevoro Library"
-```
-
-```sh
-cargo run --release -p keevoro-cli -- sources --library "D:\Keevoro Library"
-```
-
-Scan a second drive into the same library and `collections` shows everything together, with copies that exist on both drives counted once. Scanning the same drive again replaces what was known about it rather than adding to it.
-
-### Choosing and gathering
-
-Everything found is kept unless you say otherwise. To leave a collection out, and to change your mind:
-
-```sh
-cargo run --release -p keevoro-cli -- skip --library "D:\Keevoro Library" "Stuff"
-```
-
-```sh
-cargo run --release -p keevoro-cli -- keep --library "D:\Keevoro Library" "Stuff"
-```
-
-To choose photo by photo, list a collection. Each line starts with a short code:
-
-```sh
-cargo run --release -p keevoro-cli -- photos --library "D:\Keevoro Library" "Cornwall"
-```
-
-```text
-Cornwall (August 2008 · 83 photos · 6 videos)
-  9f2c4be1  IMG_1234.jpg  2008-08-12T10:15:00
-  41aa09cd  IMG_1235.jpg  2008-08-12T10:16:41
-```
-
-Give a code to `skip --photo` or `keep --photo` to leave one out or put it back. `photos --junk` lists the pictures Keevoro set aside as junk, with the reason; `keep --photo` on one of those brings it back into its album. A tiny scan of an old print is small, but it may be the only copy there is.
-
-Then, with the source plugged in, gather the keepers into the library:
-
-```sh
-cargo run --release -p keevoro-cli -- gather --library "D:\Keevoro Library"
-```
-
-```text
-Safely copied 9,870 files (41.0 GB) into your library.
-```
-
-Gathering copies each file, reads the copy back and compares it with the original before counting it. Your folders are kept (`originals/Holidays/Cornwall/...`); photos with no useful folder go under `originals/By date/2008/2008-08/`, and ones with no believable date under `originals/Undated/`. Nothing in the library is ever overwritten: two different photos called `IMG_0001.jpg` become `IMG_0001.jpg` and `IMG_0001 (2).jpg`.
-
-It is safe to stop halfway, unplug the drive or run it twice. It carries on where it left off and never copies a file it already has. If a file can't be read, the rest still go through and the problem is listed at the end. It checks there is enough room before it starts.
-
-Gathering also makes a thumbnail and a larger viewing copy of each photo, stored under `renditions/`. These are what a gallery shows, so pages load quickly. They are built from the picture alone: the location and camera details inside your originals are never copied into them. Camera RAW files are previewed from the finished picture the camera stores inside them. HEIC photos from newer iPhones can't be previewed yet; Keevoro says how many, and the originals are kept all the same. After an update, `gather --retry-previews` has another go at any that were missed.
-
-### Videos
-
-Each video gets a poster, a still picture for a gallery to show. Old camcorder and phone videos often will not play on a modern phone or in a browser, so you can also ask for an MP4 copy of those:
-
-```sh
-cargo run --release -p keevoro-cli -- gather --library "D:\Keevoro Library" --convert-videos
-```
-
-```text
-Made posters for 140 videos.
-Made MP4 copies of 96 videos (31 of them repackaged without re-encoding). The originals are kept.
-```
-
-Only videos that need it are converted; a modern MP4 is left exactly as it is. Where the video inside is already a modern kind in an old wrapper, it is repackaged rather than re-encoded, which takes seconds and loses nothing. Every MP4 is checked against its original (same length, plays through without errors) before it is kept, and the original always stays in the library.
-
-This part needs [ffmpeg](https://ffmpeg.org/download.html) to be installed. Without it, videos are still found, gathered and backed up; Keevoro just says that posters and conversion were skipped.
-
-### Backing up
-
-To copy the library to an external drive or a network share:
-
-```sh
-cargo run --release -p keevoro-cli -- publish --library "D:\Keevoro Library" --to-folder "F:\Family Backup"
-```
-
-```text
-Safely backed up 29,610 files (43.2 GB).
-Index written for 9,870 files in 212 albums.
-Your private index: index/q7Zp4xKm2Tf9LwR3bN8vYc.kvx
-```
-
-The backup has the same folders as the library, so what you see on one is what is on the other. An original that is already in the backup is never replaced, large videos are sent in pieces so an interruption only costs the piece in flight, and running it again sends only what is new.
-
-The last thing written is the index: one JSON file listing every album and photo, with sizes, dates and where each thumbnail lives. Its name is long and random, so it can't be guessed. A second file, `index/gallery.json`, is the older format the current gallery site reads. If the backup will be served from a web address, add `--base-url https://photos.example.com` so the links inside the index point there. If you have shared the index's address and want it to stop working, add `--new-link`: the index is written under a new name and the old one is removed.
-
-### Checking nothing has gone wrong
-
-Disks fail quietly, and a photo that copied perfectly years ago can have rotted since. To be sure:
-
-```sh
-cargo run --release -p keevoro-cli -- check --library "D:\Keevoro Library" --backup
-```
-
-```text
-Your library: all 9,870 files are intact.
-Your backup: all 9,870 originals are there.
-```
-
-Every original in the library is read again and compared with how it was when it was gathered. With `--backup`, each one is also looked up in the backup. Adding `--read-back` downloads each original and compares it exactly, which is the only way to be certain and takes as long as downloading the whole backup. Nothing is changed; if something is wrong, Keevoro lists the files and says how to put them right.
-
-### Backing up to Cloudflare R2 or Amazon S3
-
-The same command backs up to a bucket. First make a key that can read and write **that one bucket and nothing else** (in Cloudflare: R2, Manage API tokens, Object Read & Write, limited to the bucket). Put it where Keevoro will find it; keys are deliberately not accepted on the command line, where they would end up in your shell history:
-
-```sh
-export KEEVORO_ACCESS_KEY_ID="..."
-```
-
-```sh
-export KEEVORO_SECRET_ACCESS_KEY="..."
-```
-
-Then, for R2, give your Cloudflare account ID and the bucket name:
-
-```sh
-cargo run --release -p keevoro-cli -- publish --library "D:\Keevoro Library" --to-r2 0123456789abcdef0123456789abcdef --bucket family-photos
-```
-
-For Amazon S3 use `--to-s3 eu-west-2` instead, and for MinIO or a NAS that speaks S3 use `--to-endpoint https://nas.local:9000`.
-
-Typing all that each time gets old, so do it once with `connect` instead. It checks the storage works, saves the keys in your computer's own keychain (Credential Manager on Windows, Keychain on a Mac) and remembers the destination in the library:
-
-```sh
-cargo run --release -p keevoro-cli -- connect --library "D:\Keevoro Library" --to-r2 0123456789abcdef0123456789abcdef --bucket family-photos
-```
-
-If the two keys are not set as above, `connect` asks you to paste them; the secret is not shown as you paste. From then on a backup is just:
-
-```sh
-cargo run --release -p keevoro-cli -- publish --library "D:\Keevoro Library"
-```
-
-`connect` works for a folder too (`--to-folder`), and `disconnect` forgets the destination and removes the keys without touching anything already backed up.
-
-Keevoro checks the keys work before sending anything, and warns you if strangers are able to list the bucket's contents. The bucket itself is told never to replace an original, so even two computers backing up at once cannot overwrite one another. On a bucket the index's links are relative until you add `--base-url` with the address the bucket is served from.
-
-This has been tested against MinIO, a stand-in that speaks the same language as R2 and S3. It has not yet been run against a real R2 or S3 bucket, so try it on a spare bucket first.
-
-When the same photo turns up in several places, the copy that was filed most carefully (the deepest named folder, then the best date) decides where it goes.
-
-What Keevoro remembers lives in one file, `.keevoro/catalog.sqlite`, inside the library folder. It is only working notes: it is safe to delete, and scanning again rebuilds it. Your sources are never written to.
-
-## How it is organised
+### How it is organised
 
 | Crate | What it does |
 | --- | --- |
 | `keevoro-core` | The rules: what counts as a photo, how dates and album names are worked out, what to skip, what looks like junk, how collections are formed. No file access. |
-| `keevoro-scan` | Looks through a drive or folder. Read-only. |
+| `keevoro-scan` | Looks through a drive or folder, and surveys a disk for where the photos are. Read-only. |
 | `keevoro-collect` | Copies what you kept into the library and proves each copy is exact. |
 | `keevoro-media` | Makes the thumbnails and viewing copies. |
+| `keevoro-frame` | Asks the computer's own decoders for a photo or a video still. The one crate allowed `unsafe`. |
 | `keevoro-publish` | Sends the library to storage: resumable, and never replaces an original. |
 | `keevoro-index` | Writes the index that describes a backup, and the JSON Schema other tools can check it against. |
 | `keevoro-catalog` | Remembers what was found on each drive and what you chose to keep, in a small SQLite file inside the library. |
@@ -267,12 +213,44 @@ What Keevoro remembers lives in one file, `.keevoro/catalog.sqlite`, inside the 
 | `src-tauri` and `ui` | The desktop app: a Tauri shell and its screens. |
 | `xtask` | The project's own tooling: the changelog and cutting a release. |
 
-## Contributing
+## 🤝 Contributing
 
-Read [docs/developing.md](docs/developing.md) for building, testing and cutting a release, [PLANNING.md](PLANNING.md) for the design, [TASKS.md](TASKS.md) for what is next, and [AI_AGENT_PROMPT.md](AI_AGENT_PROMPT.md) for the rules every change must follow. Before opening a pull request:
+Changes are welcome. Start with these:
+
+- [docs/developing.md](docs/developing.md): building, testing, how the pieces fit, cutting a release.
+- [PLANNING.md](PLANNING.md): the design and the reasons behind it.
+- [TASKS.md](TASKS.md): what is done and what is next.
+- [AI_AGENT_PROMPT.md](AI_AGENT_PROMPT.md): the rules every change follows, whoever writes it. Tests first, plain words, and a changelog entry for anything a person would notice.
+
+Before opening a pull request:
 
 ```sh
 cargo fmt --all
+```
+
+```sh
 cargo clippy --workspace --all-targets -- -D warnings
+```
+
+```sh
 cargo test --workspace
 ```
+
+```sh
+npm run lint && npm run ui:test
+```
+
+## ⚖️ Licence
+
+Keevoro's source is open to read, use, change and share under the [Functional Source License](LICENSE.md) (FSL-1.1-MIT). In plain words:
+
+- ✅ Use it, at home or at work, for free.
+- ✅ Read the code, change it, and share your changes.
+- ✅ Each release becomes plain MIT two years after it comes out, for good.
+- ❌ Until then, do not sell it or offer it as a product or service that competes with Keevoro.
+
+The licence itself is what counts; this is only a summary. The Keevoro name and logo are not part of it: a fork needs its own name and icon, as [TRADEMARKS.md](TRADEMARKS.md) explains.
+
+## 📖 The name
+
+The name blends the sound of English *keep* with *voro*, an old Swedish word meaning "were". Together they capture why we save photos and videos in the first place: to remember people and places as they were.
