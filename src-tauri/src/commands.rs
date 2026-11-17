@@ -530,6 +530,68 @@ pub fn destination(shared: State<'_, Shared>) -> Said<Option<String>> {
     Ok(Saved::load(&catalog).map_err(say)?.map(|s| s.describe()))
 }
 
+/// How much room what is waiting needs, and how that compares with where
+/// it is going.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoomView {
+    /// Bytes waiting to be sent.
+    needed: u64,
+    /// The folder being sent to, when it is a folder.
+    folder: Option<String>,
+    /// Bytes free on that folder's disk, when the system will say.
+    free: Option<u64>,
+    /// False only when the files are known not to fit.
+    enough: bool,
+}
+
+/// Weighs what is waiting to be sent against where it is going.
+#[tauri::command]
+pub fn room(shared: State<'_, Shared>) -> Said<RoomView> {
+    let library = library(&shared)?;
+    let catalog = Catalog::open_in_library(&library).map_err(say)?;
+    let needed = keevoro_engine::discover(&library, &catalog).map_err(say)?.waiting_bytes;
+    let folder = Saved::load(&catalog)
+        .map_err(say)?
+        .filter(|saved| saved.kind == "folder")
+        .map(|saved| saved.place);
+    let room = folder
+        .as_ref()
+        .and_then(|folder| keevoro_engine::room::room_in(std::path::Path::new(folder), needed));
+    Ok(RoomView {
+        needed,
+        folder,
+        free: room.map(|r| r.free),
+        enough: room.is_none_or(|r| r.is_enough()),
+    })
+}
+
+/// Shows a folder Keevoro has mentioned in the computer's file manager.
+/// Only folders it knows about are opened: a source, where this backup
+/// sends to, or the backup's own folder. Anything else is refused, so a
+/// screen can never be used to open an arbitrary place.
+#[tauri::command]
+pub fn open_place(app: AppHandle, shared: State<'_, Shared>, path: String) -> Said<()> {
+    use tauri_plugin_opener::OpenerExt;
+    let library = library(&shared)?;
+    let catalog = Catalog::open_in_library(&library).map_err(say)?;
+    let mut known = vec![library.display().to_string(), keevoro_engine::friendly_path(&library)];
+    for source in catalog.sources().map_err(say)? {
+        known.push(keevoro_engine::friendly_path(&source.root));
+        known.push(source.root.display().to_string());
+    }
+    if let Some(saved) = Saved::load(&catalog).map_err(say)?.filter(|s| s.kind == "folder") {
+        known.push(saved.place);
+    }
+    if !known.contains(&path) {
+        return Err("Keevoro doesn't know that folder.".to_string());
+    }
+    if !std::path::Path::new(&path).is_dir() {
+        return Err(format!("{path} isn't there right now. Is the drive plugged in?"));
+    }
+    app.opener().open_path(path, None::<&str>).map_err(say)
+}
+
 /// What the "connect" form sends. The keys are held only for the length of
 /// this request: they go to the system keychain, never to disk or a log.
 #[derive(Deserialize)]
@@ -608,7 +670,6 @@ pub fn disconnect_destination(shared: State<'_, Shared>) -> Said<()> {
 fn send_job(
     app: AppHandle,
     shared: &Shared,
-    prepare: bool,
     job: impl FnOnce(
             &std::path::Path,
             &Catalog,
@@ -636,33 +697,6 @@ fn send_job(
             };
             let destination = saved.open(&world)?;
             let web_address = saved.base_url.clone();
-            if prepare {
-                // Read every kept file in full, agree its place and make its
-                // preview. The files stay where they are: they are sent
-                // from their source.
-                let n = keevoro_engine::summary::thousands;
-                let tools = VideoTools::find();
-                keevoro_engine::prepare_to_send(&library, &catalog, tools.as_ref(), &mut |step| {
-                    let line = match step {
-                        keevoro_engine::GatherStep::Checking { done, total } => {
-                            format!("Reading each file in full first: {} of {}", n(done), n(total))
-                        }
-                        keevoro_engine::GatherStep::Copying { done, total } => {
-                            format!("Getting ready: {} of {}", n(done), n(total))
-                        }
-                        keevoro_engine::GatherStep::MakingPreviews { done, total } => {
-                            format!("Making previews: {} of {}", n(done), n(total))
-                        }
-                        keevoro_engine::GatherStep::WorkingOnVideos { done, total } => {
-                            format!("Working on videos: {} of {}", n(done), n(total))
-                        }
-                    };
-                    if last_said.elapsed() >= PROGRESS_EVERY {
-                        last_said = Instant::now();
-                        let _ = app.emit(SEND, SendEvent::progress(&line));
-                    }
-                })?;
-            }
             job(
                 &library,
                 &catalog,
@@ -694,14 +728,34 @@ fn send_job(
 /// Starts backing the library up to where it is connected.
 #[tauri::command]
 pub fn send(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
+    // A fresh start: an earlier request to stop does not carry over.
+    shared.stop_sending.store(false, Ordering::SeqCst);
+    let stop = shared.stop_sending.clone();
     send_job(
         app,
         &shared,
-        true,
-        |library, catalog, destination, base_url, said, progress| {
-            keevoro_engine::send::run(said, catalog, library, destination, base_url, false, progress)
+        move |library, catalog, destination, base_url, said, progress| {
+            // The files themselves go first; previews are made and sent after.
+            keevoro_engine::send::originals_first(
+                said,
+                catalog,
+                library,
+                destination,
+                base_url,
+                VideoTools::find().as_ref(),
+                &stop,
+                progress,
+            )
         },
     )
+}
+
+/// Asks a send that is running to stop. The file in hand is finished, so
+/// nothing is left half-sent; everything already sent stays where it is.
+#[tauri::command]
+pub fn stop_sending(shared: State<'_, Shared>) {
+    shared.stop_sending.store(true, Ordering::SeqCst);
+    shared.log.say("Asked to stop sending after the file in hand");
 }
 
 /// Starts checking the library and its backup are both intact.
@@ -710,7 +764,6 @@ pub fn check_arrived(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
     send_job(
         app,
         &shared,
-        false,
         |library, catalog, destination, _base_url, said, progress| {
             keevoro_engine::send::check(said, catalog, library, Some(destination), false, progress)
         },

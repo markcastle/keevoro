@@ -23,9 +23,9 @@ mod previews;
 mod verify;
 mod videos;
 
-pub use previews::{make_previews, PreviewReport};
+pub use previews::{make_previews, make_previews_while, PreviewReport};
 pub use verify::{verify_library, Problem, VerifyReport};
-pub use videos::{make_video_previews, VideoReport};
+pub use videos::{make_video_previews, make_video_previews_while, VideoReport};
 
 use keevoro_catalog::{Catalog, CatalogError};
 use keevoro_core::{library_folder, numbered_name, safe_name};

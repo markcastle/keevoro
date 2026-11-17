@@ -23,6 +23,7 @@ pub mod connect;
 pub mod deep;
 pub mod discover;
 pub mod preview;
+pub mod room;
 pub mod send;
 pub mod summary;
 
@@ -35,9 +36,7 @@ pub use preview::preview;
 
 use anyhow::{bail, Context, Result};
 use keevoro_catalog::Catalog;
-use keevoro_collect::{
-    free_space, gather, make_previews, make_video_previews, GatherError, GatherReport, PreviewReport, VideoReport,
-};
+use keevoro_collect::{free_space, gather, GatherError, GatherReport, PreviewReport, VideoReport};
 use keevoro_core::MediaKind;
 use keevoro_media::VideoTools;
 use keevoro_scan::{scan, FoundItem, ScanOptions, ScanProgress, ScanReport};
@@ -192,7 +191,16 @@ pub fn gather_everything(
     video_tools: Option<&VideoTools>,
     on_step: &mut dyn FnMut(GatherStep),
 ) -> Result<Option<GatherOutcome>> {
-    make_ready(library, catalog, convert_videos, video_tools, true, on_step)
+    make_ready(
+        library,
+        catalog,
+        convert_videos,
+        video_tools,
+        true,
+        true,
+        &|| true,
+        on_step,
+    )
 }
 
 /// Gets everything the user is keeping ready to be sent somewhere, without
@@ -205,15 +213,44 @@ pub fn prepare_to_send(
     video_tools: Option<&VideoTools>,
     on_step: &mut dyn FnMut(GatherStep),
 ) -> Result<Option<GatherOutcome>> {
-    make_ready(home, catalog, false, video_tools, false, on_step)
+    prepare_to_send_while(home, catalog, video_tools, &|| true, on_step)
 }
 
+/// As [`prepare_to_send`], asking `keep_going` before each file so the work
+/// can be stopped. Whatever was done stays done.
+pub fn prepare_to_send_while(
+    home: &Path,
+    catalog: &Catalog,
+    video_tools: Option<&VideoTools>,
+    keep_going: &dyn Fn() -> bool,
+    on_step: &mut dyn FnMut(GatherStep),
+) -> Result<Option<GatherOutcome>> {
+    make_ready(home, catalog, false, video_tools, false, true, keep_going, on_step)
+}
+
+/// The part of getting ready that has to come before anything is sent:
+/// every kept file is read in full and checked, and given its place.
+/// Previews are left for later (see [`send::originals_first`]), because
+/// the originals are what matter and should start moving first.
+pub fn check_and_place(
+    home: &Path,
+    catalog: &Catalog,
+    keep_going: &dyn Fn() -> bool,
+    on_step: &mut dyn FnMut(GatherStep),
+) -> Result<()> {
+    make_ready(home, catalog, false, None, false, false, keep_going, on_step)?;
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
 fn make_ready(
     library: &Path,
     catalog: &Catalog,
     convert_videos: bool,
     video_tools: Option<&VideoTools>,
     copy_here: bool,
+    previews: bool,
+    keep_going: &dyn Fn() -> bool,
     on_step: &mut dyn FnMut(GatherStep),
 ) -> Result<Option<GatherOutcome>> {
     let reports = catalog.load_reports()?;
@@ -251,7 +288,7 @@ fn make_ready(
                     total: p.total,
                 });
             },
-            &|| true,
+            keep_going,
         )?;
         catalog.load_reports()?
     };
@@ -287,22 +324,38 @@ fn make_ready(
         }
     };
 
+    if !previews {
+        return Ok(Some(GatherOutcome {
+            copied,
+            previews: PreviewReport::default(),
+            videos: None,
+            videos_need_ffmpeg: false,
+        }));
+    }
+
     // Previews come from the library's own copies, so they are made for
     // everything gathered so far, including on earlier runs.
-    let previews = make_previews(library, catalog, &chosen, &mut |done, total| {
-        on_step(GatherStep::MakingPreviews { done, total });
-    })?;
+    let previews = keevoro_collect::make_previews_while(
+        library,
+        catalog,
+        &chosen,
+        &mut |done, total| {
+            on_step(GatherStep::MakingPreviews { done, total });
+        },
+        keep_going,
+    )?;
 
     let has_videos = chosen.iter().any(|i| i.kind == MediaKind::Video);
     let can_make_posters = keevoro_media::video::can_make_posters(video_tools);
     let videos = match can_make_posters {
-        true if has_videos => Some(make_video_previews(
+        true if has_videos => Some(keevoro_collect::make_video_previews_while(
             library,
             catalog,
             &chosen,
             video_tools,
             convert_videos,
             &mut |done, total| on_step(GatherStep::WorkingOnVideos { done, total }),
+            keep_going,
         )?),
         _ => None,
     };

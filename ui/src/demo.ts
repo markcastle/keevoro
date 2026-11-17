@@ -120,6 +120,12 @@ export function demoBackend(): Backend {
   const gatherListeners = new Set<(e: GatherEvent) => void>()
   const sendListeners = new Set<(e: SendEvent) => void>()
   let sendingTo: string | null = null
+  let stopAsked = false
+  // What is kept but not yet sent, at a made-up 3.2 MB a photo and 48 MB a video.
+  const waitingBytes = () =>
+    collections
+      .filter((c) => c.kept && c.gathered < c.photos + c.videos)
+      .reduce((n, c) => n + (c.photos * 3.2 + c.videos * 48) * 1024 * 1024, 0)
   let sentSoFar = 0
   const later = (ms: number) => new Promise((done) => setTimeout(done, ms))
   // Tests can ask for everything to happen at once.
@@ -158,6 +164,7 @@ export function demoBackend(): Backend {
       duplicates: collections.length * 31,
       junk: junk.length,
       waitingToGather: kept.reduce((n, c) => n + c.photos + c.videos - c.gathered, 0),
+      waitingBytes: waitingBytes(),
       sources: [...sources],
       collections: collections.map((c) => ({ ...c })),
     }
@@ -235,6 +242,18 @@ export function demoBackend(): Backend {
       return state()
     },
     openDestination: async () => {},
+    openPlace: async () => {},
+    stopSending: async () => {
+      stopAsked = true
+    },
+    // A folder has a disk that can be measured; cloud storage does not.
+    room: async () => {
+      const folder = sendingTo?.startsWith('the folder') ? sendingTo.replace('the folder ', '') : null
+      // `?full` pretends the chosen disk is nearly full.
+      const free = folder ? (new URLSearchParams(window.location.search).has('full') ? 90 * 1024 * 1024 : 118 * 1024 ** 3) : null
+      const needed = waitingBytes()
+      return { needed, folder, free, enough: free === null || free > needed + 200 * 1024 * 1024 }
+    },
     discover: async () => view(),
     places: async () => [
       { path: 'E:\\', name: 'KINGSTON (E:)', detail: 'USB or external drive \u00b7 32 GB', removable: true, askFirst: false },
@@ -348,12 +367,26 @@ export function demoBackend(): Backend {
     async send() {
       const kept = collections.filter((c) => c.kept)
       const total = kept.reduce((n, c) => n + c.photos + c.videos, 0)
+      stopAsked = false
       void (async () => {
         sendListeners.forEach((l) => l({ line: 'Reading each file in full first: 0 of 12', finished: false }))
         await later(200 * pace)
         for (let step = 1; step <= 6; step++) {
-          await later(200 * pace)
+          // `?slow` leaves time to press Stop.
+          await later(new URLSearchParams(window.location.search).has('slow') ? 500 : 200 * pace)
           const done = Math.round((total * step) / 6)
+          if (stopAsked) {
+            sendListeners.forEach((l) =>
+              l({
+                finished: true,
+                summary: [
+                  `Safely backed up ${done.toLocaleString('en-GB')} files.`,
+                  'Stopped. Everything sent so far is safe where it is. Send again whenever you like and it carries on from here.',
+                ],
+              }),
+            )
+            return
+          }
           sendListeners.forEach((l) =>
             l({ line: `${done.toLocaleString('en-GB')} of ${total.toLocaleString('en-GB')} safely backed up`, finished: false }),
           )
@@ -369,6 +402,7 @@ export function demoBackend(): Backend {
               fresh > 0
                 ? `Safely backed up ${fresh.toLocaleString('en-GB')} files.`
                 : `${total.toLocaleString('en-GB')} files already there.`,
+              ...(fresh > 0 ? [`Previews added: ${(fresh * 2).toLocaleString('en-GB')} files.`] : []),
             ],
           }),
         )

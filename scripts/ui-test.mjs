@@ -118,6 +118,8 @@ try {
   await page.getByRole('heading', { name: 'Where should they go?', level: 1 }).waitFor()
   const kinds = page.locator('.destinations .place b')
   assert.deepEqual(await kinds.allInnerTexts(), ['A folder', 'Cloudflare R2', 'Amazon S3', 'Other storage'])
+  // It says how much room the files will need before a place is chosen.
+  assert.match(await text('.send .needs'), /^You are sending [\d,]+ files, about [\d.]+ (MB|GB)\. Wherever you choose needs at least that much free\.$/)
   await shot('7-where-should-they-go')
   // Cloud storage asks only what it needs, and hides the secret.
   await page.getByRole('button', { name: /Cloudflare R2/ }).click()
@@ -129,9 +131,13 @@ try {
   await page.getByRole('button', { name: /^A folder/ }).click()
   await page.getByRole('heading', { name: 'Sending to the folder F:\\Family Backup' }).waitFor()
   await page.getByText(/^[\d,]+ files are waiting to be sent\.$/).waitFor()
+  // The folder's name opens the folder, and the room is weighed against the disk.
+  assert.ok(await page.getByRole('button', { name: 'F:\\Family Backup' }).isVisible())
+  assert.match(await text('.send .needs'), /^They need about [\d.]+ (MB|GB)\. That disk has [\d.]+ GB free, so there is room\.$/)
   await page.getByRole('button', { name: 'Send them now' }).click()
   await page.locator('.send .done').first().waitFor()
   assert.match(await text('.send .done'), /^Safely backed up [\d,]+ files\.$/)
+  await page.getByText(/^Previews added: [\d,]+ files\.$/).waitFor()
   await page.getByText(/^Everything you are keeping is there: [\d,]+ files\.$/).waitFor()
   assert.ok(await page.getByRole('button', { name: 'Show me the folder' }).isVisible())
   await page.getByRole('button', { name: 'Check they all arrived' }).click()
@@ -221,6 +227,25 @@ try {
   await shot('9e-settings')
   await page.getByRole('button', { name: '‹ Back' }).click()
   await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
+
+  // --- A disk without room is refused before anything is sent.
+  await page.goto(`${base}/?fast&full`)
+  await page.getByRole('button', { name: 'Choose where they go' }).click()
+  await page.getByRole('button', { name: /^A folder/ }).click()
+  await page.getByText('There isn’t enough room there.').waitFor()
+  assert.match(await text('.send .needs.short'), /need about [\d.]+ (MB|GB) and that disk has only 90\.0 MB free/)
+  assert.ok(await page.getByRole('button', { name: 'Send them now' }).isDisabled(), 'sending waits until there is room')
+  await shot('9g-not-enough-room')
+
+  // --- A send can be stopped; what was sent stays sent.
+  await page.goto(`${base}/?slow`)
+  await page.getByRole('button', { name: 'Choose where they go' }).click()
+  await page.getByRole('button', { name: /^A folder/ }).click()
+  await page.getByRole('button', { name: 'Send them now' }).click()
+  await page.getByRole('button', { name: 'Stop', exact: true }).click()
+  await page.getByText('Stopping after this file…').waitFor()
+  await page.getByText(/^Stopped\. Everything sent so far is safe where it is\./).waitFor()
+  await shot('9h-stopped')
 
   // --- A newer version is offered calmly and can be installed in one click.
   await page.goto(`${base}/?fast&update`)

@@ -100,6 +100,9 @@ pub struct Discover {
     pub junk: usize,
     /// Files being kept that are not yet in the library.
     pub waiting_to_gather: usize,
+    /// How much room those waiting files will need where they are sent,
+    /// in bytes.
+    pub waiting_bytes: u64,
     pub sources: Vec<SourceView>,
     /// Newest first; the first is the one to show large.
     pub collections: Vec<CollectionView>,
@@ -145,6 +148,7 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
     let (summary, items) = summary::summarise_with(&reports, &rescued);
 
     let mut waiting_to_gather = 0;
+    let mut waiting_bytes = 0;
     let mut collections = Vec::new();
     for c in &summary.collections {
         let members: Vec<&FoundItem> = c.members.iter().filter_map(|&m| items.get(m).copied()).collect();
@@ -164,6 +168,9 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
             };
             gathered += usize::from(is_in);
             waiting_to_gather += usize::from(is_wanted && !is_in);
+            if is_wanted && !is_in {
+                waiting_bytes += item.bytes;
+            }
         }
         let Some(cover) = items.get(c.cover).or(members.first()) else {
             continue;
@@ -210,6 +217,7 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
         duplicates: summary.duplicates.as_ref().map_or(0, |d| d.copies),
         junk: summary.junk.values().sum(),
         waiting_to_gather,
+        waiting_bytes,
         sources,
         collections,
     })
@@ -369,6 +377,10 @@ pub(crate) mod tests {
         let d = discover(&library, &catalog).unwrap();
         assert_eq!((d.photos, d.videos, d.duplicates, d.junk), (3, 0, 1, 0));
         assert_eq!(d.waiting_to_gather, 3);
+        // The room they need is the size of the three files kept, the
+        // duplicate counted once.
+        let kept: u64 = [10, 90, 170].iter().map(|s| real_jpeg(*s).len() as u64).sum();
+        assert_eq!(d.waiting_bytes, kept);
         assert_eq!(d.sources.len(), 1);
         assert_eq!((d.sources[0].name.as_str(), d.sources[0].items), ("Dad's old Dell", 4));
 
@@ -423,6 +435,7 @@ pub(crate) mod tests {
 
         let d = discover(&library, &catalog).unwrap();
         assert_eq!(d.waiting_to_gather, 0);
+        assert_eq!(d.waiting_bytes, 0, "nothing more is needed once everything is safe");
         let cornwall = &d.collections[1];
         assert_eq!(cornwall.gathered, 2);
         let thumb = cornwall.cover.thumbnail.as_deref().unwrap();

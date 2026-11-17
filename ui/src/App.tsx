@@ -35,6 +35,7 @@ import type {
   PhotoChoice,
   Place,
   CheckEvent,
+  Room,
   ScanEvent,
   Backup,
   Update,
@@ -654,7 +655,7 @@ function FindScreen(props: {
             {found.sources.map((s) => (
               <li key={s.id} className="source">
                 <span>{s.name}</span>
-                <span className="quiet">{s.root}</span>
+                <FolderLink api={api} path={s.root} onProblem={onProblem} />
                 <span className="badge">{all(s.items)}</span>
                 {removing === s.id ? (
                   <span className="confirm">
@@ -698,6 +699,25 @@ function PlaceCard(props: { place: Place; added: boolean; onClick: () => void })
       <b>{place.name}</b>
       <span>{place.detail}</span>
       {props.added && <em>Looked through. Click to look again.</em>}
+    </button>
+  )
+}
+
+/**
+ * A folder's name that opens the folder when clicked. Anywhere Keevoro
+ * names a folder, the person can go and look at it.
+ */
+function FolderLink(props: { api: Backend; path: string; onProblem: (error: unknown) => void }) {
+  return (
+    <button
+      className="folder"
+      title="Open this folder"
+      onClick={(e) => {
+        e.stopPropagation()
+        props.api.openPlace(props.path).catch(props.onProblem)
+      }}
+    >
+      {props.path}
     </button>
   )
 }
@@ -746,7 +766,8 @@ function SettingsScreen(props: {
           it sends things. To open another or start a new one, use the backup’s name at the top of the side bar.
         </p>
         <p className="quiet small">
-          Its notes and previews are kept in <span className="where">{state.library}</span>. Your photos themselves
+          Its notes and previews are kept in{' '}
+          {state.library && <FolderLink api={api} path={state.library} onProblem={onProblem} />}. Your photos themselves
           are not copied there.
         </p>
       </div>
@@ -998,12 +1019,21 @@ function SendPanel(props: {
   const [refused, setRefused] = useState<string | null>(null)
   const [running, setRunning] = useState<string | null>(null)
   const [said, setSaid] = useState<SendEvent | null>(null)
+  const [stopping, setStopping] = useState(false)
+  // How much room is needed, and whether where it is going has it.
+  const [room, setRoom] = useState<Room | null>(null)
+  const weigh = useCallback(() => api.room().then(setRoom).catch(onProblem), [api, onProblem])
+
+  useEffect(() => {
+    void weigh()
+  }, [weigh, where, props.waiting])
 
   useEffect(() => {
     api.destination().then(setWhere).catch(onProblem)
     return api.onSend((event) => {
       if (event.finished) {
         setRunning(null)
+        setStopping(false)
         setSaid(event)
         onSent()
       } else if (event.line) {
@@ -1040,6 +1070,12 @@ function SendPanel(props: {
     <div className="panel send">
       {where === null ? (
         <>
+          {room && room.needed > 0 && (
+            <p className="needs">
+              You are sending {props.waiting.toLocaleString('en-GB')} {props.waiting === 1 ? 'file' : 'files'}, about{' '}
+              <b>{size(room.needed)}</b>. Wherever you choose needs at least that much free.
+            </p>
+          )}
           {!form && (
             <div className="places destinations">
               <button
@@ -1155,7 +1191,16 @@ function SendPanel(props: {
         </>
       ) : (
         <>
-          <h2>Sending to {where}</h2>
+          <h2>
+            Sending to{' '}
+            {room?.folder ? (
+              <>
+                the folder <FolderLink api={api} path={room.folder} onProblem={onProblem} />
+              </>
+            ) : (
+              where
+            )}
+          </h2>
           <p>
             {props.waiting > 0
               ? `${props.waiting.toLocaleString('en-GB')} ${props.waiting === 1 ? 'file is' : 'files are'} waiting to be sent.${
@@ -1165,13 +1210,46 @@ function SendPanel(props: {
                 ? `Everything you are keeping is there: ${props.safe.toLocaleString('en-GB')} files.`
                 : 'Nothing is being kept yet.'}
           </p>
+          {room && room.needed > 0 && (
+            <p className={room.enough ? 'needs' : 'needs short'} role={room.enough ? undefined : 'alert'}>
+              {room.free === null ? (
+                <>
+                  They need about <b>{size(room.needed)}</b>.
+                </>
+              ) : room.enough ? (
+                <>
+                  They need about <b>{size(room.needed)}</b>. That disk has {size(room.free)} free, so there is room.
+                </>
+              ) : (
+                <>
+                  <b>There isn’t enough room there.</b> These files need about {size(room.needed)} and that disk has
+                  only {size(room.free)} free. Free up some space, or send them somewhere else.
+                </>
+              )}
+            </p>
+          )}
           {running ? (
             <p className="running">
-              <Spinner /> {running}
+              <Spinner /> {stopping ? 'Stopping after this file…' : running}
+              {!stopping && (
+                <button
+                  className="link"
+                  onClick={() => {
+                    setStopping(true)
+                    api.stopSending().catch(onProblem)
+                  }}
+                >
+                  Stop
+                </button>
+              )}
             </p>
           ) : (
             <div className="choices">
-              <button className="primary" onClick={() => start('Starting…', api.send)} disabled={props.waiting + props.safe === 0}>
+              <button
+                className="primary"
+                onClick={() => start('Starting…', api.send)}
+                disabled={props.waiting + props.safe === 0 || (room !== null && !room.enough)}
+              >
                 {props.waiting > 0 ? 'Send them now' : 'Send again'}
               </button>
               <button className="link" onClick={() => start('Checking…', api.checkArrived)} disabled={props.safe === 0}>

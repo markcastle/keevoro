@@ -144,6 +144,7 @@ fn quick() -> PublishOptions {
         part_bytes: MIB as u64,
         retries: 3,
         retry_pause: Duration::ZERO,
+        stop: None,
     }
 }
 
@@ -556,4 +557,40 @@ async fn missing_and_altered_backup_copies_are_found() {
     assert_eq!(deep.problems.len(), 3);
     assert_eq!(deep.problems[2].key, "originals/swapped.jpg");
     assert_eq!(deep.problems[2].reason, "The backup's copy does not match the original");
+}
+
+#[tokio::test]
+async fn asked_to_stop_it_finishes_nothing_more_and_says_so() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = FolderStore::open(&dir.path().join("to")).await.unwrap();
+    let catalog = Catalog::in_memory().unwrap();
+    let files: Vec<Upload> = (0..3)
+        .map(|n| {
+            let file = dir.path().join(format!("{n}.jpg"));
+            std::fs::write(&file, format!("photo {n}")).unwrap();
+            Upload {
+                key: ObjectKey::new(format!("originals/{n}.jpg")).unwrap(),
+                file,
+                bytes: 7,
+                write_once: true,
+                content_type: None,
+                metadata: BTreeMap::new(),
+            }
+        })
+        .collect();
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let opts = PublishOptions {
+        stop: Some(stop.clone()),
+        ..PublishOptions::default()
+    };
+    let report = publish(&store, &catalog, "t", &files, &opts, &mut |p| {
+        if p.done == 1 {
+            stop.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!((report.uploaded, report.stopped), (1, true));
+    assert!(catalog.is_uploaded("t", "originals/0.jpg").unwrap());
+    assert!(!catalog.is_uploaded("t", "originals/1.jpg").unwrap());
 }
