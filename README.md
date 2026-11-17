@@ -16,7 +16,7 @@
   <a href="https://github.com/markcastle/keevoro/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/markcastle/keevoro?label=release&color=0b3d3a"></a>
   <a href="https://github.com/markcastle/keevoro/actions/workflows/ci.yml"><img alt="Checks" src="https://img.shields.io/github/actions/workflow/status/markcastle/keevoro/ci.yml?branch=main&label=checks"></a>
   <a href="https://github.com/markcastle/keevoro/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/markcastle/keevoro/total?color=0b3d3a"></a>
-  <a href="LICENSE"><img alt="MIT licence" src="https://img.shields.io/badge/licence-MIT-0b3d3a"></a>
+  <a href="LICENSE.md"><img alt="Licence: FSL-1.1-MIT" src="https://img.shields.io/badge/licence-FSL--1.1--MIT-0b3d3a"></a>
   <img alt="Windows and macOS" src="https://img.shields.io/badge/app-Windows%20%7C%20macOS-0b3d3a">
   <img alt="Built with Rust and Tauri" src="https://img.shields.io/badge/built%20with-Rust%20%2B%20Tauri-b7410e">
 </p>
@@ -239,7 +239,14 @@ npm run lint && npm run ui:test
 
 ## ⚖️ Licence
 
-Keevoro is free to use, change and share under the [MIT licence](LICENSE).
+Keevoro's source is open to read, use, change and share under the [Functional Source License](LICENSE.md) (FSL-1.1-MIT). In plain words:
+
+- ✅ Use it, at home or at work, for free.
+- ✅ Read the code, change it, and share your changes.
+- ✅ Each release becomes plain MIT two years after it comes out, for good.
+- ❌ Until then, do not sell it or offer it as a product or service that competes with Keevoro.
+
+The licence itself is what counts; this is only a summary. The Keevoro name and logo are not part of it: a fork needs its own name and icon, as [TRADEMARKS.md](TRADEMARKS.md) explains.
 
 ## 📖 The name
 
