@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.24.0] - 2026-11-17
+
 ### Added
 
 - **Hold down on a picture to see it larger.** Inside a collection, or in the set-aside list, press and hold on any photo or video (or right-click it) and it opens screen-sized, without changing whether it is kept. From there you can leave it out or put it back, move to the next and previous with the arrow keys or the buttons, and close with Escape. A quick click still ticks and unticks as before. A video shows a still from it. The line under the heading now says so: "Hold down on one to see it larger."
@@ -350,7 +354,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.23.0...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.24.0...HEAD
+[0.24.0]: https://github.com/markcastle/keevoro/compare/v0.23.0...v0.24.0
 [0.23.0]: https://github.com/markcastle/keevoro/compare/v0.22.0...v0.23.0
 [0.22.0]: https://github.com/markcastle/keevoro/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/markcastle/keevoro/compare/v0.20.0...v0.21.0
