@@ -6,7 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **A backup's figures in plain sight.** The Choose screen and the backup screen now open with large figures: how many photos and videos you are keeping and their size, how many duplicates were left out with the room that saves and what share of everything found they were, and how many pictures were set aside. Clicking the duplicates or set-aside figure opens its list.
+- **Where each earlier backup went.** "How earlier backups went" has a new Where column, so after changing a backup's destination you can still see where the earlier ones were sent.
+
+### Changed
+
+- **What a backup said when it finished stays on screen.** The summary at the end of a backup (how many files, the previews, how long it took and the speed) used to vanish as soon as you looked at another screen. It is now kept with the backup and shown until the next backup replaces it, even after closing Keevoro. Changing the destination clears it, since it was about the old one.
+- **The duplicates list says how much room was saved.**
 
 ## [0.27.2] - 2026-11-17
 

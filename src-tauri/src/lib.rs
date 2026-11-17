@@ -112,6 +112,7 @@ pub fn run() {
             commands::set_acceleration,
             commands::send_progress,
             commands::send_history,
+            commands::last_backup_said,
             commands::pause_work,
             commands::reset_everything,
             commands::stop_sending,

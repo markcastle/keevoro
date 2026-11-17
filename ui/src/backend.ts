@@ -100,6 +100,8 @@ export type Discover = {
   videos: number
   bytes: number
   duplicates: number
+  /** The room those extra copies would have taken: what leaving them out saves. */
+  duplicateBytes: number
   junk: number
   waitingToGather: number
   /** How much room those waiting files need, in bytes. */
@@ -262,6 +264,8 @@ export interface Backend {
   activity(): Promise<Activity>
   /** This backup's earlier sends, newest first. */
   sendHistory(): Promise<Sent[]>
+  /** What this backup's last run said when it ended, kept until the next one. */
+  lastBackupSaid(): Promise<SendEvent | null>
   /** How a send in hand is getting on: how much, how fast, how long left. */
   sendProgress(): Promise<SendProgress>
   /** Pauses or resumes every heavy job, between one file and the next. */
@@ -379,6 +383,7 @@ async function tauriBackend(): Promise<Backend> {
     activity: () => invoke('activity'),
     sendProgress: () => invoke('send_progress'),
     sendHistory: () => invoke('send_history'),
+    lastBackupSaid: () => invoke('last_backup_said'),
     pauseWork: (paused) => invoke('pause_work', { paused }),
     stopScanning: () => invoke('stop_scanning'),
     resetEverything: () => invoke('reset_everything'),

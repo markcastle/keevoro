@@ -124,6 +124,11 @@ export function demoBackend(): Backend {
   const checkListeners = new Set<(event: CheckEvent) => void>()
   const gatherListeners = new Set<(e: GatherEvent) => void>()
   const sendListeners = new Set<(e: SendEvent) => void>()
+  // What the last backup said when it ended, as the real app keeps it.
+  let lastSaid: SendEvent | null = null
+  sendListeners.add((e) => {
+    if (e.finished) lastSaid = e
+  })
   let sendingTo: string | null = null
   let stopAsked = false
   let stopLooking = false
@@ -198,6 +203,7 @@ export function demoBackend(): Backend {
       videos: collections.reduce((n, c) => n + c.videos, 0),
       bytes: collections.reduce((n, c) => n + (c.photos * 3.2 + c.videos * 48) * 1024 * 1024, 0),
       duplicates: collections.length * 31,
+      duplicateBytes: collections.length * 31 * 3.4 * 1024 * 1024,
       junk: junk.length,
       waitingToGather: kept.reduce((n, c) => n + c.photos + c.videos - c.gathered, 0),
       waitingBytes: waitingBytes(),
@@ -347,6 +353,7 @@ export function demoBackend(): Backend {
       stopping: false,
     }),
     sendHistory: async () => [...sends],
+    lastBackupSaid: async () => lastSaid,
     pauseWork: async (paused) => {
       pausedNow = paused
     },

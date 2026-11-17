@@ -165,10 +165,14 @@ try {
 
   // Duplicates can be looked at before anything is backed up: which copy
   // is kept, which are left out, and how Keevoro knows they are the same.
-  await page.getByRole('button', { name: /duplicates will be kept only once$/ }).click()
+  // The figures are in plain sight: what is kept, what was left out as a
+  // duplicate and the room that saves, and what was set aside.
+  assert.match(await text('.tally'), /Keeping\s*[\d,]+\s*of [\d,]+ photos and [\d,]+ videos found/)
+  assert.match(await text('.tally'), /Duplicates left out\s*155\s*saving [\d.]+ MB · \d+% of all files found/)
+  await page.getByRole('button', { name: /^Duplicates left out/ }).click()
   await page.getByRole('heading', { name: 'Duplicates', level: 1 }).waitFor()
   await page.locator('.duplicates .groups li').first().waitFor()
-  assert.equal(await text('.duplicates .status'), '2 files were found more than once. One copy of each is kept, and 3 extra copies are left out.')
+  assert.equal(await text('.duplicates .status'), '2 files were found more than once. One copy of each is kept, and 3 extra copies are left out, saving 3.9 GB.')
   assert.match(await text('.duplicates .knows'), /only when every byte of one matches every byte of the other/)
   assert.match(await text('.duplicates .knows'), /1 file below is marked still being checked/)
   assert.deepEqual(await page.locator('.duplicates .groups li').first().locator('.mark').allInnerTexts(), ['Kept', 'Left out', 'Left out'])
@@ -176,7 +180,7 @@ try {
   await page.getByRole('button', { name: '‹ Back' }).click()
 
   // What was set aside can be looked at, with the reason, and rescued.
-  await page.getByRole('button', { name: /that don’t look like photos were set aside$/ }).click()
+  await page.getByRole('button', { name: /^Set aside/ }).click()
   await page.getByRole('heading', { name: 'Set aside', level: 1 }).waitFor()
   assert.equal(await text('.tiles .tile .why'), 'Looks like app icons')
   await page.locator('.tiles .tile').last().getByRole('switch').click()
@@ -223,9 +227,9 @@ try {
   assert.match(await text('.switch-row.previews'), /Only your original files will be backed up, exactly as they are/)
   await withPreviews.click()
   await page.getByText('How earlier backups went').click()
-  assert.deepEqual(await page.locator('.sends th').allInnerTexts(), ['When', 'Backed up', 'Took', 'Average speed'])
+  assert.deepEqual(await page.locator('.sends th').allInnerTexts(), ['When', 'Where', 'Backed up', 'Took', 'Average speed'])
   assert.equal(await page.locator('.sends tbody tr').count(), 2, 'this send and the one before')
-  assert.match(await page.locator('.sends tbody tr').nth(1).innerText(), /30\.1 GB\s+about 41 minutes\s+12\.5 MB\/s/)
+  assert.match(await page.locator('.sends tbody tr').nth(1).innerText(), /folder F:\\Family Backup\s+30\.1 GB\s+about 41 minutes\s+12\.5 MB\/s/)
   await page.getByText(/^Everything you are keeping is there: [\d,]+ files\.$/).waitFor()
   assert.ok(await page.getByRole('button', { name: 'Show me the folder' }).isVisible())
   await page.getByRole('button', { name: 'Check they all arrived' }).click()
@@ -233,6 +237,11 @@ try {
   assert.equal(await page.locator('.steps li.done').count(), 2, 'finding and choosing are ticked off')
   assert.equal(await page.locator('.steps li').count(), 3, 'there are three steps, not four')
   await shot('9-sent')
+  // What it said at the end is still there after looking at another screen.
+  await page.getByRole('button', { name: /^Choose what to keep/ }).click()
+  await page.getByRole('heading', { name: 'Which of these should we keep?' }).waitFor()
+  await page.getByRole('button', { name: /^Back them up somewhere safe/ }).click()
+  await page.getByText(/^Your backup: all [\d,]+ originals are there\.$/).waitFor()
 
   // --- Backups: a second job, kept apart, and the first is still there afterwards.
   assert.match(await text('.backup .current'), /Family photos/)
