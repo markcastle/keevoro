@@ -2690,3 +2690,21 @@ main > section > :nth-last-child(2) {
   cursor: default;
   color: var(--ink-muted);
 }
+
+/* Inside a collection: keep all or none, and where the files are from. */
+.photos .choices.within {
+  margin-top: var(--space-3);
+  gap: var(--space-3);
+}
+
+.photos .from {
+  margin-top: var(--space-3);
+}
+
+.photos .from .where {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+  text-align: left;
+}

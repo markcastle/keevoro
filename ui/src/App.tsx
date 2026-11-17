@@ -19,7 +19,7 @@
 // back. Wording follows the house rules: plain English, no jargon, and
 // progress in human terms ("3,412 of 9,870 safely copied").
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 
@@ -113,6 +113,20 @@ export function App() {
       window.clearInterval(timer)
     }
   }, [api])
+
+  // Opening a collection or a list covers the screen; coming back should
+  // land where the person was, not at the top. The place is noted when an
+  // overlay opens and restored when it closes.
+  const main = useRef<HTMLElement>(null)
+  const wasAt = useRef(0)
+  const show = (next: Overlay) => {
+    if (overlay === null) wasAt.current = main.current?.scrollTop ?? 0
+    setOverlay(next)
+  }
+  useLayoutEffect(() => {
+    if (!main.current) return
+    main.current.scrollTop = overlay === null ? wasAt.current : 0
+  }, [overlay])
 
   const refresh = useCallback((from: Backend) => from.discover().then(setFound).catch(report), [report])
 
@@ -278,7 +292,7 @@ export function App() {
               </button>
             </span>
           )}
-          <button className="link doing" onClick={() => setOverlay('activity')}>
+          <button className="link doing" onClick={() => show('activity')}>
             What Keevoro is doing
             {doing && !paused && (
               <span className="quiet small" role="status">
@@ -286,14 +300,14 @@ export function App() {
               </span>
             )}
           </button>
-          <button className="link" onClick={() => setOverlay('settings')}>
+          <button className="link" onClick={() => show('settings')}>
             Settings
           </button>
           <span>Your sources are only ever read.</span>
         </div>
       </aside>
 
-      <main>
+      <main ref={main}>
         {update && (
           <div className="update" role="status">
             {updating === 'no' && (
@@ -411,9 +425,9 @@ export function App() {
             api={api}
             found={found}
             onKeep={keep}
-            onOpen={(collection) => setOverlay({ collection })}
-            onSetAside={() => setOverlay('setAside')}
-            onDuplicates={() => setOverlay('duplicates')}
+            onOpen={(collection) => show({ collection })}
+            onSetAside={() => show('setAside')}
+            onDuplicates={() => show('duplicates')}
             next={
               waiting > 0 ? (
                 <Next
@@ -2065,6 +2079,14 @@ function PhotosScreen(props: {
     api.keepPhoto(photo.id, kept).catch(onProblem)
   }
   const keeping = photos?.filter((p) => p.kept).length ?? 0
+  // Keeps or leaves out everything here in one go.
+  const keepAll = (kept: boolean) => {
+    if (!collection) return
+    setPhotos((list) => list && list.map((p) => ({ ...p, kept })))
+    api.keepCollection(collection.key, kept).catch(onProblem)
+  }
+  // The folders these files are in on their sources, for opening.
+  const folders = [...new Set((photos ?? []).map((p) => p.sourcePath.replace(/[\\/][^\\/]*$/, '')))].sort()
 
   // Holding down on a picture (or right-clicking it) opens it large,
   // without changing whether it is kept. `held` remembers that the press
@@ -2098,6 +2120,30 @@ function PhotosScreen(props: {
               : collection.summary
             : 'These look like app pictures or leftovers, not memories. Click any you want to keep after all. Hold down on one to see it larger.'}
         </p>
+        {collection && photos && photos.length > 0 && (
+          <p className="choices within">
+            <button className="button small" onClick={() => keepAll(true)} disabled={keeping === photos.length}>
+              Keep all
+            </button>
+            <button className="button small" onClick={() => keepAll(false)} disabled={keeping === 0}>
+              Keep none
+            </button>
+          </p>
+        )}
+        {folders.length > 0 && (
+          <p className="quiet small from">
+            {folders.length === 1 ? 'From ' : `From ${folders.length} folders: `}
+            {folders.slice(0, 4).map((folder, i) => (
+              <span key={folder}>
+                {i > 0 && ', '}
+                <button className="link where" onClick={() => api.openPlace(folder).catch(onProblem)} title="Open this folder">
+                  {folder}
+                </button>
+              </span>
+            ))}
+            {folders.length > 4 && ` and ${folders.length - 4} more`}
+          </p>
+        )}
       </header>
       {photos && photos.length === 0 && (
         <div className="empty quiet">{collection ? 'Nothing here.' : 'Nothing is set aside.'}</div>

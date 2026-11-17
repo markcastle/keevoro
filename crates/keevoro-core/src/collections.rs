@@ -102,6 +102,7 @@ pub fn group_into_collections(items: &[CollectionInput]) -> Vec<Collection> {
     if !moment.is_empty() {
         out.push(moment_collection(items, moment));
     }
+    name_apart(&mut out);
     if !undated.is_empty() {
         out.push(build(items, "Undated".into(), Vec::new(), undated));
     }
@@ -115,6 +116,39 @@ pub fn group_into_collections(items: &[CollectionInput]) -> Vec<Collection> {
             .then(a.title.cmp(&b.title))
     });
     out
+}
+
+/// Two moments in the same month would both be called "October 2004",
+/// and nobody could tell which was which. Where titles clash, each is
+/// named to the day instead: "2 to 3 October 2004", "20 October 2004".
+/// Named albums are left alone; their names are the person's own.
+fn name_apart(collections: &mut [Collection]) {
+    let mut seen: BTreeMap<String, usize> = BTreeMap::new();
+    for c in collections.iter().filter(|c| c.parents.is_empty()) {
+        *seen.entry(c.title.clone()).or_default() += 1;
+    }
+    for c in collections.iter_mut().filter(|c| c.parents.is_empty()) {
+        if seen.get(&c.title).is_some_and(|&n| n > 1) {
+            if let Some(to_the_day) = day_range_label(c.first, c.last) {
+                c.title = to_the_day;
+            }
+        }
+    }
+}
+
+/// "20 October 2004" or "2 to 3 October 2004", when both ends are known to
+/// the day and fall in one month. `None` otherwise.
+fn day_range_label(first: Option<PartialDate>, last: Option<PartialDate>) -> Option<String> {
+    let (a, b) = (first?, last?);
+    let (month, from, to) = (a.month?, a.day?, b.day?);
+    if a.year != b.year || b.month != Some(month) {
+        return None;
+    }
+    Some(if from == to {
+        format!("{from} {} {}", month_name(month), a.year)
+    } else {
+        format!("{from} to {to} {} {}", month_name(month), a.year)
+    })
 }
 
 fn moment_collection(items: &[CollectionInput], members: Vec<usize>) -> Collection {
@@ -267,6 +301,19 @@ mod tests {
         assert_eq!(titles, vec!["March 2012", "December 2011"], "newest first");
         assert_eq!(c[1].members, vec![1, 0]);
         assert_eq!(c[1].summary(), "2 photos", "range is not repeated when it is the title");
+    }
+
+    #[test]
+    fn two_moments_in_one_month_are_named_to_the_day_so_they_can_be_told_apart() {
+        let items = vec![
+            photo(&[], day(2004, 10, 2), 1),
+            photo(&[], day(2004, 10, 3), 1),
+            photo(&[], day(2004, 10, 20), 1),
+            photo(&[], day(2005, 6, 1), 1),
+        ];
+        let titles: Vec<String> = group_into_collections(&items).into_iter().map(|c| c.title).collect();
+        // A month with one moment keeps its plain name.
+        assert_eq!(titles, ["June 2005", "20 October 2004", "2 to 3 October 2004"]);
     }
 
     #[test]

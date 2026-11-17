@@ -124,6 +124,15 @@ try {
   await page.waitForFunction(() => [...document.images].every((i) => i.complete && i.naturalWidth > 0))
   await shot('6-inside-a-collection')
 
+  // Everything here can be kept or left out in one go, and the folder it
+  // came from is named, to open.
+  await page.getByRole('button', { name: 'Keep none' }).click()
+  assert.match(await text('.photos .status'), new RegExp(`^Keeping 0 of ${howMany}\\.`))
+  await page.getByRole('button', { name: 'Keep all' }).click()
+  assert.match(await text('.photos .status'), new RegExp(`^Keeping ${howMany} of ${howMany}\\.`))
+  assert.ok(await page.getByRole('button', { name: 'Keep all' }).isDisabled())
+  assert.match(await text('.photos .from'), /^From /)
+
   // Holding down on a picture shows it large and does not change the tick.
   const firstTile = tiles.nth(0)
   assert.equal(await firstTile.getAttribute('aria-pressed'), 'true')
@@ -294,6 +303,22 @@ try {
   await page.locator('.kept li.source').nth(1).waitFor()
   assert.equal(await page.locator('.kept li.source').count(), 2, 'each ticked folder became a source')
   assert.equal(await page.locator('.survey').count(), 0)
+
+  // --- Back from a collection lands where you were, not at the top.
+  await page.setViewportSize({ width: 1440, height: 520 })
+  await page.goto(`${base}/`)
+  await page.locator('.card').last().waitFor()
+  await page.locator('.card').last().scrollIntoViewIfNeeded()
+  const before = await page.locator('main').evaluate((m) => m.scrollTop)
+  assert.ok(before > 100, 'the screen was scrolled down')
+  await page.locator('.card').last().locator('button').first().click()
+  await page.locator('.tiles .tile').first().waitFor()
+  assert.equal(await page.locator('main').evaluate((m) => m.scrollTop), 0, 'a collection opens at its top')
+  await page.getByRole('button', { name: '‹ Back' }).click()
+  await page.locator('.card').last().waitFor()
+  assert.equal(await page.locator('main').evaluate((m) => m.scrollTop), before, 'and back is where you were')
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto(`${base}/?demo=empty&fast`)
 
   // --- Settings holds everything in one place, including the log.
   await page.getByRole('button', { name: 'Settings' }).click()
