@@ -243,7 +243,11 @@ export function demoBackend(): Backend {
           added.push(found)
         }
         if (junk.length === 0) junk.push(...junkFound())
-        sources.push({ id: Date.now(), name, root, items: photos + videos, bytes: (photos * 3.2 + videos * 48) * 1024 * 1024 })
+        // Looking through a source again replaces what was known about it.
+        const known = sources.findIndex((s) => s.root === root)
+        const entry = { id: known >= 0 ? sources[known].id : Date.now(), name: known >= 0 ? sources[known].name : name, root, items: photos + videos, bytes: (photos * 3.2 + videos * 48) * 1024 * 1024 }
+        if (known >= 0) sources[known] = entry
+        else sources.push(entry)
         scanListeners.forEach((l) => l({ name, photos, videos, finished: true }))
         // Then, as the real app does, the careful checking carries on behind.
         const total = Math.max(1, Math.round((photos + videos) / 6))

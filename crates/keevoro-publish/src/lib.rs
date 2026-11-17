@@ -24,6 +24,7 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
+use futures_util::stream::{FuturesUnordered, StreamExt};
 use keevoro_catalog::{Catalog, CatalogError};
 use keevoro_storage::{
     ByteSource, MultipartStore, ObjectKey, ObjectStore, PartReceipt, PutOptions, StorageError, UploadId,
@@ -66,6 +67,11 @@ pub struct PublishOptions {
     /// storage), false for a folder. Only affects how what is sent is
     /// counted for the speed display.
     pub over_network: bool,
+    /// How many files are sent at the same time. Over the network most of
+    /// the time for a small file goes on waiting for the far end to answer,
+    /// so sending several at once is several times quicker. To a disk it
+    /// only makes the disk hop about, so there it stays at one.
+    pub at_once: usize,
 }
 
 impl Default for PublishOptions {
@@ -77,6 +83,7 @@ impl Default for PublishOptions {
             retry_pause: Duration::from_secs(2),
             stop: None,
             over_network: false,
+            at_once: 1,
         }
     }
 }
@@ -126,36 +133,55 @@ pub async fn publish(
         done: 0,
         total: uploads.len(),
     };
-    for upload in uploads {
-        keevoro_core::pause::wait_while_paused();
-        if opts
-            .stop
+    let stop_asked = || {
+        opts.stop
             .as_ref()
             .is_some_and(|stop| stop.load(std::sync::atomic::Ordering::SeqCst))
-        {
-            report.stopped = true;
-            break;
-        }
-        if catalog.is_uploaded(target, upload.key.as_str())? {
-            report.already_there += 1;
-        } else {
-            match send(store, catalog, target, upload, opts).await {
-                Ok(outcome) => {
-                    catalog.mark_uploaded(target, upload.key.as_str(), upload.bytes)?;
-                    match outcome {
-                        Outcome::Sent => {
-                            report.uploaded += 1;
-                            report.uploaded_bytes += upload.bytes;
-                        }
-                        Outcome::AlreadyThere => report.already_there += 1,
-                    }
-                }
-                Err(SendError::Catalog(e)) => return Err(e),
-                Err(SendError::Storage(e)) => report.failed.push(FailedUpload {
-                    key: upload.key.to_string(),
-                    reason: plain_reason(&e),
-                }),
+    };
+    // Up to `at_once` files are on their way at any moment. They take
+    // turns on this one task, so the catalog is still only ever touched
+    // from here, one thing at a time.
+    let mut waiting = uploads.iter();
+    let mut in_flight = FuturesUnordered::new();
+    loop {
+        while in_flight.len() < opts.at_once.max(1) {
+            // Pausing holds back new files; those already going finish.
+            while keevoro_core::pause::is_paused() && !stop_asked() {
+                tokio::time::sleep(Duration::from_millis(150)).await;
             }
+            if stop_asked() {
+                report.stopped |= waiting.len() > 0;
+                waiting = [].iter();
+                break;
+            }
+            let Some(upload) = waiting.next() else { break };
+            if catalog.is_uploaded(target, upload.key.as_str())? {
+                report.already_there += 1;
+                progress.done += 1;
+                on_progress(&progress);
+                continue;
+            }
+            in_flight.push(async move { (upload, send(store, catalog, target, upload, opts).await) });
+        }
+        let Some((upload, sent)) = in_flight.next().await else {
+            break;
+        };
+        match sent {
+            Ok(outcome) => {
+                catalog.mark_uploaded(target, upload.key.as_str(), upload.bytes)?;
+                match outcome {
+                    Outcome::Sent => {
+                        report.uploaded += 1;
+                        report.uploaded_bytes += upload.bytes;
+                    }
+                    Outcome::AlreadyThere => report.already_there += 1,
+                }
+            }
+            Err(SendError::Catalog(e)) => return Err(e),
+            Err(SendError::Storage(e)) => report.failed.push(FailedUpload {
+                key: upload.key.to_string(),
+                reason: plain_reason(&e),
+            }),
         }
         progress.done += 1;
         on_progress(&progress);

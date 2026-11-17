@@ -693,6 +693,14 @@ function FindScreen(props: {
     // Only the end of a search moves the queue on.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searching])
+  // Looks through every source again, one after another, to pick up
+  // anything added since. What is already backed up is not sent again.
+  const lookAgain = () => {
+    const [first, ...rest] = (found?.sources ?? []).map((s) => s.root)
+    if (first === undefined) return
+    setQueue(rest)
+    start(first)
+  }
   const lookThroughChosen = () => {
     if (!survey?.found) return
     const [first, ...rest] = survey.found.hints.map((h) => h.folder).filter((f) => survey.chosen.has(f))
@@ -882,6 +890,16 @@ function FindScreen(props: {
         <>
           <h3>Your sources</h3>
           <p className="quiet small">Removing a source only takes it off this list. Keevoro never changes or deletes anything in a source.</p>
+          {!scan && !survey && (
+            <p className="choices again">
+              <button className="button small" onClick={lookAgain}>
+                {found.sources.length === 1 ? 'Look again for new photos' : `Look through all ${found.sources.length} again for new photos`}
+              </button>
+              <span className="quiet small">
+                Taken more photos since last time? This finds what is new, and the next backup sends only that.
+              </span>
+            </p>
+          )}
           <ul className="kept">
             {found.sources.map((s) => (
               <li key={s.id} className="source">

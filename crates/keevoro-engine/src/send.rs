@@ -332,6 +332,8 @@ pub fn run_until(
     let opts = PublishOptions {
         stop: stop.cloned(),
         over_network,
+        // Several at once to cloud storage; one at a time to a disk.
+        at_once: if over_network { 6 } else { 1 },
         ..PublishOptions::default()
     };
     let report = runtime.block_on(publish(store, catalog, &target, &uploads, &opts, &mut |p| {

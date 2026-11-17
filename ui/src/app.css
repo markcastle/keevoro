@@ -2708,3 +2708,9 @@ main > section > :nth-last-child(2) {
   overflow-wrap: anywhere;
   text-align: left;
 }
+
+.choices.again {
+  margin: var(--space-3) 0;
+  gap: var(--space-3);
+  align-items: center;
+}
