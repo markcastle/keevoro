@@ -6,7 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Each source shows how big it is.** The list of sources now gives the size of what was found on each, in MB or GB, beside the number of photos and videos.
+
+### Changed
+
+- **The bar with the next step is fixed to the bottom of the window.** It used to float over the page as a rounded card. It now runs along the bottom edge, full width, and stays there whether the page is long or short.
 
 ## [0.16.0] - 2026-11-17
 
