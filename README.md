@@ -183,7 +183,7 @@ cargo run --release -p keevoro-cli -- publish --library "D:\Keevoro Library" --t
 ```text
 Safely backed up 29,610 files (43.2 GB).
 Index written for 9,870 files in 212 albums.
-Your private index: file:///F:/Family%20Backup/index/q7Zp4xKm2Tf9LwR3bN8vYc.kvx
+Your private index: index/q7Zp4xKm2Tf9LwR3bN8vYc.kvx
 ```
 
 The backup has the same folders as the library, so what you see on one is what is on the other. An original that is already in the backup is never replaced, large videos are sent in pieces so an interruption only costs the piece in flight, and running it again sends only what is new.
