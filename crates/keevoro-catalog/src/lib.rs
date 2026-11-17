@@ -366,6 +366,7 @@ impl Catalog {
                     skipped: self.skipped_of(id)?,
                     unreadable: self.unreadable_of(id)?,
                     other_files: u64::try_from(other).unwrap_or(0),
+                    stopped: false,
                 })
             })
             .collect()

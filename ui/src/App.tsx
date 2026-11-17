@@ -541,6 +541,7 @@ function FindScreen(props: {
   const [removing, setRemoving] = useState<number | null>(null)
   // A whole disk the person picked, until they say they mean all of it.
   const [asking, setAsking] = useState<{ path: string; name: string; detail?: string } | null>(null)
+  const [stopping, setStopping] = useState(false)
 
   const look = useCallback(() => {
     api.places().then(setPlaces).catch(onProblem)
@@ -554,6 +555,8 @@ function FindScreen(props: {
 
   const start = (path: string) => {
     setAsking(null)
+    // Each search starts afresh: a Stop pressed last time does not linger.
+    setStopping(false)
     props.onStarted()
     api.scanPlace(path).catch(onProblem)
   }
@@ -589,6 +592,19 @@ function FindScreen(props: {
           <h2>Looking through {scan.name}…</h2>
           <p className="big-count">{photosAndVideos(scan.photos, scan.videos)}</p>
           <p className="quiet">found so far. Nothing on it is being changed. You can leave this running.</p>
+          {!scan.saving && (
+            <p className="choices stop">
+              <button
+                disabled={stopping}
+                onClick={() => {
+                  setStopping(true)
+                  api.stopScanning().catch(onProblem)
+                }}
+              >
+                {stopping ? 'Stopping…' : 'Stop looking'}
+              </button>
+            </p>
+          )}
           {scan.saving ? (
             <p className="quiet small doing">Finished looking. Saving what was found…</p>
           ) : scan.reading ? (
@@ -630,11 +646,23 @@ function FindScreen(props: {
       ) : (
         <>
           {justFound && (
-            <div className="panel found-it" role="status">
-              <h2>
-                Found {photosAndVideos(justFound.photos, justFound.videos)} on {justFound.name}
-              </h2>
-              <p className="quiet">You can add another place below, or carry on.</p>
+            <div className={justFound.stopped ? 'panel' : 'panel found-it'} role="status">
+              {justFound.stopped ? (
+                <>
+                  <h2>Stopped looking through {justFound.name}</h2>
+                  <p className="quiet">
+                    Nothing from it was added, because only part of it had been looked at. Choose it again whenever
+                    you like, or choose a folder inside it to look through less.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <h2>
+                    Found {photosAndVideos(justFound.photos, justFound.videos)} on {justFound.name}
+                  </h2>
+                  <p className="quiet">You can add another place below, or carry on.</p>
+                </>
+              )}
             </div>
           )}
           <div className="places">

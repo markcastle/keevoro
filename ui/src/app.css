@@ -2067,3 +2067,8 @@ h2 .folder {
   height: auto;
   width: min(380px, 70vw);
 }
+
+.searching .stop {
+  justify-content: center;
+  margin-top: var(--space-4);
+}

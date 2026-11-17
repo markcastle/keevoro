@@ -91,6 +91,8 @@ export type ScanEvent = {
   reading?: [string, number]
   /** True once looking is over and what was found is being saved. */
   saving?: boolean
+  /** On the last event: the search was stopped, so nothing from it was kept. */
+  stopped?: boolean
   finished: boolean
   problem?: string
 }
@@ -145,6 +147,8 @@ export interface Backend {
    * already sent are not touched.
    */
   resetEverything(): Promise<AppState>
+  /** Asks a running search to stop. Nothing from it is kept. */
+  stopScanning(): Promise<void>
   /** Asks a running send to stop after the file in hand. */
   stopSending(): Promise<void>
   /** How much room what is waiting needs, against where it is going. */
@@ -226,6 +230,7 @@ async function tauriBackend(): Promise<Backend> {
     switchBackup: (id) => invoke('switch_backup', { id }),
     openDestination: () => invoke('open_destination'),
     room: () => invoke('room'),
+    stopScanning: () => invoke('stop_scanning'),
     resetEverything: () => invoke('reset_everything'),
     stopSending: () => invoke('stop_sending'),
     openPlace: (path) => invoke('open_place', { path }),

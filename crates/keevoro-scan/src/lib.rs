@@ -22,7 +22,8 @@ use serde::Serialize;
 use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::sync::{mpsc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc, Mutex};
 use std::time::UNIX_EPOCH;
 use walkdir::WalkDir;
 
@@ -41,6 +42,15 @@ pub struct ScanOptions {
     /// item is marked `hashed: false` until [`whole_hash`] has been run on
     /// it, which must happen before it is gathered.
     pub quick: bool,
+    /// Set to true from anywhere to stop the search. It ends within a
+    /// moment, and its report says it was stopped.
+    pub stop: Option<Arc<AtomicBool>>,
+}
+
+impl ScanOptions {
+    fn stopped(&self) -> bool {
+        self.stop.as_ref().is_some_and(|stop| stop.load(Ordering::SeqCst))
+    }
 }
 
 impl Default for ScanOptions {
@@ -49,6 +59,7 @@ impl Default for ScanOptions {
             skip: SkipRules::default(),
             hash: true,
             quick: false,
+            stop: None,
         }
     }
 }
@@ -105,6 +116,10 @@ pub struct ScanReport {
     pub unreadable: Vec<Unreadable>,
     /// Files looked at that were not photos or videos.
     pub other_files: u64,
+    /// True when the search was stopped before it had looked everywhere,
+    /// so this is only part of what is there.
+    #[serde(skip)]
+    pub stopped: bool,
 }
 
 /// Live counts for a progress display, and where the search has got to.
@@ -173,6 +188,10 @@ pub fn scan(root: &Path, opts: &ScanOptions, on_progress: &mut dyn FnMut(&ScanPr
                     Err(_) => break,
                 };
                 let Ok((order, path)) = next else { break };
+                // Asked to stop: let the queue empty without opening anything more.
+                if opts.stopped() {
+                    continue;
+                }
                 if let Some(bytes) = std::fs::metadata(&path)
                     .ok()
                     .map(|m| m.len())
@@ -245,6 +264,7 @@ pub fn scan(root: &Path, opts: &ScanOptions, on_progress: &mut dyn FnMut(&ScanPr
     report.items = found.into_iter().map(|(_, item)| item).collect();
     report.skipped = skipped.into_iter().map(|(_, s)| s).collect();
     report.unreadable = unreadable.into_iter().map(|(_, u)| u).collect();
+    report.stopped = opts.stopped();
     report
 }
 
@@ -259,6 +279,9 @@ fn walk(
     let mut order = 0u64;
     let mut walk = WalkDir::new(root).follow_links(false).sort_by_file_name().into_iter();
     while let Some(entry) = walk.next() {
+        if opts.stopped() {
+            break;
+        }
         order += 1;
         let entry = match entry {
             Ok(e) => e,

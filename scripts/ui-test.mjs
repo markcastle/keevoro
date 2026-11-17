@@ -238,6 +238,17 @@ try {
   assert.ok(await page.getByRole('button', { name: 'Send them now' }).isDisabled(), 'sending waits until there is room')
   await shot('9g-not-enough-room')
 
+  // --- A search can be stopped, and then nothing from it is kept.
+  await page.goto(`${base}/?demo=empty&slow`)
+  await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
+  await page.getByRole('button', { name: /KINGSTON/ }).click()
+  await page.getByRole('button', { name: 'Stop looking' }).click()
+  await page.getByRole('heading', { name: 'Stopped looking through KINGSTON (E:)' }).waitFor()
+  assert.match(await text('.panel'), /Nothing from it was added/)
+  assert.equal(await page.locator('.kept li.source').count(), 0, 'the source was not added')
+  assert.ok(await page.locator('.steps button').nth(1).isDisabled(), 'and there is nothing to choose from')
+  await shot('9j-search-stopped')
+
   // --- A send can be stopped; what was sent stays sent.
   await page.goto(`${base}/?slow`)
   await page.getByRole('button', { name: 'Choose where they go' }).click()

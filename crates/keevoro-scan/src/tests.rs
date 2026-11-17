@@ -493,3 +493,31 @@ fn a_quick_fingerprint_can_be_fooled_which_is_why_the_whole_hash_decides() {
         whole_hash(&item(&r, "b.jpg").path).unwrap()
     );
 }
+
+#[test]
+fn a_search_can_be_stopped_part_way() {
+    let t = Tree::new();
+    for folder in 0..40u32 {
+        for file in 0..25u32 {
+            let shade = u8::try_from((folder * 25 + file) % 251).unwrap();
+            t.add(&format!("f{folder:02}/img{file:03}.jpg"), &plain_jpeg(shade));
+        }
+    }
+    let stop = Arc::new(AtomicBool::new(false));
+    let opts = ScanOptions {
+        stop: Some(stop.clone()),
+        ..ScanOptions::default()
+    };
+    let r = scan(t.root(), &opts, &mut |p| {
+        if p.files_seen == 20 {
+            stop.store(true, Ordering::SeqCst);
+        }
+    });
+    assert!(r.stopped);
+    assert!(r.items.len() >= 20 && r.items.len() < 1000, "found {}", r.items.len());
+
+    // Left alone, the same search finishes and says so.
+    let whole = t.scan();
+    assert!(!whole.stopped);
+    assert_eq!(whole.items.len(), 1000);
+}

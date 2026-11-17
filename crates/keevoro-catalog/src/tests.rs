@@ -49,6 +49,7 @@ fn report(root: &str) -> ScanReport {
             error: "Input/output error".into(),
         }],
         other_files: 41,
+        stopped: false,
     }
 }
 

@@ -395,6 +395,15 @@ pub fn keep_checking(app: AppHandle) {
     check_in_background(&app);
 }
 
+/// Asks a search that is running to stop. It ends within a moment and
+/// nothing from it is kept: a part-search would make the rest of the source
+/// look as if it were not there.
+#[tauri::command]
+pub fn stop_scanning(shared: State<'_, Shared>) {
+    shared.stop_scanning.store(true, Ordering::SeqCst);
+    shared.log.say("Asked to stop the search");
+}
+
 /// Starts looking through a drive or folder. Returns at once; progress and
 /// the result arrive as `scan` events.
 #[tauri::command]
@@ -403,6 +412,9 @@ pub fn scan_place(app: AppHandle, shared: State<'_, Shared>, path: String) -> Sa
     if shared.scanning.swap(true, Ordering::SeqCst) {
         return Err("Keevoro is already looking through a source. Let that finish first.".into());
     }
+    // A fresh start: an earlier request to stop does not carry over.
+    shared.stop_scanning.store(false, Ordering::SeqCst);
+    let stop = shared.stop_scanning.clone();
     let source = PathBuf::from(path);
     let name = source
         .file_name()
@@ -427,6 +439,7 @@ pub fn scan_place(app: AppHandle, shared: State<'_, Shared>, path: String) -> Sa
                 .as_ref()
                 .map(|(path, bytes)| (keevoro_engine::friendly_path(path), *bytes)),
             saving,
+            stopped: false,
             finished: false,
             problem: None,
         };
@@ -441,6 +454,7 @@ pub fn scan_place(app: AppHandle, shared: State<'_, Shared>, path: String) -> Sa
                     Some(&name),
                     &keevoro_scan::ScanOptions {
                         quick: true,
+                        stop: Some(stop.clone()),
                         ..Default::default()
                     },
                     &mut |p| {
@@ -476,7 +490,14 @@ pub fn scan_place(app: AppHandle, shared: State<'_, Shared>, path: String) -> Sa
                 )
             });
         state.scanning.store(false, Ordering::SeqCst);
+        let was_stopped = result.as_ref().is_ok_and(|report| report.stopped);
         match &result {
+            Ok(report) if report.stopped => log.say(&format!(
+                "Stopped looking through {} after {} seconds and {} files. Nothing from it was kept.",
+                keevoro_engine::friendly_path(&source),
+                started.elapsed().as_secs(),
+                latest.2
+            )),
             Ok(report) => {
                 log.say(&format!(
                     "Looked through {} in {} seconds: {} photos and videos, {} other files, {} folders skipped, {} unreadable",
@@ -507,6 +528,7 @@ pub fn scan_place(app: AppHandle, shared: State<'_, Shared>, path: String) -> Sa
                 folder: String::new(),
                 reading: None,
                 saving: false,
+                stopped: was_stopped,
                 finished: true,
                 problem: result.err().map(say),
             },

@@ -121,6 +121,7 @@ export function demoBackend(): Backend {
   const sendListeners = new Set<(e: SendEvent) => void>()
   let sendingTo: string | null = null
   let stopAsked = false
+  let stopLooking = false
   // What is kept but not yet sent, at a made-up 3.2 MB a photo and 48 MB a video.
   const waitingBytes = () =>
     collections
@@ -175,13 +176,22 @@ export function demoBackend(): Backend {
   // Pretends to look through a place, finding collections as it goes.
   const look = (name: string, root: string) => {
       const adding = FOUND.filter((_, i) => i >= collections.length).slice(0, sources.length === 0 ? 5 : 2)
+      stopLooking = false
       void (async () => {
         let photos = 0
         let videos = 0
+        const added: Collection[] = []
         for (const make of adding) {
           const found = make()
           for (let step = 1; step <= 4; step++) {
-            await later(220 * pace)
+            // `?slow` leaves time to press Stop.
+            await later(new URLSearchParams(window.location.search).has('slow') ? 400 : 220 * pace)
+            if (stopLooking) {
+              // Stopped: nothing from this search is kept.
+              added.forEach((c) => collections.splice(collections.indexOf(c), 1))
+              scanListeners.forEach((l) => l({ name, photos, videos, finished: true, stopped: true }))
+              return
+            }
             scanListeners.forEach((l) =>
               l({
                 name,
@@ -196,6 +206,7 @@ export function demoBackend(): Backend {
           photos += found.photos
           videos += found.videos
           collections.unshift(found)
+          added.push(found)
         }
         if (junk.length === 0) junk.push(...junkFound())
         sources.push({ id: Date.now(), name, root, items: photos + videos })
@@ -254,6 +265,9 @@ export function demoBackend(): Backend {
       sendingTo = null
       sentSoFar = 0
       return state()
+    },
+    stopScanning: async () => {
+      stopLooking = true
     },
     stopSending: async () => {
       stopAsked = true

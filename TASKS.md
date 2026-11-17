@@ -116,7 +116,8 @@ Done when a non-technical tester gets from a drive to a backup without help.
 - [x] Snappy search: a quick fingerprint while searching, the whole-file one afterwards in the background, and always before a file is gathered
 - [ ] Fingerprint a file while copying it, so a file gathered straight after a search is read once, not twice
 - [ ] `keevoro scan --quick` for the command line (it still reads every file whole)
-- [ ] Stop a search part-way, and show roughly how long is left
+- [x] Stop a search part-way (nothing from a stopped search is kept)
+- [ ] Show roughly how long a search has left
 - [ ] Notice when a drive is plugged in and offer to look through it
 - [ ] Time left ("About 20 minutes"), and cancel for a search or a gather
 - [ ] "Show folders" view with tick boxes, for people who want control
