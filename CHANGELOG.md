@@ -6,14 +6,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Added
+
+- **A Memory graph.** "What Keevoro is doing" now charts how much memory Keevoro is holding over the last two minutes, beside Processor, Disk and Network. It should stay level, not climb.
+
 ### Changed
 
-- **"Send them now" is now "Back up now".** After a backup it reads "Back up again".
-- **Buttons look like buttons.** Check they all arrived, Show me the folder, Send somewhere else, Stop, Cancel, Remove, File types, Start a new backup and Open the log file were drawn as plain text. They are now proper buttons. Only things that take you somewhere (Back, Settings, What's new) are still drawn as links.
+- **Backing up large files to a folder is much faster.** Any file over 64 MB going to a folder or a drive used to be written there in pieces and then written a second time to join the pieces, so a big video cost the destination twice the work. Each file is now read once and written once. Backups to cloud storage are unchanged, because there the pieces are what make a dropped connection recoverable.
+- **Steadier progress on big files.** The speed and time left now move every few megabytes while a large file is being written, not once per piece.
+- **"Send them now" is now "Back up now".** After a backup it reads "Back up again". The rest of the screen follows: the step is "Back them up somewhere safe", and it says "Backing up to the folder", "waiting to be backed up", "Back up somewhere else" and "How earlier backups went".
+- **Buttons look like buttons.** Check they all arrived, Show me the folder, Back up somewhere else, Stop, Cancel, Remove, File types, Start a new backup and Open the log file were drawn as plain text. They are now proper buttons. Only things that take you somewhere (Back, Settings, What's new) are still drawn as links.
 
 ### Fixed
 
-- **Coming back to a running backup no longer offers to start it again.** If you looked at another screen while a backup was running and came back, the Send screen showed "Send them now" for a few seconds before catching up. It now shows the backup in progress, with its speed and Stop button, straight away.
+- **Coming back to a running backup no longer offers to start it again.** If you looked at another screen while a backup was running and came back, the screen offered to start it for a few seconds before catching up. It now shows the backup in progress, with its speed and Stop button, straight away.
+- **A backup that finished while you were on another screen is counted.** Coming back used to say every file was still waiting, although they had all arrived. The counts are now read again whenever a backup ends, whichever screen is showing.
 
 ## [0.21.0] - 2026-11-17
 

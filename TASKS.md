@@ -122,6 +122,7 @@ Done when a non-technical tester gets from a drive to a backup without help.
 - [x] Per-source choice of which kinds of file to include, folded away for those who want it
 - [ ] Show a raw file's true pixel size (read from inside the file, not the header)
 - [x] Activity page: what is being done and why, graphs of Keevoro's own processor and disk use, and Pause
+- [x] Memory graph on the Activity page
 - [ ] Pause by itself when on battery or when the computer is busy with something else
 - [ ] Run background checking at low priority, and with fewer readers, so it gives way to everything else
 - [ ] Notice when a drive is plugged in and offer to look through it
@@ -137,6 +138,10 @@ Done when a non-technical tester gets from a drive to a backup without help.
 - [ ] macOS: open photos with ImageIO (the trait is ready for it; only the Windows half is built)
 - [ ] Let the graphics card decode video for stills (Media Foundation can do this through DXVA; today it decodes in software)
 - [ ] Measure previews per second with the switch on and off on a real Windows computer, and show the figure on the Activity page
+- [x] Files go to a folder whole, read once and written once (they were written twice above 64 MB)
+- [ ] Measure folder backup speed against a plain Windows copy on the same disks, and close any gap (bigger pieces, or the system's own copy call with progress)
+- [ ] Back up two or three small files at once to a folder or network drive
+- [ ] A stopped backup to a folder starts a half-written large file again; cloud storage carries on from the last piece
 - [ ] Not planned: CUDA. NVIDIA only, a large runtime to install, and little to gain on still photos
 
 ### Look and feel
