@@ -66,6 +66,11 @@ try {
   await shot('2b-searching')
   await page.getByRole('heading', { name: /^Found [\d,]+ photos and \d+ videos on KINGSTON \(E:\)$/ }).waitFor()
   assert.equal(await text('.kept li span'), 'KINGSTON (E:)', 'what has been looked through is listed')
+  assert.match(await text('.kept li .badge'), /^[\d,]+ photos and videos · [\d.]+ (MB|GB)$/, 'with how big it is')
+  // The bar is part of the window: on its bottom edge, full width.
+  const bar = await page.locator('.next').boundingBox()
+  const view = page.viewportSize()
+  assert.ok(Math.abs(bar.y + bar.height - view.height) <= 1, 'the bar sits on the bottom edge of the window')
   // The careful checking carries on behind, and says so quietly.
   assert.match(await text('.foot .checking'), /Checking for duplicates in the background: [\d,]+ of [\d,]+/)
   await page.locator('.foot .checking').waitFor({ state: 'detached' })

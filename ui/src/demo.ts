@@ -95,7 +95,7 @@ export function demoBackend(): Backend {
   const suggested = 'C:\\Users\\You\\Pictures\\Keevoro Library'
   let library: string | null = mode === 'new' ? null : suggested
   const collections: Collection[] = mode === 'new' || mode === 'empty' ? [] : FOUND.slice(0, 5).map((make) => make())
-  const sources = collections.length > 0 ? [{ id: 1, name: 'Family hard drive', root: 'E:\\', items: 240 }] : []
+  const sources = collections.length > 0 ? [{ id: 1, name: 'Family hard drive', root: 'E:\\', items: 240, bytes: 1.4 * 1024 ** 3 }] : []
   // The files inside each collection are made up the first time it is opened.
   const inside = new Map<string, PhotoChoice[]>()
   const filesOf = (c: Collection) => {
@@ -209,7 +209,7 @@ export function demoBackend(): Backend {
           added.push(found)
         }
         if (junk.length === 0) junk.push(...junkFound())
-        sources.push({ id: Date.now(), name, root, items: photos + videos })
+        sources.push({ id: Date.now(), name, root, items: photos + videos, bytes: (photos * 3.2 + videos * 48) * 1024 * 1024 })
         scanListeners.forEach((l) => l({ name, photos, videos, finished: true }))
         // Then, as the real app does, the careful checking carries on behind.
         const total = Math.max(1, Math.round((photos + videos) / 6))

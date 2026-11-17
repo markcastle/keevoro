@@ -28,6 +28,8 @@ pub struct SourceView {
     pub name: String,
     pub root: String,
     pub items: u64,
+    /// The size of everything found on it, in bytes.
+    pub bytes: u64,
 }
 
 /// A path as a person would write it. Windows gives long paths back as
@@ -208,6 +210,7 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
             name: s.name,
             root: friendly_path(&s.root),
             items: s.items,
+            bytes: s.bytes,
         })
         .collect();
     Ok(Discover {
@@ -383,6 +386,9 @@ pub(crate) mod tests {
         assert_eq!(d.waiting_bytes, kept);
         assert_eq!(d.sources.len(), 1);
         assert_eq!((d.sources[0].name.as_str(), d.sources[0].items), ("Dad's old Dell", 4));
+        // Its size is every file found on it, the duplicate included.
+        let all: u64 = [10, 90, 170, 10].iter().map(|s| real_jpeg(*s).len() as u64).sum();
+        assert_eq!(d.sources[0].bytes, all);
 
         let titles: Vec<&str> = d.collections.iter().map(|c| c.title.as_str()).collect();
         assert_eq!(titles, ["March 2012", "Cornwall"]);
