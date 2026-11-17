@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.14.1] - 2026-11-17
+
 ### Fixed
 
 - **The index in a folder no longer spells out where the folder is.** When you send to a folder, the list of what was sent (in its `index` folder) used to contain the folder's full location for every file, such as `file:///Z:/Backups/...`. It now points to each file relative to itself. So the folder can be moved to another disk or drive letter and the list still works, and it no longer records how your disks are laid out. Folders you have already sent to are put right the next time you send to them.
@@ -232,7 +236,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.14.1...HEAD
+[0.14.1]: https://github.com/markcastle/keevoro/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/markcastle/keevoro/compare/v0.13.2...v0.14.0
 [0.13.2]: https://github.com/markcastle/keevoro/compare/v0.13.1...v0.13.2
 [0.13.1]: https://github.com/markcastle/keevoro/compare/v0.13.0...v0.13.1
