@@ -35,6 +35,18 @@ export type Collection = {
 /** One file inside a collection, or one picture set aside as junk. */
 export type PhotoChoice = Photo & { taken: string | null; kept: boolean; junkReason: string | null }
 
+/**
+ * A file found more than once. The photo itself is the copy being kept;
+ * `copies` are the others, which are not sent because they are the same
+ * file. `confirmed` is false while that is still being checked.
+ */
+export type Duplicate = Photo & {
+  folder: string
+  bytes: number
+  confirmed: boolean
+  copies: { name: string; folder: string }[]
+}
+
 /** A drive plugged into this computer, offered as somewhere to look. */
 export type Place = {
   path: string
@@ -268,6 +280,8 @@ export interface Backend {
   includeFileType(id: number, ending: string, included: boolean): Promise<void>
   /** Stops remembering a source. Nothing on the source itself is touched. */
   forgetSource(id: number): Promise<void>
+  /** Every file found more than once: the copy kept, and the copies left out. */
+  duplicates(): Promise<Duplicate[]>
   /** The pictures set aside as probably not memories. */
   setAside(): Promise<PhotoChoice[]>
   keepPhoto(id: string, keep: boolean): Promise<void>
@@ -343,6 +357,7 @@ async function tauriBackend(): Promise<Backend> {
     pickPlace: () => pickFolder('Choose a source: a drive or folder to look through'),
     keepCollection: (key, keep) => invoke('keep_collection', { key, keep }),
     collectionPhotos: (key) => invoke('collection_photos', { key }),
+    duplicates: () => invoke('duplicates'),
     setAside: () => invoke('set_aside'),
     forgetSource: (id) => invoke('forget_source', { id }),
     fileTypes: (id) => invoke('file_types', { id }),

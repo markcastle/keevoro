@@ -62,6 +62,41 @@ pub fn unique_items(reports: &[ScanReport]) -> (Vec<&FoundItem>, Option<Duplicat
     (unique, Some(dup))
 }
 
+/// Every file that was found more than once: the copy that will be kept,
+/// then the others, which will not be sent because the kept one is the
+/// same file. Groups are in the order their first copy was found. The kept
+/// copy is chosen exactly as [`unique_items`] chooses it, so this list and
+/// what is sent can never disagree.
+pub fn duplicate_groups(reports: &[ScanReport]) -> Vec<(&FoundItem, Vec<&FoundItem>)> {
+    let mut place: HashMap<&str, usize> = HashMap::new();
+    let mut groups: Vec<Vec<&FoundItem>> = Vec::new();
+    for item in reports.iter().flat_map(|r| &r.items) {
+        let Some(hash) = item.blake3.as_deref() else { continue };
+        match place.get(hash) {
+            Some(&at) => groups[at].push(item),
+            None => {
+                place.insert(hash, groups.len());
+                groups.push(vec![item]);
+            }
+        }
+    }
+    groups
+        .into_iter()
+        .filter(|g| g.len() > 1)
+        .map(|mut group| {
+            // The first of the best described, as `unique_items` keeps.
+            let mut best = 0;
+            for at in 1..group.len() {
+                if how_well_described(group[at]) < how_well_described(group[best]) {
+                    best = at;
+                }
+            }
+            let kept = group.remove(best);
+            (kept, group)
+        })
+        .collect()
+}
+
 /// Ranks copies of the same file; lowest is best. A copy filed deeper in
 /// named folders beats a shallower or loose one (`Holidays/Cornwall` says
 /// more than `Old stuff`), then a stronger date clue beats a weaker one. A
@@ -306,6 +341,44 @@ mod tests {
 
     fn aug(d: u8) -> Option<(DateSource, PartialDate)> {
         Some((DateSource::Exif, PartialDate::day(2008, 8, d).unwrap()))
+    }
+
+    #[test]
+    fn each_duplicate_is_listed_with_the_copy_kept_and_the_copies_left_out() {
+        let a = ScanReport {
+            items: vec![
+                found("loose.jpg", Some("aa"), &[], aug(1), MediaKind::Photo),
+                found("2.jpg", Some("bb"), &["Cornwall"], aug(2), MediaKind::Photo),
+            ],
+            ..Default::default()
+        };
+        let b = ScanReport {
+            items: vec![
+                found(
+                    "filed.jpg",
+                    Some("aa"),
+                    &["Holidays", "Cornwall"],
+                    aug(1),
+                    MediaKind::Photo,
+                ),
+                found("again.jpg", Some("aa"), &[], aug(1), MediaKind::Photo),
+            ],
+            ..Default::default()
+        };
+        let reports = [a, b];
+        let groups = duplicate_groups(&reports);
+        assert_eq!(groups.len(), 1, "a file found once is not listed");
+        let name = |i: &FoundItem| i.path.file_name().unwrap().to_string_lossy().to_string();
+        let (kept, others) = &groups[0];
+        // The copy filed in named folders is kept, from whichever source.
+        assert_eq!(name(kept), "filed.jpg");
+        assert_eq!(
+            others.iter().map(|i| name(i)).collect::<Vec<_>>(),
+            ["loose.jpg", "again.jpg"]
+        );
+        // It is the same copy that would be sent.
+        let (unique, _) = unique_items(&reports);
+        assert!(unique.iter().any(|u| std::ptr::eq(*u, *kept)));
     }
 
     #[test]

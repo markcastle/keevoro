@@ -370,21 +370,22 @@ pub fn run_until(
         stored.iter().map(|k| item_for(k)).collect(),
     );
     let documents = [
-        (key.clone(), serde_json::to_vec(&index)?),
+        (key.clone(), serde_json::to_vec(&index)?, "application/json"),
         (
             "index/gallery.json".to_string(),
             serde_json::to_vec(&gallery_v1(&index))?,
+            "application/json",
+        ),
+        // A note for whoever opens the backup, explaining its folders.
+        (
+            crate::layout::GUIDE_NAME.to_string(),
+            crate::layout::guide().into_bytes(),
+            "text/plain; charset=utf-8",
         ),
     ];
-    for (name, body) in documents {
+    for (name, body, kind) in documents {
         runtime
-            .block_on(put_document(
-                store,
-                &ObjectKey::new(name)?,
-                body,
-                "application/json",
-                &opts,
-            ))
+            .block_on(put_document(store, &ObjectKey::new(name)?, body, kind, &opts))
             .map_err(|e| anyhow::anyhow!("Couldn't write the index. {}.", keevoro_publish::plain_reason(&e)))?;
     }
 
@@ -715,6 +716,26 @@ mod tests {
         assert!(!home.join("originals").exists());
         // The app counts them as safe.
         assert_eq!(crate::discover(&home, &catalog).unwrap().waiting_to_gather, 0);
+    }
+
+    #[test]
+    fn a_backup_explains_itself_and_leaves_no_folder_unexplained() {
+        let (dir, _card, home, catalog) = one_backup();
+        let to = dir.path().join("usb");
+        send(&catalog, &home, &to);
+        let guide = std::fs::read_to_string(to.join(crate::layout::GUIDE_NAME)).unwrap();
+        assert_eq!(guide, crate::layout::guide());
+        for entry in std::fs::read_dir(&to).unwrap() {
+            let entry = entry.unwrap();
+            let name = entry.file_name().to_string_lossy().to_string();
+            // The work area is hidden and empty between backups.
+            if entry.path().is_dir() && !name.starts_with('.') {
+                assert!(
+                    crate::layout::PARTS.iter().any(|p| p.folder == name),
+                    "the folder \"{name}\" is in the backup but not in the guide"
+                );
+            }
+        }
     }
 
     #[test]

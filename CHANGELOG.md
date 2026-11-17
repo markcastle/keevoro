@@ -6,7 +6,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Every backup explains itself.** Keevoro now writes a plain note, "What is in this backup.txt", into the place it backs up to. It says what each folder is for: `originals` (your photos and videos, untouched), `renditions` (smaller versions made for looking at, with what thumb, display, poster and video each mean) and `index` (the list a gallery reads). It also says how to get your photos back without Keevoro.
+- **The same explanation in the app.** The backup screen has a new "What is in the backup" line to open.
+- **Look at the duplicates before you back up.** On the Choose screen, "N duplicates will be kept only once" now opens a list of every file found more than once. For each it shows the copy being kept and the folder it is in, and each copy left out and where that is. Click a folder to open it and see for yourself.
+- **How Keevoro decides, in plain words.** The same screen explains that two files count as duplicates only when every byte matches, never on name, size or date, and marks any that are still being checked.
+
+### Changed
+
+- **The folder named while searching can be read.** "Now in ..." used to change many times a second, too fast to read. It now changes every second and a half at most. The count of files still moves as it happens.
+
+### Fixed
+
+- **The main button lines up with the buttons beside it.** "Back up now" sat a few pixels lower than its neighbours.
 
 ## [0.22.0] - 2026-11-17
 

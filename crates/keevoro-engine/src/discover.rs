@@ -299,6 +299,66 @@ pub fn set_aside(library: &Path, catalog: &Catalog) -> Result<Vec<PhotoChoice>> 
         .collect()
 }
 
+/// One copy of a file that will not be sent, because another copy of the
+/// very same file is being kept.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CopyView {
+    pub name: String,
+    /// The folder it is in, for showing and for opening.
+    pub folder: String,
+}
+
+/// A file found more than once: the copy being kept, and the others.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DuplicateGroup {
+    /// The copy that is kept and sent.
+    #[serde(flatten)]
+    pub photo: PhotoView,
+    /// The folder the kept copy is in.
+    pub folder: String,
+    /// The size of each copy. They are all the same size.
+    pub bytes: u64,
+    /// True once every copy has been read from start to finish and found
+    /// identical. False while that is still being checked, when the copies
+    /// only look the same so far; nothing is left out on that alone.
+    pub confirmed: bool,
+    pub copies: Vec<CopyView>,
+}
+
+fn folder_of(item: &FoundItem) -> String {
+    item.path.parent().map(friendly_path).unwrap_or_default()
+}
+
+/// Every file found more than once, so a person can see for themselves
+/// which copy is kept and which are left out before anything is sent.
+pub fn duplicates(library: &Path, catalog: &Catalog) -> Result<Vec<DuplicateGroup>> {
+    let reports = catalog.load_reports()?;
+    summary::duplicate_groups(&reports)
+        .into_iter()
+        .map(|(kept, others)| {
+            Ok(DuplicateGroup {
+                photo: photo_view(library, catalog, kept)?,
+                folder: folder_of(kept),
+                bytes: kept.bytes,
+                confirmed: kept.hashed && others.iter().all(|o| o.hashed),
+                copies: others
+                    .iter()
+                    .map(|o| CopyView {
+                        name: o
+                            .path
+                            .file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_default(),
+                        folder: folder_of(o),
+                    })
+                    .collect(),
+            })
+        })
+        .collect()
+}
+
 /// Keeps or skips the one file whose content id starts with `id`.
 pub fn set_photo_kept(catalog: &Catalog, id: &str, keep: bool) -> Result<()> {
     let Some((_, _, hash)) = catalog.find_item(id)? else {
@@ -379,6 +439,16 @@ pub(crate) mod tests {
         let (_dir, library, catalog) = world();
         let d = discover(&library, &catalog).unwrap();
         assert_eq!((d.photos, d.videos, d.duplicates, d.junk), (3, 0, 1, 0));
+        // The duplicate can be looked at: which copy is kept, which is not.
+        let groups = duplicates(&library, &catalog).unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].copies.len(), 1);
+        assert!(groups[0].confirmed, "a full search has read every byte");
+        assert_ne!(
+            (&groups[0].photo.name, &groups[0].folder),
+            (&groups[0].copies[0].name, &groups[0].copies[0].folder),
+            "the two copies are different files on the source"
+        );
         assert_eq!(d.waiting_to_gather, 3);
         // The room they need is the size of the three files kept, the
         // duplicate counted once.

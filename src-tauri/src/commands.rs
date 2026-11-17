@@ -270,6 +270,14 @@ pub fn include_file_type(shared: State<'_, Shared>, id: i64, ending: String, inc
     Ok(())
 }
 
+/// Every file found more than once: which copy is kept, which are left out.
+#[tauri::command]
+pub fn duplicates(shared: State<'_, Shared>) -> Said<Vec<keevoro_engine::DuplicateGroup>> {
+    let library = library(&shared)?;
+    let catalog = Catalog::open_in_library(&library).map_err(say)?;
+    keevoro_engine::duplicates(&library, &catalog).map_err(say)
+}
+
 /// The pictures set aside as probably not memories, with the reason.
 #[tauri::command]
 pub fn set_aside(shared: State<'_, Shared>) -> Said<Vec<PhotoChoice>> {
@@ -827,14 +835,21 @@ pub fn open_place(app: AppHandle, shared: State<'_, Shared>, path: String) -> Sa
     let library = library(&shared)?;
     let catalog = Catalog::open_in_library(&library).map_err(say)?;
     let mut known = vec![library.display().to_string(), keevoro_engine::friendly_path(&library)];
+    // A folder inside a source is known too, so a copy can be looked at.
+    let mut inside_a_source = false;
     for source in catalog.sources().map_err(say)? {
-        known.push(keevoro_engine::friendly_path(&source.root));
+        let shown = keevoro_engine::friendly_path(&source.root);
+        inside_a_source |= std::path::Path::new(&path).starts_with(&shown)
+            && !std::path::Path::new(&path)
+                .components()
+                .any(|c| c == std::path::Component::ParentDir);
+        known.push(shown);
         known.push(source.root.display().to_string());
     }
     if let Some(saved) = Saved::load(&catalog).map_err(say)?.filter(|s| s.kind == "folder") {
         known.push(saved.place);
     }
-    if !known.contains(&path) {
+    if !known.contains(&path) && !inside_a_source {
         return Err("Keevoro doesn't know that folder.".to_string());
     }
     if !std::path::Path::new(&path).is_dir() {

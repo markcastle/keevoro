@@ -404,6 +404,29 @@ export function demoBackend(): Backend {
       if (!found) throw new Error('That collection isn\u2019t there any more.')
       return filesOf(found).map((file) => ({ ...file }))
     },
+    // Two made-up duplicates: one checked byte for byte, one still being checked.
+    duplicates: async () =>
+      collections.length === 0
+        ? []
+        : [
+            {
+              ...photo('IMG_2041.jpg'),
+              folder: 'E:\\Holidays\\Cornwall 2019',
+              bytes: 4.2 * 1024 * 1024,
+              confirmed: true,
+              copies: [
+                { name: 'IMG_2041.jpg', folder: 'E:\\Backup of phone\\DCIM' },
+                { name: 'IMG_2041 (1).jpg', folder: 'E:\\Downloads' },
+              ],
+            },
+            {
+              ...photo('DJI_0042.MP4'),
+              folder: 'E:\\Drone\\Lake District',
+              bytes: 3.9 * 1024 ** 3,
+              confirmed: false,
+              copies: [{ name: 'DJI_0042.MP4', folder: 'E:\\Drone\\Unsorted' }],
+            },
+          ],
     setAside: async () => junk.map((file) => ({ ...file })),
     // Every source in the stand-in has the same made-up mix of kinds.
     fileTypes: async () => kinds.map((k) => ({ ...k })),

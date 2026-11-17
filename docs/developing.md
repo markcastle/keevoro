@@ -74,6 +74,12 @@ cargo check -p keevoro-frame --target aarch64-apple-darwin --tests
 
 Its real test (`tests/native.rs`) decodes a tiny sample video and only runs on Windows and macOS, so CI is where it proves itself.
 
+### What a backup looks like on disk
+
+A backup has three folders: `originals` (the files themselves, never altered), `renditions` (thumb, display, poster and video versions made for looking at, each named after a fingerprint of its original) and `index` (the list a gallery reads). `crates/keevoro-engine/src/layout.rs` holds the explanation of these in plain words and writes it into every backup as "What is in this backup.txt". The app shows the same on the backup screen.
+
+If you add a folder to what a backup holds, add it to `PARTS` in `layout.rs` and to the list in `ui/src/App.tsx`. A test in `send.rs` fails if a backup contains a folder the note does not explain, so this cannot be forgotten quietly.
+
 ### How a photo gets opened
 
 Opening a photo is the slow part of making previews, and there is more than one way to do it, so the ways sit behind one small trait in `crates/keevoro-media/src/decode.rs`:

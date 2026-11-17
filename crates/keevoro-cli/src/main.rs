@@ -1104,7 +1104,8 @@ mod tests {
         // The backup mirrors the library, minus the catalog.
         let stored: Vec<String> = files(&backup)
             .into_iter()
-            .filter(|f| !f.starts_with("index/"))
+            // The index and the note explaining the backup are written there, not copied.
+            .filter(|f| !f.starts_with("index/") && f != keevoro_engine::layout::GUIDE_NAME)
             .collect();
         let local: Vec<String> = files(&lib_dir)
             .into_iter()

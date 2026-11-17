@@ -23,6 +23,7 @@ pub mod connect;
 pub mod deep;
 pub mod discover;
 pub mod history;
+pub mod layout;
 pub mod preview;
 pub mod room;
 pub mod send;
@@ -32,7 +33,7 @@ pub use discover::{
     collection_photos, discover, set_aside, set_collection_kept, set_photo_kept, CollectionView, Discover, PhotoChoice,
     PhotoView, SourceView,
 };
-pub use discover::{forget_source, friendly_path};
+pub use discover::{duplicates, forget_source, friendly_path, CopyView, DuplicateGroup};
 pub use preview::preview;
 
 use anyhow::{bail, Context, Result};

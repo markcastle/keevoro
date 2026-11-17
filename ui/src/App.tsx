@@ -25,6 +25,7 @@ import type { ReactNode } from 'react'
 import { backend } from './backend'
 import type {
   Acceleration,
+  Duplicate,
   Activity,
   AppState,
   Backend,
@@ -56,7 +57,7 @@ import type { Theme } from './theme'
 
 type Step = 'find' | 'choose' | 'send'
 /** Looking inside a collection, or at what was set aside, sits on top of step 2. */
-type Overlay = { collection: Collection } | 'setAside' | 'settings' | 'activity' | null
+type Overlay = { collection: Collection } | 'setAside' | 'duplicates' | 'settings' | 'activity' | null
 
 const STEPS: { id: Step; title: string }[] = [
   { id: 'find', title: 'Find your photos' },
@@ -344,6 +345,8 @@ export function App() {
             onBack={() => setOverlay(null)}
             onProblem={report}
           />
+        ) : overlay === 'duplicates' ? (
+          <DuplicatesScreen api={api} onBack={() => setOverlay(null)} onProblem={report} />
         ) : overlay ? (
           <PhotosScreen
             api={api}
@@ -383,6 +386,7 @@ export function App() {
             onKeep={keep}
             onOpen={(collection) => setOverlay({ collection })}
             onSetAside={() => setOverlay('setAside')}
+            onDuplicates={() => setOverlay('duplicates')}
             next={
               waiting > 0 ? (
                 <Next
@@ -572,6 +576,9 @@ function FindScreen(props: {
   next: ReactNode
 }) {
   const { api, found, scan, justFound, onProblem } = props
+  // A search passes through folders far faster than anyone can read, so the
+  // one named on screen changes only every second and a half.
+  const folder = useSteady(scan?.folder, 1500)
   const [places, setPlaces] = useState<Place[] | null>(null)
   // The source the person has asked to remove, until they confirm.
   const [removing, setRemoving] = useState<number | null>(null)
@@ -654,9 +661,9 @@ function FindScreen(props: {
           {scan.files !== undefined && !scan.saving && (
             <p className="quiet small doing" aria-live="off">
               Looked at {count(scan.files, 'file')} so far
-              {scan.folder && (
+              {(folder ?? scan.folder) && (
                 <>
-                  . Now in <span className="where">{scan.folder}</span>
+                  . Now in <span className="where">{folder ?? scan.folder}</span>
                 </>
               )}
             </p>
@@ -1305,6 +1312,7 @@ function ChooseScreen(props: {
   onKeep: (collection: Collection, kept: boolean) => void
   onOpen: (collection: Collection) => void
   onSetAside: () => void
+  onDuplicates: () => void
   next: ReactNode
 }) {
   const { found } = props
@@ -1366,7 +1374,11 @@ function ChooseScreen(props: {
       {found && hero && (found.duplicates > 0 || found.junk > 0) && (
         <p className="tidied">
           Keevoro has already tidied up:{' '}
-          {found.duplicates > 0 && <span>{count(found.duplicates, 'duplicate')} will be kept only once</span>}
+          {found.duplicates > 0 && (
+            <button className="link" onClick={props.onDuplicates}>
+              {count(found.duplicates, 'duplicate')} will be kept only once
+            </button>
+          )}
           {found.duplicates > 0 && found.junk > 0 && ', and '}
           {found.junk > 0 && (
             <button className="link" onClick={props.onSetAside}>
@@ -1783,6 +1795,58 @@ function SendPanel(props: {
               {said.problem}
             </p>
           )}
+          <details className="sends layout">
+            <summary>What is in the backup</summary>
+            <p>
+              Your photos and videos are in <code>originals</code>, untouched.
+              Everything else is there to make them quick to look through, and
+              can be made again.
+            </p>
+            <dl>
+              <dt>
+                <code>originals</code>
+              </dt>
+              <dd>
+                Your photos and videos exactly as they were on your sources,
+                each checked against the original after it was copied. This
+                folder is the backup. Inside, there is one folder per
+                collection, and <code>By date</code> for anything that did not
+                belong to one.
+              </dd>
+              <dt>
+                <code>renditions</code>
+              </dt>
+              <dd>
+                A rendition is a version of a photo or video made for looking
+                at, not for keeping. Keevoro makes them so a gallery can show
+                your photos quickly: <code>thumb</code> for small pictures in a
+                grid, <code>display</code> for screen-sized ones,{' '}
+                <code>poster</code> for a still of each video, and{' '}
+                <code>video</code> for versions of old videos that modern
+                devices can play. Safe to delete if you need the room.
+              </dd>
+              <dt>
+                <code>index</code>
+              </dt>
+              <dd>
+                The list of what is in the backup: every photo and video, its
+                date, its collection and where its renditions are. A gallery
+                website or app reads <code>gallery.json</code> from here.
+              </dd>
+              <dt>
+                <code>What is in this backup.txt</code>
+              </dt>
+              <dd>
+                This same explanation, kept with the backup so it is there even
+                without Keevoro.
+              </dd>
+            </dl>
+            <p>
+              To get your photos back you do not need Keevoro: copy the{' '}
+              <code>originals</code> folder to wherever you want them. They are
+              ordinary files.
+            </p>
+          </details>
         {history.length > 0 && !running && (
             <details className="sends">
               <summary>How earlier backups went</summary>
@@ -1895,6 +1959,101 @@ function PhotosScreen(props: {
   )
 }
 
+/** How many duplicates are drawn at once. More than this is only a wall of rows. */
+const DUPLICATES_SHOWN = 200
+
+/**
+ * Every file found more than once: the copy being kept beside the copies
+ * left out, so a person can see Keevoro got it right before anything is
+ * backed up. Nothing can be changed here, because there is nothing to
+ * lose: a copy is only left out when it is the same file, byte for byte.
+ */
+function DuplicatesScreen(props: { api: Backend; onBack: () => void; onProblem: (error: unknown) => void }) {
+  const { api, onProblem } = props
+  const [found, setFound] = useState<Duplicate[] | null>(null)
+  useEffect(() => {
+    let current = true
+    api
+      .duplicates()
+      .then((list) => current && setFound(list))
+      .catch(onProblem)
+    return () => {
+      current = false
+    }
+  }, [api, onProblem])
+  const leftOut = found?.reduce((n, d) => n + d.copies.length, 0) ?? 0
+  const unsure = found?.filter((d) => !d.confirmed).length ?? 0
+  const show = (folder: string) => api.openPlace(folder).catch(onProblem)
+
+  return (
+    <section className="photos duplicates">
+      <header>
+        <button className="link back" onClick={props.onBack}>
+          ‹ Back
+        </button>
+        <h1>Duplicates</h1>
+        <p className="status">
+          {found
+            ? found.length === 0
+              ? 'No file was found more than once.'
+              : `${count(found.length, 'file')} ${found.length === 1 ? 'was' : 'were'} found more than once. One copy of each is kept, and ${thousands(leftOut)} extra ${leftOut === 1 ? 'copy is' : 'copies are'} left out.`
+            : 'Looking…'}
+        </p>
+      </header>
+      {found && found.length > 0 && (
+        <div className="knows">
+          <p>
+            <b>How Keevoro knows.</b> Two files count as duplicates only when every byte of one matches every byte of
+            the other. The same name, size or date is never enough, and two photos that merely look alike are both
+            kept. So a copy left out here is not a different photo: it is the same file in a second place.
+          </p>
+          {unsure > 0 && (
+            <p>
+              {count(unsure, 'file')} below {unsure === 1 ? 'is' : 'are'} marked <b>still being checked</b>. Those copies match so far
+              but have not been read all the way through yet. Keevoro finishes reading them before it backs anything
+              up, and if they turn out to differ, both are kept.
+            </p>
+          )}
+          <p className="quiet small">Nothing on your sources is changed or deleted. Left out only means not backed up twice.</p>
+        </div>
+      )}
+      <ul className="groups">
+        {found?.slice(0, DUPLICATES_SHOWN).map((d) => (
+          <li key={d.id}>
+            <Picture api={api} photo={d} />
+            <div>
+              <p className="name">
+                <b>{d.name}</b> <span className="quiet">{size(d.bytes)}</span>
+                {!d.confirmed && <span className="badge">still being checked</span>}
+              </p>
+              <p className="copy kept">
+                <span className="mark">Kept</span>
+                <button className="link where" onClick={() => show(d.folder)} title="Show this folder">
+                  {d.folder}
+                </button>
+              </p>
+              {d.copies.map((c, i) => (
+                <p className="copy" key={i}>
+                  <span className="mark">Left out</span>
+                  <button className="link where" onClick={() => show(c.folder)} title="Show this folder">
+                    {c.folder}
+                  </button>
+                  {c.name !== d.name && <span className="quiet"> as {c.name}</span>}
+                </p>
+              ))}
+            </div>
+          </li>
+        ))}
+      </ul>
+      {found && found.length > DUPLICATES_SHOWN && (
+        <p className="quiet">
+          Showing the first {thousands(DUPLICATES_SHOWN)} of {thousands(found.length)}.
+        </p>
+      )}
+    </section>
+  )
+}
+
 /** One picture, fetched when first shown. A gentle placeholder until then. */
 function Picture(props: { api: Backend; photo: Photo }) {
   const { api, photo } = props
@@ -1921,6 +2080,24 @@ function Picture(props: { api: Backend; photo: Photo }) {
       {photo.isVideo && url && <span className="play" aria-label="Video" />}
     </div>
   )
+}
+
+/**
+ * A value that changes on screen no more often than `every` milliseconds,
+ * however fast it really changes. For words a person is meant to read:
+ * text replaced many times a second is only a flicker.
+ */
+function useSteady<T>(value: T, every: number): T {
+  const [shown, setShown] = useState(value)
+  const latest = useRef(value)
+  useEffect(() => {
+    latest.current = value
+  }, [value])
+  useEffect(() => {
+    const timer = window.setInterval(() => setShown(latest.current), every)
+    return () => window.clearInterval(timer)
+  }, [every])
+  return shown
 }
 
 function Spinner() {

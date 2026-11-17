@@ -117,6 +117,10 @@ Done when a non-technical tester gets from a drive to a backup without help.
 - [ ] Fingerprint a file while copying it, so a file gathered straight after a search is read once, not twice
 - [ ] `keevoro scan --quick` for the command line (it still reads every file whole)
 - [x] Stop a search part-way (nothing from a stopped search is kept)
+- [x] Review duplicates before backing up: the copy kept, the copies left out, and where each is
+- [ ] Choose which copy of a duplicate is the one kept (today Keevoro picks the best filed one)
+- [ ] Spot duplicates across different backups, not only across the sources of one
+- [ ] Near-duplicates: the same photo resized or re-saved (shown for review, never left out automatically)
 - [ ] Show roughly how long a search has left
 - [x] Camera raw files are never judged by the preview size in their header
 - [x] Per-source choice of which kinds of file to include, folded away for those who want it
