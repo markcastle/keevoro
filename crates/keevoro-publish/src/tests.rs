@@ -72,6 +72,9 @@ impl ObjectStore for Flaky {
     async fn head(&self, key: &ObjectKey) -> Result<Option<ObjectInfo>, StorageError> {
         self.inner.head(key).await
     }
+    async fn holds_exactly(&self, key: &ObjectKey, blake3: &str) -> Result<Option<bool>, StorageError> {
+        self.inner.holds_exactly(key, blake3).await
+    }
     async fn get(&self, key: &ObjectKey) -> Result<Vec<u8>, StorageError> {
         self.inner.get(key).await
     }
@@ -500,6 +503,44 @@ async fn stopping_lets_the_files_under_way_finish_and_starts_no_more() {
     assert!(r.stopped);
     assert!(r.uploaded >= 3 && r.uploaded < 10, "{} were sent", r.uploaded);
     assert_eq!(r.failed.len(), 0, "a file under way is finished, not abandoned");
+}
+
+#[tokio::test]
+async fn a_different_file_of_the_same_name_and_size_is_never_counted_as_the_original() {
+    let w = World::new().await;
+    // Something else is already in the backup under this name, the same size.
+    let other = vec![1u8; 5000];
+    let already = w.file("originals/photo.jpg", &other, true);
+    w.publish(std::slice::from_ref(&already), &quick()).await;
+
+    // A fresh record, as on another computer, and a different photo of that name.
+    let fresh = Catalog::in_memory().unwrap();
+    let mine = vec![2u8; 5000];
+    let mut upload = w.file("originals/photo.jpg", &mine, true);
+    upload
+        .metadata
+        .insert("blake3".into(), blake3::hash(&mine).to_hex().to_string());
+    let r = publish(&w.store, &fresh, "test", &[upload.clone()], &quick(), &mut |_| {})
+        .await
+        .unwrap();
+    assert_eq!(
+        (r.uploaded, r.already_there, r.failed.len()),
+        (0, 0, 1),
+        "refused, not counted as there"
+    );
+    assert!(
+        w.stored("originals/photo.jpg").await == other,
+        "and what was there is untouched"
+    );
+
+    // The very same file already there is recognised as itself.
+    let mut same = w.file("originals/photo.jpg", &other, true);
+    same.metadata
+        .insert("blake3".into(), blake3::hash(&other).to_hex().to_string());
+    let r = publish(&w.store, &fresh, "test", &[same], &quick(), &mut |_| {})
+        .await
+        .unwrap();
+    assert_eq!((r.already_there, r.failed.len()), (1, 0));
 }
 
 #[tokio::test]

@@ -743,6 +743,8 @@ pub fn scan_place(app: AppHandle, shared: State<'_, Shared>, path: String) -> Sa
             stopped: false,
             finished: false,
             problem: None,
+            unreadable: 0,
+            unreadable_names: Vec::new(),
         };
         let mut last_progress = keevoro_scan::ScanProgress::default();
         let result = Catalog::open_in_library(&library)
@@ -831,6 +833,18 @@ pub fn scan_place(app: AppHandle, shared: State<'_, Shared>, path: String) -> Sa
                 saving: false,
                 stopped: was_stopped,
                 finished: true,
+                // What could not be read is said on the screen, not only in the log.
+                unreadable: result.as_ref().map_or(0, |r| r.unreadable.len()),
+                unreadable_names: result.as_ref().map_or_else(
+                    |_| Vec::new(),
+                    |r| {
+                        r.unreadable
+                            .iter()
+                            .take(5)
+                            .map(|u| keevoro_engine::friendly_path(&u.path))
+                            .collect()
+                    },
+                ),
                 problem: result.err().map(say),
             },
         );

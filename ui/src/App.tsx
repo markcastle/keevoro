@@ -867,6 +867,16 @@ function FindScreen(props: {
                     Found {photosAndVideos(justFound.photos, justFound.videos)} on {justFound.name}
                   </h2>
                   <p className="quiet">You can add another place below, or carry on.</p>
+                  {(justFound.unreadable ?? 0) > 0 && (
+                    <p className="quiet small unreadable">
+                      {count(justFound.unreadable ?? 0, 'file')} could not be read and{' '}
+                      {justFound.unreadable === 1 ? 'was' : 'were'} left out, usually because the file is damaged or
+                      this account is not allowed to open it:{' '}
+                      <span className="where">{(justFound.unreadableNames ?? []).join(', ')}</span>
+                      {(justFound.unreadable ?? 0) > (justFound.unreadableNames ?? []).length && ' and more'}. The full
+                      list is in the log, in Settings.
+                    </p>
+                  )}
                 </>
               )}
             </div>
@@ -1202,7 +1212,7 @@ function AboutScreen(props: { api: Backend; version: string; onBack: () => void;
         <h2>Your photos are safe with Keevoro</h2>
         <p>
           These are the only copies some people have of the people and places they love. Keevoro is built around a few
-          rules that it never breaks, and each one is checked by tests every time the app changes.
+          rules it is made never to break, and automated tests guard them every time the app changes.
         </p>
         <dl className="promises">
           <dt>Your sources are only ever read</dt>
@@ -1213,15 +1223,18 @@ function AboutScreen(props: { api: Backend; version: string; onBack: () => void;
           </dd>
           <dt>A copy only counts when it is proved exact</dt>
           <dd>
-            Every file is fingerprinted from its whole contents. A copy written to a folder or a drive is read back
-            and compared with that fingerprint before Keevoro calls it safe, and one that does not match is thrown
-            away and said so. A copy sent to cloud storage travels over an encrypted, error-checked connection, and
-            “Check they all arrived” confirms each one is there and the right size.
+            Every file is fingerprinted from its whole contents. An original written to a folder or a drive is read
+            back and compared with that fingerprint before Keevoro calls it safe, and one that does not match is
+            thrown away and said so. If a file of the same name is already there, it is fingerprinted too, and
+            counted only if it is the same file. An original sent to Cloudflare R2 or Amazon S3 travels over an
+            encrypted, error-checked connection, and “Check they all arrived” confirms each one is there and the
+            right size.
           </dd>
-          <dt>Nothing in a backup is ever replaced or removed</dt>
+          <dt>No original in a backup is ever replaced or removed</dt>
           <dd>
             An original, once backed up, is never overwritten. Two different photos with the same name are both kept.
-            Deleting a photo from a source does not delete it from your backup.
+            Deleting a photo from a source does not delete it from your backup. Only what Keevoro makes itself, the
+            previews and the list of contents, is ever rewritten.
           </dd>
           <dt>Duplicates are exact, never guesses</dt>
           <dd>
@@ -1230,8 +1243,9 @@ function AboutScreen(props: { api: Backend; version: string; onBack: () => void;
           </dd>
           <dt>Nothing is hidden from you</dt>
           <dd>
-            Anything set aside is listed with the reason and can be brought back. Anything that could not be read or
-            sent is said, by name.
+            Anything set aside is listed with the reason and can be brought back. Anything that could not be read is
+            counted on screen and listed by name in the log, and anything that could not be backed up is named when
+            the backup ends.
           </dd>
           <dt>You never need Keevoro to get your photos back</dt>
           <dd>
@@ -1242,7 +1256,8 @@ function AboutScreen(props: { api: Backend; version: string; onBack: () => void;
           <dd>
             There is no Keevoro account and no Keevoro server. Your files go from your source to the destination you
             chose and nowhere else. Storage keys are kept in this computer’s own keychain. The only thing Keevoro
-            contacts by itself is GitHub, to see whether there is a newer version.
+            contacts by itself is GitHub, to see whether there is a newer version. On this computer it keeps only
+            its working notes: a list of what it found, small previews, and a log of what it did.
           </dd>
         </dl>
         <p className="quiet small">

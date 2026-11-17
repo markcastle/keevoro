@@ -56,6 +56,16 @@ pub struct ScanEvent {
     pub finished: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub problem: Option<String>,
+    /// On the last event: how many files could not be read, and the first
+    /// few by name. All of them are in the log.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub unreadable: usize,
+    #[serde(rename = "unreadableNames", skip_serializing_if = "Vec::is_empty")]
+    pub unreadable_names: Vec<String>,
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
 }
 
 /// Progress backing up or checking, and a last one when it is done.
@@ -204,6 +214,8 @@ mod tests {
             stopped: false,
             finished: false,
             problem: None,
+            unreadable: 0,
+            unreadable_names: Vec::new(),
         };
         assert_eq!(
             serde_json::to_value(&scan).unwrap(),

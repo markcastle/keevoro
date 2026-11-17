@@ -129,6 +129,17 @@ pub trait ObjectStore: Send + Sync {
     /// `Ok(None)` when the object does not exist.
     async fn head(&self, key: &ObjectKey) -> Result<Option<ObjectInfo>, StorageError>;
 
+    /// Is what is stored under `key` exactly the file with this BLAKE3
+    /// fingerprint? `Some(true)` or `Some(false)` from a store that can
+    /// read its own contents cheaply and has done so; `None` from one that
+    /// cannot tell without downloading the whole object, which is the
+    /// default. Used before an object already there is counted as backed
+    /// up, so that a different file under the same name is never mistaken
+    /// for the original.
+    async fn holds_exactly(&self, _key: &ObjectKey, _blake3: &str) -> Result<Option<bool>, StorageError> {
+        Ok(None)
+    }
+
     async fn get(&self, key: &ObjectKey) -> Result<Vec<u8>, StorageError>;
 
     async fn put(&self, key: &ObjectKey, body: ByteSource, opts: &PutOptions) -> Result<PutReceipt, StorageError>;

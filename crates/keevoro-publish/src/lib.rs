@@ -343,7 +343,7 @@ async fn send(
     // sending gigabytes only to be told the file is already there.
     if upload.write_once && (in_parts || !caps.conditional_create) {
         if let Some(found) = with_retries(opts, || store.head(&upload.key)).await? {
-            return same_or_refuse(upload, found.bytes).map_err(Into::into);
+            return same_or_refuse(store, upload, found.bytes).await.map_err(Into::into);
         }
     }
     let put = PutOptions {
@@ -377,21 +377,35 @@ async fn send(
         Ok(()) => Ok(Outcome::Sent),
         Err(SendError::Storage(StorageError::AlreadyExists(_))) => {
             let found = with_retries(opts, || store.head(&upload.key)).await?;
-            same_or_refuse(upload, found.map_or(u64::MAX, |f| f.bytes)).map_err(Into::into)
+            same_or_refuse(store, upload, found.map_or(u64::MAX, |f| f.bytes))
+                .await
+                .map_err(Into::into)
         }
         Err(e) => Err(e),
     }
 }
 
-/// An object is already stored under this key. If it is the same size it is
-/// taken to be the same file (keys are unique per file in a library);
-/// otherwise the upload is refused rather than replace an original.
-fn same_or_refuse(upload: &Upload, stored_bytes: u64) -> Result<Outcome, StorageError> {
-    if stored_bytes == upload.bytes {
-        Ok(Outcome::AlreadyThere)
-    } else {
-        Err(StorageError::AlreadyExists(upload.key.to_string()))
+/// An object is already stored under this key. It counts as the file being
+/// sent only if it is the same size and, where the store can read its own
+/// contents, has the same fingerprint. Otherwise the upload is refused
+/// rather than replace what is there or pretend it is the original. A
+/// store that cannot tell without downloading the object (cloud storage)
+/// is believed on size, since keys are unique per file in a library.
+async fn same_or_refuse(
+    store: &dyn MultipartStore,
+    upload: &Upload,
+    stored_bytes: u64,
+) -> Result<Outcome, StorageError> {
+    let different = || Err(StorageError::AlreadyExists(upload.key.to_string()));
+    if stored_bytes != upload.bytes {
+        return different();
     }
+    if let Some(fingerprint) = upload.metadata.get("blake3") {
+        if store.holds_exactly(&upload.key, fingerprint).await? == Some(false) {
+            return different();
+        }
+    }
+    Ok(Outcome::AlreadyThere)
 }
 
 async fn send_in_parts(

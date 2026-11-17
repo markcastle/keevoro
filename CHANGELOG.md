@@ -6,7 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **A file already at the destination is fingerprinted before it counts.** When a backup to a folder or drive found a file of the same name and size already there, Keevoro took it to be the same file. It now reads that file and compares its fingerprint. If it is a different file, yours is reported as not backed up, and what is there is left alone.
+- **Files that could not be read are said on screen.** After looking through a source, Keevoro now says how many files it could not read and names the first few. They used to be listed only in the log.
+- **The promises on the About page say exactly what Keevoro does.** Each was checked against the code. Four were worded more strongly than was true and have been made exact: which copies are read back and compared, that it is originals that are never replaced (previews and the list of contents are rewritten), where unreadable files are reported, and what Keevoro keeps on this computer.
 
 ## [0.27.0] - 2026-11-17
 
