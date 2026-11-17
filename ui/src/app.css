@@ -2631,3 +2631,17 @@ main > section > :nth-last-child(2) {
     animation: none;
   }
 }
+
+/* The side bar link to the activity page, with what is being done beneath. */
+.link.doing {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+}
+
+.link.doing span {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 400;
+}

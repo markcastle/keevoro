@@ -510,6 +510,8 @@ pub static HISTORY: std::sync::Mutex<crate::activity::History> = std::sync::Mute
 #[serde(rename_all = "camelCase")]
 pub struct ActivityView {
     paused: bool,
+    /// What it is doing in one line, or `None` when idle.
+    doing: Option<String>,
     jobs: Vec<crate::activity::Job>,
     /// One a second, oldest first, for the last two minutes at most.
     samples: Vec<crate::activity::Sample>,
@@ -524,13 +526,11 @@ pub fn activity(shared: State<'_, Shared>) -> ActivityView {
         .lock()
         .map(|h| (h.samples(), h.memory_bytes()))
         .unwrap_or_default();
+    let now = keevoro_core::doing::now();
     ActivityView {
         paused: keevoro_core::pause::is_paused(),
-        jobs: crate::activity::jobs(
-            shared.scanning.load(Ordering::SeqCst),
-            shared.checking.load(Ordering::SeqCst),
-            shared.sending.load(Ordering::SeqCst),
-        ),
+        doing: crate::activity::in_a_line(&now),
+        jobs: crate::activity::jobs(&now),
         samples,
         memory_bytes,
         cores: std::thread::available_parallelism().map_or(1, std::num::NonZero::get),

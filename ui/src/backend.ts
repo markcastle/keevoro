@@ -199,6 +199,8 @@ export type SendProgress = {
 /** What Keevoro is doing, why, and how hard it has been working. */
 export type Activity = {
   paused: boolean
+  /** What it is doing in one line, for a glance; null when idle. */
+  doing: string | null
   jobs: { what: string; why: string }[]
   /** One a second, oldest first, for the last two minutes at most. */
   samples: Sample[]

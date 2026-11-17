@@ -120,6 +120,7 @@ pub async fn publish(
     opts: &PublishOptions,
     on_progress: &mut dyn FnMut(&PublishProgress),
 ) -> Result<PublishReport, CatalogError> {
+    let _busy = keevoro_core::doing::doing(keevoro_core::doing::Work::BackingUp);
     let mut report = PublishReport::default();
     let mut progress = PublishProgress {
         done: 0,

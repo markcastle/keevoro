@@ -93,6 +93,25 @@ export function App() {
     setProblem(error instanceof Error ? error.message : String(error))
   }, [])
 
+  // What Keevoro is busy with, in a line, shown in the side bar on every
+  // screen. Asked every couple of seconds; it costs next to nothing.
+  const [doing, setDoing] = useState<string | null>(null)
+  useEffect(() => {
+    if (!api) return
+    let open = true
+    const ask = () =>
+      api
+        .activity()
+        .then((a) => open && setDoing(a.doing))
+        .catch(() => {})
+    void ask()
+    const timer = window.setInterval(ask, 2000)
+    return () => {
+      open = false
+      window.clearInterval(timer)
+    }
+  }, [api])
+
   const refresh = useCallback((from: Backend) => from.discover().then(setFound).catch(report), [report])
 
   useEffect(() => {
@@ -257,8 +276,13 @@ export function App() {
               </button>
             </span>
           )}
-          <button className="link" onClick={() => setOverlay('activity')}>
+          <button className="link doing" onClick={() => setOverlay('activity')}>
             What Keevoro is doing
+            {doing && !paused && (
+              <span className="quiet small" role="status">
+                <Spinner /> {doing}
+              </span>
+            )}
           </button>
           <button className="link" onClick={() => setOverlay('settings')}>
             Settings
@@ -921,7 +945,7 @@ function ActivityScreen(props: {
           {now.paused
             ? 'Paused. Keevoro is waiting and using almost nothing.'
             : busy
-              ? 'Keevoro is working. Here is what on, why, and how much of your computer it is using.'
+              ? `${now.doing ?? 'Working'}. Here is why, and how much of your computer it is using.`
               : 'Nothing at the moment. Keevoro is idle.'}
         </p>
       </header>

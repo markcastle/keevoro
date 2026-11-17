@@ -6,6 +6,7 @@
 //! computer's) and names each job in hand with the reason for it, so the
 //! person can see what is going on and pause it if they need the computer.
 
+use keevoro_core::doing::Work;
 use serde::Serialize;
 use std::collections::VecDeque;
 use std::sync::Mutex;
@@ -101,38 +102,81 @@ impl History {
 /// One thing Keevoro is doing, and why.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Job {
-    /// What it is doing, as a heading.
+    /// What it is doing, as a heading: two or three plain words.
     pub what: &'static str,
     /// Why, and what it costs the computer, in a sentence or two.
     pub why: &'static str,
 }
 
-/// The jobs in hand, most demanding first.
-pub fn jobs(searching: bool, checking: bool, sending: bool) -> Vec<Job> {
-    let mut list = Vec::new();
-    if sending {
-        list.push(Job {
+/// How one kind of work is said to a person.
+fn said(work: Work) -> Job {
+    match work {
+        Work::BackingUp => Job {
             what: "Backing up your files",
             why: "Reading each photo and video you are keeping and copying it to where you chose. \
-                  This uses the disk steadily, and the network if you are sending to cloud storage.",
-        });
-    }
-    if checking {
-        list.push(Job {
+                  This uses the disk steadily, and the network if you are backing up to cloud storage.",
+        },
+        Work::CheckingForDuplicates => Job {
             what: "Checking for duplicates",
             why: "Reading every file from start to finish, so that true copies can be told from photos \
                   that merely look alike. This is the heaviest thing Keevoro does to the disk. It is \
                   done once per file and remembered.",
-        });
-    }
-    if searching {
-        list.push(Job {
+        },
+        Work::MakingVideoPreviews => Job {
+            what: "Making video previews",
+            why: "Taking a still picture from each video, so a gallery has something to show before \
+                  the video plays. Opening a video is heavy on the processor for a moment each time.",
+        },
+        Work::MakingPreviews => Job {
+            what: "Making previews",
+            why: "Making a small and a screen-sized version of each photo, so the backup is quick to \
+                  look through. This is the heaviest thing Keevoro does to the processor, and it uses \
+                  half the cores at most. Your originals are not changed.",
+        },
+        Work::LookingThroughASource => Job {
             what: "Looking through a source",
             why: "Walking the folders and reading a little of each file to find the photos and videos. \
                   Light on the processor, steady on the disk.",
-        });
+        },
+        Work::MakingThumbnails => Job {
+            what: "Making thumbnails",
+            why: "Making the small pictures for the screen you are looking at. Each is made once and \
+                  kept, so the same screen is quick the next time.",
+        },
     }
-    list
+}
+
+/// The jobs in hand, heaviest first, each in plain words.
+pub fn jobs(now: &[Work]) -> Vec<Job> {
+    now.iter().map(|w| said(*w)).collect()
+}
+
+/// What Keevoro is doing, in one line, for a glance: "Making previews", or
+/// "Backing up your files and making thumbnails" when there are two.
+/// `None` when it is idle.
+pub fn in_a_line(now: &[Work]) -> Option<String> {
+    let whats: Vec<&str> = now.iter().map(|w| said(*w).what).collect();
+    let (first, rest) = whats.split_first()?;
+    let lower = |what: &str| {
+        let mut letters = what.chars();
+        letters
+            .next()
+            .map(|c| c.to_lowercase().chain(letters).collect::<String>())
+            .unwrap_or_default()
+    };
+    Some(match rest {
+        [] => (*first).to_string(),
+        [second] => format!("{first} and {}", lower(second)),
+        [second, others @ ..] => format!(
+            "{first}, {} and {} more",
+            lower(second),
+            if others.len() == 1 {
+                "one".to_string()
+            } else {
+                others.len().to_string()
+            }
+        ),
+    })
 }
 
 /// Measures this program once a second for as long as it runs.
@@ -260,21 +304,43 @@ mod tests {
     }
 
     #[test]
-    fn each_job_says_what_and_why() {
-        assert!(jobs(false, false, false).is_empty());
-        let all = jobs(true, true, true);
+    fn every_kind_of_work_says_what_and_why() {
+        assert!(jobs(&[]).is_empty());
+        let all = jobs(&keevoro_core::doing::ALL);
         let whats: Vec<&str> = all.iter().map(|j| j.what).collect();
         assert_eq!(
             whats,
             [
                 "Backing up your files",
                 "Checking for duplicates",
-                "Looking through a source"
+                "Making video previews",
+                "Making previews",
+                "Looking through a source",
+                "Making thumbnails",
             ]
         );
         for job in all {
+            assert!(
+                job.what.split(' ').count() <= 4,
+                "{} is short enough to read at a glance",
+                job.what
+            );
             assert!(job.why.len() > 60, "{} needs a real reason", job.what);
             assert!(!job.why.contains('!'));
         }
+    }
+
+    #[test]
+    fn what_it_is_doing_fits_in_one_line() {
+        assert_eq!(in_a_line(&[]), None);
+        assert_eq!(in_a_line(&[Work::MakingPreviews]).unwrap(), "Making previews");
+        assert_eq!(
+            in_a_line(&[Work::BackingUp, Work::MakingThumbnails]).unwrap(),
+            "Backing up your files and making thumbnails"
+        );
+        assert_eq!(
+            in_a_line(&[Work::BackingUp, Work::CheckingForDuplicates, Work::MakingThumbnails]).unwrap(),
+            "Backing up your files, checking for duplicates and one more"
+        );
     }
 }

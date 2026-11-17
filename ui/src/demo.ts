@@ -312,7 +312,12 @@ export function demoBackend(): Backend {
       if (usage.length > 120) usage.shift()
       return {
         paused: pausedNow,
+        doing: 'Checking for duplicates and making thumbnails',
         jobs: [
+          {
+            what: 'Making thumbnails',
+            why: 'Making the small pictures for the screen you are looking at. Each is made once and kept, so the same screen is quick the next time.',
+          },
           {
             what: 'Checking for duplicates',
             why: 'Reading every file from start to finish, so that true copies can be told from photos that merely look alike. This is the heaviest thing Keevoro does to the disk. It is done once per file and remembered.',

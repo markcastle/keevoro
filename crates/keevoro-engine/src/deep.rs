@@ -48,6 +48,7 @@ pub fn deep_look(
     on_progress: &mut dyn FnMut(DeepProgress<'_>),
     keep_going: &dyn Fn() -> bool,
 ) -> Result<DeepReport> {
+    let _busy = keevoro_core::doing::doing(keevoro_core::doing::Work::CheckingForDuplicates);
     let waiting: Vec<_> = catalog
         .unhashed()?
         .into_iter()

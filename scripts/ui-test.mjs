@@ -368,7 +368,12 @@ try {
   await page.getByRole('button', { name: 'What Keevoro is doing' }).click()
   await page.getByRole('heading', { name: 'What Keevoro is doing', level: 1 }).waitFor()
   await page.getByRole('heading', { name: 'Checking for duplicates' }).waitFor()
-  assert.match(await text('.activity .jobs p'), /so that true copies can be told from photos that merely look alike/)
+  // What it is doing is said in plain words, at a glance: in the heading
+  // line, as a heading per job, and in the side bar on every screen.
+  assert.match(await text('.activity .status'), /^Checking for duplicates and making thumbnails\. Here is why/)
+  assert.deepEqual(await page.locator('.activity .jobs h2').allInnerTexts().then((l) => l.map((t) => t.trim())), ['Making thumbnails', 'Checking for duplicates'])
+  assert.match(await text('.sidebar .link.doing'), /Checking for duplicates and making thumbnails/)
+  assert.match(await page.locator('.activity .jobs').innerText(), /so that true copies can be told from photos that merely look alike/)
   assert.deepEqual(await page.locator('.chart figcaption b').allInnerTexts(), ['Processor', 'Disk', 'Network', 'Memory'])
   assert.match(await page.locator('.chart .now').first().innerText(), /^[\d.]+%$/)
   assert.match(await page.locator('.chart .now').nth(1).innerText(), /^[\d.]+ MB\/s$/)
