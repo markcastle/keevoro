@@ -24,5 +24,7 @@ pub use folders::{folder_hints, FolderHints};
 pub use junk::{junk_hint, JunkInput, JunkReason};
 pub use layout::{library_folder, numbered_name, safe_name};
 pub use libraries::{holds_originals, library_album_segments, photo_library, PhotoLibrary};
-pub use media::{is_raw_extension, kind_from_extension, kind_from_mime, never_media_extension, MediaKind};
+pub use media::{
+    is_raw_extension, kind_by_ending, kind_from_extension, kind_from_mime, never_media_extension, MediaKind,
+};
 pub use skip::{SkipReason, SkipRules};

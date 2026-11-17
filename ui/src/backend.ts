@@ -47,6 +47,29 @@ export type Duplicate = Photo & {
   copies: { name: string; folder: string }[]
 }
 
+/** A folder a survey suggests looking through, everything beneath it counted in. */
+export type Hint = {
+  folder: string
+  photos: number
+  videos: number
+  bytes: number
+  /** False when the pictures are so small they are probably icons, not photos. */
+  likelyPhotos: boolean
+  alreadyASource: boolean
+}
+
+/** What a survey of a drive found. Counts are by file name alone. */
+export type Survey = {
+  hints: Hint[]
+  folders: number
+  files: number
+  unreadable: number
+  seconds: number
+  stopped: boolean
+}
+
+export type SurveyProgress = { folders: number; files: number; photos: number; videos: number }
+
 /** A drive plugged into this computer, offered as somewhere to look. */
 export type Place = {
   path: string
@@ -259,6 +282,14 @@ export interface Backend {
   places(): Promise<Place[]>
   /** Starts looking through the drive or folder at this path. */
   scanPlace(path: string): Promise<void>
+  /**
+   * Finds which folders in a drive hold photos and videos, by reading
+   * folder listings only. Quick, and no file is opened.
+   */
+  surveyPlace(path: string): Promise<Survey>
+  /** Asks a running survey to stop; it answers with what it has so far. */
+  stopSurvey(): Promise<void>
+  onSurvey(listener: (event: SurveyProgress) => void): () => void
   /** Asks for a folder to look through. Null if cancelled. */
   pickPlace(): Promise<string | null>
   /** The last few hundred lines of the record of what Keevoro did. */
@@ -352,6 +383,9 @@ async function tauriBackend(): Promise<Backend> {
     discover: () => invoke('discover'),
     places: () => invoke('places'),
     scanPlace: (path) => invoke('scan_place', { path }),
+    surveyPlace: (path) => invoke('survey_place', { path }),
+    stopSurvey: () => invoke('stop_survey'),
+    onSurvey: (listener) => subscribe('survey', listener),
     openLibrary: () => invoke('open_library'),
     logTail: () => invoke('log_tail'),
     openLog: () => invoke('open_log'),

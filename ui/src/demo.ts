@@ -22,6 +22,7 @@ import type {
   Sample,
   Sent,
   ScanEvent,
+  SurveyProgress,
   Backup,
 } from './backend'
 
@@ -119,6 +120,7 @@ export function demoBackend(): Backend {
   ]
   const junk: PhotoChoice[] = collections.length === 0 ? [] : junkFound()
   const scanListeners = new Set<(e: ScanEvent) => void>()
+  const surveyListeners = new Set<(e: SurveyProgress) => void>()
   const checkListeners = new Set<(event: CheckEvent) => void>()
   const gatherListeners = new Set<(e: GatherEvent) => void>()
   const sendListeners = new Set<(e: SendEvent) => void>()
@@ -367,6 +369,34 @@ export function demoBackend(): Backend {
       { path: 'E:\\', name: 'KINGSTON (E:)', detail: 'USB or external drive \u00b7 32 GB', removable: true, askFirst: false },
       { path: 'C:\\', name: 'Windows (C:)', detail: 'This computer\u2019s disk \u00b7 512 GB', removable: false, askFirst: true },
     ],
+    // A made-up survey of a big disk: three real places and one of icons.
+    async surveyPlace(path) {
+      const drive = path.replace(/[\\/]+$/, '')
+      for (let step = 1; step <= 4; step++) {
+        surveyListeners.forEach((tell) =>
+          tell({ folders: step * 9_000, files: step * 120_000, photos: step * 3_100, videos: step * 90 }),
+        )
+        await new Promise((r) => setTimeout(r, new URLSearchParams(window.location.search).has('slow') ? 400 : 60))
+      }
+      return {
+        hints: [
+          { folder: `${drive}\\Users\\Mark\\Videos\\Drone`, photos: 333, videos: 26, bytes: 94 * 1024 ** 3, likelyPhotos: true, alreadyASource: false },
+          { folder: `${drive}\\Users\\Mark\\Pictures`, photos: 11_204, videos: 310, bytes: 61 * 1024 ** 3, likelyPhotos: true, alreadyASource: false },
+          { folder: `${drive}\\Old laptop backup\\Photos`, photos: 902, videos: 12, bytes: 3.4 * 1024 ** 3, likelyPhotos: true, alreadyASource: false },
+          { folder: `${drive}\\Games\\Launcher\\assets`, photos: 1_840, videos: 0, bytes: 9 * 1024 ** 2, likelyPhotos: false, alreadyASource: false },
+        ],
+        folders: 36_412,
+        files: 481_907,
+        unreadable: 3,
+        seconds: 6.2,
+        stopped: false,
+      }
+    },
+    stopSurvey: async () => {},
+    onSurvey: (listener) => {
+      surveyListeners.add(listener)
+      return () => surveyListeners.delete(listener)
+    },
     async scanPlace(path) {
       const name = path.startsWith('E')
         ? 'KINGSTON (E:)'

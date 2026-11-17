@@ -50,6 +50,8 @@ pub struct Shared {
     checking: AtomicBool,
     /// Set to stop a search that is running.
     stop_scanning: std::sync::Arc<AtomicBool>,
+    /// Set to stop a survey that is running.
+    stop_survey: std::sync::Arc<AtomicBool>,
     /// How many bytes the send in hand set out to send, and what the
     /// running total stood at when it began.
     send_total: std::sync::atomic::AtomicU64,
@@ -87,6 +89,7 @@ pub fn run() {
                 gathering: AtomicBool::new(false),
                 checking: AtomicBool::new(false),
                 stop_scanning: std::sync::Arc::new(AtomicBool::new(false)),
+                stop_survey: std::sync::Arc::new(AtomicBool::new(false)),
                 send_total: std::sync::atomic::AtomicU64::new(0),
                 send_began_at: std::sync::atomic::AtomicU64::new(0),
                 stop_sending: keevoro_engine::send::Stop::default(),
@@ -114,6 +117,8 @@ pub fn run() {
             commands::discover,
             commands::scan_place,
             commands::stop_scanning,
+            commands::survey_place,
+            commands::stop_survey,
             commands::places,
             commands::open_library,
             commands::check_update,

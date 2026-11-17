@@ -11,6 +11,7 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
+pub mod survey;
 mod video;
 
 use keevoro_core::{

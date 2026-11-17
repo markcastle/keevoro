@@ -271,6 +271,30 @@ try {
   await page.getByRole('button', { name: 'Look through all of it' }).click()
   await page.getByRole('heading', { name: /^Found [\d,]+ photos/ }).waitFor()
 
+  // --- Not sure where the photos are? A quick survey finds the folders,
+  // opening nothing, and the ticked ones are looked through one by one.
+  await page.goto(`${base}/?demo=empty&fast`)
+  await page.getByRole('button', { name: /Windows \(C:\)/ }).click()
+  assert.match(await text('.asking'), /Keevoro can find the folders that hold them first\. That takes seconds/)
+  await page.getByRole('button', { name: 'Find the folders with photos' }).click()
+  await page.getByRole('heading', { name: '4 folders on Windows (C:) seem to hold photos and videos' }).waitFor()
+  assert.match(await text('.survey'), /Looked at 481,907 files in 36,412 folders in 6\.2 seconds, without opening any of them/)
+  const ticks = page.locator('.survey .hints input')
+  assert.deepEqual(
+    await ticks.evaluateAll((boxes) => boxes.map((b) => b.checked)),
+    [true, true, true, false],
+    'real photos are ticked to begin with; probable icons are not',
+  )
+  assert.match(await page.locator('.survey .hints li').last().innerText(), /Small pictures, probably not photos/)
+  await shot('9q-survey')
+  // Unticking one leaves two, and the button says so.
+  await ticks.nth(2).uncheck()
+  await page.getByRole('button', { name: 'Look through these 2 folders' }).click()
+  // Both are looked through, one after the other, with no more asked.
+  await page.locator('.kept li.source').nth(1).waitFor()
+  assert.equal(await page.locator('.kept li.source').count(), 2, 'each ticked folder became a source')
+  assert.equal(await page.locator('.survey').count(), 0)
+
   // --- Settings holds everything in one place, including the log.
   await page.getByRole('button', { name: 'Settings' }).click()
   await page.getByRole('heading', { name: 'Settings', level: 1 }).waitFor()

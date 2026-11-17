@@ -26,17 +26,20 @@ pub enum Work {
     MakingPreviews,
     /// Walking a source to find the photos and videos on it.
     LookingThroughASource,
+    /// Reading folder listings to find where the photos are, opening nothing.
+    Surveying,
     /// Making a picture to show on screen, because one was asked for.
     MakingThumbnails,
 }
 
 /// Every kind, in the order they are reported.
-pub const ALL: [Work; 6] = [
+pub const ALL: [Work; 7] = [
     Work::BackingUp,
     Work::CheckingForDuplicates,
     Work::MakingVideoPreviews,
     Work::MakingPreviews,
     Work::LookingThroughASource,
+    Work::Surveying,
     Work::MakingThumbnails,
 ];
 

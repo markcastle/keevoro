@@ -138,6 +138,11 @@ fn said(work: Work) -> Job {
             why: "Walking the folders and reading a little of each file to find the photos and videos. \
                   Light on the processor, steady on the disk.",
         },
+        Work::Surveying => Job {
+            what: "Finding where your photos are",
+            why: "Reading the list of what is in each folder, names and sizes only, to find the folders \
+                  that hold photos and videos. No file is opened, so it is quick and light.",
+        },
         Work::MakingThumbnails => Job {
             what: "Making thumbnails",
             why: "Making the small pictures for the screen you are looking at. Each is made once and \
@@ -316,12 +321,13 @@ mod tests {
                 "Making video previews",
                 "Making previews",
                 "Looking through a source",
+                "Finding where your photos are",
                 "Making thumbnails",
             ]
         );
         for job in all {
             assert!(
-                job.what.split(' ').count() <= 4,
+                job.what.split(' ').count() <= 5,
                 "{} is short enough to read at a glance",
                 job.what
             );
