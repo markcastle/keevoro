@@ -2904,3 +2904,105 @@ main > section > :nth-last-child(2) {
 .send .adding h2 {
   margin-bottom: var(--space-2);
 }
+
+/* ---------- your sources: one card a source ---------- */
+
+.kept {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.kept li.source {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: var(--space-2) var(--space-5);
+  align-items: center;
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-sm);
+}
+
+.kept li.source .glyph {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-md);
+  background: var(--pine-soft);
+  color: var(--pine);
+}
+
+.kept li.source .glyph svg {
+  width: 24px;
+  height: 24px;
+}
+
+.kept li.source .what {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.kept li.source .what b {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.kept li.source .what .folder {
+  justify-self: start;
+  max-width: 100%;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  color: var(--ink-muted);
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.kept li.source .count {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.kept li.source .count b {
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.kept li.source .row-actions,
+.kept li.source .confirm {
+  gap: var(--space-2);
+}
+
+.kept li.source .types,
+.kept li.source .explain {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 760px) {
+  .kept li.source {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .kept li.source .count {
+    grid-column: 2;
+    justify-items: start;
+  }
+
+  .kept li.source .row-actions,
+  .kept li.source .confirm {
+    grid-column: 2;
+  }
+}
+
+.kept li.source .count .quiet {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  margin: 0;
+}

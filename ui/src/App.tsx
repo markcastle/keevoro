@@ -920,11 +920,17 @@ function FindScreen(props: {
           <ul className="kept">
             {found.sources.map((s) => (
               <li key={s.id} className="source">
-                <span>{s.name}</span>
-                <FolderLink api={api} path={s.root} onProblem={onProblem} />
-                <span className="badge">
-                  {all(s.items)} · {size(s.bytes)}
+                <span className="glyph" aria-hidden>
+                  {wholePlace(s.root) ? <DriveIcon large /> : <FolderIcon large />}
                 </span>
+                <div className="what">
+                  <b>{sourceTitle(s, places)}</b>
+                  <FolderLink api={api} path={s.root} onProblem={onProblem} />
+                </div>
+                <div className="count">
+                  <b>{all(s.items)}</b>
+                  <span className="quiet small">{size(s.bytes)}</span>
+                </div>
                 {removing === s.id ? (
                   <span className="confirm">
                     <button
@@ -970,6 +976,23 @@ function FindScreen(props: {
       {props.next}
     </section>
   )
+}
+
+/**
+ * What to call a source in the list. A source someone named, or a folder,
+ * keeps its name. A whole drive that was only ever known by its letter
+ * ("I:\\") reads as a bare path, so it takes the name the computer gives
+ * the drive when it is plugged in ("KINGSTON (I:)"), or "Drive I:" when not.
+ */
+function sourceTitle(source: Source, places: Place[] | null): string {
+  const bare = (path: string) => path.replace(/[\\/]+$/, '')
+  const named = source.name.trim()
+  if (named !== '' && bare(named) !== bare(source.root)) return named
+  const plugged = places?.find((p) => bare(p.path).toLowerCase() === bare(source.root).toLowerCase())
+  if (plugged) return plugged.name
+  const letter = /^([A-Za-z]):$/.exec(bare(source.root))
+  if (letter) return `Drive ${letter[1].toUpperCase()}:`
+  return bare(source.root).split(/[\\/]/).pop() || source.root
 }
 
 function PlaceCard(props: { place: Place; added: boolean; onClick: () => void }) {
