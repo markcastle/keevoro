@@ -521,3 +521,28 @@ fn a_search_can_be_stopped_part_way() {
     assert!(!whole.stopped);
     assert_eq!(whole.items.len(), 1000);
 }
+
+#[test]
+fn a_raw_file_is_never_judged_by_the_small_preview_in_its_header() {
+    let t = Tree::new();
+    // What a raw file looks like from the outside: a header describing a
+    // small preview. The real photo inside is far bigger.
+    t.add("DCIM/DJI_0001.DNG", &png(160, 120, 1));
+    t.add("DCIM/DJI_0002.dng", &png(256, 256, 2));
+    t.add("DCIM/thumb.png", &png(160, 120, 3));
+    let r = t.scan();
+    for name in ["DJI_0001.DNG", "DJI_0002.dng"] {
+        let raw = item(&r, name);
+        assert_eq!(raw.junk, None, "{name} is a photo, not junk");
+        assert_eq!(
+            (raw.width, raw.height),
+            (None, None),
+            "{name}: the preview's size is not taken as its own"
+        );
+    }
+    assert_eq!(
+        item(&r, "thumb.png").junk,
+        Some(JunkReason::TinyImage),
+        "an ordinary tiny picture still is"
+    );
+}

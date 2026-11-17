@@ -14,9 +14,9 @@
 mod video;
 
 use keevoro_core::{
-    best_date, date_from_filename, folder_hints, holds_originals, junk_hint, kind_from_extension, kind_from_mime,
-    library_album_segments, never_media_extension, photo_library, DateGuess, DateSource, FolderHints, JunkInput,
-    JunkReason, MediaKind, PartialDate, SkipReason, SkipRules,
+    best_date, date_from_filename, folder_hints, holds_originals, is_raw_extension, junk_hint, kind_from_extension,
+    kind_from_mime, library_album_segments, never_media_extension, photo_library, DateGuess, DateSource, FolderHints,
+    JunkInput, JunkReason, MediaKind, PartialDate, SkipReason, SkipRules,
 };
 use serde::Serialize;
 use std::fs::File;
@@ -384,7 +384,12 @@ fn examine(root: &Path, path: &Path, opts: &ScanOptions) -> std::io::Result<Opti
                     source: DateSource::Exif,
                 });
             }
-            size = pixel_size(&mut file);
+            // A raw file's header gives the size of its small built-in
+            // preview, not of the photo, so it is not read at all: better
+            // not to know than to be fooled into calling it tiny.
+            if !is_raw_extension(&ext) {
+                size = pixel_size(&mut file);
+            }
         }
         MediaKind::Video => {
             if let Some(d) = video::recording_date(&mut file) {

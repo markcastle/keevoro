@@ -108,6 +108,8 @@ pub fn run() {
             commands::collection_photos,
             commands::set_aside,
             commands::forget_source,
+            commands::file_types,
+            commands::include_file_type,
             commands::keep_photo,
             commands::preview,
             commands::gather,

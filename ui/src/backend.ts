@@ -45,6 +45,12 @@ export type Place = {
   askFirst: boolean
 }
 
+/**
+ * One kind of file found on a source, by the ending of its name (`jpg`,
+ * `dng`, `mp4`), and whether the person is including it.
+ */
+export type FileType = { ending: string; files: number; bytes: number; included: boolean }
+
 export type Source = {
   id: number
   name: string
@@ -186,6 +192,10 @@ export interface Backend {
   keepCollection(key: string, keep: boolean): Promise<void>
   /** Every file in a collection, in date order. */
   collectionPhotos(key: string): Promise<PhotoChoice[]>
+  /** The kinds of file found on a source, most numerous first. */
+  fileTypes(id: number): Promise<FileType[]>
+  /** Includes or leaves out every file of one kind on one source. */
+  includeFileType(id: number, ending: string, included: boolean): Promise<void>
   /** Stops remembering a source. Nothing on the source itself is touched. */
   forgetSource(id: number): Promise<void>
   /** The pictures set aside as probably not memories. */
@@ -259,6 +269,8 @@ async function tauriBackend(): Promise<Backend> {
     collectionPhotos: (key) => invoke('collection_photos', { key }),
     setAside: () => invoke('set_aside'),
     forgetSource: (id) => invoke('forget_source', { id }),
+    fileTypes: (id) => invoke('file_types', { id }),
+    includeFileType: (id, ending, included) => invoke('include_file_type', { id, ending, included }),
     keepPhoto: (id, keep) => invoke('keep_photo', { id, keep }),
     preview(id) {
       // Each picture is fetched once and reused; the bytes come back raw.
