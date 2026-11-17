@@ -157,6 +157,9 @@ Separate, remembered jobs ("Drone footage to R2", "Family photos to a folder"), 
 - [x] Say how much room is needed; refuse a folder whose disk does not have it
 - [x] Stop a send between files
 - [x] Folder names open the folder
+- [x] Live speed and time left while sending; a summary when it finishes; a record of earlier sends
+- [x] Network graph on the Activity page (what Keevoro sends to cloud storage)
+- [ ] Count bytes as they are read, so a single huge file to a folder shows steady progress and not one jump at the end
 - [ ] Stop part-way through one very large file (it currently finishes the file in hand)
 - [ ] Show how much room a cloud bucket has, where the provider will say
 - [ ] More than one destination per backup

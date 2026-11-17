@@ -6,7 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **See how fast a send is going.** While files are being sent, the Send screen shows how much has gone out of how much, the speed, and roughly how long is left: "9.6 GB of 30.1 GB sent at 12.4 MB/s, about 28 minutes left". The speed is steadied over the last few seconds, and no time is guessed while nothing is arriving.
+- **A summary when a send finishes.** It says how long it took, how much was sent and the average speed over the whole send.
+- **How earlier sends went.** Each backup keeps a record of its last twenty sends. On the Send screen, "How earlier sends went" lists when each finished, how much it sent, how long it took and its average speed, so one can be compared with another.
+- **A Network graph.** "What Keevoro is doing" now also charts what Keevoro is sending to cloud storage each second. Sending to a folder shows under Disk, since it does not use the network.
 
 ## [0.19.0] - 2026-11-17
 
