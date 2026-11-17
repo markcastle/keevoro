@@ -1071,6 +1071,8 @@ pub fn disconnect_destination(shared: State<'_, Shared>) -> Said<()> {
         secrets: &Keychain,
         ask: &connect::testing::nobody_to_ask,
     };
+    // What the last backup said was about the old destination.
+    let _ = catalog.set_setting(LAST_BACKUP_SAID, "null");
     connect::disconnect(&mut Vec::new(), &catalog, &world).map_err(say)
 }
 
@@ -1155,9 +1157,33 @@ fn send_job(
             )),
             Err(e) => state.log.say(&format!("Backup job failed: {e:#}")),
         }
-        let _ = app.emit(SEND, SendEvent::finished(&said, result.err().map(say)));
+        let last = SendEvent::finished(&said, result.err().map(say));
+        // What a backup said when it ended is kept with the backup, so it
+        // is still there after looking at another screen or closing the
+        // app, until the next backup replaces it.
+        if record {
+            if let (Ok(catalog), Ok(json)) = (Catalog::open_in_library(&library), serde_json::to_string(&last)) {
+                let _ = catalog.set_setting(LAST_BACKUP_SAID, &json);
+            }
+        }
+        let _ = app.emit(SEND, last);
     });
     Ok(())
+}
+
+/// The catalog's name for what the last backup said when it ended.
+const LAST_BACKUP_SAID: &str = "last_backup_said";
+
+/// What this backup's last run said when it ended, or nothing if it has
+/// never run or now goes somewhere else.
+#[tauri::command]
+pub fn last_backup_said(shared: State<'_, Shared>) -> Said<Option<serde_json::Value>> {
+    let catalog = Catalog::open_in_library(&library(&shared)?).map_err(say)?;
+    Ok(catalog
+        .setting(LAST_BACKUP_SAID)
+        .map_err(say)?
+        .and_then(|json| serde_json::from_str(&json).ok())
+        .filter(|said: &serde_json::Value| said.is_object()))
 }
 
 /// Starts backing the library up to where it is connected.

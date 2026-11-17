@@ -98,6 +98,9 @@ pub struct Discover {
     pub bytes: u64,
     /// Extra copies that will be kept once.
     pub duplicates: usize,
+    /// How much room those extra copies would have taken, in bytes: what
+    /// leaving them out saves at the destination.
+    pub duplicate_bytes: u64,
     /// Pictures set aside as probably not memories.
     pub junk: usize,
     /// Files being kept that are not yet in the library.
@@ -248,6 +251,7 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
         videos: summary.videos,
         bytes: summary.bytes,
         duplicates: summary.duplicates.as_ref().map_or(0, |d| d.copies),
+        duplicate_bytes: summary.duplicates.as_ref().map_or(0, |d| d.bytes),
         junk: summary.junk.values().sum(),
         waiting_to_gather,
         waiting_bytes,
@@ -489,6 +493,10 @@ pub(crate) mod tests {
         let (_dir, library, catalog) = world();
         let d = discover(&library, &catalog).unwrap();
         assert_eq!((d.photos, d.videos, d.duplicates, d.junk), (3, 0, 1, 0));
+        assert!(
+            d.duplicate_bytes > 0,
+            "and the room the duplicate would have taken is known"
+        );
         // The duplicate can be looked at: which copy is kept, which is not.
         let groups = duplicates(&library, &catalog).unwrap();
         assert_eq!(groups.len(), 1);

@@ -454,6 +454,8 @@ export function App() {
         ) : (
           <SendScreen
             api={api}
+            found={found}
+            onDuplicates={() => show('duplicates')}
             waiting={waiting}
             safe={safe}
             onProblem={report}
@@ -1647,6 +1649,7 @@ function ChooseScreen(props: {
           click a collection to look inside and choose photo by photo.
         </p>
       </header>
+      {found && hero && <Tally found={found} onDuplicates={props.onDuplicates} onSetAside={props.onSetAside} />}
 
       {hero && (
         <article className={hero.kept ? 'hero' : 'hero skipped'}>
@@ -1690,23 +1693,6 @@ function ChooseScreen(props: {
         </div>
       )}
 
-      {found && hero && (found.duplicates > 0 || found.junk > 0) && (
-        <p className="tidied">
-          Keevoro has already tidied up:{' '}
-          {found.duplicates > 0 && (
-            <button className="link" onClick={props.onDuplicates}>
-              {count(found.duplicates, 'duplicate')} will be kept only once
-            </button>
-          )}
-          {found.duplicates > 0 && found.junk > 0 && ', and '}
-          {found.junk > 0 && (
-            <button className="link" onClick={props.onSetAside}>
-              {count(found.junk, 'picture')} that don’t look like photos were set aside
-            </button>
-          )}
-          .
-        </p>
-      )}
       {props.next}
     </section>
   )
@@ -1735,9 +1721,52 @@ function KeepButton(props: { collection: Collection; onKeep: (c: Collection, kep
   )
 }
 
+/**
+ * The figures for a backup, where they can be seen: what is being kept,
+ * what was left out as a duplicate and the room that saves, and what was
+ * set aside. The last two open their lists, so a number can always be
+ * looked into.
+ */
+function Tally(props: { found: Discover; onDuplicates: () => void; onSetAside?: () => void }) {
+  const { found } = props
+  const keeping = found.collections.filter((c) => c.kept).reduce((n, c) => n + c.photos + c.videos, 0)
+  const all = found.photos + found.videos + found.duplicates
+  return (
+    <dl className="tally" aria-label="This backup in figures">
+      <div>
+        <dt>Keeping</dt>
+        <dd>{thousands(keeping)}</dd>
+        <dd className="quiet small">
+          of {photosAndVideos(found.photos, found.videos)} found · {size(found.bytes)}
+        </dd>
+      </div>
+      <button className="stat" onClick={props.onDuplicates} disabled={found.duplicates === 0}>
+        <dt>Duplicates left out</dt>
+        <dd>{thousands(found.duplicates)}</dd>
+        <dd className="quiet small">
+          {found.duplicates === 0
+            ? 'No file was found more than once'
+            : `saving ${size(found.duplicateBytes)} · ${Math.round((found.duplicates / Math.max(all, 1)) * 100)}% of all files found · see them`}
+        </dd>
+      </button>
+      {props.onSetAside && (
+        <button className="stat" onClick={props.onSetAside} disabled={found.junk === 0}>
+          <dt>Set aside</dt>
+          <dd>{thousands(found.junk)}</dd>
+          <dd className="quiet small">
+            {found.junk === 0 ? 'Nothing looked like it was not a photo' : 'pictures that don’t look like photos · see them'}
+          </dd>
+        </button>
+      )}
+    </dl>
+  )
+}
+
 /** Step 3. One question: where should they go? Then one button: send. */
 function SendScreen(props: {
   api: Backend
+  found: Discover | null
+  onDuplicates: () => void
   waiting: number
   safe: number
   onProblem: (error: unknown) => void
@@ -1754,6 +1783,7 @@ function SendScreen(props: {
           never replaces a file that is already there. Your sources are not changed.
         </p>
       </header>
+      {props.found && <Tally found={props.found} onDuplicates={props.onDuplicates} />}
       <SendPanel
         api={props.api}
         waiting={props.waiting}
@@ -1847,6 +1877,15 @@ function SendPanel(props: {
       })
       .catch(() => {})
       .finally(() => setAsked(true))
+  }, [api])
+
+  // What the last backup said when it ended stays on screen until the
+  // next one, however many other screens are looked at in between.
+  useEffect(() => {
+    api
+      .lastBackupSaid()
+      .then((last) => last && setSaid((now) => now ?? last))
+      .catch(() => {})
   }, [api])
 
   useEffect(() => {
@@ -2236,6 +2275,7 @@ function SendPanel(props: {
                 <thead>
                   <tr>
                     <th>When</th>
+                    <th>Where</th>
                     <th>Backed up</th>
                     <th>Took</th>
                     <th>Average speed</th>
@@ -2252,6 +2292,7 @@ function SendPanel(props: {
                           minute: '2-digit',
                         })}
                       </td>
+                      <td className="where">{sent.to.replace(/^the /, '')}</td>
                       <td>
                         {size(sent.bytes)}
                         {sent.stopped && ' (stopped)'}
@@ -2636,7 +2677,7 @@ function DuplicatesScreen(props: { api: Backend; onBack: () => void; onProblem: 
           {found
             ? found.length === 0
               ? 'No file was found more than once.'
-              : `${count(found.length, 'file')} ${found.length === 1 ? 'was' : 'were'} found more than once. One copy of each is kept, and ${thousands(leftOut)} extra ${leftOut === 1 ? 'copy is' : 'copies are'} left out.`
+              : `${count(found.length, 'file')} ${found.length === 1 ? 'was' : 'were'} found more than once. One copy of each is kept, and ${thousands(leftOut)} extra ${leftOut === 1 ? 'copy is' : 'copies are'} left out, saving ${size(found.reduce((n, d) => n + d.bytes * d.copies.length, 0))}.`
             : 'Looking…'}
         </p>
       </header>
