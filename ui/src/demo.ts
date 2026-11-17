@@ -147,6 +147,7 @@ export function demoBackend(): Backend {
     disk: 78 + 22 * Math.sin(i / 3),
     sent: 12 + 4 * Math.sin(i / 4),
     network: 12 + 4 * Math.sin(i / 4),
+    memory: 520 + 40 * Math.sin(i / 9),
   }))
   const kinds: FileType[] = [
     { ending: 'jpg', files: 198, bytes: 620 * 1024 * 1024, included: true },
@@ -306,6 +307,7 @@ export function demoBackend(): Backend {
         disk: busy ? 78 + 22 * Math.sin(tick / 3) : 0,
         sent: busy ? 12 + 4 * Math.sin(tick / 4) : 0,
         network: busy ? 12 + 4 * Math.sin(tick / 4) : 0,
+        memory: busy ? 520 + 40 * Math.sin(tick / 9) : 310,
       })
       if (usage.length > 120) usage.shift()
       return {
@@ -488,7 +490,7 @@ export function demoBackend(): Backend {
                 finished: true,
                 summary: [
                   `Safely backed up ${done.toLocaleString('en-GB')} files.`,
-                  'Stopped. Everything sent so far is safe where it is. Back up again whenever you like and it carries on from here.',
+                  'Stopped. Everything backed up so far is safe where it is. Back up again whenever you like and it carries on from here.',
                 ],
               }),
             )
@@ -524,7 +526,7 @@ export function demoBackend(): Backend {
           l({
             finished: true,
             summary: [
-              `Your send: all ${sentSoFar.toLocaleString('en-GB')} originals are there.`,
+              `Your backup: all ${sentSoFar.toLocaleString('en-GB')} originals are there.`,
             ],
           }),
         )

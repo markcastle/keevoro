@@ -297,7 +297,9 @@ async fn send(
     opts: &PublishOptions,
 ) -> Result<Outcome, SendError> {
     let caps = store.capabilities();
-    let in_parts = caps.multipart.is_some() && upload.bytes > opts.multipart_above;
+    // A folder is sent whole files: in parts, each would be written to the
+    // disk and then written again when the parts are joined.
+    let in_parts = caps.multipart.is_some() && !caps.whole_files_preferred && upload.bytes > opts.multipart_above;
     // Asking first costs one small request. It is needed when the provider
     // cannot refuse an overwrite itself, and before a large upload it saves
     // sending gigabytes only to be told the file is already there.
@@ -322,7 +324,12 @@ async fn send(
             store.put(&upload.key, ByteSource::File(upload.file.clone()), &put)
         })
         .await
-        .map(|_| keevoro_core::meter::sent(upload.bytes, opts.over_network))
+        .map(|_| {
+            // A store that counts as it writes has already reported these.
+            if !caps.counts_its_own_bytes {
+                keevoro_core::meter::sent(upload.bytes, opts.over_network);
+            }
+        })
         .map_err(SendError::from)
     };
     match sent {

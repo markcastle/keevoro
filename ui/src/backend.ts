@@ -153,6 +153,8 @@ export type Sample = {
   sent: number
   /** The part of `sent` that went over the network, to cloud storage. */
   network: number
+  /** Megabytes of memory Keevoro is holding at that moment. */
+  memory: number
 }
 
 /** How one finished send went. */

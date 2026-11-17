@@ -139,7 +139,7 @@ try {
   const kinds = page.locator('.destinations .place b')
   assert.deepEqual(await kinds.allInnerTexts(), ['A folder', 'Cloudflare R2', 'Amazon S3', 'Other storage'])
   // It says how much room the files will need before a place is chosen.
-  assert.match(await text('.send .needs'), /^You are sending [\d,]+ files, about [\d.]+ (MB|GB)\. Wherever you choose needs at least that much free\.$/)
+  assert.match(await text('.send .needs'), /^You are backing up [\d,]+ files, about [\d.]+ (MB|GB)\. Wherever you choose needs at least that much free\.$/)
   await shot('7-where-should-they-go')
   // Cloud storage asks only what it needs, and hides the secret.
   await page.getByRole('button', { name: /Cloudflare R2/ }).click()
@@ -149,8 +149,8 @@ try {
   await page.getByRole('button', { name: 'Cancel' }).click()
   // A folder is one click, then one button sends everything.
   await page.getByRole('button', { name: /^A folder/ }).click()
-  await page.getByRole('heading', { name: 'Sending to the folder F:\\Family Backup' }).waitFor()
-  await page.getByText(/^[\d,]+ files are waiting to be sent\.$/).waitFor()
+  await page.getByRole('heading', { name: 'Backing up to the folder F:\\Family Backup' }).waitFor()
+  await page.getByText(/^[\d,]+ files are waiting to be backed up\.$/).waitFor()
   // The folder's name opens the folder, and the room is weighed against the disk.
   assert.ok(await page.getByRole('button', { name: 'F:\\Family Backup' }).isVisible())
   assert.match(await text('.send .needs'), /^They need about [\d.]+ (MB|GB)\. That disk has [\d.]+ GB free, so there is room\.$/)
@@ -160,14 +160,14 @@ try {
   await page.getByText(/^Previews added: [\d,]+ files\.$/).waitFor()
   // When it is done, it says how long it took and how fast it went.
   await page.getByText(/^That took about \d+ minutes: [\d.]+ GB at an average of [\d.]+ MB a second\.$/).waitFor()
-  await page.getByText('How earlier sends went').click()
-  assert.deepEqual(await page.locator('.sends th').allInnerTexts(), ['When', 'Sent', 'Took', 'Average speed'])
+  await page.getByText('How earlier backups went').click()
+  assert.deepEqual(await page.locator('.sends th').allInnerTexts(), ['When', 'Backed up', 'Took', 'Average speed'])
   assert.equal(await page.locator('.sends tbody tr').count(), 2, 'this send and the one before')
   assert.match(await page.locator('.sends tbody tr').nth(1).innerText(), /30\.1 GB\s+about 41 minutes\s+12\.5 MB\/s/)
   await page.getByText(/^Everything you are keeping is there: [\d,]+ files\.$/).waitFor()
   assert.ok(await page.getByRole('button', { name: 'Show me the folder' }).isVisible())
   await page.getByRole('button', { name: 'Check they all arrived' }).click()
-  await page.getByText(/^Your send: all [\d,]+ originals are there\.$/).waitFor()
+  await page.getByText(/^Your backup: all [\d,]+ originals are there\.$/).waitFor()
   assert.equal(await page.locator('.steps li.done').count(), 2, 'finding and choosing are ticked off')
   assert.equal(await page.locator('.steps li').count(), 3, 'there are three steps, not four')
   await shot('9-sent')
@@ -188,8 +188,8 @@ try {
   await page.locator('.kept li.source').first().waitFor()
   assert.match(await text('.backup .current'), /Family photos/)
   assert.equal(await page.locator('.steps li.done').count(), 2, 'the first backup is exactly as it was left')
-  await page.getByRole('button', { name: 'Send them somewhere safe' }).click()
-  await page.getByRole('heading', { name: 'Sending to the folder F:\\Family Backup' }).waitFor()
+  await page.getByRole('button', { name: 'Back them up somewhere safe' }).click()
+  await page.getByRole('heading', { name: 'Backing up to the folder F:\\Family Backup' }).waitFor()
 
   // --- A source can be removed, after being told what that does and does not do.
   await page.getByRole('button', { name: 'Add another source' }).click()
@@ -227,7 +227,7 @@ try {
   // --- Settings holds everything in one place, including the log.
   await page.getByRole('button', { name: 'Settings' }).click()
   await page.getByRole('heading', { name: 'Settings', level: 1 }).waitFor()
-  for (const title of ['This backup', 'Where it sends to', 'Appearance', 'Speed', 'Updates', 'What Keevoro has been doing']) {
+  for (const title of ['This backup', 'Where it backs up to', 'Appearance', 'Speed', 'Updates', 'What Keevoro has been doing']) {
     await page.getByRole('heading', { name: title, level: 3 }).waitFor()
   }
   // Speed: the computer's own codecs are used unless switched off, and it says what that means.
@@ -299,11 +299,11 @@ try {
   await page.getByRole('button', { name: 'Back up now' }).click()
   // While it sends, it says how much, how fast and how long is left.
   await page.locator('.speed').waitFor()
-  assert.match(await text('.speed p'), /^[\d.]+ GB of [\d.]+ GB sent at [\d.]+ MB\/s, about \d+ minutes left$/)
+  assert.match(await text('.speed p'), /^[\d.]+ GB of [\d.]+ GB backed up at [\d.]+ MB\/s, about \d+ minutes left$/)
   await shot('9l-send-speed')
   await page.getByRole('button', { name: 'Stop', exact: true }).click()
   await page.getByText('Stopping after this file…').waitFor()
-  await page.getByText(/^Stopped\. Everything sent so far is safe where it is\./).waitFor()
+  await page.getByText(/^Stopped\. Everything backed up so far is safe where it is\./).waitFor()
   await shot('9h-stopped')
 
   // --- What Keevoro is doing: what, why, how much, and a way to make it wait.
@@ -312,10 +312,10 @@ try {
   await page.getByRole('heading', { name: 'What Keevoro is doing', level: 1 }).waitFor()
   await page.getByRole('heading', { name: 'Checking for duplicates' }).waitFor()
   assert.match(await text('.activity .jobs p'), /so that true copies can be told from photos that merely look alike/)
-  assert.deepEqual(await page.locator('.chart figcaption b').allInnerTexts(), ['Processor', 'Disk', 'Network'])
+  assert.deepEqual(await page.locator('.chart figcaption b').allInnerTexts(), ['Processor', 'Disk', 'Network', 'Memory'])
   assert.match(await page.locator('.chart .now').first().innerText(), /^[\d.]+%$/)
   assert.match(await page.locator('.chart .now').nth(1).innerText(), /^[\d.]+ MB\/s$/)
-  assert.equal(await page.locator('.chart .line').count(), 3, 'one line in each chart, never two measures on one')
+  assert.equal(await page.locator('.chart .line').count(), 4, 'one line in each chart, never two measures on one')
   // Moving across a chart reads out the figure at that moment.
   const plot = await page.locator('.chart svg').first().boundingBox()
   await page.mouse.move(plot.x + plot.width * 0.9, plot.y + plot.height / 2)

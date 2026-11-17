@@ -22,8 +22,11 @@ struct Flaky {
 impl Flaky {
     async fn new(dir: &Path) -> Self {
         let inner = FolderStore::open(dir).await.unwrap();
+        // It stands in for a network store, where large files go in parts.
+        let mut caps = inner.capabilities().clone();
+        caps.whole_files_preferred = false;
         Self {
-            caps: inner.capabilities().clone(),
+            caps,
             inner,
             drop_next: AtomicU32::new(0),
             deny: false,
@@ -392,6 +395,23 @@ async fn providers_without_multipart_get_one_plain_upload() {
         ),
         (1, 0)
     );
+}
+
+#[tokio::test]
+async fn a_store_that_prefers_whole_files_is_never_sent_parts() {
+    let mut w = World::new().await;
+    w.store.caps.whole_files_preferred = true;
+    let video = pattern(3 * MIB);
+    let r = w.publish(&[w.file("originals/big.mov", &video, true)], &quick()).await;
+    assert_eq!(r.uploaded, 1);
+    assert_eq!(
+        (
+            w.store.puts.load(Ordering::SeqCst),
+            w.store.parts.load(Ordering::SeqCst)
+        ),
+        (1, 0)
+    );
+    assert!(w.stored("originals/big.mov").await == video);
 }
 
 #[tokio::test]
