@@ -435,12 +435,65 @@ pub fn keep_checking(app: AppHandle) {
     check_in_background(&app);
 }
 
+/// The record of how hard Keevoro has been working, kept for as long as
+/// the app runs.
+pub static HISTORY: std::sync::Mutex<crate::activity::History> = std::sync::Mutex::new(crate::activity::History {
+    samples: std::collections::VecDeque::new(),
+    memory_bytes: 0,
+});
+
+/// What Keevoro is doing now, why, and how hard it has been working.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivityView {
+    paused: bool,
+    jobs: Vec<crate::activity::Job>,
+    /// One a second, oldest first, for the last two minutes at most.
+    samples: Vec<crate::activity::Sample>,
+    memory_bytes: u64,
+    /// How many processor cores this computer has.
+    cores: usize,
+}
+
+#[tauri::command]
+pub fn activity(shared: State<'_, Shared>) -> ActivityView {
+    let (samples, memory_bytes) = HISTORY
+        .lock()
+        .map(|h| (h.samples(), h.memory_bytes()))
+        .unwrap_or_default();
+    ActivityView {
+        paused: keevoro_core::pause::is_paused(),
+        jobs: crate::activity::jobs(
+            shared.scanning.load(Ordering::SeqCst),
+            shared.checking.load(Ordering::SeqCst),
+            shared.sending.load(Ordering::SeqCst),
+        ),
+        samples,
+        memory_bytes,
+        cores: std::thread::available_parallelism().map_or(1, std::num::NonZero::get),
+    }
+}
+
+/// Pauses or resumes every heavy job. Each waits at its next safe point,
+/// between one file and the next, and carries on from there when resumed.
+#[tauri::command]
+pub fn pause_work(shared: State<'_, Shared>, paused: bool) {
+    keevoro_core::pause::set_paused(paused);
+    shared.log.say(if paused {
+        "Paused: all heavy work is waiting"
+    } else {
+        "Resumed: work is carrying on from where it paused"
+    });
+}
+
 /// Asks a search that is running to stop. It ends within a moment and
 /// nothing from it is kept: a part-search would make the rest of the source
 /// look as if it were not there.
 #[tauri::command]
 pub fn stop_scanning(shared: State<'_, Shared>) {
     shared.stop_scanning.store(true, Ordering::SeqCst);
+    // A paused job is waiting, and must wake to see it has been asked to stop.
+    keevoro_core::pause::set_paused(false);
     shared.log.say("Asked to stop the search");
 }
 
@@ -861,6 +914,8 @@ pub fn send(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
 #[tauri::command]
 pub fn stop_sending(shared: State<'_, Shared>) {
     shared.stop_sending.store(true, Ordering::SeqCst);
+    // A paused job is waiting, and must wake to see it has been asked to stop.
+    keevoro_core::pause::set_paused(false);
     shared.log.say("Asked to stop sending after the file in hand");
 }
 

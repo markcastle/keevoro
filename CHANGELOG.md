@@ -6,7 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **See what Keevoro is doing, and why.** A new page, "What Keevoro is doing" at the bottom of the side bar, names each job in hand (looking through a source, checking for duplicates, sending your files) and says in plain words why it is doing it and what it costs your computer.
+- **Graphs of how hard it is working.** The same page charts Keevoro's own use of the processor and the disk over the last two minutes, with the figures now and at their highest. These are Keevoro's figures alone, not the whole computer's. Move across a chart to read any moment.
+- **Pause Keevoro's work.** One button makes every heavy job wait once the file in hand is finished, and "Carry on" picks up exactly where it left off, with nothing lost or done twice. Use it when you need the computer for something else or are on battery. While paused, the side bar says so on every screen.
 
 ## [0.18.0] - 2026-11-17
 

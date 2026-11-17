@@ -19,6 +19,7 @@ import type {
   GatherEvent,
   Photo,
   PhotoChoice,
+  Sample,
   ScanEvent,
   Backup,
 } from './backend'
@@ -123,6 +124,12 @@ export function demoBackend(): Backend {
   let sendingTo: string | null = null
   let stopAsked = false
   let stopLooking = false
+  let pausedNow = false
+  let tick = 0
+  const usage: Sample[] = Array.from({ length: 60 }, (_, i) => ({
+    cpu: 11 + 6 * Math.sin(i / 5),
+    disk: 78 + 22 * Math.sin(i / 3),
+  }))
   const kinds: FileType[] = [
     { ending: 'jpg', files: 198, bytes: 620 * 1024 * 1024, included: true },
     { ending: 'dng', files: 29, bytes: 1.4 * 1024 ** 3, included: true },
@@ -271,6 +278,31 @@ export function demoBackend(): Backend {
       sendingTo = null
       sentSoFar = 0
       return state()
+    },
+    // A made-up two minutes: busy, with the odd lull, and quiet when paused.
+    activity: async () => {
+      tick += 1
+      const busy = !pausedNow
+      usage.push({
+        cpu: busy ? 11 + 6 * Math.sin(tick / 5) + (tick % 17 === 0 ? 9 : 0) : 0.3,
+        disk: busy ? 78 + 22 * Math.sin(tick / 3) : 0,
+      })
+      if (usage.length > 120) usage.shift()
+      return {
+        paused: pausedNow,
+        jobs: [
+          {
+            what: 'Checking for duplicates',
+            why: 'Reading every file from start to finish, so that true copies can be told from photos that merely look alike. This is the heaviest thing Keevoro does to the disk. It is done once per file and remembered.',
+          },
+        ],
+        samples: [...usage],
+        memoryBytes: 560 * 1024 * 1024,
+        cores: 20,
+      }
+    },
+    pauseWork: async (paused) => {
+      pausedNow = paused
     },
     stopScanning: async () => {
       stopLooking = true

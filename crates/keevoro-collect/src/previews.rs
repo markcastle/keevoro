@@ -70,6 +70,7 @@ pub fn make_previews_while(
 
     let total = todo.len();
     for (done, (hash, original, thumb, display)) in todo.into_iter().enumerate() {
+        keevoro_core::pause::wait_while_paused();
         if !keep_going() {
             break;
         }

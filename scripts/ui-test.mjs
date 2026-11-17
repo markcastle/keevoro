@@ -278,6 +278,31 @@ try {
   await page.getByText(/^Stopped\. Everything sent so far is safe where it is\./).waitFor()
   await shot('9h-stopped')
 
+  // --- What Keevoro is doing: what, why, how much, and a way to make it wait.
+  await page.goto(`${base}/?fast`)
+  await page.getByRole('button', { name: 'What Keevoro is doing' }).click()
+  await page.getByRole('heading', { name: 'What Keevoro is doing', level: 1 }).waitFor()
+  await page.getByRole('heading', { name: 'Checking for duplicates' }).waitFor()
+  assert.match(await text('.activity .jobs p'), /so that true copies can be told from photos that merely look alike/)
+  assert.deepEqual(await page.locator('.chart figcaption b').allInnerTexts(), ['Processor', 'Disk'])
+  assert.match(await page.locator('.chart .now').first().innerText(), /^[\d.]+%$/)
+  assert.match(await page.locator('.chart .now').nth(1).innerText(), /^[\d.]+ MB\/s$/)
+  assert.equal(await page.locator('.chart .line').count(), 2, 'one line in each chart, never two measures on one')
+  // Moving across a chart reads out the figure at that moment.
+  const plot = await page.locator('.chart svg').first().boundingBox()
+  await page.mouse.move(plot.x + plot.width * 0.9, plot.y + plot.height / 2)
+  assert.match(await page.locator('.chart .read').first().innerText(), /^[\d.]+%, (\d+ seconds ago|just now)$/)
+  await page.mouse.move(5, 5)
+  await shot('9k-activity')
+  // Pausing is one button, and the side bar keeps saying so wherever you go.
+  await page.getByRole('button', { name: 'Pause Keevoro’s work' }).click()
+  await page.getByText('Paused. Keevoro is waiting and using almost nothing.').waitFor()
+  assert.match(await text('.foot .paused'), /Keevoro is paused/)
+  await page.getByRole('button', { name: '‹ Back' }).click()
+  assert.match(await text('.foot .paused'), /Keevoro is paused/, 'still said after leaving the page')
+  await page.locator('.foot .paused').getByRole('button', { name: 'Carry on' }).click()
+  await page.locator('.foot .paused').waitFor({ state: 'detached' })
+
   // --- Starting again: asked first, told exactly what goes and what stays.
   await page.goto(`${base}/?fast`)
   await page.getByRole('button', { name: 'Settings' }).click()

@@ -55,6 +55,7 @@ pub fn deep_look(
         .collect();
     let mut report = DeepReport::default();
     for (done, file) in waiting.iter().enumerate() {
+        keevoro_core::pause::wait_while_paused();
         if !keep_going() {
             report.stopped = true;
             break;

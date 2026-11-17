@@ -24,6 +24,7 @@ import type { ReactNode } from 'react'
 
 import { backend } from './backend'
 import type {
+  Activity,
   AppState,
   Backend,
   SendEvent,
@@ -52,7 +53,7 @@ import type { Theme } from './theme'
 
 type Step = 'find' | 'choose' | 'send'
 /** Looking inside a collection, or at what was set aside, sits on top of step 2. */
-type Overlay = { collection: Collection } | 'setAside' | 'settings' | null
+type Overlay = { collection: Collection } | 'setAside' | 'settings' | 'activity' | null
 
 const STEPS: { id: Step; title: string }[] = [
   { id: 'find', title: 'Find your photos' },
@@ -73,6 +74,8 @@ export function App() {
   const [, setGather] = useState<GatherEvent | null>(null)
   // Background checking of files a quick search only sampled.
   const [check, setCheck] = useState<CheckEvent | null>(null)
+  // True while the person has paused Keevoro's heavy work.
+  const [paused, setPaused] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
   // A newer Keevoro, and how far along installing it is.
   const [update, setUpdate] = useState<Update | null>(null)
@@ -226,6 +229,25 @@ export function App() {
               You can carry on.
             </span>
           )}
+          {paused && (
+            <span className="paused" role="status">
+              Keevoro is paused.{' '}
+              <button
+                className="link"
+                onClick={() =>
+                  api
+                    .pauseWork(false)
+                    .then(() => setPaused(false))
+                    .catch(report)
+                }
+              >
+                Carry on
+              </button>
+            </span>
+          )}
+          <button className="link" onClick={() => setOverlay('activity')}>
+            What Keevoro is doing
+          </button>
           <button className="link" onClick={() => setOverlay('settings')}>
             Settings
           </button>
@@ -284,7 +306,9 @@ export function App() {
           </div>
         )}
 
-        {overlay === 'settings' ? (
+        {overlay === 'activity' ? (
+          <ActivityScreen api={api} onPaused={setPaused} onBack={() => setOverlay(null)} onProblem={report} />
+        ) : overlay === 'settings' ? (
           <SettingsScreen
             api={api}
             state={state}
@@ -821,6 +845,205 @@ function FolderLink(props: { api: Backend; path: string; onProblem: (error: unkn
     >
       {props.path}
     </button>
+  )
+}
+
+/**
+ * What Keevoro is doing to this computer, and why, with a way to make it
+ * wait. Nobody should have to wonder why their fan is spinning.
+ */
+function ActivityScreen(props: {
+  api: Backend
+  onPaused: (paused: boolean) => void
+  onBack: () => void
+  onProblem: (error: unknown) => void
+}) {
+  const { api, onPaused, onProblem } = props
+  const [now, setNow] = useState<Activity | null>(null)
+
+  // Measured once a second, for as long as this page is open.
+  useEffect(() => {
+    let open = true
+    const look = () =>
+      api
+        .activity()
+        .then((a) => {
+          if (!open) return
+          setNow(a)
+          onPaused(a.paused)
+        })
+        .catch(onProblem)
+    void look()
+    const timer = window.setInterval(look, 1000)
+    return () => {
+      open = false
+      window.clearInterval(timer)
+    }
+  }, [api, onPaused, onProblem])
+
+  if (!now) return <section className="activity" />
+  const pause = (paused: boolean) =>
+    api
+      .pauseWork(paused)
+      .then(() => {
+        setNow({ ...now, paused })
+        onPaused(paused)
+      })
+      .catch(onProblem)
+  const busy = now.jobs.length > 0
+
+  return (
+    <section className="activity">
+      <header>
+        <button className="link" onClick={props.onBack}>
+          ‹ Back
+        </button>
+        <h1>What Keevoro is doing</h1>
+        <p className="status">
+          {now.paused
+            ? 'Paused. Keevoro is waiting and using almost nothing.'
+            : busy
+              ? 'Keevoro is working. Here is what on, why, and how much of your computer it is using.'
+              : 'Nothing at the moment. Keevoro is idle.'}
+        </p>
+      </header>
+
+      <div className="panel">
+        {busy ? (
+          <ul className="jobs">
+            {now.jobs.map((job) => (
+              <li key={job.what}>
+                <h2>
+                  {!now.paused && <Spinner />} {job.what}
+                  {now.paused && <span className="badge">Paused</span>}
+                </h2>
+                <p>{job.why}</p>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p>
+            Keevoro works when you ask it to look through a source or send your files, and for a while afterwards while
+            it checks for duplicates. Then it stops.
+          </p>
+        )}
+        <p className="choices">
+          {now.paused ? (
+            <button className="primary" onClick={() => pause(false)}>
+              Carry on
+            </button>
+          ) : (
+            <button className="primary" onClick={() => pause(true)} disabled={!busy}>
+              Pause Keevoro’s work
+            </button>
+          )}
+        </p>
+        <p className="quiet small">
+          Pausing makes every job wait once the file in hand is finished, and Carry on picks up exactly there. Nothing
+          is lost or done twice. Use it when you need the computer for something else, or are on battery.
+        </p>
+      </div>
+
+      <div className="usage">
+        <UsageChart
+          title="Processor"
+          unit="%"
+          about={`Keevoro’s share of all ${now.cores} of this computer’s processor cores.`}
+          values={now.samples.map((s) => s.cpu)}
+          floor={25}
+        />
+        <UsageChart
+          title="Disk"
+          unit=" MB/s"
+          about="How much Keevoro is reading and writing each second."
+          values={now.samples.map((s) => s.disk)}
+          floor={10}
+        />
+      </div>
+      <p className="quiet small">
+        These are Keevoro’s own figures, not the whole computer’s. It is using {size(now.memoryBytes)} of memory.
+      </p>
+    </section>
+  )
+}
+
+/** How long the charts look back, in seconds. */
+const WINDOW = 120
+
+/** A round number a little above `peak`, so the line never touches the top. */
+function ceiling(peak: number, floor: number) {
+  const steps = [5, 10, 25, 50, 100, 150, 200, 300, 500, 1000, 2000]
+  return steps.find((s) => s >= Math.max(peak * 1.15, floor)) ?? Math.ceil(peak / 1000) * 1000
+}
+
+/**
+ * One measure over the last two minutes: a single thin line on a quiet
+ * grid, with the figure under the pointer shown as you move across it.
+ */
+function UsageChart(props: { title: string; unit: string; about: string; values: number[]; floor: number }) {
+  const { values, unit } = props
+  const [hover, setHover] = useState<number | null>(null)
+  const W = 520
+  const H = 160
+  const pad = { left: 44, right: 10, top: 10, bottom: 22 }
+  const top = ceiling(Math.max(0, ...values), props.floor)
+  const x = (i: number) => pad.left + ((WINDOW - values.length + i) / (WINDOW - 1)) * (W - pad.left - pad.right)
+  const y = (v: number) => pad.top + (1 - Math.min(v, top) / top) * (H - pad.top - pad.bottom)
+  const said = (v: number) => `${v >= 10 ? Math.round(v) : v.toFixed(1)}${unit}`
+  const latest = values.length > 0 ? values[values.length - 1] : 0
+  const peak = values.length > 0 ? Math.max(...values) : 0
+  const line = values.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ')
+  const at = hover !== null && hover < values.length ? hover : null
+
+  return (
+    <figure className="chart">
+      <figcaption>
+        <b>{props.title}</b>
+        <span className="now">{said(latest)}</span>
+        <span className="quiet small">
+          now · highest {said(peak)} in the last {values.length < WINDOW ? `${values.length} seconds` : 'two minutes'}
+        </span>
+      </figcaption>
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        role="img"
+        aria-label={`${props.title}: ${said(latest)} now, highest ${said(peak)}. ${props.about}`}
+        onMouseLeave={() => setHover(null)}
+        onMouseMove={(e) => {
+          const box = e.currentTarget.getBoundingClientRect()
+          const px = ((e.clientX - box.left) / box.width) * W
+          const i = Math.round(((px - pad.left) / (W - pad.left - pad.right)) * (WINDOW - 1)) - (WINDOW - values.length)
+          setHover(i >= 0 && i < values.length ? i : null)
+        }}
+      >
+        {[0, 0.5, 1].map((f) => (
+          <g key={f}>
+            <line className="grid" x1={pad.left} x2={W - pad.right} y1={y(top * f)} y2={y(top * f)} />
+            <text className="tick" x={pad.left - 8} y={y(top * f) + 4} textAnchor="end">
+              {Math.round(top * f)}
+            </text>
+          </g>
+        ))}
+        <text className="tick" x={pad.left} y={H - 4}>
+          2 min ago
+        </text>
+        <text className="tick" x={W - pad.right} y={H - 4} textAnchor="end">
+          now
+        </text>
+        {values.length > 1 && <path className="line" d={line} />}
+        {at !== null && (
+          <g>
+            <line className="cross" x1={x(at)} x2={x(at)} y1={pad.top} y2={H - pad.bottom} />
+            <circle className="dot" cx={x(at)} cy={y(values[at])} r="4" />
+          </g>
+        )}
+      </svg>
+      <p className="quiet small read" aria-live="off">
+        {at !== null
+          ? `${said(values[at])}, ${values.length - 1 - at === 0 ? 'just now' : `${values.length - 1 - at} seconds ago`}`
+          : props.about}
+      </p>
+    </figure>
   )
 }
 

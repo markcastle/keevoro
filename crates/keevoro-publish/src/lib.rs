@@ -121,6 +121,7 @@ pub async fn publish(
         total: uploads.len(),
     };
     for upload in uploads {
+        keevoro_core::pause::wait_while_paused();
         if opts
             .stop
             .as_ref()

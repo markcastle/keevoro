@@ -13,6 +13,7 @@ pub mod junk;
 pub mod layout;
 pub mod libraries;
 pub mod media;
+pub mod pause;
 pub mod skip;
 
 pub use collections::{date_range_label, group_into_collections, Collection, CollectionInput};

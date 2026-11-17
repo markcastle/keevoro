@@ -188,6 +188,7 @@ pub fn scan(root: &Path, opts: &ScanOptions, on_progress: &mut dyn FnMut(&ScanPr
                     Err(_) => break,
                 };
                 let Ok((order, path)) = next else { break };
+                keevoro_core::pause::wait_while_paused();
                 // Asked to stop: let the queue empty without opening anything more.
                 if opts.stopped() {
                     continue;
@@ -279,6 +280,7 @@ fn walk(
     let mut order = 0u64;
     let mut walk = WalkDir::new(root).follow_links(false).sort_by_file_name().into_iter();
     while let Some(entry) = walk.next() {
+        keevoro_core::pause::wait_while_paused();
         if opts.stopped() {
             break;
         }

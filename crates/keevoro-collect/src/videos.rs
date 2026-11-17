@@ -94,6 +94,7 @@ pub fn make_video_previews_while(
 
     let total = todo.len();
     for (done, (hash, original, poster_file, mp4_file)) in todo.into_iter().enumerate() {
+        keevoro_core::pause::wait_while_paused();
         if !keep_going() {
             break;
         }

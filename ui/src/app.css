@@ -2204,3 +2204,108 @@ main > section > :nth-last-child(2) {
   padding: 0;
   display: flex;
 }
+
+/* ---------- what Keevoro is doing ---------- */
+
+.activity .jobs {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 var(--space-4);
+  display: grid;
+  gap: var(--space-4);
+}
+
+.activity .jobs h2 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.activity .jobs p {
+  margin-top: var(--space-1);
+  max-width: 760px;
+}
+
+.usage {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--space-5);
+  margin: var(--space-5) 0 var(--space-3);
+}
+
+.chart {
+  margin: 0;
+  padding: var(--space-4) var(--space-5);
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+}
+
+.chart figcaption {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-2);
+}
+
+/* The headline figure wears text ink, never the line's colour. */
+.chart .now {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.chart .grid {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.chart .tick {
+  fill: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.chart .line {
+  fill: none;
+  stroke: var(--pine);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.chart .cross {
+  stroke: var(--line-strong);
+  stroke-width: 1;
+}
+
+.chart .dot {
+  fill: var(--pine);
+  stroke: var(--surface-raised);
+  stroke-width: 2;
+}
+
+.chart .read {
+  min-height: 18px;
+  margin-top: var(--space-1);
+  font-variant-numeric: tabular-nums;
+}
+
+.foot .paused {
+  display: block;
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-1);
+  border-radius: var(--radius-md);
+  background: var(--peach-soft);
+  color: var(--sun-ink);
+  font-weight: 500;
+}
