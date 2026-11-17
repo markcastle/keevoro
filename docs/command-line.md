@@ -1,0 +1,204 @@
+# Keevoro on the command line
+
+Everything the app does, the `keevoro` command does too, and a few things more. This page walks through it from a first look at a drive to a checked backup. For installing the command, see the [README](../README.md#-the-command-line).
+
+If you are working from source, replace `keevoro` with `cargo run --release -p keevoro-cli --` in the examples.
+
+## Finding where the photos are
+
+Not sure which folder on a big disk holds the photos? A survey answers that in seconds. It reads folder listings only and never opens a file:
+
+```sh
+keevoro survey "D:\"
+```
+
+```text
+Looked at 481,907 files in 36,412 folders in 6.2 seconds, without opening any of them.
+  94.0 GB  333 photos and 26 videos  D:\Users\Mark\Videos\Drone
+  61.0 GB  11,204 photos and 310 videos  D:\Users\Mark\Pictures
+   9.0 MB  1,840 photos and 0 videos  D:\Games\Launcher\assets  (small pictures, probably not photos)
+```
+
+It goes by file names, so it is a good guess and not a promise. Point `scan` at the folders it suggests.
+
+## Looking through a source
+
+A **source** is anywhere Keevoro looks for photos: a drive, a USB stick, a memory card, a folder.
+
+```sh
+keevoro scan "D:\" "E:\Old Laptop Backup"
+```
+
+Example output:
+
+```text
+Found 12 photos and 1 video (242.7 KB).
+1 duplicate (21.8 KB) will be kept once.
+
+Collections
+  March 2012      3 photos
+  Christmas 2011  December 2011 · 3 photos
+  Cornwall        August 2008 · 5 photos · 1 video  (Holidays)
+  Stuff           1 photo
+
+Dates: 8 from camera data, 3 from file names, 2 guessed from file times.
+Skipped 2 folders (system, app and hidden).
+```
+
+Add `--json` for the full details, or `--no-hash` for a quicker first look without duplicate checking.
+
+Pictures that are clearly not memories (app icons, game artwork, web page leftovers, anything under 300 px) are listed separately with the reason, and left out of the collections. Nothing is ever hidden without saying so.
+
+## Remembering a drive
+
+A scan of a big old disk can take a while, so you can ask Keevoro to remember it. Give it a library folder and a friendly name:
+
+```sh
+keevoro scan "E:\" --library "D:\Keevoro Library" --name "Dad's old Dell"
+```
+
+After that the drive can go back in the drawer. These work without it plugged in:
+
+```sh
+keevoro collections --library "D:\Keevoro Library"
+```
+
+```sh
+keevoro sources --library "D:\Keevoro Library"
+```
+
+Scan a second drive into the same library and `collections` shows everything together, with copies that exist on both drives counted once. Scanning the same drive again replaces what was known about it rather than adding to it.
+
+## Choosing and gathering
+
+Everything found is kept unless you say otherwise. To leave a collection out, and to change your mind:
+
+```sh
+keevoro skip --library "D:\Keevoro Library" "Stuff"
+```
+
+```sh
+keevoro keep --library "D:\Keevoro Library" "Stuff"
+```
+
+To choose photo by photo, list a collection. Each line starts with a short code:
+
+```sh
+keevoro photos --library "D:\Keevoro Library" "Cornwall"
+```
+
+```text
+Cornwall (August 2008 · 83 photos · 6 videos)
+  9f2c4be1  IMG_1234.jpg  2008-08-12T10:15:00
+  41aa09cd  IMG_1235.jpg  2008-08-12T10:16:41
+```
+
+Give a code to `skip --photo` or `keep --photo` to leave one out or put it back. `photos --junk` lists the pictures Keevoro set aside as junk, with the reason; `keep --photo` on one of those brings it back into its album. A tiny scan of an old print is small, but it may be the only copy there is.
+
+Then, with the source plugged in, gather the keepers into the library:
+
+```sh
+keevoro gather --library "D:\Keevoro Library"
+```
+
+```text
+Safely copied 9,870 files (41.0 GB) into your library.
+```
+
+Gathering copies each file, reads the copy back and compares it with the original before counting it. Your folders are kept (`originals/Holidays/Cornwall/...`); photos with no useful folder go under `originals/By date/2008/2008-08/`, and ones with no believable date under `originals/Undated/`. Nothing in the library is ever overwritten: two different photos called `IMG_0001.jpg` become `IMG_0001.jpg` and `IMG_0001 (2).jpg`.
+
+It is safe to stop halfway, unplug the drive or run it twice. It carries on where it left off and never copies a file it already has. If a file can't be read, the rest still go through and the problem is listed at the end. It checks there is enough room before it starts.
+
+Gathering also makes a thumbnail and a larger viewing copy of each photo, stored under `renditions/`. These are what a gallery shows, so pages load quickly. They are built from the picture alone: the location and camera details inside your originals are never copied into them. Camera RAW files are previewed from the finished picture the camera stores inside them. On Windows, photos are opened by the system's own codecs, so HEIC photos from newer iPhones get a preview where the computer has the codec for them. Any that cannot be previewed are counted and said, and the originals are kept all the same. After an update, `gather --retry-previews` has another go at any that were missed.
+
+## Videos
+
+Each video gets a poster, a still picture for a gallery to show. Old camcorder and phone videos often will not play on a modern phone or in a browser, so you can also ask for an MP4 copy of those:
+
+```sh
+keevoro gather --library "D:\Keevoro Library" --convert-videos
+```
+
+```text
+Made posters for 140 videos.
+Made MP4 copies of 96 videos (31 of them repackaged without re-encoding). The originals are kept.
+```
+
+Only videos that need it are converted; a modern MP4 is left exactly as it is. Where the video inside is already a modern kind in an old wrapper, it is repackaged rather than re-encoded, which takes seconds and loses nothing. Every MP4 is checked against its original (same length, plays through without errors) before it is kept, and the original always stays in the library.
+
+Posters come from the computer's own video decoder on Windows and macOS, so nothing extra is needed for them. Making MP4 copies needs [ffmpeg](https://ffmpeg.org/download.html) to be installed. Without it, videos are still found, gathered and backed up; Keevoro says that conversion was skipped.
+
+## Backing up
+
+To copy the library to an external drive or a network share:
+
+```sh
+keevoro publish --library "D:\Keevoro Library" --to-folder "F:\Family Backup"
+```
+
+```text
+Safely backed up 29,610 files (43.2 GB).
+Index written for 9,870 files in 212 albums.
+Your private index: index/q7Zp4xKm2Tf9LwR3bN8vYc.kvx
+```
+
+The backup has the same folders as the library, so what you see on one is what is on the other. An original that is already in the backup is never replaced, large videos are sent in pieces so an interruption only costs the piece in flight, and running it again sends only what is new.
+
+The last thing written is the index: one JSON file listing every album and photo, with sizes, dates and where each thumbnail lives. Its name is long and random, so it can't be guessed. A second file, `index/gallery.json`, is the older format the current gallery site reads. If the backup will be served from a web address, add `--base-url https://photos.example.com` so the links inside the index point there. If you have shared the index's address and want it to stop working, add `--new-link`: the index is written under a new name and the old one is removed.
+
+## Checking nothing has gone wrong
+
+Disks fail quietly, and a photo that copied perfectly years ago can have rotted since. To be sure:
+
+```sh
+keevoro check --library "D:\Keevoro Library" --backup
+```
+
+```text
+Your library: all 9,870 files are intact.
+Your backup: all 9,870 originals are there.
+```
+
+Every original in the library is read again and compared with how it was when it was gathered. With `--backup`, each one is also looked up in the backup. Adding `--read-back` downloads each original and compares it exactly, which is the only way to be certain and takes as long as downloading the whole backup. Nothing is changed; if something is wrong, Keevoro lists the files and says how to put them right.
+
+## Backing up to Cloudflare R2 or Amazon S3
+
+The same command backs up to a bucket. First make a key that can read and write **that one bucket and nothing else** (in Cloudflare: R2, Manage API tokens, Object Read & Write, limited to the bucket). Put it where Keevoro will find it; keys are deliberately not accepted on the command line, where they would end up in your shell history:
+
+```sh
+export KEEVORO_ACCESS_KEY_ID="..."
+```
+
+```sh
+export KEEVORO_SECRET_ACCESS_KEY="..."
+```
+
+Then, for R2, give your Cloudflare account ID and the bucket name:
+
+```sh
+keevoro publish --library "D:\Keevoro Library" --to-r2 0123456789abcdef0123456789abcdef --bucket family-photos
+```
+
+For Amazon S3 use `--to-s3 eu-west-2` instead, and for MinIO or a NAS that speaks S3 use `--to-endpoint https://nas.local:9000`.
+
+Typing all that each time gets old, so do it once with `connect` instead. It checks the storage works, saves the keys in your computer's own keychain (Credential Manager on Windows, Keychain on a Mac) and remembers the destination in the library:
+
+```sh
+keevoro connect --library "D:\Keevoro Library" --to-r2 0123456789abcdef0123456789abcdef --bucket family-photos
+```
+
+If the two keys are not set as above, `connect` asks you to paste them; the secret is not shown as you paste. From then on a backup is just:
+
+```sh
+keevoro publish --library "D:\Keevoro Library"
+```
+
+`connect` works for a folder too (`--to-folder`), and `disconnect` forgets the destination and removes the keys without touching anything already backed up.
+
+Keevoro checks the keys work before sending anything, and warns you if strangers are able to list the bucket's contents. The bucket itself is told never to replace an original, so even two computers backing up at once cannot overwrite one another. On a bucket the index's links are relative until you add `--base-url` with the address the bucket is served from.
+
+This has been tested against MinIO, a stand-in that speaks the same language as R2 and S3. It has not yet been run against a real R2 or S3 bucket, so try it on a spare bucket first.
+
+When the same photo turns up in several places, the copy that was filed most carefully (the deepest named folder, then the best date) decides where it goes.
+
+What Keevoro remembers lives in one file, `.keevoro/catalog.sqlite`, inside the library folder. It is only working notes: it is safe to delete, and scanning again rebuilds it. Your sources are never written to.
