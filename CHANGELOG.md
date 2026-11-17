@@ -6,7 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **A tidier list of sources.** Each source is now a card with an icon (a drive or a folder), its name, where it is beneath in small type, how many photos and videos are on it and their size, and its buttons. A whole drive that was only known by its letter, shown before as a bare "I:\\", now takes the name the computer gives it, such as "KINGSTON (I:)", or "Drive I:" when it is not plugged in.
 
 ## [0.29.0] - 2026-11-17
 

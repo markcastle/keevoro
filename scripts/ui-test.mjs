@@ -65,8 +65,9 @@ try {
   await page.getByText(/^Looked at [\d,]+ files so far\. Now in E:\\/).first().waitFor()
   await shot('2b-searching')
   await page.getByRole('heading', { name: /^Found [\d,]+ photos and \d+ videos on KINGSTON \(E:\)$/ }).waitFor()
-  assert.equal(await text('.kept li span'), 'KINGSTON (E:)', 'what has been looked through is listed')
-  assert.match(await text('.kept li .badge'), /^[\d,]+ photos and videos · [\d.]+ (MB|GB)$/, 'with how big it is')
+  assert.equal(await text('.kept li.source .what b'), 'KINGSTON (E:)', 'what has been looked through is listed, by name')
+  assert.equal(await text('.kept li.source .what .folder'), 'E:\\', 'with where it is beneath, to open')
+  assert.match(await text('.kept li.source .count'), /^[\d,]+ photos and videos\s*[\d.]+ (MB|GB)$/, 'and how much is on it')
   // Kinds of file are folded away until asked for, then one switch each.
   assert.equal(await page.locator('.types').count(), 0, 'nothing extra until it is asked for')
   await page.getByRole('button', { name: /^File types on / }).click()
