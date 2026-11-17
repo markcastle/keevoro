@@ -6,7 +6,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Choose which kinds of file to include, source by source.** For people who want it, each source now has a quiet "File types" link. It shows the kinds of file Keevoro found there (JPG, DNG, MP4 and so on) with how many and how big, and a switch for each. Switch one off and every file of that kind on that source is left out of the backup; nothing on the source is changed, and the choice is remembered if you look through the source again. Everything is included unless you say otherwise, and adding a source is still one click.
+
+### Changed
+
+- **The Choose screen says why there is more than one collection.** Keevoro sorts what it finds into collections by folder name, or by month where folders have no names, so one source often makes several. The screen now says so.
+
+### Fixed
+
+- **Camera raw files are no longer set aside.** DNG files, and the raw files of other cameras, were being put in "pictures that don't look like photos" as tiny images. The size written at the start of a raw file is that of its small built-in preview, not of the photo, and Keevoro was taking it at face value. Raw files are now always treated as the photos they are. Any that were wrongly set aside are put back the next time you open Keevoro; you do not need to look through the source again.
 
 ## [0.17.0] - 2026-11-17
 

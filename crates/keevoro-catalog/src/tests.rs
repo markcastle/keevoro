@@ -541,3 +541,113 @@ fn a_picture_can_still_be_found_by_the_id_from_its_quick_fingerprint() {
         PathBuf::from("/mnt/usb/a.jpg")
     );
 }
+
+/// A drone's card: paired JPG and raw files, and a video.
+fn drone_report() -> ScanReport {
+    let mut items = Vec::new();
+    for (name, hash) in [
+        ("DJI_0001.JPG", "1"),
+        ("DJI_0001.DNG", "2"),
+        ("DJI_0002.JPG", "3"),
+        ("DJI_0002.DNG", "4"),
+    ] {
+        items.push(photo(&format!("/mnt/card/DCIM/{name}"), hash));
+    }
+    let mut clip = photo("/mnt/card/DCIM/DJI_0003.MP4", "5");
+    clip.kind = MediaKind::Video;
+    items.push(clip);
+    ScanReport {
+        root: PathBuf::from("/mnt/card"),
+        items,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn the_kinds_of_file_on_a_source_are_counted() {
+    let mut c = Catalog::in_memory().unwrap();
+    let id = c.save_scan("Card", &drone_report(), 1).unwrap();
+    let kinds: Vec<(String, u64, bool)> = c
+        .file_types(id)
+        .unwrap()
+        .into_iter()
+        .map(|k| (k.ending, k.files, k.included))
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            ("dng".to_string(), 2, true),
+            ("jpg".to_string(), 2, true),
+            ("mp4".to_string(), 1, true)
+        ]
+    );
+    assert_eq!(c.file_types(id).unwrap()[0].bytes, 2 * 2_483_312);
+    assert!(c.file_types(9999).unwrap().is_empty());
+}
+
+#[test]
+fn a_kind_left_out_of_a_source_is_simply_not_there_and_can_be_put_back() {
+    let mut c = Catalog::in_memory().unwrap();
+    let id = c.save_scan("Card", &drone_report(), 1).unwrap();
+    assert_eq!(c.load_reports().unwrap()[0].items.len(), 5);
+
+    c.set_type_included(id, ".DNG", false).unwrap();
+    let names: Vec<String> = c.load_reports().unwrap()[0]
+        .items
+        .iter()
+        .map(|i| i.path.file_name().unwrap().to_string_lossy().to_string())
+        .collect();
+    assert_eq!(names, ["DJI_0001.JPG", "DJI_0002.JPG", "DJI_0003.MP4"]);
+    assert!(
+        !c.file_types(id)
+            .unwrap()
+            .iter()
+            .find(|k| k.ending == "dng")
+            .unwrap()
+            .included
+    );
+
+    // Looking through the source again does not forget the choice.
+    let again = c.save_scan("Card", &drone_report(), 2).unwrap();
+    assert_eq!(c.load_reports().unwrap()[0].items.len(), 3);
+
+    c.set_type_included(again, "dng", true).unwrap();
+    assert_eq!(c.load_reports().unwrap()[0].items.len(), 5);
+}
+
+#[test]
+fn a_choice_about_one_source_does_not_touch_another() {
+    let mut c = Catalog::in_memory().unwrap();
+    let card = c.save_scan("Card", &drone_report(), 1).unwrap();
+    let mut other = drone_report();
+    other.root = PathBuf::from("/mnt/other");
+    c.save_scan("Other", &other, 1).unwrap();
+    c.set_type_included(card, "dng", false).unwrap();
+    let reports = c.load_reports().unwrap();
+    assert_eq!((reports[0].items.len(), reports[1].items.len()), (3, 5));
+}
+
+#[test]
+fn raw_files_wrongly_set_aside_by_an_earlier_version_are_put_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("catalog.sqlite");
+    {
+        let mut c = Catalog::open(&file).unwrap();
+        let mut report = drone_report();
+        for item in &mut report.items {
+            // As an earlier version recorded them.
+            item.junk = Some(JunkReason::TinyImage);
+            item.width = Some(160);
+            item.height = Some(120);
+        }
+        c.save_scan("Card", &report, 1).unwrap();
+        // Rewind to before the fix, so opening again applies it.
+        c.conn.pragma_update(None, "user_version", 6).unwrap();
+    }
+    let c = Catalog::open(&file).unwrap();
+    for item in &c.load_reports().unwrap()[0].items {
+        let raw = item.path.extension().unwrap() == "DNG";
+        assert_eq!(item.junk.is_none(), raw, "{}", item.path.display());
+        assert_eq!(item.width.is_none(), raw, "{}", item.path.display());
+    }
+}

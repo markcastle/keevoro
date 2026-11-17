@@ -125,6 +125,11 @@ const MIGRATIONS: &[&str] = &[
     // library's own folder; a file can have a place without one, when it
     // is sent straight from its source to other storage.
     "ALTER TABLE collected ADD COLUMN here INTEGER NOT NULL DEFAULT 1;",
+    // 7: camera raw files were being set aside as "tiny images", because
+    // the size in a raw file's header is that of its small built-in
+    // preview. Those are photos; put them back, and forget the wrong size.
+    "UPDATE items SET junk = NULL, width = NULL, height = NULL
+     WHERE (lower(path) LIKE '%.dng' OR lower(path) LIKE '%.cr2' OR lower(path) LIKE '%.cr3' OR lower(path) LIKE '%.crw' OR lower(path) LIKE '%.nef' OR lower(path) LIKE '%.nrw' OR lower(path) LIKE '%.arw' OR lower(path) LIKE '%.srf' OR lower(path) LIKE '%.sr2' OR lower(path) LIKE '%.orf' OR lower(path) LIKE '%.rw2' OR lower(path) LIKE '%.raf' OR lower(path) LIKE '%.pef' OR lower(path) LIKE '%.srw' OR lower(path) LIKE '%.x3f' OR lower(path) LIKE '%.3fr' OR lower(path) LIKE '%.erf' OR lower(path) LIKE '%.kdc' OR lower(path) LIKE '%.mrw' OR lower(path) LIKE '%.raw' OR lower(path) LIKE '%.iiq' OR lower(path) LIKE '%.dcr' OR lower(path) LIKE '%.mef' OR lower(path) LIKE '%.mos' OR lower(path) LIKE '%.rwl');",
 ];
 
 #[derive(Debug, thiserror::Error)]
@@ -153,6 +158,29 @@ pub struct Source {
     pub bytes: u64,
     /// Seconds since 1970, UTC.
     pub scanned_at: i64,
+}
+
+/// One kind of file found on a source, by the ending of its name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileType {
+    /// Lower case, without the dot: `jpg`, `dng`, `mp4`. Empty for files
+    /// whose names have no ending.
+    pub ending: String,
+    pub files: u64,
+    pub bytes: u64,
+    /// False when the person has left this kind out of this source.
+    pub included: bool,
+}
+
+fn left_out_key(root: &str) -> String {
+    format!("left_out_types:{root}")
+}
+
+/// The ending of a file's name, lower case, without the dot.
+fn ending_of(path: &Path) -> String {
+    path.extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default()
 }
 
 /// A file known only by a quick fingerprint so far.
@@ -351,8 +379,65 @@ impl Catalog {
         Ok(self.conn.execute("DELETE FROM sources WHERE id = ?1", [id])? > 0)
     }
 
+    /// The kinds of file found on a source, most numerous first, and
+    /// whether each kind is being included.
+    pub fn file_types(&self, source: i64) -> Result<Vec<FileType>> {
+        let root: Option<String> = self
+            .conn
+            .query_row("SELECT root FROM sources WHERE id = ?1", [source], |r| r.get(0))
+            .optional()?;
+        let Some(root) = root else { return Ok(Vec::new()) };
+        let left_out = self.left_out_types(&root)?;
+        let mut kinds: std::collections::BTreeMap<String, (u64, u64)> = std::collections::BTreeMap::new();
+        for item in self.items_of(source)? {
+            let kind = kinds.entry(ending_of(&item.path)).or_default();
+            kind.0 += 1;
+            kind.1 += item.bytes;
+        }
+        let mut list: Vec<FileType> = kinds
+            .into_iter()
+            .map(|(ending, (files, bytes))| FileType {
+                included: !left_out.contains(&ending),
+                ending,
+                files,
+                bytes,
+            })
+            .collect();
+        list.sort_by(|a, b| b.files.cmp(&a.files).then_with(|| a.ending.cmp(&b.ending)));
+        Ok(list)
+    }
+
+    /// Includes or leaves out every file with this ending on one source.
+    /// The choice belongs to the source's place, so it is still there after
+    /// the source is looked through again.
+    pub fn set_type_included(&self, source: i64, ending: &str, included: bool) -> Result<()> {
+        let root: Option<String> = self
+            .conn
+            .query_row("SELECT root FROM sources WHERE id = ?1", [source], |r| r.get(0))
+            .optional()?;
+        let Some(root) = root else { return Ok(()) };
+        let mut left_out = self.left_out_types(&root)?;
+        let ending = ending.trim_start_matches('.').to_lowercase();
+        if included {
+            left_out.remove(&ending);
+        } else {
+            left_out.insert(ending);
+        }
+        let list: Vec<&String> = left_out.iter().collect();
+        self.set_setting(&left_out_key(&root), &serde_json::to_string(&list).map_err(damaged)?)
+    }
+
+    fn left_out_types(&self, root: &str) -> Result<std::collections::BTreeSet<String>> {
+        Ok(match self.setting(&left_out_key(root))? {
+            Some(text) => serde_json::from_str(&text).unwrap_or_default(),
+            None => std::collections::BTreeSet::new(),
+        })
+    }
+
     /// Everything known about every source, in the same shape a fresh scan
     /// gives, so the rest of keevoro does not care which one it is given.
+    /// Kinds of file the person has left out of a source are not in it, so
+    /// to everything else they are simply not there.
     pub fn load_reports(&self) -> Result<Vec<ScanReport>> {
         let mut sources = self
             .conn
@@ -366,8 +451,15 @@ impl Catalog {
             .into_iter()
             .map(|(id, root, other)| {
                 Ok(ScanReport {
-                    root: PathBuf::from(root),
-                    items: self.items_of(id)?,
+                    root: PathBuf::from(&root),
+                    items: {
+                        let left_out = self.left_out_types(&root)?;
+                        let mut items = self.items_of(id)?;
+                        if !left_out.is_empty() {
+                            items.retain(|item| !left_out.contains(&ending_of(&item.path)));
+                        }
+                        items
+                    },
                     skipped: self.skipped_of(id)?,
                     unreadable: self.unreadable_of(id)?,
                     other_files: u64::try_from(other).unwrap_or(0),

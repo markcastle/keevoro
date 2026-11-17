@@ -30,6 +30,7 @@ import type {
   Collection,
   ConnectRequest,
   Discover,
+  FileType,
   GatherEvent,
   Photo,
   PhotoChoice,
@@ -37,6 +38,7 @@ import type {
   CheckEvent,
   Room,
   ScanEvent,
+  Source,
   Backup,
   Update,
 } from './backend'
@@ -541,6 +543,8 @@ function FindScreen(props: {
   const [removing, setRemoving] = useState<number | null>(null)
   // A whole disk the person picked, until they say they mean all of it.
   const [asking, setAsking] = useState<{ path: string; name: string; detail?: string } | null>(null)
+  // The source whose kinds of file are being looked at, if any.
+  const [typesOf, setTypesOf] = useState<number | null>(null)
   const [stopping, setStopping] = useState(false)
 
   const look = useCallback(() => {
@@ -710,9 +714,22 @@ function FindScreen(props: {
                     <button onClick={() => setRemoving(null)}>Cancel</button>
                   </span>
                 ) : (
-                  <button className="link" onClick={() => setRemoving(s.id)} aria-label={`Remove ${s.name}`}>
-                    Remove
-                  </button>
+                  <span className="row-actions">
+                    <button
+                      className="link quiet"
+                      onClick={() => setTypesOf(typesOf === s.id ? null : s.id)}
+                      aria-expanded={typesOf === s.id}
+                      aria-label={`File types on ${s.name}`}
+                    >
+                      File types
+                    </button>
+                    <button className="link" onClick={() => setRemoving(s.id)} aria-label={`Remove ${s.name}`}>
+                      Remove
+                    </button>
+                  </span>
+                )}
+                {typesOf === s.id && removing !== s.id && (
+                  <FileTypes api={api} source={s} onChanged={props.onChanged} onProblem={onProblem} />
                 )}
                 {removing === s.id && (
                   <p className="quiet small explain">
@@ -739,6 +756,52 @@ function PlaceCard(props: { place: Place; added: boolean; onClick: () => void })
       <span>{place.detail}</span>
       {props.added && <em>Looked through. Click to look again.</em>}
     </button>
+  )
+}
+
+/**
+ * For people who want it: the kinds of file found on one source, each with
+ * a switch. It stays folded away, so adding a source is still one click
+ * for everyone else.
+ */
+function FileTypes(props: { api: Backend; source: Source; onChanged: () => void; onProblem: (error: unknown) => void }) {
+  const { api, source, onProblem } = props
+  const [kinds, setKinds] = useState<FileType[] | null>(null)
+  useEffect(() => {
+    api.fileTypes(source.id).then(setKinds).catch(onProblem)
+  }, [api, source.id, onProblem])
+  if (!kinds) return null
+  return (
+    <div className="types explain">
+      <p className="quiet small">
+        Everything Keevoro found on {source.name} is included. Switch off a kind of file to leave all of those out of
+        this backup; nothing on the source is changed, and you can switch it back on at any time.
+      </p>
+      <ul>
+        {kinds.map((kind) => (
+          <li key={kind.ending}>
+            <button
+              className={kind.included ? 'kv-switch on' : 'kv-switch'}
+              role="switch"
+              aria-checked={kind.included}
+              aria-label={`Include ${kind.ending ? kind.ending.toUpperCase() : 'unnamed'} files`}
+              onClick={() => {
+                const included = !kind.included
+                setKinds(kinds.map((k) => (k.ending === kind.ending ? { ...k, included } : k)))
+                api.includeFileType(source.id, kind.ending, included).then(props.onChanged).catch(onProblem)
+              }}
+            >
+              <span className="knob" />
+            </button>
+            <b>{kind.ending ? kind.ending.toUpperCase() : 'No ending'}</b>
+            <span className="quiet">
+              {count(kind.files, 'file')} · {size(kind.bytes)}
+              {!kind.included && ' · left out'}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }
 
@@ -971,7 +1034,9 @@ function ChooseScreen(props: {
       <header>
         <h1>Which of these should we keep?</h1>
         <p className="status">
-          Everything is kept unless you say otherwise. Click any collection to look inside and choose photo by photo.
+          Keevoro has sorted what it found into collections: by folder name where your folders have names, and by
+          month where they don’t. So one source often makes several. Everything is kept unless you say otherwise;
+          click a collection to look inside and choose photo by photo.
         </p>
       </header>
 

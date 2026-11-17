@@ -15,6 +15,7 @@ import type {
   CheckEvent,
   Collection,
   Discover,
+  FileType,
   GatherEvent,
   Photo,
   PhotoChoice,
@@ -122,6 +123,11 @@ export function demoBackend(): Backend {
   let sendingTo: string | null = null
   let stopAsked = false
   let stopLooking = false
+  const kinds: FileType[] = [
+    { ending: 'jpg', files: 198, bytes: 620 * 1024 * 1024, included: true },
+    { ending: 'dng', files: 29, bytes: 1.4 * 1024 ** 3, included: true },
+    { ending: 'mp4', files: 11, bytes: 530 * 1024 * 1024, included: true },
+  ]
   // What is kept but not yet sent, at a made-up 3.2 MB a photo and 48 MB a video.
   const waitingBytes = () =>
     collections
@@ -328,6 +334,12 @@ export function demoBackend(): Backend {
       return filesOf(found).map((file) => ({ ...file }))
     },
     setAside: async () => junk.map((file) => ({ ...file })),
+    // Every source in the stand-in has the same made-up mix of kinds.
+    fileTypes: async () => kinds.map((k) => ({ ...k })),
+    includeFileType: async (_id, ending, included) => {
+      const kind = kinds.find((k) => k.ending === ending)
+      if (kind) kind.included = included
+    },
     forgetSource: async (id) => {
       const at = sources.findIndex((s) => s.id === id)
       if (at < 0) return

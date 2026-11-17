@@ -38,11 +38,52 @@ pub fn kind_from_extension(ext: &str) -> Option<MediaKind> {
     match ext.as_str() {
         // Camera RAW
         "dng" | "cr2" | "cr3" | "crw" | "nef" | "nrw" | "arw" | "srf" | "sr2" | "orf" | "rw2" | "raf" | "pef"
-        | "srw" | "x3f" | "3fr" | "erf" | "kdc" | "mrw" | "raw" => Some(MediaKind::Photo),
+        | "srw" | "x3f" | "3fr" | "erf" | "kdc" | "mrw" | "raw" | "iiq" | "dcr" | "mef" | "mos" | "rwl" => {
+            Some(MediaKind::Photo)
+        }
         // Camcorder and old phone video
         "mts" | "m2ts" | "3gp" | "3g2" | "mod" | "tod" | "vob" | "dv" => Some(MediaKind::Video),
         _ => None,
     }
+}
+
+/// Is this the ending of a camera's raw format?
+///
+/// A raw file is the camera's own untouched record of a picture, and for
+/// the people who shoot them it is the most precious copy there is. Most
+/// are built like a TIFF whose first picture is only a small preview, with
+/// the real, full-size one tucked further in. So the size in the header is
+/// the preview's, not the photo's, and must never be used to judge it.
+pub fn is_raw_extension(ext: &str) -> bool {
+    let ext = ext.trim_start_matches('.').to_ascii_lowercase();
+    matches!(
+        ext.as_str(),
+        "dng"
+            | "cr2"
+            | "cr3"
+            | "crw"
+            | "nef"
+            | "nrw"
+            | "arw"
+            | "srf"
+            | "sr2"
+            | "orf"
+            | "rw2"
+            | "raf"
+            | "pef"
+            | "srw"
+            | "x3f"
+            | "3fr"
+            | "erf"
+            | "kdc"
+            | "mrw"
+            | "raw"
+            | "iiq"
+            | "dcr"
+            | "mef"
+            | "mos"
+            | "rwl"
+    )
 }
 
 /// Is a file with this extension certainly not a photo or video?
@@ -78,6 +119,17 @@ pub fn never_media_extension(ext: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn camera_raw_files_are_known_by_their_ending() {
+        for ext in ["dng", "DNG", ".cr2", "NEF", "arw", "raf"] {
+            assert!(is_raw_extension(ext), "{ext}");
+            assert_eq!(kind_from_extension(ext), Some(MediaKind::Photo), "{ext} is a photo");
+        }
+        for ext in ["jpg", "tif", "png", "mp4", ""] {
+            assert!(!is_raw_extension(ext), "{ext}");
+        }
+    }
 
     #[test]
     fn programs_documents_and_music_are_passed_over_by_name() {

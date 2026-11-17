@@ -67,6 +67,19 @@ try {
   await page.getByRole('heading', { name: /^Found [\d,]+ photos and \d+ videos on KINGSTON \(E:\)$/ }).waitFor()
   assert.equal(await text('.kept li span'), 'KINGSTON (E:)', 'what has been looked through is listed')
   assert.match(await text('.kept li .badge'), /^[\d,]+ photos and videos · [\d.]+ (MB|GB)$/, 'with how big it is')
+  // Kinds of file are folded away until asked for, then one switch each.
+  assert.equal(await page.locator('.types').count(), 0, 'nothing extra until it is asked for')
+  await page.getByRole('button', { name: /^File types on / }).click()
+  assert.deepEqual(await page.locator('.types li b').allInnerTexts(), ['JPG', 'DNG', 'MP4'])
+  const dng = page.getByRole('switch', { name: 'Include DNG files' })
+  assert.equal(await dng.getAttribute('aria-checked'), 'true', 'raw files are included unless switched off')
+  await dng.click()
+  assert.equal(await dng.getAttribute('aria-checked'), 'false')
+  assert.match(await page.locator('.types li').nth(1).innerText(), /left out/)
+  await shot('3b-file-types')
+  await dng.click()
+  await page.getByRole('button', { name: /^File types on / }).click()
+  assert.equal(await page.locator('.types').count(), 0)
   // The bar is part of the window: on its bottom edge, full width.
   const bar = await page.locator('.next').boundingBox()
   const view = page.viewportSize()
@@ -79,6 +92,7 @@ try {
 
   // --- Step 2 shows collections, all kept, with one switch each.
   await page.getByRole('heading', { name: 'Which of these should we keep?', level: 1 }).waitFor()
+  assert.match(await text('.status'), /sorted what it found into collections.*one source often makes several/s, 'why there is more than one')
   assert.match(await currentStep(), /Choose what to keep/)
   assert.equal(await page.locator('.hero .picture img').count(), 3, 'the hero shows three pictures')
   const collage = await page.locator('.hero .collage').boundingBox()

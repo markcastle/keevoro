@@ -230,6 +230,46 @@ pub fn forget_source(shared: State<'_, Shared>, id: i64) -> Said<()> {
     Ok(())
 }
 
+/// One kind of file found on a source, for the "File types" list.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileTypeView {
+    ending: String,
+    files: u64,
+    bytes: u64,
+    included: bool,
+}
+
+/// The kinds of file found on a source, most numerous first.
+#[tauri::command]
+pub fn file_types(shared: State<'_, Shared>, id: i64) -> Said<Vec<FileTypeView>> {
+    let catalog = Catalog::open_in_library(&library(&shared)?).map_err(say)?;
+    Ok(catalog
+        .file_types(id)
+        .map_err(say)?
+        .into_iter()
+        .map(|kind| FileTypeView {
+            ending: kind.ending,
+            files: kind.files,
+            bytes: kind.bytes,
+            included: kind.included,
+        })
+        .collect())
+}
+
+/// Includes or leaves out every file of one kind on one source. Nothing on
+/// the source is touched; left-out files are simply not offered or sent.
+#[tauri::command]
+pub fn include_file_type(shared: State<'_, Shared>, id: i64, ending: String, included: bool) -> Said<()> {
+    let catalog = Catalog::open_in_library(&library(&shared)?).map_err(say)?;
+    catalog.set_type_included(id, &ending, included).map_err(say)?;
+    shared.log.say(&format!(
+        "{} .{ending} files on source {id}",
+        if included { "Including" } else { "Leaving out" }
+    ));
+    Ok(())
+}
+
 /// The pictures set aside as probably not memories, with the reason.
 #[tauri::command]
 pub fn set_aside(shared: State<'_, Shared>) -> Said<Vec<PhotoChoice>> {
