@@ -161,6 +161,13 @@ export type Activity = {
   cores: number
 }
 
+/**
+ * How Keevoro decodes photos on this computer: whether the computer's own
+ * codecs are in use, whether it has any to use, the ways that will be
+ * tried in order, and how many previews are made at once.
+ */
+export type Acceleration = { on: boolean; available: boolean; ways: string[]; cores: number }
+
 /** A newer version of Keevoro that is ready to install. */
 export type Update = { version: string; page: string }
 
@@ -182,6 +189,10 @@ export interface Backend {
   activity(): Promise<Activity>
   /** Pauses or resumes every heavy job, between one file and the next. */
   pauseWork(paused: boolean): Promise<void>
+  /** Whether the computer's own picture codecs are in use, and what that means here. */
+  acceleration(): Promise<Acceleration>
+  /** Switches the use of the computer's own codecs on or off, and remembers. */
+  setAcceleration(on: boolean): Promise<Acceleration>
   /** Asks a running search to stop. Nothing from it is kept. */
   stopScanning(): Promise<void>
   /** Asks a running send to stop after the file in hand. */
@@ -269,6 +280,8 @@ async function tauriBackend(): Promise<Backend> {
     switchBackup: (id) => invoke('switch_backup', { id }),
     openDestination: () => invoke('open_destination'),
     room: () => invoke('room'),
+    acceleration: () => invoke('acceleration'),
+    setAcceleration: (on) => invoke('set_acceleration', { on }),
     activity: () => invoke('activity'),
     pauseWork: (paused) => invoke('pause_work', { paused }),
     stopScanning: () => invoke('stop_scanning'),

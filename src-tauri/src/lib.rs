@@ -64,6 +64,9 @@ pub fn run() {
             let config_dir = app.path().app_config_dir()?;
             let cache_dir = app.path().app_cache_dir()?.join("previews");
             activity::watch(&commands::HISTORY);
+            keevoro_media::decode::set_use_system(
+                !settings::Settings::load(&app.path().app_config_dir()?).plain_decoding,
+            );
             let log = log::Log::open(&app.path().app_log_dir()?);
             log.say(&format!(
                 "Keevoro {} started on {} ({})",
@@ -93,6 +96,8 @@ pub fn run() {
             commands::open_destination,
             commands::room,
             commands::activity,
+            commands::acceleration,
+            commands::set_acceleration,
             commands::pause_work,
             commands::reset_everything,
             commands::stop_sending,

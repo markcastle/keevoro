@@ -124,6 +124,17 @@ export function demoBackend(): Backend {
   let sendingTo: string | null = null
   let stopAsked = false
   let stopLooking = false
+  let systemCodecs = true
+  const speed = () => ({
+    on: systemCodecs,
+    available: true,
+    ways: [
+      ...(systemCodecs ? ['this computer’s own codecs'] : []),
+      'the built-in decoder',
+      'the picture inside the raw file',
+    ],
+    cores: 4,
+  })
   let pausedNow = false
   let tick = 0
   const usage: Sample[] = Array.from({ length: 60 }, (_, i) => ({
@@ -303,6 +314,11 @@ export function demoBackend(): Backend {
     },
     pauseWork: async (paused) => {
       pausedNow = paused
+    },
+    acceleration: async () => speed(),
+    setAcceleration: async (on) => {
+      systemCodecs = on
+      return speed()
     },
     stopScanning: async () => {
       stopLooking = true
