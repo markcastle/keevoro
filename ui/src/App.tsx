@@ -41,7 +41,8 @@ import type {
   Update,
 } from './backend'
 import { count, photosAndVideos, size, thousands, wholePlace } from './format'
-import iconUrl from './assets/keevoro-icon.png'
+import lockupDarkLargeUrl from './assets/keevoro-lockup-reversed-large.png'
+import lockupShadowUrl from './assets/keevoro-lockup-shadow.png'
 import lockupDarkUrl from './assets/keevoro-lockup-reversed.png'
 import lockupUrl from './assets/keevoro-lockup.png'
 import { chooseTheme, savedTheme } from './theme'
@@ -1459,12 +1460,17 @@ function Spinner() {
 
 /**
  * The logo, exactly as supplied by the design system: the full lockup in
- * the side bar (with its own version for dark grounds), the picture tiles
- * on their own where it is shown large. It is never redrawn or recoloured.
+ * the side bar and, larger, on the first screen, each with its own
+ * version for dark grounds. It is never redrawn or recoloured.
  */
 function Logo(props: { large?: boolean }) {
   return props.large ? (
-    <img className="mark" src={iconUrl} alt="" />
+    // The first thing anyone sees: the whole logo, name and all. The
+    // design system's shadowed version is for large use on light grounds.
+    <span className="brand hero">
+      <img className="on-light" src={lockupShadowUrl} alt="Keevoro" />
+      <img className="on-dark" src={lockupDarkLargeUrl} alt="Keevoro" />
+    </span>
   ) : (
     <>
       <img className="on-light" src={lockupUrl} alt="Keevoro" />

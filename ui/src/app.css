@@ -2055,3 +2055,15 @@ h2 .folder {
 .resetting p {
   margin-top: var(--space-2);
 }
+
+/* The whole logo, large, on the first screen. */
+.brand.hero {
+  display: block;
+  padding: 0;
+  margin-bottom: var(--space-5);
+}
+
+.brand.hero img {
+  height: auto;
+  width: min(380px, 70vw);
+}

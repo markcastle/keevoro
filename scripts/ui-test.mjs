@@ -46,6 +46,7 @@ try {
   assert.equal(await page.getByRole('button').count(), 1, 'one way forward')
   assert.equal(await page.getByLabel('What shall we call this backup?').inputValue(), 'My photos', 'with a name already suggested')
   await page.getByLabel('What shall we call this backup?').fill('Family photos')
+  assert.equal(await page.locator('.welcome .brand img:visible').getAttribute('alt'), 'Keevoro', 'the logo, name and all')
   await shot('1-welcome')
   await page.getByRole('button', { name: 'Get started' }).click()
 
