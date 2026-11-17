@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.20.0] - 2026-11-17
+
 ### Added
 
 - **See how fast a send is going.** While files are being sent, the Send screen shows how much has gone out of how much, the speed, and roughly how long is left: "9.6 GB of 30.1 GB sent at 12.4 MB/s, about 28 minutes left". The speed is steadied over the last few seconds, and no time is guessed while nothing is arriving.
@@ -291,7 +295,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.19.0...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.20.0...HEAD
+[0.20.0]: https://github.com/markcastle/keevoro/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/markcastle/keevoro/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/markcastle/keevoro/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/markcastle/keevoro/compare/v0.16.0...v0.17.0
