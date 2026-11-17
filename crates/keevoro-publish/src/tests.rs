@@ -17,6 +17,11 @@ struct Flaky {
     deny: bool,
     puts: AtomicU32,
     parts: AtomicU32,
+    /// Makes each write take a moment, as a far-off server does.
+    slow: bool,
+    writing: AtomicU32,
+    /// The most writes that were ever under way together.
+    most_at_once: AtomicU32,
 }
 
 impl Flaky {
@@ -32,6 +37,9 @@ impl Flaky {
             deny: false,
             puts: AtomicU32::new(0),
             parts: AtomicU32::new(0),
+            slow: false,
+            writing: AtomicU32::new(0),
+            most_at_once: AtomicU32::new(0),
         }
     }
     fn trouble(&self) -> Result<(), StorageError> {
@@ -70,7 +78,14 @@ impl ObjectStore for Flaky {
     async fn put(&self, key: &ObjectKey, body: ByteSource, opts: &PutOptions) -> Result<PutReceipt, StorageError> {
         self.trouble()?;
         self.puts.fetch_add(1, Ordering::SeqCst);
-        self.inner.put(key, body, opts).await
+        let now = self.writing.fetch_add(1, Ordering::SeqCst) + 1;
+        self.most_at_once.fetch_max(now, Ordering::SeqCst);
+        if self.slow {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let done = self.inner.put(key, body, opts).await;
+        self.writing.fetch_sub(1, Ordering::SeqCst);
+        done
     }
     async fn list_page(&self, prefix: &str, continuation: Option<String>) -> Result<ListPage, StorageError> {
         self.inner.list_page(prefix, continuation).await
@@ -149,6 +164,7 @@ fn quick() -> PublishOptions {
         retry_pause: Duration::ZERO,
         stop: None,
         over_network: false,
+        at_once: 1,
     }
 }
 
@@ -412,6 +428,76 @@ async fn a_store_that_prefers_whole_files_is_never_sent_parts() {
         (1, 0)
     );
     assert!(w.stored("originals/big.mov").await == video);
+}
+
+#[tokio::test]
+async fn several_files_go_at_once_when_asked_and_all_arrive() {
+    let mut w = World::new().await;
+    w.store.slow = true;
+    let files: Vec<Vec<u8>> = (0..12u8).map(|n| vec![n; 1000 + usize::from(n)]).collect();
+    let uploads: Vec<Upload> = files
+        .iter()
+        .enumerate()
+        .map(|(n, bytes)| w.file(&format!("originals/{n}.jpg"), bytes, true))
+        .collect();
+    let mut seen = Vec::new();
+    let opts = PublishOptions { at_once: 4, ..quick() };
+    let r = publish(&w.store, &w.catalog, "test", &uploads, &opts, &mut |p| {
+        seen.push(p.done)
+    })
+    .await
+    .unwrap();
+    assert_eq!((r.uploaded, r.failed.len(), r.stopped), (12, 0, false));
+    assert_eq!(
+        w.store.most_at_once.load(Ordering::SeqCst),
+        4,
+        "four at a time, never more"
+    );
+    assert_eq!(seen, (1..=12).collect::<Vec<_>>(), "progress counts each one once");
+    for (n, bytes) in files.iter().enumerate() {
+        assert!(&w.stored(&format!("originals/{n}.jpg")).await == bytes);
+    }
+    // Sending again sends nothing: each was recorded as it landed.
+    w.store.puts.store(0, Ordering::SeqCst);
+    let again = w.publish(&uploads, &opts).await;
+    assert_eq!((again.uploaded, again.already_there), (0, 12));
+    assert_eq!(w.store.puts.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn one_at_a_time_is_still_one_at_a_time() {
+    let mut w = World::new().await;
+    w.store.slow = true;
+    let uploads: Vec<Upload> = (0..5u8)
+        .map(|n| w.file(&format!("originals/{n}.jpg"), &[n; 100], true))
+        .collect();
+    w.publish(&uploads, &quick()).await;
+    assert_eq!(w.store.most_at_once.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn stopping_lets_the_files_under_way_finish_and_starts_no_more() {
+    let mut w = World::new().await;
+    w.store.slow = true;
+    let uploads: Vec<Upload> = (0..10u8)
+        .map(|n| w.file(&format!("originals/{n}.jpg"), &[n; 100], true))
+        .collect();
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let opts = PublishOptions {
+        at_once: 3,
+        stop: Some(stop.clone()),
+        ..quick()
+    };
+    let r = publish(&w.store, &w.catalog, "test", &uploads, &opts, &mut |p| {
+        if p.done == 1 {
+            stop.store(true, Ordering::SeqCst);
+        }
+    })
+    .await
+    .unwrap();
+    assert!(r.stopped);
+    assert!(r.uploaded >= 3 && r.uploaded < 10, "{} were sent", r.uploaded);
+    assert_eq!(r.failed.len(), 0, "a file under way is finished, not abandoned");
 }
 
 #[tokio::test]

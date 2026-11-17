@@ -304,6 +304,12 @@ try {
   assert.equal(await page.locator('.kept li.source').count(), 2, 'each ticked folder became a source')
   assert.equal(await page.locator('.survey').count(), 0)
 
+  // One button looks through every source again for anything new.
+  await page.getByRole('button', { name: 'Look through all 2 again for new photos' }).click()
+  await page.getByRole('heading', { name: /^Found [\d,]+ photos/ }).waitFor()
+  await page.getByRole('button', { name: 'Look through all 2 again for new photos' }).waitFor()
+  assert.equal(await page.locator('.kept li.source').count(), 2, 'looking again adds no source twice')
+
   // --- Back from a collection lands where you were, not at the top.
   await page.setViewportSize({ width: 1440, height: 520 })
   await page.goto(`${base}/`)

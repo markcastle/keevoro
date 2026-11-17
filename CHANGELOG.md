@@ -6,7 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **One button to pick up new photos.** Under "Your sources" there is now "Look again for new photos". It looks through every source of the backup again, one after another, and the next backup sends only what is new.
+
+### Changed
+
+- **Backing up to cloud storage is several times quicker for many small files.** Keevoro sent one file at a time and waited for the far end to answer before starting the next, which is slow when there are thousands of small previews. It now sends six at a time to Cloudflare R2, Amazon S3 and the like. Backups to a folder or a drive still go one at a time, where sending several only makes the disk work harder. Stop and Pause let the files already on their way finish.
 
 ## [0.25.0] - 2026-11-17
 
