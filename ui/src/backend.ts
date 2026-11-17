@@ -287,6 +287,8 @@ export interface Backend {
   keepPhoto(id: string, keep: boolean): Promise<void>
   /** An address for a small picture of this file, usable in an <img>. */
   preview(id: string): Promise<string>
+  /** A screen-sized picture of one file, for looking at it closely. Fetched afresh each time. */
+  closerLook(id: string): Promise<string>
   gather(): Promise<void>
   /** Where the library is backed up to, in words, or null if nowhere yet. */
   destination(): Promise<string | null>
@@ -375,6 +377,10 @@ async function tauriBackend(): Promise<Backend> {
       }
       return url
     },
+    closerLook: (id) =>
+      invoke<ArrayBuffer>('closer_look', { id }).then((bytes) =>
+        URL.createObjectURL(new Blob([bytes], { type: 'image/webp' })),
+      ),
     gather: () => invoke('gather'),
     destination: () => invoke('destination'),
     chooseDestinationFolder: () => pickFolder('Choose a folder to back up to'),

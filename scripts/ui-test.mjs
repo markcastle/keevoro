@@ -123,6 +123,36 @@ try {
   assert.match(await text('.photos .status'), new RegExp(`^Keeping ${howMany - 1} of ${howMany}\\.`))
   await page.waitForFunction(() => [...document.images].every((i) => i.complete && i.naturalWidth > 0))
   await shot('6-inside-a-collection')
+
+  // Holding down on a picture shows it large and does not change the tick.
+  const firstTile = tiles.nth(0)
+  assert.equal(await firstTile.getAttribute('aria-pressed'), 'true')
+  const spot = await firstTile.boundingBox()
+  await page.mouse.move(spot.x + 40, spot.y + 40)
+  await page.mouse.down()
+  await page.waitForTimeout(700)
+  await page.mouse.up()
+  const viewer = page.getByRole('dialog')
+  await viewer.waitFor()
+  await viewer.locator('.stage img').waitFor()
+  assert.equal(await firstTile.getAttribute('aria-pressed'), 'true', 'a long press is a look, not a tick')
+  assert.match(await viewer.innerText(), new RegExp(`1 of ${howMany}`))
+  await shot('6b-a-closer-look')
+  // It can be left out from here, the arrows move on, and Escape closes.
+  await viewer.getByRole('switch').click()
+  assert.equal(await firstTile.getAttribute('aria-pressed'), 'false')
+  await viewer.getByRole('switch').click()
+  await page.keyboard.press('ArrowRight')
+  assert.match(await viewer.innerText(), new RegExp(`2 of ${howMany}`))
+  await page.keyboard.press('Escape')
+  assert.equal(await page.getByRole('dialog').count(), 0)
+  // A quick click still ticks, and a right-click also opens the closer look.
+  await firstTile.click()
+  assert.equal(await firstTile.getAttribute('aria-pressed'), 'false')
+  await firstTile.click()
+  await firstTile.click({ button: 'right' })
+  await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click()
+  assert.equal(await firstTile.getAttribute('aria-pressed'), 'true')
   await page.getByRole('button', { name: '‹ Back' }).click()
 
   // Duplicates can be looked at before anything is backed up: which copy

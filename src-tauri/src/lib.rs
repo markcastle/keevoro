@@ -130,6 +130,7 @@ pub fn run() {
             commands::include_file_type,
             commands::keep_photo,
             commands::preview,
+            commands::closer_look,
             commands::gather,
             commands::destination,
             commands::connect_destination,
