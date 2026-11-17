@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.18.0] - 2026-11-17
+
 ### Added
 
 - **Choose which kinds of file to include, source by source.** For people who want it, each source now has a quiet "File types" link. It shows the kinds of file Keevoro found there (JPG, DNG, MP4 and so on) with how many and how big, and a switch for each. Switch one off and every file of that kind on that source is left out of the backup; nothing on the source is changed, and the choice is remembered if you look through the source again. Everything is included unless you say otherwise, and adding a source is still one click.
@@ -274,7 +278,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.17.0...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.18.0...HEAD
+[0.18.0]: https://github.com/markcastle/keevoro/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/markcastle/keevoro/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/markcastle/keevoro/compare/v0.15.1...v0.16.0
 [0.15.1]: https://github.com/markcastle/keevoro/compare/v0.15.0...v0.15.1
