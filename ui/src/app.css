@@ -2309,3 +2309,51 @@ main > section > :nth-last-child(2) {
   color: var(--sun-ink);
   font-weight: 500;
 }
+
+/* How a send is getting on: how much, how fast, how long. */
+.speed {
+  margin: var(--space-3) 0;
+  max-width: 640px;
+}
+
+.speed progress {
+  width: 100%;
+  display: block;
+}
+
+.speed p {
+  margin-top: var(--space-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* How earlier sends went: folded away, for comparing one with another. */
+.sends {
+  margin-top: var(--space-4);
+}
+
+.sends summary {
+  cursor: pointer;
+  color: var(--pine);
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.sends table {
+  margin-top: var(--space-3);
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.sends th,
+.sends td {
+  text-align: left;
+  padding: var(--space-2) var(--space-5) var(--space-2) 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.sends th {
+  color: var(--ink-muted);
+  font-weight: 500;
+}

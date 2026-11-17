@@ -149,6 +149,33 @@ export type Sample = {
   cpu: number
   /** Megabytes read from and written to disk in that second. */
   disk: number
+  /** Megabytes of your files that arrived where they were sent, in that second. */
+  sent: number
+  /** The part of `sent` that went over the network, to cloud storage. */
+  network: number
+}
+
+/** How one finished send went. */
+export type Sent = {
+  /** When it finished, in seconds since 1970. */
+  finishedAt: number
+  /** How long it took, from pressing Send to the end. */
+  seconds: number
+  bytes: number
+  /** Where it went, in words. */
+  to: string
+  stopped: boolean
+}
+
+/** How a send is getting on. */
+export type SendProgress = {
+  bytesDone: number
+  bytesTotal: number
+  /** Bytes a second, steadied over the last few seconds. */
+  speed: number
+  /** Null while nothing is arriving, when no honest guess can be made. */
+  secondsLeft: number | null
+  overNetwork: boolean
 }
 
 /** What Keevoro is doing, why, and how hard it has been working. */
@@ -180,6 +207,10 @@ export interface Backend {
   resetEverything(): Promise<AppState>
   /** What Keevoro is doing now, why, and how hard it has been working. */
   activity(): Promise<Activity>
+  /** This backup's earlier sends, newest first. */
+  sendHistory(): Promise<Sent[]>
+  /** How a send in hand is getting on: how much, how fast, how long left. */
+  sendProgress(): Promise<SendProgress>
   /** Pauses or resumes every heavy job, between one file and the next. */
   pauseWork(paused: boolean): Promise<void>
   /** Asks a running search to stop. Nothing from it is kept. */
@@ -270,6 +301,8 @@ async function tauriBackend(): Promise<Backend> {
     openDestination: () => invoke('open_destination'),
     room: () => invoke('room'),
     activity: () => invoke('activity'),
+    sendProgress: () => invoke('send_progress'),
+    sendHistory: () => invoke('send_history'),
     pauseWork: (paused) => invoke('pause_work', { paused }),
     stopScanning: () => invoke('stop_scanning'),
     resetEverything: () => invoke('reset_everything'),

@@ -31,6 +31,23 @@ export function wholePlace(path: string) {
   )
 }
 
+/**
+ * A length of time as a person would say it: "less than a minute",
+ * "about 36 minutes", "about 2 hours 10 minutes". Never to the second,
+ * because a guess that precise would be pretending.
+ */
+export function about(seconds: number) {
+  if (seconds < 60) return 'less than a minute'
+  const minutes = Math.round(seconds / 60)
+  if (minutes < 60) return `about ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`
+  // Past an hour, the nearest five minutes is as fine as a guess should be.
+  const rounded = Math.round(minutes / 5) * 5
+  const hours = Math.floor(rounded / 60)
+  const rest = rounded % 60
+  const h = `${hours} ${hours === 1 ? 'hour' : 'hours'}`
+  return rest === 0 ? `about ${h}` : `about ${h} ${rest} minutes`
+}
+
 export function size(bytes: number) {
   const units = ['bytes', 'KB', 'MB', 'GB', 'TB']
   let value = bytes
