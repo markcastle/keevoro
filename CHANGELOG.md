@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.23.0] - 2026-11-17
+
 ### Added
 
 - **Every backup explains itself.** Keevoro now writes a plain note, "What is in this backup.txt", into the place it backs up to. It says what each folder is for: `originals` (your photos and videos, untouched), `renditions` (smaller versions made for looking at, with what thumb, display, poster and video each mean) and `index` (the list a gallery reads). It also says how to get your photos back without Keevoro.
@@ -338,7 +342,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.22.0...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.23.0...HEAD
+[0.23.0]: https://github.com/markcastle/keevoro/compare/v0.22.0...v0.23.0
 [0.22.0]: https://github.com/markcastle/keevoro/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/markcastle/keevoro/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/markcastle/keevoro/compare/v0.19.0...v0.20.0
