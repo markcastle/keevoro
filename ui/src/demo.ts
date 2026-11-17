@@ -328,6 +328,9 @@ export function demoBackend(): Backend {
       speed: 12.4 * 1024 * 1024,
       secondsLeft: Math.round(((30.1 - 9.6) * 1024) / 12.4),
       overNetwork: false,
+      // `?sending` pretends a backup was already running when the screen opened.
+      running: new URLSearchParams(window.location.search).has('sending'),
+      stopping: false,
     }),
     sendHistory: async () => [...sends],
     pauseWork: async (paused) => {
@@ -485,7 +488,7 @@ export function demoBackend(): Backend {
                 finished: true,
                 summary: [
                   `Safely backed up ${done.toLocaleString('en-GB')} files.`,
-                  'Stopped. Everything sent so far is safe where it is. Send again whenever you like and it carries on from here.',
+                  'Stopped. Everything sent so far is safe where it is. Back up again whenever you like and it carries on from here.',
                 ],
               }),
             )

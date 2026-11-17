@@ -539,6 +539,11 @@ pub struct SendProgress {
     seconds_left: Option<u64>,
     /// True when this send goes over the network, to cloud storage.
     over_network: bool,
+    /// True while a send or a check is under way, so that a screen opened
+    /// part-way through can say so at once instead of offering to start one.
+    running: bool,
+    /// True once that send has been asked to stop and is finishing its file.
+    stopping: bool,
 }
 
 #[tauri::command]
@@ -556,6 +561,8 @@ pub fn send_progress(shared: State<'_, Shared>) -> SendProgress {
         speed,
         seconds_left,
         over_network: samples.iter().rev().take(10).any(|s| s.network > 0.0),
+        running: shared.sending.load(Ordering::SeqCst),
+        stopping: shared.stop_sending.load(Ordering::SeqCst),
     }
 }
 

@@ -6,7 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **"Send them now" is now "Back up now".** After a backup it reads "Back up again".
+- **Buttons look like buttons.** Check they all arrived, Show me the folder, Send somewhere else, Stop, Cancel, Remove, File types, Start a new backup and Open the log file were drawn as plain text. They are now proper buttons. Only things that take you somewhere (Back, Settings, What's new) are still drawn as links.
+
+### Fixed
+
+- **Coming back to a running backup no longer offers to start it again.** If you looked at another screen while a backup was running and came back, the Send screen showed "Send them now" for a few seconds before catching up. It now shows the backup in progress, with its speed and Stop button, straight away.
 
 ## [0.21.0] - 2026-11-17
 

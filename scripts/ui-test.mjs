@@ -154,7 +154,7 @@ try {
   // The folder's name opens the folder, and the room is weighed against the disk.
   assert.ok(await page.getByRole('button', { name: 'F:\\Family Backup' }).isVisible())
   assert.match(await text('.send .needs'), /^They need about [\d.]+ (MB|GB)\. That disk has [\d.]+ GB free, so there is room\.$/)
-  await page.getByRole('button', { name: 'Send them now' }).click()
+  await page.getByRole('button', { name: 'Back up now' }).click()
   await page.locator('.send .done').first().waitFor()
   assert.match(await text('.send .done'), /^Safely backed up [\d,]+ files\.$/)
   await page.getByText(/^Previews added: [\d,]+ files\.$/).waitFor()
@@ -268,7 +268,7 @@ try {
   await page.getByRole('button', { name: /^A folder/ }).click()
   await page.getByText('There isn’t enough room there.').waitFor()
   assert.match(await text('.send .needs.short'), /need about [\d.]+ (MB|GB) and that disk has only 90\.0 MB free/)
-  assert.ok(await page.getByRole('button', { name: 'Send them now' }).isDisabled(), 'sending waits until there is room')
+  assert.ok(await page.getByRole('button', { name: 'Back up now' }).isDisabled(), 'sending waits until there is room')
   await shot('9g-not-enough-room')
 
   // --- A search can be stopped, and then nothing from it is kept.
@@ -282,11 +282,21 @@ try {
   assert.ok(await page.locator('.steps button').nth(1).isDisabled(), 'and there is nothing to choose from')
   await shot('9j-search-stopped')
 
+  // --- Coming back to a backup that is already running shows it running,
+  // never an offer to start another.
+  await page.goto(`${base}/?sending`)
+  await page.getByRole('button', { name: 'Choose where they go' }).click()
+  await page.getByRole('button', { name: /^A folder/ }).click()
+  await page.getByRole('button', { name: 'Stop', exact: true }).waitFor()
+  assert.equal(await page.getByRole('button', { name: 'Back up now' }).count(), 0, 'no second start is offered')
+  await page.locator('.speed').waitFor()
+  await shot('9m-came-back-to-a-running-backup')
+
   // --- A send can be stopped; what was sent stays sent.
   await page.goto(`${base}/?slow`)
   await page.getByRole('button', { name: 'Choose where they go' }).click()
   await page.getByRole('button', { name: /^A folder/ }).click()
-  await page.getByRole('button', { name: 'Send them now' }).click()
+  await page.getByRole('button', { name: 'Back up now' }).click()
   // While it sends, it says how much, how fast and how long is left.
   await page.locator('.speed').waitFor()
   assert.match(await text('.speed p'), /^[\d.]+ GB of [\d.]+ GB sent at [\d.]+ MB\/s, about \d+ minutes left$/)

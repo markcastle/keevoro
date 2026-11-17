@@ -188,7 +188,7 @@ pub fn originals_first(
     let stopped = |out: &mut dyn Write| -> Result<()> {
         writeln!(
             out,
-            "Stopped. Everything sent so far is safe where it is. Send again whenever you like and it carries on from here."
+            "Stopped. Everything sent so far is safe where it is. Back up again whenever you like and it carries on from here."
         )?;
         Ok(())
     };
