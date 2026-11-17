@@ -159,6 +159,13 @@ Done when a non-technical tester gets from a drive to a backup without help.
 - [x] Files go to a folder whole, read once and written once (they were written twice above 64 MB)
 - [ ] Measure folder backup speed against a plain Windows copy on the same disks, and close any gap (bigger pieces, or the system's own copy call with progress)
 - [x] Six files at once to cloud storage
+- [x] Four files at once to a folder on a file share (Windows)
+- [x] Every copy written to a folder is read back and compared with the original's fingerprint
+- [ ] Cloud storage: send a checksum with each file and part so the storage itself refuses a damaged upload
+- [ ] Cloud storage: fingerprint what is read from the source as it is sent, as a folder backup now does
+- [ ] macOS and Linux: tell a network folder from a disk
+- [x] A backup of the originals alone, with no previews
+- [ ] Third-party licence acknowledgements in the app
 - [ ] Choose how many files go at once (some connections want fewer, fast ones more)
 - [ ] Send the parts of one large file at once, not only several files
 - [ ] Back up two or three small files at once to a folder or network drive
