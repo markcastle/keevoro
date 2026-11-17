@@ -2507,3 +2507,17 @@ main > section > :nth-last-child(2) {
   text-align: left;
   overflow-wrap: anywhere;
 }
+
+/* About: where the name comes from. */
+.setting.about p {
+  max-width: 620px;
+}
+
+.setting.about .motto {
+  font-family: var(--font-display);
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 500;
+  color: var(--pine);
+  margin-bottom: var(--space-2);
+}

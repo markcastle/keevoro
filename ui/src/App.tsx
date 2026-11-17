@@ -1253,6 +1253,17 @@ function SettingsScreen(props: {
         )}
       </div>
 
+      <div className="setting about">
+        <h3>About Keevoro</h3>
+        <p className="motto">Keep things as they were.</p>
+        <p>
+          The name blends the sound of English <i>keep</i> with <i>voro</i>, an old Swedish word meaning “were”.
+          Together they capture why we save photos and videos in the first place: to remember people and places as
+          they were.
+        </p>
+        <p className="quiet small">Version {state.version}</p>
+      </div>
+
       <div className="setting">
         <h3>Start again</h3>
         <p className="quiet">

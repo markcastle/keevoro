@@ -244,7 +244,7 @@ try {
   // --- Settings holds everything in one place, including the log.
   await page.getByRole('button', { name: 'Settings' }).click()
   await page.getByRole('heading', { name: 'Settings', level: 1 }).waitFor()
-  for (const title of ['This backup', 'Where it backs up to', 'Appearance', 'Speed', 'Updates', 'What Keevoro has been doing']) {
+  for (const title of ['This backup', 'Where it backs up to', 'Appearance', 'Speed', 'Updates', 'What Keevoro has been doing', 'About Keevoro']) {
     await page.getByRole('heading', { name: title, level: 3 }).waitFor()
   }
   // Speed: the computer's own codecs are used unless switched off, and it says what that means.
@@ -255,6 +255,10 @@ try {
   assert.equal(await codecs.getAttribute('aria-checked'), 'false')
   await page.getByText(/Photos are opened by: the built-in decoder, then/).waitFor()
   await codecs.click()
+  // About: where the name comes from.
+  assert.match(await text('.setting.about'), /Keep things as they were\./)
+  assert.match(await text('.setting.about'), /voro, an old Swedish word meaning “were”/)
+
   // Appearance: light, dark, or the same as the computer, and it is remembered.
   const ground = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor)
   assert.equal(await ground(), 'rgb(255, 254, 251)', 'the cream ground of the light theme')
