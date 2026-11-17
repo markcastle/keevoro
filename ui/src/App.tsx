@@ -236,7 +236,7 @@ export function App() {
             <span className="paused" role="status">
               Keevoro is paused.{' '}
               <button
-                className="link"
+                className="button small"
                 onClick={() =>
                   api
                     .pauseWork(false)
@@ -522,7 +522,7 @@ function BackupPicker(props: {
             </button>
           ))}
           {naming === null ? (
-            <button className="link" onClick={() => setNaming('')}>
+            <button className="button" onClick={() => setNaming('')}>
               Start a new backup…
             </button>
           ) : (
@@ -669,7 +669,7 @@ function FindScreen(props: {
               Choose a folder inside it
             </button>
             <button onClick={() => start(asking.path)}>Look through all of it</button>
-            <button className="link" onClick={() => setAsking(null)}>
+            <button className="button" onClick={() => setAsking(null)}>
               Cancel
             </button>
           </p>
@@ -743,14 +743,14 @@ function FindScreen(props: {
                 ) : (
                   <span className="row-actions">
                     <button
-                      className="link quiet"
+                      className="button small"
                       onClick={() => setTypesOf(typesOf === s.id ? null : s.id)}
                       aria-expanded={typesOf === s.id}
                       aria-label={`File types on ${s.name}`}
                     >
                       File types
                     </button>
-                    <button className="link" onClick={() => setRemoving(s.id)} aria-label={`Remove ${s.name}`}>
+                    <button className="button small" onClick={() => setRemoving(s.id)} aria-label={`Remove ${s.name}`}>
                       Remove
                     </button>
                   </span>
@@ -1223,7 +1223,7 @@ function SettingsScreen(props: {
         </p>
         <p className="choices">
           <button onClick={showLog}>{log === null ? 'Show the log' : 'Refresh'}</button>
-          <button className="link" onClick={() => api.openLog().catch(onProblem)}>
+          <button className="button" onClick={() => api.openLog().catch(onProblem)}>
             Open the log file
           </button>
         </p>
@@ -1475,6 +1475,23 @@ function SendPanel(props: {
     api.sendHistory().then(setHistory).catch(() => {})
   }, [api, weigh, where, props.waiting, props.safe])
 
+  // A backup carries on when you look at another screen. On coming back,
+  // ask whether one is running before offering to start another.
+  const [asked, setAsked] = useState(false)
+  useEffect(() => {
+    api
+      .sendProgress()
+      .then((p) => {
+        if (p.running) {
+          setProgress(p)
+          setStopping(p.stopping)
+          setRunning((now) => now ?? 'Backing up…')
+        }
+      })
+      .catch(() => {})
+      .finally(() => setAsked(true))
+  }, [api])
+
   useEffect(() => {
     api.destination().then(setWhere).catch(onProblem)
     return api.onSend((event) => {
@@ -1512,7 +1529,7 @@ function SendPanel(props: {
     })
   }
 
-  if (where === undefined) return null
+  if (where === undefined || !asked) return null
   return (
     <div className="panel send">
       {where === null ? (
@@ -1624,7 +1641,7 @@ function SendPanel(props: {
                 <button className="primary" type="submit" disabled={connecting}>
                   {connecting ? 'Checking…' : 'Connect'}
                 </button>
-                <button className="link" type="button" onClick={() => setForm(null)}>
+                <button className="button" type="button" onClick={() => setForm(null)}>
                   Cancel
                 </button>
               </div>
@@ -1700,7 +1717,7 @@ function SendPanel(props: {
               <Spinner /> {stopping ? 'Stopping after this file…' : running}
               {!stopping && (
                 <button
-                  className="link"
+                  className="button small"
                   onClick={() => {
                     setStopping(true)
                     api.stopSending().catch(onProblem)
@@ -1717,18 +1734,18 @@ function SendPanel(props: {
                 onClick={() => start('Starting…', api.send)}
                 disabled={props.waiting + props.safe === 0 || (room !== null && !room.enough)}
               >
-                {props.waiting > 0 ? 'Send them now' : 'Send again'}
+                {props.waiting > 0 ? 'Back up now' : 'Back up again'}
               </button>
-              <button className="link" onClick={() => start('Checking…', api.checkArrived)} disabled={props.safe === 0}>
+              <button className="button" onClick={() => start('Checking…', api.checkArrived)} disabled={props.safe === 0}>
                 Check they all arrived
               </button>
               {where.startsWith('the folder') && (
-                <button className="link" onClick={() => api.openDestination().catch(onProblem)}>
+                <button className="button" onClick={() => api.openDestination().catch(onProblem)}>
                   Show me the folder
                 </button>
               )}
               <button
-                className="link quiet"
+                className="button"
                 onClick={() =>
                   api
                     .disconnectDestination()

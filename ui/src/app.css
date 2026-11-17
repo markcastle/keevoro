@@ -521,6 +521,10 @@ h3 {
   margin-top: 8px;
 }
 
+.panel .choices .primary {
+  margin-top: 0;
+}
+
 .panel .done {
   color: var(--success);
   font-weight: 500;
@@ -1421,6 +1425,7 @@ h3 {
 /* ---------- buttons ---------- */
 
 .primary,
+.button,
 .choices button:not(.link),
 .kept li.source .confirm button,
 .update .actions button:not(.link),
@@ -1444,6 +1449,7 @@ h3 {
     border-color 0.15s ease-out;
 }
 
+.button:hover:not(:disabled),
 .choices button:not(.link):hover,
 .kept li.source .confirm button:hover,
 .update .actions button:not(.link):hover {
@@ -2375,4 +2381,15 @@ main > section > :nth-last-child(2) {
 .sends th {
   color: var(--ink-muted);
   font-weight: 500;
+}
+
+/* A smaller button, for actions that sit in a row or beside a line of text. */
+.button.small {
+  height: 32px;
+  padding: 0 var(--space-3);
+  font-size: 13px;
+}
+
+.running .button {
+  margin-left: var(--space-3);
 }

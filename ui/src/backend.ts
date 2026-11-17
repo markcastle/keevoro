@@ -169,6 +169,10 @@ export type Sent = {
 
 /** How a send is getting on. */
 export type SendProgress = {
+  /** True while a send or a check is under way, even if this screen was not open when it began. */
+  running: boolean
+  /** True once it has been asked to stop and is finishing the file in hand. */
+  stopping: boolean
   bytesDone: number
   bytesTotal: number
   /** Bytes a second, steadied over the last few seconds. */
