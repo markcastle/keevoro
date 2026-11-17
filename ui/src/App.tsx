@@ -21,6 +21,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 
 import { backend } from './backend'
 import type {
@@ -1253,6 +1254,17 @@ function SettingsScreen(props: {
         )}
       </div>
 
+      <div className="setting about">
+        <h3>About Keevoro</h3>
+        <p className="motto">Keep things as they were.</p>
+        <p>
+          The name blends the sound of English <i>keep</i> with <i>voro</i>, an old Swedish word meaning “were”.
+          Together they capture why we save photos and videos in the first place: to remember people and places as
+          they were.
+        </p>
+        <p className="quiet small">Version {state.version}</p>
+      </div>
+
       <div className="setting">
         <h3>Start again</h3>
         <p className="quiet">
@@ -1920,6 +1932,24 @@ function PhotosScreen(props: {
   }
   const keeping = photos?.filter((p) => p.kept).length ?? 0
 
+  // Holding down on a picture (or right-clicking it) opens it large,
+  // without changing whether it is kept. `held` remembers that the press
+  // was a look, so the click that follows letting go is not also a tick.
+  const [looking, setLooking] = useState<string | null>(null)
+  const hold = useRef<number | undefined>(undefined)
+  const held = useRef(false)
+  const press = (id: string) => {
+    held.current = false
+    window.clearTimeout(hold.current)
+    hold.current = window.setTimeout(() => {
+      held.current = true
+      setLooking(id)
+    }, HOLD_TO_LOOK)
+  }
+  const release = () => window.clearTimeout(hold.current)
+  useEffect(() => () => window.clearTimeout(hold.current), [])
+  const at = photos && looking ? photos.findIndex((p) => p.id === looking) : -1
+
   return (
     <section className="photos">
       <header>
@@ -1930,9 +1960,9 @@ function PhotosScreen(props: {
         <p className="status">
           {collection
             ? photos
-              ? `Keeping ${thousands(keeping)} of ${thousands(photos.length)}. Click a picture to leave it out or put it back.`
+              ? `Keeping ${thousands(keeping)} of ${thousands(photos.length)}. Click a picture to leave it out or put it back. Hold down on one to see it larger.`
               : collection.summary
-            : 'These look like app pictures or leftovers, not memories. Click any you want to keep after all.'}
+            : 'These look like app pictures or leftovers, not memories. Click any you want to keep after all. Hold down on one to see it larger.'}
         </p>
       </header>
       {photos && photos.length === 0 && (
@@ -1943,7 +1973,20 @@ function PhotosScreen(props: {
           <button
             key={photo.id}
             className={photo.kept ? 'tile' : 'tile out'}
-            onClick={() => toggle(photo)}
+            onPointerDown={(e) => e.button === 0 && press(photo.id)}
+            onPointerUp={release}
+            onPointerLeave={release}
+            onPointerCancel={release}
+            onContextMenu={(e) => {
+              e.preventDefault()
+              release()
+              setLooking(photo.id)
+            }}
+            onClick={() => {
+              // Letting go after a long press is not a click on the tick.
+              if (held.current) held.current = false
+              else toggle(photo)
+            }}
             aria-pressed={photo.kept}
             aria-label={`${photo.name}, ${photo.kept ? 'keeping' : 'not keeping'}`}
           >
@@ -1955,7 +1998,119 @@ function PhotosScreen(props: {
           </button>
         ))}
       </div>
+      {photos && at >= 0 && (
+        <Viewer
+          api={api}
+          photo={photos[at]}
+          place={`${thousands(at + 1)} of ${thousands(photos.length)}`}
+          onKeep={() => toggle(photos[at])}
+          onMove={(by) => {
+            const next = photos[at + by]
+            if (next) setLooking(next.id)
+          }}
+          onClose={() => setLooking(null)}
+        />
+      )}
     </section>
+  )
+}
+
+/** How long a press must last, in milliseconds, to count as "show me this one". */
+const HOLD_TO_LOOK = 450
+
+/**
+ * One photo or video still, as large as the window allows, over the grid.
+ * Opened by holding down on a tile. It shows the picture, where it is on
+ * the source and whether it is being kept, and lets that be changed here
+ * too. Arrow keys move to the next and previous; Escape closes.
+ */
+function Viewer(props: {
+  api: Backend
+  photo: PhotoChoice
+  place: string
+  onKeep: () => void
+  onMove: (by: 1 | -1) => void
+  onClose: () => void
+}) {
+  const { api, photo, onMove, onClose } = props
+  const [shown, setShown] = useState<{ id: string; url: string } | null>(null)
+  const [missing, setMissing] = useState<string | null>(null)
+  const box = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    let current = true
+    let made: string | null = null
+    // The small picture is already on screen, so show it at once and swap
+    // in the large one when it arrives.
+    api
+      .preview(photo.id)
+      .then((url) => current && setShown((now) => (now?.id === photo.id ? now : { id: photo.id, url })))
+      .catch(() => {})
+    api
+      .closerLook(photo.id)
+      .then((url) => {
+        made = url
+        if (current) setShown({ id: photo.id, url })
+      })
+      .catch(() => current && setMissing(photo.id))
+    return () => {
+      current = false
+      // The large picture is only held while it is being looked at.
+      if (made?.startsWith('blob:')) URL.revokeObjectURL(made)
+    }
+  }, [api, photo.id])
+
+  useEffect(() => {
+    box.current?.focus()
+    const keys = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+      else if (e.key === 'ArrowRight') onMove(1)
+      else if (e.key === 'ArrowLeft') onMove(-1)
+      else return
+      e.preventDefault()
+    }
+    window.addEventListener('keydown', keys)
+    return () => window.removeEventListener('keydown', keys)
+  }, [onClose, onMove])
+
+  const url = shown?.id === photo.id ? shown.url : null
+  // Drawn on the page itself, not inside the screen that opened it, so it
+  // covers the whole window whatever that screen is nested in.
+  return createPortal(
+    <div className="viewer" role="dialog" aria-modal="true" aria-label={photo.name} tabIndex={-1} ref={box} onClick={onClose}>
+      <figure onClick={(e) => e.stopPropagation()}>
+        <div className="stage">
+          {url ? (
+            <img src={url} alt={photo.name} draggable={false} />
+          ) : (
+            <span className="quiet">{missing === photo.id ? 'This one can’t be shown.' : <Spinner />}</span>
+          )}
+        </div>
+        <figcaption>
+          <div>
+            <b>{photo.name}</b>
+            {photo.isVideo && <span className="badge">Video: this is a still from it</span>}
+            <span className="quiet small where">{photo.sourcePath}</span>
+          </div>
+          <div className="choices">
+            <span className="quiet small">{props.place}</span>
+            <button className="button" onClick={() => onMove(-1)} aria-label="Previous">
+              ‹
+            </button>
+            <button className="button" onClick={() => onMove(1)} aria-label="Next">
+              ›
+            </button>
+            <button className="button" role="switch" aria-checked={photo.kept} onClick={props.onKeep}>
+              {photo.kept ? '✓ Keeping' : 'Left out'}
+            </button>
+            <button className="primary" onClick={onClose}>
+              Close
+            </button>
+          </div>
+        </figcaption>
+      </figure>
+    </div>,
+    document.body,
   )
 }
 
@@ -2074,7 +2229,11 @@ function Picture(props: { api: Backend; photo: Photo }) {
   }, [api, photo.id])
 
   return (
-    <div className={missing ? 'picture missing' : 'picture'} title={photo.name}>
+    <div
+      className={missing ? 'picture missing' : url ? 'picture' : 'picture loading'}
+      title={photo.name}
+      aria-busy={!url && !missing}
+    >
       {url && <img src={url} alt="" draggable={false} />}
       {missing && <span>{photo.isVideo ? 'Video' : 'No preview'}</span>}
       {photo.isVideo && url && <span className="play" aria-label="Video" />}

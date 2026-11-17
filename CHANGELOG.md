@@ -6,7 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Hold down on a picture to see it larger.** Inside a collection, or in the set-aside list, press and hold on any photo or video (or right-click it) and it opens screen-sized, without changing whether it is kept. From there you can leave it out or put it back, move to the next and previous with the arrow keys or the buttons, and close with Escape. A quick click still ticks and unticks as before. A video shows a still from it. The line under the heading now says so: "Hold down on one to see it larger."
+- **About Keevoro.** Settings now says where the name comes from: the sound of English "keep" with "voro", an old Swedish word meaning "were". Keep things as they were.
+
+### Changed
+
+- **Pictures on their way show a shimmer.** A thumbnail that has not arrived yet used to be a blank tile, which looked as if nothing was happening. It now shimmers gently until the picture appears.
 
 ## [0.23.0] - 2026-11-17
 

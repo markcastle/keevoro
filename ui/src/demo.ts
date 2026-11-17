@@ -456,7 +456,12 @@ export function demoBackend(): Backend {
         c.kept = filesOf(c).some((f) => f.kept)
       }
     },
-    preview: async (id) => pictures.get(id) ?? Promise.reject(new Error('This one can\u2019t be previewed')),
+    // `?slowpictures` makes each picture take a while, to show the placeholders.
+    preview: async (id) => {
+      if (new URLSearchParams(window.location.search).has('slowpictures')) await new Promise((r) => setTimeout(r, 4000))
+      return pictures.get(id) ?? Promise.reject(new Error('This one can\u2019t be previewed'))
+    },
+    closerLook: async (id) => pictures.get(id) ?? Promise.reject(new Error('This one can\u2019t be previewed')),
     async gather() {
       const kept = collections.filter((c) => c.kept)
       const total = kept.reduce((n, c) => n + c.photos + c.videos - c.gathered, 0)

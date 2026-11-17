@@ -2507,3 +2507,127 @@ main > section > :nth-last-child(2) {
   text-align: left;
   overflow-wrap: anywhere;
 }
+
+/* About: where the name comes from. */
+.setting.about p {
+  max-width: 620px;
+}
+
+.setting.about .motto {
+  font-family: var(--font-display);
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 500;
+  color: var(--pine);
+  margin-bottom: var(--space-2);
+}
+
+/* Looking closely at one picture, over the grid. */
+.viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  padding: var(--space-5);
+  background: color-mix(in srgb, #06201c 82%, transparent);
+  outline: none;
+}
+
+.viewer figure {
+  margin: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  justify-self: center;
+  width: min(100%, 1400px);
+  min-height: 0;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--surface-raised);
+}
+
+.viewer .stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  overflow: hidden;
+  background: #0b1513;
+}
+
+.viewer .stage img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.viewer figcaption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-5);
+}
+
+.viewer figcaption > div:first-child {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.viewer figcaption .where {
+  overflow-wrap: anywhere;
+}
+
+.viewer figcaption .badge {
+  justify-self: start;
+}
+
+.viewer .choices {
+  margin-top: 0;
+  gap: var(--space-3);
+  align-items: center;
+  flex-wrap: nowrap;
+}
+
+/* Holding down on a picture must not start a text selection or a drag. */
+.tile {
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+}
+
+.viewer .choices .primary,
+.viewer .choices .button {
+  margin-top: 0;
+}
+
+/* A picture that has not arrived yet: a soft shimmer, so it is plain that
+   something is on its way and the screen has not stalled. */
+.picture.loading {
+  background: linear-gradient(
+    100deg,
+    var(--surface-sunken) 30%,
+    color-mix(in srgb, var(--surface-sunken) 55%, var(--surface-raised)) 50%,
+    var(--surface-sunken) 70%
+  );
+  background-size: 300% 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .picture.loading {
+    animation: none;
+  }
+}

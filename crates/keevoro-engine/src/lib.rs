@@ -34,7 +34,7 @@ pub use discover::{
     PhotoView, SourceView,
 };
 pub use discover::{duplicates, forget_source, friendly_path, CopyView, DuplicateGroup};
-pub use preview::preview;
+pub use preview::{preview, preview_at, Look};
 
 use anyhow::{bail, Context, Result};
 use keevoro_catalog::Catalog;

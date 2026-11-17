@@ -20,7 +20,16 @@ use keevoro_index::{rendition_path, Rendition};
 use keevoro_media::{render_photo, video, write_rendition, VideoTools};
 use std::path::Path;
 
-/// A WebP preview of the file whose content id starts with `id`.
+/// How large a picture is wanted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Look {
+    /// A small picture for a grid of many.
+    Small,
+    /// A screen-sized picture, for looking closely at one.
+    Closer,
+}
+
+/// A small WebP preview of the file whose content id starts with `id`.
 pub fn preview(
     library: &Path,
     catalog: &Catalog,
@@ -28,15 +37,29 @@ pub fn preview(
     id: &str,
     video_tools: Option<&VideoTools>,
 ) -> Result<Vec<u8>> {
+    preview_at(library, catalog, cache, id, video_tools, Look::Small)
+}
+
+/// A WebP preview at the size asked for. A video's still is the same
+/// picture at either size, so it is made and cached once.
+pub fn preview_at(
+    library: &Path,
+    catalog: &Catalog,
+    cache: &Path,
+    id: &str,
+    video_tools: Option<&VideoTools>,
+    look: Look,
+) -> Result<Vec<u8>> {
     let Some((source, kind, hash)) = catalog.find_item(id)? else {
         bail!("That photo isn't known to this library.");
     };
     let id = &hash[..hash.len().min(16)];
 
     if catalog.collected_path(&hash)?.is_some() {
-        let rendition = match kind {
-            MediaKind::Photo => Rendition::Thumb,
-            MediaKind::Video => Rendition::Poster,
+        let rendition = match (kind, look) {
+            (MediaKind::Photo, Look::Small) => Rendition::Thumb,
+            (MediaKind::Photo, Look::Closer) => Rendition::Display,
+            (MediaKind::Video, _) => Rendition::Poster,
         };
         let in_library = rendition_path(rendition, id)
             .split('/')
@@ -46,13 +69,18 @@ pub fn preview(
         }
     }
 
-    let cached = cache.join(format!("{id}.webp"));
+    let closer_photo = kind == MediaKind::Photo && look == Look::Closer;
+    let cached = cache.join(if closer_photo {
+        format!("{id}.display.webp")
+    } else {
+        format!("{id}.webp")
+    });
     if let Ok(bytes) = std::fs::read(&cached) {
         return Ok(bytes);
     }
 
     let bytes = match kind {
-        MediaKind::Photo => render_photo(&source).map(|r| r.thumb),
+        MediaKind::Photo => render_photo(&source).map(|r| if closer_photo { r.display } else { r.thumb }),
         MediaKind::Video => video::still(video_tools, &source).map(|still| still.webp),
     }
     .with_context(|| {
@@ -113,6 +141,17 @@ mod tests {
             !library.join("renditions").exists(),
             "the cache is not part of the library"
         );
+
+        // A closer look is the same photo, screen-sized, cached beside it.
+        let closer = preview_at(&library, &catalog, &cache, &id, None, Look::Closer).unwrap();
+        let picture = image::load_from_memory(&closer).unwrap();
+        assert_eq!(
+            (picture.width(), picture.height()),
+            (1200, 800),
+            "never made bigger than the original"
+        );
+        assert!(cache.join(format!("{id}.display.webp")).is_file());
+        assert_eq!(fs::read(drive.join("Family/a.jpg")).unwrap(), before);
 
         // With the drive unplugged, the cache still answers.
         fs::rename(&drive, dir.path().join("unplugged")).unwrap();

@@ -333,7 +333,17 @@ static PREVIEWS: Turns = Turns::new(3);
 /// A small picture of one found file, as raw WebP bytes.
 #[tauri::command]
 pub async fn preview(shared: State<'_, Shared>, id: String) -> Said<tauri::ipc::Response> {
-    let library = library(&shared)?;
+    picture(&shared, id, keevoro_engine::Look::Small).await
+}
+
+/// A screen-sized picture of one found file, for looking at it closely.
+#[tauri::command]
+pub async fn closer_look(shared: State<'_, Shared>, id: String) -> Said<tauri::ipc::Response> {
+    picture(&shared, id, keevoro_engine::Look::Closer).await
+}
+
+async fn picture(shared: &State<'_, Shared>, id: String, look: keevoro_engine::Look) -> Said<tauri::ipc::Response> {
+    let library = library(shared)?;
     let cache = shared.cache_dir.clone();
     // Making a preview reads a file and shrinks a picture; keep that off
     // the thread that draws the window.
@@ -343,7 +353,7 @@ pub async fn preview(shared: State<'_, Shared>, id: String) -> Said<tauri::ipc::
         // where each preview runs a separate program.
         let _turn = PREVIEWS.wait_for_a_turn();
         let catalog = Catalog::open_in_library(&library)?;
-        keevoro_engine::preview(&library, &catalog, &cache, &id, VideoTools::find().as_ref())
+        keevoro_engine::preview_at(&library, &catalog, &cache, &id, VideoTools::find().as_ref(), look)
     })
     .await
     .map_err(say)?
