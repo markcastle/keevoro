@@ -91,7 +91,11 @@ pub fn open(out: &mut dyn Write, runtime: &tokio::runtime::Runtime, destination:
                 .block_on(FolderStore::open(&folder))
                 .with_context(|| format!("Couldn't use {} as a backup folder", folder.display()))?
                 // Counted as it is written, so a large video shows steady progress.
-                .watched_by(std::sync::Arc::new(|bytes| keevoro_core::meter::sent(bytes, false)));
+                // A folder on a file share counts as sent over the network.
+                .watched_by({
+                    let remote = crate::reach::is_across_a_network(&folder);
+                    std::sync::Arc::new(move |bytes| keevoro_core::meter::sent(bytes, remote))
+                });
             let home = std::fs::canonicalize(&folder).unwrap_or(folder);
             Ok((
                 Box::new(store),
@@ -223,7 +227,11 @@ pub fn originals_first(
         return stopped(out);
     }
 
-    // Then what makes them nice to look through.
+    // Then what makes them nice to look through, unless this backup is
+    // for the originals alone.
+    if !wants_previews(catalog)? {
+        return files_sent(out, &files);
+    }
     crate::prepare_to_send_while(home, catalog, video_tools, &keep_going, &mut |step| {
         on_progress(&step_line(step));
     })?;
@@ -253,6 +261,22 @@ pub fn originals_first(
     if !keep_going() {
         stopped(out)?;
     }
+    Ok(())
+}
+
+/// The catalog's name for the choice of whether a backup also gets previews.
+const PREVIEWS: &str = "previews";
+
+/// Does this backup also make and send previews (thumbnails, screen-sized
+/// photos and video stills) for a gallery to show? It does unless the
+/// person has said the originals alone are wanted.
+pub fn wants_previews(catalog: &Catalog) -> Result<bool> {
+    Ok(catalog.setting(PREVIEWS)?.as_deref() != Some("off"))
+}
+
+/// Remembers, for this backup, whether previews are wanted.
+pub fn set_wants_previews(catalog: &Catalog, wanted: bool) -> Result<()> {
+    catalog.set_setting(PREVIEWS, if wanted { "on" } else { "off" })?;
     Ok(())
 }
 
@@ -345,7 +369,13 @@ pub fn run_until(
         ..PublishOptions::default()
     };
     let report = runtime.block_on(publish(store, catalog, &target, &uploads, &opts, &mut |p| {
-        on_progress(&format!("{} of {} safely backed up", n(p.done), n(p.total)));
+        // After a tab: the file just dealt with, for a screen to show beneath.
+        on_progress(&format!(
+            "{} of {} safely backed up\t{}",
+            n(p.done),
+            n(p.total),
+            p.latest
+        ));
     }))?;
 
     // The index lists only what is confirmed to be in the storage.
@@ -746,6 +776,38 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn a_backup_can_be_the_originals_alone_with_no_previews_made_or_sent() {
+        let (dir, card, home, catalog) = one_backup();
+        let to = dir.path().join("usb");
+        assert!(
+            wants_previews(&catalog).unwrap(),
+            "previews are made unless switched off"
+        );
+        set_wants_previews(&catalog, false).unwrap();
+        let said = send(&catalog, &home, &to);
+        assert!(said.contains("Safely backed up"), "{said}");
+        assert!(!said.contains("Previews added"), "{said}");
+        // The originals are there, exact, and nothing else was made.
+        assert_eq!(
+            keevoro_scan::whole_hash(&to.join("originals/Flights/IMG_20240601_100000.jpg")).unwrap(),
+            keevoro_scan::whole_hash(&card.join("Flights/IMG_20240601_100000.jpg")).unwrap()
+        );
+        assert!(!to.join("renditions").exists(), "no previews in the backup");
+        assert!(!home.join("renditions").exists(), "and none made on this computer");
+        assert!(
+            to.join("index").join("gallery.json").is_file(),
+            "the list of what is there is still written"
+        );
+        assert_eq!(crate::discover(&home, &catalog).unwrap().waiting_to_gather, 0);
+
+        // Switching them back on adds the previews next time, and sends no original twice.
+        set_wants_previews(&catalog, true).unwrap();
+        let said = send(&catalog, &home, &to);
+        assert!(said.contains("Previews added"), "{said}");
+        assert!(to.join("renditions").join("thumb").is_dir());
     }
 
     #[test]

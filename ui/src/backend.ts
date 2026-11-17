@@ -273,6 +273,9 @@ export interface Backend {
   stopSending(): Promise<void>
   /** How much room what is waiting needs, against where it is going. */
   room(): Promise<Room>
+  /** Whether this backup also makes and sends previews for a gallery. */
+  previewsWanted(): Promise<boolean>
+  setPreviewsWanted(wanted: boolean): Promise<void>
   /** Shows a folder Keevoro has mentioned (a source, a destination) in the file manager. */
   openPlace(path: string): Promise<void>
   /** Shows the folder this backup sends to, when it sends to a folder. */
@@ -366,6 +369,8 @@ async function tauriBackend(): Promise<Backend> {
     switchBackup: (id) => invoke('switch_backup', { id }),
     openDestination: () => invoke('open_destination'),
     room: () => invoke('room'),
+    previewsWanted: () => invoke('previews_wanted'),
+    setPreviewsWanted: (wanted) => invoke('set_previews_wanted', { wanted }),
     acceleration: () => invoke('acceleration'),
     setAcceleration: (on) => invoke('set_acceleration', { on }),
     activity: () => invoke('activity'),

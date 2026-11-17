@@ -912,6 +912,26 @@ pub struct RoomView {
     enough: bool,
 }
 
+/// Whether this backup also makes and sends previews for a gallery.
+#[tauri::command]
+pub fn previews_wanted(shared: State<'_, Shared>) -> Said<bool> {
+    let catalog = Catalog::open_in_library(&library(&shared)?).map_err(say)?;
+    keevoro_engine::send::wants_previews(&catalog).map_err(say)
+}
+
+/// Sets, for this backup, whether previews are made and sent.
+#[tauri::command]
+pub fn set_previews_wanted(shared: State<'_, Shared>, wanted: bool) -> Said<()> {
+    let catalog = Catalog::open_in_library(&library(&shared)?).map_err(say)?;
+    keevoro_engine::send::set_wants_previews(&catalog, wanted).map_err(say)?;
+    shared.log.say(if wanted {
+        "This backup will also make and send previews"
+    } else {
+        "This backup will send the originals alone, with no previews"
+    });
+    Ok(())
+}
+
 /// Weighs what is waiting to be sent against where it is going.
 #[tauri::command]
 pub fn room(shared: State<'_, Shared>) -> Said<RoomView> {

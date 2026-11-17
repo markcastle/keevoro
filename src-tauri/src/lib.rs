@@ -104,6 +104,8 @@ pub fn run() {
             commands::switch_backup,
             commands::open_destination,
             commands::room,
+            commands::previews_wanted,
+            commands::set_previews_wanted,
             commands::activity,
             commands::duplicates,
             commands::acceleration,

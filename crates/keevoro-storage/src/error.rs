@@ -31,6 +31,11 @@ pub enum StorageError {
 
     #[error("provider error: {0}")]
     Provider(String),
+
+    /// What was read, or what was written, is not the file that was
+    /// expected. Nothing is left stored under the key.
+    #[error("not the same as the original: {0}")]
+    NotTheSame(String),
 }
 
 impl StorageError {
