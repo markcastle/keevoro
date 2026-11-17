@@ -121,6 +121,9 @@ Done when a non-technical tester gets from a drive to a backup without help.
 - [x] Camera raw files are never judged by the preview size in their header
 - [x] Per-source choice of which kinds of file to include, folded away for those who want it
 - [ ] Show a raw file's true pixel size (read from inside the file, not the header)
+- [x] Activity page: what is being done and why, graphs of Keevoro's own processor and disk use, and Pause
+- [ ] Pause by itself when on battery or when the computer is busy with something else
+- [ ] Run background checking at low priority, and with fewer readers, so it gives way to everything else
 - [ ] Notice when a drive is plugged in and offer to look through it
 - [ ] Time left ("About 20 minutes"), and cancel for a search or a gather
 - [ ] "Show folders" view with tick boxes, for people who want control

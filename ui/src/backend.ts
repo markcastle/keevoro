@@ -143,6 +143,24 @@ export type ConnectRequest = {
  */
 export type Room = { needed: number; folder: string | null; free: number | null; enough: boolean }
 
+/** One second of Keevoro's own use of the computer. */
+export type Sample = {
+  /** Share of the whole computer's processor, 0 to 100. */
+  cpu: number
+  /** Megabytes read from and written to disk in that second. */
+  disk: number
+}
+
+/** What Keevoro is doing, why, and how hard it has been working. */
+export type Activity = {
+  paused: boolean
+  jobs: { what: string; why: string }[]
+  /** One a second, oldest first, for the last two minutes at most. */
+  samples: Sample[]
+  memoryBytes: number
+  cores: number
+}
+
 /** A newer version of Keevoro that is ready to install. */
 export type Update = { version: string; page: string }
 
@@ -160,6 +178,10 @@ export interface Backend {
    * already sent are not touched.
    */
   resetEverything(): Promise<AppState>
+  /** What Keevoro is doing now, why, and how hard it has been working. */
+  activity(): Promise<Activity>
+  /** Pauses or resumes every heavy job, between one file and the next. */
+  pauseWork(paused: boolean): Promise<void>
   /** Asks a running search to stop. Nothing from it is kept. */
   stopScanning(): Promise<void>
   /** Asks a running send to stop after the file in hand. */
@@ -247,6 +269,8 @@ async function tauriBackend(): Promise<Backend> {
     switchBackup: (id) => invoke('switch_backup', { id }),
     openDestination: () => invoke('open_destination'),
     room: () => invoke('room'),
+    activity: () => invoke('activity'),
+    pauseWork: (paused) => invoke('pause_work', { paused }),
     stopScanning: () => invoke('stop_scanning'),
     resetEverything: () => invoke('reset_everything'),
     stopSending: () => invoke('stop_sending'),

@@ -74,6 +74,8 @@ cargo check -p keevoro-frame --target aarch64-apple-darwin --tests
 
 Its real test (`tests/native.rs`) decodes a tiny sample video and only runs on Windows and macOS, so CI is where it proves itself.
 
+Keevoro should be a good guest on someone's computer. Any loop that may run for more than a moment calls `keevoro_core::pause::wait_while_paused()` once per file, so the Pause button on the Activity page reaches it, and any new kind of long job gets an entry in `src-tauri/src/activity.rs` saying what it is and why, in words a person would accept as a reason.
+
 The app keeps a log (`src-tauri/src/log.rs`): one line per event with the time in front, in the system's usual log folder for the app, shown in Settings. Log anything a person might later ask "what was it doing?" about, in the same plain words as the screens. Never log keys.
 
 The app works in backups (see `src-tauri/src/settings.rs`): each is a named job, such as "Family photos" or "Drone footage", with its own home folder for its catalog. In the code a backup is the job (`Backup`, `start_backup`), and sending its files to their destination is "send" (`send`, `SendPanel`, `destination`). The engine module that does the sending is `keevoro_engine::send`, shared with the command line. Within a backup there are three steps (`find`, `choose`, `backup` in `ui/src/App.tsx`; the last is shown as "Send them somewhere safe") and the steps in the sidebar are the only navigation. The rule for any new screen: one question as the heading, one main button in the bar at the bottom, and words a person who has never heard of Keevoro would understand. The drives offered on the first step come from `src-tauri/src/places.rs`, which decides what a drive is called and which system volumes to hide.

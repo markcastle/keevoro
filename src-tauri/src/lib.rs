@@ -18,6 +18,7 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
+mod activity;
 mod commands;
 mod events;
 mod log;
@@ -62,6 +63,7 @@ pub fn run() {
         .setup(|app| {
             let config_dir = app.path().app_config_dir()?;
             let cache_dir = app.path().app_cache_dir()?.join("previews");
+            activity::watch(&commands::HISTORY);
             let log = log::Log::open(&app.path().app_log_dir()?);
             log.say(&format!(
                 "Keevoro {} started on {} ({})",
@@ -90,6 +92,8 @@ pub fn run() {
             commands::switch_backup,
             commands::open_destination,
             commands::room,
+            commands::activity,
+            commands::pause_work,
             commands::reset_everything,
             commands::stop_sending,
             commands::open_place,
