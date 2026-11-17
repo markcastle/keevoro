@@ -40,6 +40,13 @@ pub struct Capabilities {
     pub server_checksums: bool,
     /// Custom key/value metadata is stored on objects and returned by `head`.
     pub custom_metadata: bool,
+    /// Sending a file whole is cheaper here than sending it in parts. True
+    /// for a folder, where parts would be written to the disk and then
+    /// written a second time when they are joined.
+    pub whole_files_preferred: bool,
+    /// The store reports bytes as it writes them (see its own docs for
+    /// how), so whoever calls it must not count the file again afterwards.
+    pub counts_its_own_bytes: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

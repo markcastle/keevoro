@@ -19,6 +19,7 @@ use std::collections::BTreeMap;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
@@ -27,9 +28,18 @@ use tokio::io::AsyncWriteExt;
 const WORK_DIR: &str = ".keevoro-uploads";
 const PAGE_SIZE: usize = 1000;
 
+/// Told how many bytes have just been written, as a file is copied.
+pub type Watcher = Arc<dyn Fn(u64) + Send + Sync>;
+
+/// How much of a file is read and written at a time. Large enough that a
+/// network drive is not asked for thousands of small writes, small enough
+/// that progress moves several times a second.
+const COPY_BUFFER: usize = 4 * 1024 * 1024;
+
 pub struct FolderStore {
     root: PathBuf,
     caps: Capabilities,
+    watcher: Option<Watcher>,
 }
 
 impl FolderStore {
@@ -48,8 +58,21 @@ impl FolderStore {
                 conditional_create: true,
                 server_checksums: false,
                 custom_metadata: false,
+                whole_files_preferred: true,
+                counts_its_own_bytes: false,
             },
+            watcher: None,
         })
+    }
+
+    /// Has `watcher` told about every few megabytes of a file as they are
+    /// written, so that a large file shows steady progress instead of
+    /// nothing and then everything.
+    #[must_use]
+    pub fn watched_by(mut self, watcher: Watcher) -> Self {
+        self.watcher = Some(watcher);
+        self.caps.counts_its_own_bytes = true;
+        self
     }
 
     fn work(&self) -> PathBuf {
@@ -161,7 +184,7 @@ impl ObjectStore for FolderStore {
     async fn put(&self, key: &ObjectKey, body: ByteSource, opts: &PutOptions) -> Result<PutReceipt, StorageError> {
         let dest = self.path_for(key)?;
         let tmp = self.temp_path().await;
-        let bytes = write_source(&tmp, body).await?;
+        let bytes = write_source(&tmp, body, self.watcher.clone()).await?;
         self.publish(&tmp, &dest, key, opts.create_only).await?;
         Ok(PutReceipt {
             key: key.clone(),
@@ -231,7 +254,7 @@ impl MultipartStore for FolderStore {
             return Err(StorageError::InvalidParts("part numbers start at 1".into()));
         }
         let tmp = dir.join(format!("part-{number:05}.tmp"));
-        let bytes = write_source(&tmp, body).await?;
+        let bytes = write_source(&tmp, body, None).await?;
         fs::rename(&tmp, dir.join(part_name(number))).await?;
         Ok(PartReceipt {
             number,
@@ -327,7 +350,7 @@ impl FolderStore {
     }
 }
 
-async fn write_source(dest: &Path, body: ByteSource) -> Result<u64, StorageError> {
+async fn write_source(dest: &Path, body: ByteSource, watcher: Option<Watcher>) -> Result<u64, StorageError> {
     match body {
         ByteSource::Bytes(b) => {
             let mut f = fs::File::create(dest).await?;
@@ -335,8 +358,39 @@ async fn write_source(dest: &Path, body: ByteSource) -> Result<u64, StorageError
             f.sync_all().await?;
             Ok(b.len() as u64)
         }
-        ByteSource::File(src) => Ok(fs::copy(src, dest).await?),
+        ByteSource::File(src) => {
+            let dest = dest.to_path_buf();
+            tokio::task::spawn_blocking(move || copy_file(&src, &dest, watcher.as_ref()))
+                .await
+                .map_err(|e| StorageError::Provider(e.to_string()))?
+                .map_err(Into::into)
+        }
     }
+}
+
+/// Copies `src` to `dest` in large pieces, read once and written once,
+/// telling `watcher` after each piece. The source is only ever read.
+fn copy_file(src: &Path, dest: &Path, watcher: Option<&Watcher>) -> std::io::Result<u64> {
+    use std::io::{Read, Write};
+    let mut input = std::fs::File::open(src)?;
+    let mut output = std::fs::File::create(dest)?;
+    let mut buffer = vec![0u8; COPY_BUFFER];
+    let mut total = 0u64;
+    loop {
+        let n = match input.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(e) if e.kind() == ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        };
+        output.write_all(&buffer[..n])?;
+        total += n as u64;
+        if let Some(tell) = watcher {
+            tell(n as u64);
+        }
+    }
+    output.flush()?;
+    Ok(total)
 }
 
 /// Walks the root and returns `(key, bytes)` for every file outside the work area.
@@ -456,6 +510,50 @@ mod tests {
             .filter(|n| n != WORK_DIR)
             .collect();
         assert!(top.is_empty(), "root should be empty after cleanup, found {top:?}");
+    }
+
+    #[tokio::test]
+    async fn a_watched_store_reports_every_byte_of_a_file_as_it_is_written() {
+        let dir = tempfile::tempdir().unwrap();
+        let seen = Arc::new(AtomicU64::new(0));
+        let calls = Arc::new(AtomicU64::new(0));
+        let (s, c) = (seen.clone(), calls.clone());
+        let store = FolderStore::open(dir.path().join("to"))
+            .await
+            .unwrap()
+            .watched_by(Arc::new(move |n| {
+                s.fetch_add(n, Ordering::SeqCst);
+                c.fetch_add(1, Ordering::SeqCst);
+            }));
+        assert!(store.capabilities().counts_its_own_bytes);
+        let big = dir.path().join("big.mov");
+        let bytes = vec![7u8; COPY_BUFFER * 2 + 123];
+        std::fs::write(&big, &bytes).unwrap();
+        let key = ObjectKey::new("originals/big.mov").unwrap();
+        let receipt = store
+            .put(&key, ByteSource::File(big.clone()), &PutOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(receipt.bytes, bytes.len() as u64);
+        assert_eq!(seen.load(Ordering::SeqCst), bytes.len() as u64);
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            3,
+            "told piece by piece, not once at the end"
+        );
+        assert!(store.get(&key).await.unwrap() == bytes);
+        assert_eq!(
+            std::fs::read(&big).unwrap().len(),
+            bytes.len(),
+            "the source is untouched"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_folder_asks_for_files_whole_because_parts_would_be_written_twice() {
+        let (_dir, s) = store().await;
+        assert!(s.capabilities().whole_files_preferred);
+        assert!(!s.capabilities().counts_its_own_bytes, "only when someone is watching");
     }
 
     #[tokio::test]

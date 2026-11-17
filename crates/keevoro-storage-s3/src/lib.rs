@@ -190,6 +190,8 @@ impl S3Store {
                 conditional_create: true,
                 server_checksums: false,
                 custom_metadata: true,
+                whole_files_preferred: false,
+                counts_its_own_bytes: false,
             },
         })
     }

@@ -89,7 +89,9 @@ pub fn open(out: &mut dyn Write, runtime: &tokio::runtime::Runtime, destination:
         Destination::Folder(folder) => {
             let store = runtime
                 .block_on(FolderStore::open(&folder))
-                .with_context(|| format!("Couldn't use {} as a backup folder", folder.display()))?;
+                .with_context(|| format!("Couldn't use {} as a backup folder", folder.display()))?
+                // Counted as it is written, so a large video shows steady progress.
+                .watched_by(std::sync::Arc::new(|bytes| keevoro_core::meter::sent(bytes, false)));
             let home = std::fs::canonicalize(&folder).unwrap_or(folder);
             Ok((
                 Box::new(store),
@@ -141,11 +143,11 @@ fn step_line(step: crate::GatherStep) -> String {
         }
         crate::GatherStep::Copying { done, total } => format!("Getting ready: {} of {}", n(done), n(total)),
         crate::GatherStep::MakingPreviews { done, total } => {
-            format!("Your files are sent. Making previews: {} of {}", n(done), n(total))
+            format!("Your files are backed up. Making previews: {} of {}", n(done), n(total))
         }
         crate::GatherStep::WorkingOnVideos { done, total } => {
             format!(
-                "Your files are sent. Making video previews: {} of {}",
+                "Your files are backed up. Making video previews: {} of {}",
                 n(done),
                 n(total)
             )
@@ -188,7 +190,7 @@ pub fn originals_first(
     let stopped = |out: &mut dyn Write| -> Result<()> {
         writeln!(
             out,
-            "Stopped. Everything sent so far is safe where it is. Back up again whenever you like and it carries on from here."
+            "Stopped. Everything backed up so far is safe where it is. Back up again whenever you like and it carries on from here."
         )?;
         Ok(())
     };
@@ -829,7 +831,7 @@ mod tests {
         .unwrap();
         let said = String::from_utf8(said).unwrap();
         assert!(said.contains("Safely backed up 1 file "), "{said}");
-        assert!(said.contains("Stopped. Everything sent so far is safe"), "{said}");
+        assert!(said.contains("Stopped. Everything backed up so far is safe"), "{said}");
         assert!(!said.contains("Previews added"), "nothing more was started: {said}");
         assert!(!to
             .join("originals")

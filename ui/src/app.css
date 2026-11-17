@@ -2234,7 +2234,7 @@ main > section > :nth-last-child(2) {
 
 .usage {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
   gap: var(--space-5);
   margin: var(--space-5) 0 var(--space-3);
 }
@@ -2351,7 +2351,7 @@ main > section > :nth-last-child(2) {
   font-variant-numeric: tabular-nums;
 }
 
-/* How earlier sends went: folded away, for comparing one with another. */
+/* How earlier backups went: folded away, for comparing one with another. */
 .sends {
   margin-top: var(--space-4);
 }

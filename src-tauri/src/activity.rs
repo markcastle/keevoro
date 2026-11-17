@@ -26,6 +26,8 @@ pub struct Sample {
     pub sent: f32,
     /// The part of `sent` that went over the network, to cloud storage.
     pub network: f32,
+    /// Megabytes of memory Keevoro is holding at that moment.
+    pub memory: f32,
 }
 
 /// Turns the raw figures for one second into a [`Sample`]. The system
@@ -46,6 +48,8 @@ pub fn sample(of_one_core: f32, cores: usize, bytes: u64, sent: u64, network: u6
         disk: rate(bytes),
         sent: rate(sent),
         network: rate(network),
+        // Filled in when the sample is kept, alongside the reading it came with.
+        memory: 0.0,
     }
 }
 
@@ -76,7 +80,8 @@ pub struct History {
 }
 
 impl History {
-    pub fn push(&mut self, sample: Sample, memory_bytes: u64) {
+    pub fn push(&mut self, mut sample: Sample, memory_bytes: u64) {
+        sample.memory = memory_bytes as f32 / (1024.0 * 1024.0);
         if self.samples.len() == KEPT {
             self.samples.pop_front();
         }
@@ -107,7 +112,7 @@ pub fn jobs(searching: bool, checking: bool, sending: bool) -> Vec<Job> {
     let mut list = Vec::new();
     if sending {
         list.push(Job {
-            what: "Sending your files",
+            what: "Backing up your files",
             why: "Reading each photo and video you are keeping and copying it to where you chose. \
                   This uses the disk steadily, and the network if you are sending to cloud storage.",
         });
@@ -197,14 +202,20 @@ mod tests {
                     disk: 0.0,
                     sent: 0.0,
                     network: 0.0,
+                    memory: 0.0,
                 },
-                u64::from(n),
+                u64::from(n) * 1024 * 1024,
             );
         }
         let kept = history.samples();
         assert_eq!(kept.len(), KEPT);
         assert_eq!((kept[0].cpu, kept[KEPT - 1].cpu), (80.0, 199.0), "oldest first");
-        assert_eq!(history.memory_bytes(), 199);
+        assert_eq!(history.memory_bytes(), 199 * 1024 * 1024);
+        assert_eq!(
+            (kept[0].memory, kept[KEPT - 1].memory),
+            (80.0, 199.0),
+            "each moment keeps its own memory reading, in megabytes"
+        );
     }
 
     #[test]
@@ -221,6 +232,7 @@ mod tests {
                 disk: 0.0,
                 sent,
                 network: 0.0,
+                memory: 0.0,
             })
             .collect()
     }
@@ -255,7 +267,7 @@ mod tests {
         assert_eq!(
             whats,
             [
-                "Sending your files",
+                "Backing up your files",
                 "Checking for duplicates",
                 "Looking through a source"
             ]

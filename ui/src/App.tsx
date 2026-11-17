@@ -61,7 +61,7 @@ type Overlay = { collection: Collection } | 'setAside' | 'settings' | 'activity'
 const STEPS: { id: Step; title: string }[] = [
   { id: 'find', title: 'Find your photos' },
   { id: 'choose', title: 'Choose what to keep' },
-  { id: 'send', title: 'Send them somewhere safe' },
+  { id: 'send', title: 'Back them up somewhere safe' },
 ]
 
 const all = (n: number) => (n === 1 ? '1 photo or video' : `${n.toLocaleString()} photos and videos`)
@@ -97,6 +97,7 @@ export function App() {
     let stopScan = () => {}
     let stopGather = () => {}
     let stopCheck = () => {}
+    let stopSend = () => {}
     let closed = false
     void backend().then(async (b) => {
       if (closed) return
@@ -115,6 +116,11 @@ export function App() {
         setCheck(event.finished ? null : event)
         // Duplicates may have been confirmed or ruled out, so count again.
         if (event.finished && event.done > 0) void refresh(b)
+      })
+      // A backup can finish while another screen is showing, so the counts
+      // are read again here and not only by the screen that started it.
+      stopSend = b.onSend((event) => {
+        if (event.finished) void refresh(b)
       })
       stopGather = b.onGather((event) => {
         setGather(event)
@@ -142,6 +148,7 @@ export function App() {
       stopScan()
       stopGather()
       stopCheck()
+      stopSend()
     }
   }, [refresh, report])
 
@@ -389,7 +396,7 @@ export function App() {
                   onClick={() => go('send')}
                 />
               ) : safe > 0 ? (
-                <Next back={() => go('find')} say="Everything you’re keeping has already been sent." button="Next" onClick={() => go('send')} />
+                <Next back={() => go('find')} say="Everything you’re keeping has already been backed up." button="Next" onClick={() => go('send')} />
               ) : (
                 <Next back={() => go('find')} say="Nothing is being kept yet. Choose at least one collection." />
               )
@@ -965,14 +972,19 @@ function ActivityScreen(props: {
         <UsageChart
           title="Network"
           unit=" MB/s"
-          about="What Keevoro is sending to cloud storage each second. Sending to a folder shows under Disk."
+          about="What Keevoro is sending to cloud storage each second. Backing up to a folder shows under Disk."
           values={now.samples.map((s) => s.network)}
           floor={5}
         />
+        <UsageChart
+          title="Memory"
+          unit=" MB"
+          about="How much of this computer’s memory Keevoro is holding. It should stay level, not climb."
+          values={now.samples.map((s) => s.memory)}
+          floor={256}
+        />
       </div>
-      <p className="quiet small">
-        These are Keevoro’s own figures, not the whole computer’s. It is using {size(now.memoryBytes)} of memory.
-      </p>
+      <p className="quiet small">These are Keevoro’s own figures, not the whole computer’s.</p>
     </section>
   )
 }
@@ -1116,7 +1128,7 @@ function SettingsScreen(props: {
       </div>
 
       <div className="setting">
-        <h3>Where it sends to</h3>
+        <h3>Where it backs up to</h3>
         <p>{props.sendingTo ? `This backup sends to ${props.sendingTo}.` : 'Nowhere has been chosen yet.'}</p>
         <p className="choices">
           <button onClick={props.onSend}>{props.sendingTo ? 'Go to sending' : 'Choose where'}</button>
@@ -1536,7 +1548,7 @@ function SendPanel(props: {
         <>
           {room && room.needed > 0 && (
             <p className="needs">
-              You are sending {props.waiting.toLocaleString('en-GB')} {props.waiting === 1 ? 'file' : 'files'}, about{' '}
+              You are backing up {props.waiting.toLocaleString('en-GB')} {props.waiting === 1 ? 'file' : 'files'}, about{' '}
               <b>{size(room.needed)}</b>. Wherever you choose needs at least that much free.
             </p>
           )}
@@ -1656,7 +1668,7 @@ function SendPanel(props: {
       ) : (
         <>
           <h2>
-            Sending to{' '}
+            Backing up to{' '}
             {room?.folder ? (
               <>
                 the folder <FolderLink api={api} path={room.folder} onProblem={onProblem} />
@@ -1667,7 +1679,7 @@ function SendPanel(props: {
           </h2>
           <p>
             {props.waiting > 0
-              ? `${props.waiting.toLocaleString('en-GB')} ${props.waiting === 1 ? 'file is' : 'files are'} waiting to be sent.${
+              ? `${props.waiting.toLocaleString('en-GB')} ${props.waiting === 1 ? 'file is' : 'files are'} waiting to be backed up.${
                   props.safe > 0 ? ` ${props.safe.toLocaleString('en-GB')} already there.` : ''
                 }`
               : props.safe > 0
@@ -1687,7 +1699,7 @@ function SendPanel(props: {
               ) : (
                 <>
                   <b>There isn’t enough room there.</b> These files need about {size(room.needed)} and that disk has
-                  only {size(room.free)} free. Free up some space, or send them somewhere else.
+                  only {size(room.free)} free. Free up some space, or back them up somewhere else.
                 </>
               )}
             </p>
@@ -1699,7 +1711,7 @@ function SendPanel(props: {
                 <b>
                   {size(progress.bytesDone)} of {size(progress.bytesTotal)}
                 </b>{' '}
-                sent
+                backed up
                 {progress.speed > 0 ? (
                   <>
                     {' '}
@@ -1757,7 +1769,7 @@ function SendPanel(props: {
                     .catch(onProblem)
                 }
               >
-                Send somewhere else
+                Back up somewhere else
               </button>
             </div>
           )}
@@ -1773,12 +1785,12 @@ function SendPanel(props: {
           )}
         {history.length > 0 && !running && (
             <details className="sends">
-              <summary>How earlier sends went</summary>
+              <summary>How earlier backups went</summary>
               <table>
                 <thead>
                   <tr>
                     <th>When</th>
-                    <th>Sent</th>
+                    <th>Backed up</th>
                     <th>Took</th>
                     <th>Average speed</th>
                   </tr>
