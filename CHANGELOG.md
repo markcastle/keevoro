@@ -6,6 +6,31 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.25.0] - 2026-11-17
+
+### Added
+
+- **Find the folders with photos, in seconds.** Not sure where on a drive your photos are? Choose the whole drive and pick "Find the folders with photos". Keevoro reads only the list of what is in each folder, never opening a file, so it gets through hundreds of thousands of files in a few seconds. It then shows the folders that seem to hold photos and videos, with how many and how big, each with a tick. Tick the ones you want and Keevoro looks through those properly, one after another.
+- **Probable icons are spotted.** A folder of very small pictures with no videos is marked "Small pictures, probably not photos" and left unticked, so a program's own pictures do not sneak in.
+- **What Keevoro is doing, in plain words, at a glance.** The side bar now says what Keevoro is busy with on every screen, under "What Keevoro is doing": for example "Making previews" or "Backing up your files and making thumbnails". Nothing is shown when it is idle.
+- **More kinds of work are named.** "What Keevoro is doing" now also names making previews, making video previews, making thumbnails for the screen you are on and finding where your photos are, each with a sentence on why and what it costs your computer.
+- **Keep all or keep none inside a collection.** Two buttons at the top of a collection keep or leave out everything in it at once.
+- **See where a collection came from.** The folder, or folders, its files are in on your source are named at the top of a collection. Click one to open it.
+- **`keevoro survey` on the command line.** The same quick survey, for those who prefer a terminal.
+
+### Changed
+
+- **Back takes you back to where you were.** Coming back from a collection, the duplicates list, Settings or "What Keevoro is doing" returns to the same place on the screen, not the top.
+- **The top line of "What Keevoro is doing" says what, not just that it is working.**
+
+### Fixed
+
+- **Opening a collection could show a different one.** When photos from two separate occasions in the same month were both titled, say, "October 2004", opening either showed the first, and "Don't keep" on one could act on the other. Each now opens and keeps its own. Where two share a month they are named to the day, such as "2 to 3 October 2004" and "20 October 2004".
+
+## [0.24.0] - 2026-11-17
+
 ### Added
 
 - **Hold down on a picture to see it larger.** Inside a collection, or in the set-aside list, press and hold on any photo or video (or right-click it) and it opens screen-sized, without changing whether it is kept. From there you can leave it out or put it back, move to the next and previous with the arrow keys or the buttons, and close with Escape. A quick click still ticks and unticks as before. A video shows a still from it. The line under the heading now says so: "Hold down on one to see it larger."
@@ -13,6 +38,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- **Mac and Linux versions come at milestones for now.** While Keevoro is changing quickly, each release is built for Windows only, and Mac and Linux versions are made at bigger milestones. A Mac that has Keevoro is not offered an update it cannot install.
 - **Pictures on their way show a shimmer.** A thumbnail that has not arrived yet used to be a blank tile, which looked as if nothing was happening. It now shimmers gently until the picture appears.
 
 ## [0.23.0] - 2026-11-17
@@ -349,7 +375,9 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.23.0...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.25.0...HEAD
+[0.25.0]: https://github.com/markcastle/keevoro/compare/v0.24.0...v0.25.0
+[0.24.0]: https://github.com/markcastle/keevoro/compare/v0.23.0...v0.24.0
 [0.23.0]: https://github.com/markcastle/keevoro/compare/v0.22.0...v0.23.0
 [0.22.0]: https://github.com/markcastle/keevoro/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/markcastle/keevoro/compare/v0.20.0...v0.21.0

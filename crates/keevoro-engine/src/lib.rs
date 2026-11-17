@@ -81,6 +81,7 @@ pub fn scan_into_with(
     on_progress: &mut dyn FnMut(&ScanProgress),
     on_saving: &mut dyn FnMut(),
 ) -> Result<ScanReport> {
+    let _busy = keevoro_core::doing::doing(keevoro_core::doing::Work::LookingThroughASource);
     // A remembered drive is recognised by its full path, so `D:` and
     // `D:\.` must come out the same.
     let root = std::fs::canonicalize(source).unwrap_or_else(|_| source.to_path_buf());

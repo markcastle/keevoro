@@ -79,6 +79,8 @@ pub fn preview_at(
         return Ok(bytes);
     }
 
+    // Only making a picture counts as work; reading one already made does not.
+    let _busy = keevoro_core::doing::doing(keevoro_core::doing::Work::MakingThumbnails);
     let bytes = match kind {
         MediaKind::Photo => render_photo(&source).map(|r| if closer_photo { r.display } else { r.thumb }),
         MediaKind::Video => video::still(video_tools, &source).map(|still| still.webp),

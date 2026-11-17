@@ -92,6 +92,13 @@ enum Command {
         #[arg(long, requires = "library")]
         name: Option<String>,
     },
+    /// Find which folders on a drive hold photos and videos, in seconds.
+    /// Only folder listings are read: no file is opened, copied or changed.
+    /// Use it to decide what to `scan`.
+    Survey {
+        /// The drive or folder to survey.
+        path: PathBuf,
+    },
     /// Show the collections found so far across every drive remembered in a
     /// library. No drive needs to be plugged in.
     Collections {
@@ -270,6 +277,40 @@ fn progress_done() {
 
 fn run(cli: Cli, out: &mut dyn Write, world: &connect::World<'_>) -> Result<()> {
     match cli.command {
+        Command::Survey { path } => {
+            let started = std::time::Instant::now();
+            let found = keevoro_scan::survey::survey(&path, &keevoro_core::SkipRules::default(), None, &mut |_| {});
+            println!(
+                "Looked at {} in {} in {:.1} seconds, without opening any of them.",
+                keevoro_engine::summary::count(found.files_seen, "file"),
+                keevoro_engine::summary::count(found.folders_seen, "folder"),
+                started.elapsed().as_secs_f32()
+            );
+            if found.hints.is_empty() {
+                println!("No photos or videos were found by name.");
+            }
+            for hint in &found.hints {
+                println!(
+                    "{:>9}  {} and {}  {}{}",
+                    keevoro_engine::summary::bytes(hint.bytes),
+                    keevoro_engine::summary::count(hint.photos, "photo"),
+                    keevoro_engine::summary::count(hint.videos, "video"),
+                    hint.folder.display(),
+                    if hint.likely == keevoro_scan::survey::Likely::AppPictures {
+                        "  (small pictures, probably not photos)"
+                    } else {
+                        ""
+                    }
+                );
+            }
+            if found.unreadable > 0 {
+                println!(
+                    "{} could not be listed, usually for want of permission.",
+                    keevoro_engine::summary::count(found.unreadable, "folder")
+                );
+            }
+            Ok(())
+        }
         Command::Scan {
             paths,
             json,

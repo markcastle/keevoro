@@ -121,6 +121,12 @@ Done when a non-technical tester gets from a drive to a backup without help.
 - [ ] Choose which copy of a duplicate is the one kept (today Keevoro picks the best filed one)
 - [ ] Spot duplicates across different backups, not only across the sources of one
 - [ ] Near-duplicates: the same photo resized or re-saved (shown for review, never left out automatically)
+- [x] Survey a drive in seconds, opening no file, and suggest the folders that hold photos and videos
+- [x] Look through several ticked folders one after another
+- [ ] Offer the survey for any folder, not only a whole drive
+- [ ] Remember a survey so the suggestions are there next time without asking again
+- [ ] Windows: read the NTFS file table directly for a survey of a whole disk in about a second (needs administrator rights)
+- [ ] Survey every drive at once from the first screen
 - [x] Hold down on a picture to see it screen-sized without changing its tick
 - [x] Shimmering placeholders for thumbnails still on their way
 - [ ] Play a video in the closer look (today it shows a still)

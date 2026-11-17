@@ -110,14 +110,43 @@ pub struct Discover {
     pub collections: Vec<CollectionView>,
 }
 
-/// The key a collection is known by: its album path, joined.
-fn key_of(parents: &[String], title: &str) -> String {
-    parents
+/// The key each collection is known by: its album path, joined. Two
+/// collections can share a path (two moments in a month known only to the
+/// month), and a key must name exactly one, so a repeat is numbered:
+/// "October 2004", then "October 2004 (2)". The order collections come in
+/// is fixed, so the same key always means the same collection.
+fn keys_of(collections: &[keevoro_core::collections::Collection]) -> Vec<String> {
+    let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    collections
         .iter()
-        .map(String::as_str)
-        .chain([title])
-        .collect::<Vec<_>>()
-        .join(" / ")
+        .map(|c| {
+            let plain = c
+                .parents
+                .iter()
+                .map(String::as_str)
+                .chain([c.title.as_str()])
+                .collect::<Vec<_>>()
+                .join(" / ");
+            let times = seen.entry(plain.clone()).or_insert(0);
+            *times += 1;
+            if *times == 1 {
+                plain
+            } else {
+                format!("{plain} ({times})")
+            }
+        })
+        .collect()
+}
+
+/// The collection with this key, if it is still there.
+fn with_key<'a>(
+    collections: &'a [keevoro_core::collections::Collection],
+    key: &str,
+) -> Option<&'a keevoro_core::collections::Collection> {
+    keys_of(collections)
+        .iter()
+        .position(|k| k == key)
+        .and_then(|at| collections.get(at))
 }
 
 fn photo_view(library: &Path, catalog: &Catalog, item: &FoundItem) -> Result<PhotoView> {
@@ -138,7 +167,7 @@ fn photo_view(library: &Path, catalog: &Catalog, item: &FoundItem) -> Result<Pho
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default(),
-        source_path: item.path.display().to_string(),
+        source_path: friendly_path(&item.path),
         thumbnail,
     })
 }
@@ -152,7 +181,8 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
     let mut waiting_to_gather = 0;
     let mut waiting_bytes = 0;
     let mut collections = Vec::new();
-    for c in &summary.collections {
+    let keys = keys_of(&summary.collections);
+    for (at, c) in summary.collections.iter().enumerate() {
         let members: Vec<&FoundItem> = c.members.iter().filter_map(|&m| items.get(m).copied()).collect();
         let mut kept = false;
         let mut gathered = 0;
@@ -189,7 +219,7 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
             }
         }
         collections.push(CollectionView {
-            key: key_of(&c.parents, &c.title),
+            key: keys[at].clone(),
             title: c.title.clone(),
             summary: c.summary(),
             parents: c.parents.clone(),
@@ -232,7 +262,7 @@ pub fn set_collection_kept(catalog: &Catalog, key: &str, keep: bool) -> Result<u
     let reports = catalog.load_reports()?;
     let rescued = catalog.kept_hashes()?;
     let (summary, items) = summary::summarise_with(&reports, &rescued);
-    let Some(collection) = summary.collections.iter().find(|c| key_of(&c.parents, &c.title) == key) else {
+    let Some(collection) = with_key(&summary.collections, key) else {
         bail!("That collection isn't there any more. It may have changed since the screen was drawn.");
     };
     let mut changed = 0;
@@ -275,7 +305,7 @@ pub fn collection_photos(library: &Path, catalog: &Catalog, key: &str) -> Result
     let reports = catalog.load_reports()?;
     let rescued = catalog.kept_hashes()?;
     let (summary, items) = summary::summarise_with(&reports, &rescued);
-    let Some(collection) = summary.collections.iter().find(|c| key_of(&c.parents, &c.title) == key) else {
+    let Some(collection) = with_key(&summary.collections, key) else {
         bail!("That collection isn't there any more. It may have changed since the screen was drawn.");
     };
     collection
@@ -424,6 +454,26 @@ pub(crate) mod tests {
         }
         // Asking twice is harmless.
         assert!(!forget_source(&mut catalog, id).unwrap());
+    }
+
+    #[test]
+    fn two_collections_with_one_name_still_have_a_key_each() {
+        let named = |title: &str, cover: usize| keevoro_core::collections::Collection {
+            title: title.to_string(),
+            parents: Vec::new(),
+            first: None,
+            last: None,
+            photos: 1,
+            videos: 0,
+            cover,
+            members: vec![cover],
+        };
+        let all = [named("October 2004", 0), named("Cornwall", 1), named("October 2004", 2)];
+        assert_eq!(keys_of(&all), ["October 2004", "Cornwall", "October 2004 (2)"]);
+        // Each key opens its own collection, never its namesake.
+        assert_eq!(with_key(&all, "October 2004").unwrap().cover, 0);
+        assert_eq!(with_key(&all, "October 2004 (2)").unwrap().cover, 2);
+        assert!(with_key(&all, "Gone").is_none());
     }
 
     #[test]

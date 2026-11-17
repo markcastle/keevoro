@@ -124,6 +124,15 @@ try {
   await page.waitForFunction(() => [...document.images].every((i) => i.complete && i.naturalWidth > 0))
   await shot('6-inside-a-collection')
 
+  // Everything here can be kept or left out in one go, and the folder it
+  // came from is named, to open.
+  await page.getByRole('button', { name: 'Keep none' }).click()
+  assert.match(await text('.photos .status'), new RegExp(`^Keeping 0 of ${howMany}\\.`))
+  await page.getByRole('button', { name: 'Keep all' }).click()
+  assert.match(await text('.photos .status'), new RegExp(`^Keeping ${howMany} of ${howMany}\\.`))
+  assert.ok(await page.getByRole('button', { name: 'Keep all' }).isDisabled())
+  assert.match(await text('.photos .from'), /^From /)
+
   // Holding down on a picture shows it large and does not change the tick.
   const firstTile = tiles.nth(0)
   assert.equal(await firstTile.getAttribute('aria-pressed'), 'true')
@@ -271,6 +280,46 @@ try {
   await page.getByRole('button', { name: 'Look through all of it' }).click()
   await page.getByRole('heading', { name: /^Found [\d,]+ photos/ }).waitFor()
 
+  // --- Not sure where the photos are? A quick survey finds the folders,
+  // opening nothing, and the ticked ones are looked through one by one.
+  await page.goto(`${base}/?demo=empty&fast`)
+  await page.getByRole('button', { name: /Windows \(C:\)/ }).click()
+  assert.match(await text('.asking'), /Keevoro can find the folders that hold them first\. That takes seconds/)
+  await page.getByRole('button', { name: 'Find the folders with photos' }).click()
+  await page.getByRole('heading', { name: '4 folders on Windows (C:) seem to hold photos and videos' }).waitFor()
+  assert.match(await text('.survey'), /Looked at 481,907 files in 36,412 folders in 6\.2 seconds, without opening any of them/)
+  const ticks = page.locator('.survey .hints input')
+  assert.deepEqual(
+    await ticks.evaluateAll((boxes) => boxes.map((b) => b.checked)),
+    [true, true, true, false],
+    'real photos are ticked to begin with; probable icons are not',
+  )
+  assert.match(await page.locator('.survey .hints li').last().innerText(), /Small pictures, probably not photos/)
+  await shot('9q-survey')
+  // Unticking one leaves two, and the button says so.
+  await ticks.nth(2).uncheck()
+  await page.getByRole('button', { name: 'Look through these 2 folders' }).click()
+  // Both are looked through, one after the other, with no more asked.
+  await page.locator('.kept li.source').nth(1).waitFor()
+  assert.equal(await page.locator('.kept li.source').count(), 2, 'each ticked folder became a source')
+  assert.equal(await page.locator('.survey').count(), 0)
+
+  // --- Back from a collection lands where you were, not at the top.
+  await page.setViewportSize({ width: 1440, height: 520 })
+  await page.goto(`${base}/`)
+  await page.locator('.card').last().waitFor()
+  await page.locator('.card').last().scrollIntoViewIfNeeded()
+  const before = await page.locator('main').evaluate((m) => m.scrollTop)
+  assert.ok(before > 100, 'the screen was scrolled down')
+  await page.locator('.card').last().locator('button').first().click()
+  await page.locator('.tiles .tile').first().waitFor()
+  assert.equal(await page.locator('main').evaluate((m) => m.scrollTop), 0, 'a collection opens at its top')
+  await page.getByRole('button', { name: '‹ Back' }).click()
+  await page.locator('.card').last().waitFor()
+  assert.equal(await page.locator('main').evaluate((m) => m.scrollTop), before, 'and back is where you were')
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto(`${base}/?demo=empty&fast`)
+
   // --- Settings holds everything in one place, including the log.
   await page.getByRole('button', { name: 'Settings' }).click()
   await page.getByRole('heading', { name: 'Settings', level: 1 }).waitFor()
@@ -368,7 +417,12 @@ try {
   await page.getByRole('button', { name: 'What Keevoro is doing' }).click()
   await page.getByRole('heading', { name: 'What Keevoro is doing', level: 1 }).waitFor()
   await page.getByRole('heading', { name: 'Checking for duplicates' }).waitFor()
-  assert.match(await text('.activity .jobs p'), /so that true copies can be told from photos that merely look alike/)
+  // What it is doing is said in plain words, at a glance: in the heading
+  // line, as a heading per job, and in the side bar on every screen.
+  assert.match(await text('.activity .status'), /^Checking for duplicates and making thumbnails\. Here is why/)
+  assert.deepEqual(await page.locator('.activity .jobs h2').allInnerTexts().then((l) => l.map((t) => t.trim())), ['Making thumbnails', 'Checking for duplicates'])
+  assert.match(await text('.sidebar .link.doing'), /Checking for duplicates and making thumbnails/)
+  assert.match(await page.locator('.activity .jobs').innerText(), /so that true copies can be told from photos that merely look alike/)
   assert.deepEqual(await page.locator('.chart figcaption b').allInnerTexts(), ['Processor', 'Disk', 'Network', 'Memory'])
   assert.match(await page.locator('.chart .now').first().innerText(), /^[\d.]+%$/)
   assert.match(await page.locator('.chart .now').nth(1).innerText(), /^[\d.]+ MB\/s$/)
