@@ -158,6 +158,10 @@ Done when a non-technical tester gets from a drive to a backup without help.
 - [ ] Measure previews per second with the switch on and off on a real Windows computer, and show the figure on the Activity page
 - [x] Files go to a folder whole, read once and written once (they were written twice above 64 MB)
 - [ ] Measure folder backup speed against a plain Windows copy on the same disks, and close any gap (bigger pieces, or the system's own copy call with progress)
+- [x] Several destinations for one backup, sent one after another, each counted on its own
+- [ ] Several destinations sent at the same time, each file read from the source once
+- [ ] Previews on or off per destination (today it is per backup)
+- [ ] Command line: `connect` and `publish` know one destination; the app's list is not yet reachable from it
 - [x] Six files at once to cloud storage
 - [x] Four files at once to a folder on a file share (Windows)
 - [x] Every copy written to a folder is read back and compared with the original's fingerprint

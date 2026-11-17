@@ -107,7 +107,23 @@ export type Discover = {
   /** How much room those waiting files need, in bytes. */
   waitingBytes: number
   sources: Source[]
+  /** Each place this backup goes to, with what has reached it. */
+  destinations: Destination[]
   collections: Collection[]
+}
+
+/**
+ * One place a backup goes to. A backup can go to several, and a photo is
+ * only safe once it is at all of them, so each is counted on its own.
+ */
+export type Destination = {
+  /** In words: "the folder F:\\Family Backup". */
+  name: string
+  kind: string
+  folder: string | null
+  there: number
+  waiting: number
+  waitingBytes: number
 }
 
 /**
@@ -286,7 +302,8 @@ export interface Backend {
   /** Shows a folder Keevoro has mentioned (a source, a destination) in the file manager. */
   openPlace(path: string): Promise<void>
   /** Shows the folder this backup sends to, when it sends to a folder. */
-  openDestination(): Promise<void>
+  /** Shows a folder destination: the one at this place in the list, or the first. */
+  openDestination(at?: number): Promise<void>
   discover(): Promise<Discover>
   /** The drives plugged in right now, likeliest first. */
   places(): Promise<Place[]>
@@ -339,7 +356,11 @@ export interface Backend {
   chooseDestinationFolder(): Promise<string | null>
   /** Checks a destination works, then remembers it. Returns it in words. */
   connectDestination(request: ConnectRequest): Promise<string>
-  disconnectDestination(): Promise<void>
+  /**
+   * Stops backing up to one destination, by its place in the list, or to
+   * all of them when none is given. Nothing stored there is touched.
+   */
+  disconnectDestination(at?: number): Promise<void>
   send(): Promise<void>
   checkArrived(): Promise<void>
   onSend(listener: (event: SendEvent) => void): () => void
@@ -374,7 +395,7 @@ async function tauriBackend(): Promise<Backend> {
     useLibrary: (path) => invoke('use_library', { path }),
     startBackup: (name) => invoke('start_backup', { name }),
     switchBackup: (id) => invoke('switch_backup', { id }),
-    openDestination: () => invoke('open_destination'),
+    openDestination: (at) => invoke('open_destination', { at: at ?? null }),
     room: () => invoke('room'),
     previewsWanted: () => invoke('previews_wanted'),
     setPreviewsWanted: (wanted) => invoke('set_previews_wanted', { wanted }),
@@ -434,7 +455,7 @@ async function tauriBackend(): Promise<Backend> {
     destination: () => invoke('destination'),
     chooseDestinationFolder: () => pickFolder('Choose a folder to back up to'),
     connectDestination: (request) => invoke('connect_destination', { request }),
-    disconnectDestination: () => invoke('disconnect_destination'),
+    disconnectDestination: (at) => invoke('disconnect_destination', { at: at ?? null }),
     send: () => invoke('send'),
     checkArrived: () => invoke('check_arrived'),
     onSend: (listener) => subscribe('send', listener),

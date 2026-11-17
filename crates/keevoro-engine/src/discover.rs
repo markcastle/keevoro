@@ -90,6 +90,25 @@ pub struct CollectionView {
     pub previews: Vec<PhotoView>,
 }
 
+/// One place a backup goes to, and how much of what is being kept has
+/// reached it. A backup can go to several; each is counted on its own, so
+/// a second copy that is only half made is never mistaken for a whole one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DestinationView {
+    /// In words: "the folder F:\\Family Backup".
+    pub name: String,
+    /// `folder`, `r2`, `s3` or `endpoint`.
+    pub kind: String,
+    /// The folder, when it is one, for opening.
+    pub folder: Option<String>,
+    /// Kept files that are there.
+    pub there: usize,
+    /// Kept files still to go, and the room they need.
+    pub waiting: usize,
+    pub waiting_bytes: u64,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Discover {
@@ -109,6 +128,8 @@ pub struct Discover {
     /// in bytes.
     pub waiting_bytes: u64,
     pub sources: Vec<SourceView>,
+    /// Each place this backup goes to, with what has reached it.
+    pub destinations: Vec<DestinationView>,
     /// Newest first; the first is the one to show large.
     pub collections: Vec<CollectionView>,
 }
@@ -181,6 +202,17 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
     let rescued = catalog.kept_hashes()?;
     let (summary, items) = summary::summarise_with(&reports, &rescued);
 
+    // Where this backup goes. A file has reached a destination when the
+    // catalog has a record of it under that destination's name. One saved
+    // before names were remembered is believed if the file is recorded
+    // anywhere, which is what was true when there could only be one.
+    let places = crate::connect::destinations(catalog)?;
+    let reached = |place: &str, to: &crate::connect::Saved| match &to.target {
+        Some(target) => catalog.is_uploaded(target, place),
+        None => catalog.stored_anywhere(place),
+    };
+    let mut tallies = vec![(0usize, 0usize, 0u64); places.len()];
+
     let mut waiting_to_gather = 0;
     let mut waiting_bytes = 0;
     let mut collections = Vec::new();
@@ -192,13 +224,34 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
         for item in &members {
             let is_wanted = wanted(catalog, item)?;
             kept |= is_wanted;
-            let is_in = match &item.blake3 {
-                // Safe means a copy exists somewhere it was sent: in this
-                // library's own folder, or in storage it was sent to.
-                Some(hash) => match catalog.collected_path(hash)? {
-                    Some(place) => catalog.is_here(hash)? || catalog.stored_anywhere(&place)?,
+            // Safe means a copy is everywhere it is meant to be: in this
+            // library's own folder, or at every destination of the backup.
+            // At some but not all is not safe yet; that is the whole point
+            // of having more than one.
+            let place = match &item.blake3 {
+                Some(hash) => catalog.collected_path(hash)?.map(|place| (hash, place)),
+                None => None,
+            };
+            let mut everywhere = !places.is_empty();
+            for (to, tally) in places.iter().zip(tallies.iter_mut()) {
+                let there = match &place {
+                    Some((_, place)) => reached(place, to)?,
                     None => false,
-                },
+                };
+                everywhere &= there;
+                if is_wanted {
+                    if there {
+                        tally.0 += 1;
+                    } else {
+                        tally.1 += 1;
+                        tally.2 += item.bytes;
+                    }
+                }
+            }
+            let is_in = match &place {
+                Some((hash, place)) => {
+                    catalog.is_here(hash)? || everywhere || (places.is_empty() && catalog.stored_anywhere(place)?)
+                }
                 None => false,
             };
             gathered += usize::from(is_in);
@@ -256,6 +309,18 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
         waiting_to_gather,
         waiting_bytes,
         sources,
+        destinations: places
+            .iter()
+            .zip(tallies)
+            .map(|(to, (there, waiting, bytes))| DestinationView {
+                name: to.describe(),
+                kind: to.kind.clone(),
+                folder: (to.kind == "folder").then(|| to.place.clone()),
+                there,
+                waiting,
+                waiting_bytes: bytes,
+            })
+            .collect(),
         collections,
     })
 }

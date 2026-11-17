@@ -26,6 +26,7 @@ import { createPortal } from 'react-dom'
 import { backend } from './backend'
 import type {
   Acceleration,
+  Destination,
   Survey,
   SurveyProgress,
   Duplicate,
@@ -1786,6 +1787,7 @@ function SendScreen(props: {
       {props.found && <Tally found={props.found} onDuplicates={props.onDuplicates} />}
       <SendPanel
         api={props.api}
+        destinations={props.found?.destinations ?? []}
         waiting={props.waiting}
         safe={props.safe}
         onProblem={props.onProblem}
@@ -1803,6 +1805,8 @@ function SendScreen(props: {
  */
 function SendPanel(props: {
   api: Backend
+  /** Each place this backup goes to, with what has reached it. */
+  destinations: Destination[]
   onProblem: (error: unknown) => void
   waiting: number
   safe: number
@@ -1819,6 +1823,9 @@ function SendPanel(props: {
   const [running, setRunning] = useState<string | null>(null)
   const [said, setSaid] = useState<SendEvent | null>(null)
   const [stopping, setStopping] = useState(false)
+  // True while a further destination is being chosen for a backup that has one.
+  const [adding, setAdding] = useState(false)
+  const { destinations } = props
   // Whether this backup also makes previews, or sends the originals alone.
   const [previews, setPreviews] = useState(true)
   useEffect(() => {
@@ -1907,15 +1914,35 @@ function SendPanel(props: {
     setRefused(null)
     api
       .connectDestination(request)
+      .then(() => api.destination())
       .then((description) => {
+        // With more than one, this is how many; the list names each.
         setWhere(description)
         onWhere(description)
         setForm(null)
+        setAdding(false)
+        // What the last backup or check said was about the places as they were.
+        setSaid(null)
+        // The counts change: a new place has nothing in it yet.
+        onSent()
       })
       // A wrong key is the user's to fix, so it is said beside the form.
       .catch((error) => setRefused(error instanceof Error ? error.message : String(error)))
       .finally(() => setConnecting(false))
   }
+  // Stops backing up to one place (or to the only one). Nothing there is
+  // deleted; it only comes off this backup's list.
+  const remove = (at?: number) =>
+    api
+      .disconnectDestination(at)
+      .then(() => api.destination())
+      .then((description) => {
+        setWhere(description)
+        onWhere(description)
+        setSaid(null)
+        onSent()
+      })
+      .catch(onProblem)
   const start = (what: string, job: () => Promise<void>) => {
     setSaid(null)
     setRunning(what)
@@ -1928,8 +1955,29 @@ function SendPanel(props: {
   if (where === undefined || !asked) return null
   return (
     <div className="panel send">
-      {where === null ? (
+      {where === null || adding ? (
         <>
+          {adding && (
+            <div className="adding">
+              <h2>Add another destination</h2>
+              <p className="quiet">
+                Keevoro will back up to this one as well as {where}. It starts empty and catches up on the next
+                backup. A photo only counts as safe once it is at every destination.
+              </p>
+              <p>
+                <button
+                  className="button small"
+                  onClick={() => {
+                    setAdding(false)
+                    setForm(null)
+                    setRefused(null)
+                  }}
+                >
+                  Not now
+                </button>
+              </p>
+            </div>
+          )}
           {room && room.needed > 0 && (
             <p className="needs">
               You are backing up {props.waiting.toLocaleString('en-GB')} {props.waiting === 1 ? 'file' : 'files'}, about{' '}
@@ -2053,7 +2101,9 @@ function SendPanel(props: {
         <>
           <h2>
             Backing up to{' '}
-            {room?.folder ? (
+            {destinations.length > 1 ? (
+              `${destinations.length} places`
+            ) : room?.folder ? (
               <>
                 the folder <FolderLink api={api} path={room.folder} onProblem={onProblem} />
               </>
@@ -2061,6 +2111,38 @@ function SendPanel(props: {
               where
             )}
           </h2>
+          {destinations.length > 1 && (
+            <ul className="places-to" aria-label="Where this backup goes">
+              {destinations.map((to, at) => (
+                <li key={to.name}>
+                  <span className="name">
+                    {to.folder ? (
+                      <>
+                        The folder <FolderLink api={api} path={to.folder} onProblem={onProblem} />
+                      </>
+                    ) : (
+                      to.name.replace(/^the /, 'The ')
+                    )}
+                  </span>
+                  <span className={to.waiting > 0 ? 'quiet small' : 'quiet small all-there'}>
+                    {to.waiting === 0
+                      ? `All ${thousands(to.there)} there`
+                      : `${thousands(to.there)} there · ${thousands(to.waiting)} waiting (${size(to.waitingBytes)})`}
+                  </span>
+                  {!running && (
+                    <button
+                      className="button small"
+                      onClick={() => remove(at)}
+                      aria-label={`Stop backing up to ${to.name}`}
+                      title="Takes it off this backup. Nothing stored there is deleted."
+                    >
+                      Remove
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
           <p>
             {props.waiting > 0
               ? `${props.waiting.toLocaleString('en-GB')} ${props.waiting === 1 ? 'file is' : 'files are'} waiting to be backed up.${
@@ -2180,29 +2262,30 @@ function SendPanel(props: {
               >
                 {props.waiting > 0 ? 'Back up now' : 'Back up again'}
               </button>
-              <button className="button" onClick={() => start('Checking…', api.checkArrived)} disabled={props.safe === 0}>
+              <button
+                className="button"
+                onClick={() => start('Checking…', api.checkArrived)}
+                disabled={props.safe === 0 && !destinations.some((d) => d.there > 0)}
+              >
                 Check they all arrived
               </button>
-              {where.startsWith('the folder') && (
+              {destinations.length <= 1 && where.startsWith('the folder') && (
                 <button className="button" onClick={() => api.openDestination().catch(onProblem)}>
                   Show me the folder
                 </button>
               )}
-              <button
-                className="button"
-                onClick={() =>
-                  api
-                    .disconnectDestination()
-                    .then(() => {
-                      setWhere(null)
-                      onWhere(null)
-                      setSaid(null)
-                    })
-                    .catch(onProblem)
-                }
-              >
-                Back up somewhere else
+              <button className="button" onClick={() => setAdding(true)}>
+                Add another destination
               </button>
+              {destinations.length <= 1 && (
+                <button
+                  className="button"
+                  onClick={() => remove()}
+                  title="Stops backing up here, so you can choose somewhere else. Nothing stored there is deleted."
+                >
+                  Back up somewhere else
+                </button>
+              )}
             </div>
             </>
           )}
