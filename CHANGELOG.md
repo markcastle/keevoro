@@ -6,7 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **Smoother graphs.** The graphs on "What Keevoro is doing" jumped up and down like a saw, even when Keevoro was working steadily, because the computer reports what a program has read and written in lumps. Each point is now the average of the last five seconds, so a steady 8 MB/s looks steady. The line under each graph says so.
 
 ## [0.26.0] - 2026-11-17
 

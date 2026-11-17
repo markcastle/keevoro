@@ -1176,8 +1176,29 @@ function ceiling(peak: number, floor: number) {
  * One measure over the last two minutes: a single thin line on a quiet
  * grid, with the figure under the pointer shown as you move across it.
  */
+/** How many seconds each point on a chart is averaged over. */
+const STEADIED_OVER = 5
+
+/**
+ * Each value replaced by the average of itself and the few before it.
+ *
+ * The computer reports what a program read and wrote in lumps, not as a
+ * steady flow: a second with nothing, then a second with double. Drawn as
+ * it comes, a steady 8 MB/s looks like a saw. Averaged over a few seconds
+ * it looks like what it is. The total is unchanged, only spread out.
+ */
+function steadied(values: number[], over: number): number[] {
+  return values.map((_, i) => {
+    const from = Math.max(0, i - over + 1)
+    let sum = 0
+    for (let at = from; at <= i; at++) sum += values[at]
+    return sum / (i - from + 1)
+  })
+}
+
 function UsageChart(props: { title: string; unit: string; about: string; values: number[]; floor: number }) {
-  const { values, unit } = props
+  const { unit } = props
+  const values = steadied(props.values, STEADIED_OVER)
   const [hover, setHover] = useState<number | null>(null)
   const W = 520
   const H = 160
@@ -1197,7 +1218,8 @@ function UsageChart(props: { title: string; unit: string; about: string; values:
         <b>{props.title}</b>
         <span className="now">{said(latest)}</span>
         <span className="quiet small">
-          now · highest {said(peak)} in the last {values.length < WINDOW ? `${values.length} seconds` : 'two minutes'}
+          now · highest {said(peak)} in the last {values.length < WINDOW ? `${values.length} seconds` : 'two minutes'} ·
+          averaged over {STEADIED_OVER} seconds
         </span>
       </figcaption>
       <svg
