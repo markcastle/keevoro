@@ -6,7 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **A Speed setting.** Settings has a new switch, "Use this computer's own picture codecs", which is on unless you turn it off. Beneath it Keevoro says which ways of opening a photo it will try, in order, and how many previews it makes at once.
+
+### Changed
+
+- **Previews are made much faster.** Keevoro now makes several previews at a time instead of one after another. It uses half of your processor cores at most, and never more than four, so the computer stays free for you. Pause still stops them.
+- **On Windows, photos are opened by Windows itself.** The codecs built into Windows are usually quicker than Keevoro's own decoder and use your graphics hardware where they can. If a photo will not open that way, Keevoro quietly uses its own decoder instead, so nothing is lost by leaving the switch on.
+- **More kinds of photo get a preview on Windows.** HEIC photos from phones, and camera raw files Windows has a codec for, now get a real preview where before they had a placeholder. Your original files are sent exactly as they are either way.
 
 ## [0.20.0] - 2026-11-17
 
