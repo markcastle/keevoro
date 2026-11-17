@@ -2770,3 +2770,29 @@ main > section > :nth-last-child(2) {
   font-family: var(--font-mono, monospace);
   font-size: 12px;
 }
+
+/* A tile is now two buttons: the picture, which opens it, and the tick. */
+.tile .look {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border-radius: inherit;
+  text-align: left;
+  cursor: zoom-in;
+}
+
+.tile .tick {
+  cursor: pointer;
+  /* A comfortable target without a bigger badge. */
+  outline-offset: 2px;
+}
+
+.tile .tick::after {
+  content: '';
+  position: absolute;
+  inset: -8px;
+}
+
+.tile .tick:hover {
+  transform: scale(1.12);
+}

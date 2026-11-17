@@ -2310,22 +2310,22 @@ function PhotosScreen(props: {
   // The folders these files are in on their sources, for opening.
   const folders = [...new Set((photos ?? []).map((p) => p.sourcePath.replace(/[\\/][^\\/]*$/, '')))].sort()
 
-  // Holding down on a picture (or right-clicking it) opens it large,
-  // without changing whether it is kept. `held` remembers that the press
-  // was a look, so the click that follows letting go is not also a tick.
+  // A click opens a picture large; a double click ticks or unticks it.
+  // The two would trip over each other (the first click of a double click
+  // would open the picture), so a click waits a moment to see whether a
+  // second one follows before it opens anything. The tick in the corner
+  // is a button of its own, for ticking with one click.
   const [looking, setLooking] = useState<string | null>(null)
-  const hold = useRef<number | undefined>(undefined)
-  const held = useRef(false)
-  const press = (id: string) => {
-    held.current = false
-    window.clearTimeout(hold.current)
-    hold.current = window.setTimeout(() => {
-      held.current = true
-      setLooking(id)
-    }, HOLD_TO_LOOK)
+  const opening = useRef<number | undefined>(undefined)
+  const clicked = (id: string) => {
+    window.clearTimeout(opening.current)
+    opening.current = window.setTimeout(() => setLooking(id), DOUBLE_CLICK_WAIT)
   }
-  const release = () => window.clearTimeout(hold.current)
-  useEffect(() => () => window.clearTimeout(hold.current), [])
+  const doubleClicked = (photo: PhotoChoice) => {
+    window.clearTimeout(opening.current)
+    toggle(photo)
+  }
+  useEffect(() => () => window.clearTimeout(opening.current), [])
   const at = photos && looking ? photos.findIndex((p) => p.id === looking) : -1
 
   return (
@@ -2338,9 +2338,9 @@ function PhotosScreen(props: {
         <p className="status">
           {collection
             ? photos
-              ? `Keeping ${thousands(keeping)} of ${thousands(photos.length)}. Click a picture to leave it out or put it back. Hold down on one to see it larger.`
+              ? `Keeping ${thousands(keeping)} of ${thousands(photos.length)}. Click a picture to see it larger. Double-click it, or click its tick, to leave it out or put it back.`
               : collection.summary
-            : 'These look like app pictures or leftovers, not memories. Click any you want to keep after all. Hold down on one to see it larger.'}
+            : 'These look like app pictures or leftovers, not memories. Click one to see it larger. Double-click it, or click its tick, to keep it after all.'}
         </p>
         {collection && photos && photos.length > 0 && (
           <p className="choices within">
@@ -2372,32 +2372,27 @@ function PhotosScreen(props: {
       )}
       <div className="tiles">
         {photos?.map((photo) => (
-          <button
-            key={photo.id}
-            className={photo.kept ? 'tile' : 'tile out'}
-            onPointerDown={(e) => e.button === 0 && press(photo.id)}
-            onPointerUp={release}
-            onPointerLeave={release}
-            onPointerCancel={release}
-            onContextMenu={(e) => {
-              e.preventDefault()
-              release()
-              setLooking(photo.id)
-            }}
-            onClick={() => {
-              // Letting go after a long press is not a click on the tick.
-              if (held.current) held.current = false
-              else toggle(photo)
-            }}
-            aria-pressed={photo.kept}
-            aria-label={`${photo.name}, ${photo.kept ? 'keeping' : 'not keeping'}`}
-          >
-            <Picture api={api} photo={photo} />
-            <span className="tick" aria-hidden>
+          <div key={photo.id} className={photo.kept ? 'tile' : 'tile out'}>
+            <button
+              className="look"
+              onClick={() => clicked(photo.id)}
+              onDoubleClick={() => doubleClicked(photo)}
+              aria-label={`Look at ${photo.name}`}
+            >
+              <Picture api={api} photo={photo} />
+            </button>
+            <button
+              className="tick"
+              role="switch"
+              aria-checked={photo.kept}
+              aria-label={`Keep ${photo.name}`}
+              title={photo.kept ? 'Keeping. Click to leave it out.' : 'Left out. Click to keep it.'}
+              onClick={() => toggle(photo)}
+            >
               {photo.kept ? '✓' : ''}
-            </span>
+            </button>
             {photo.junkReason && <span className="why">{photo.junkReason}</span>}
-          </button>
+          </div>
         ))}
       </div>
       {photos && at >= 0 && (
@@ -2417,12 +2412,16 @@ function PhotosScreen(props: {
   )
 }
 
-/** How long a press must last, in milliseconds, to count as "show me this one". */
-const HOLD_TO_LOOK = 450
+/**
+ * How long a click waits, in milliseconds, to see whether it is the first
+ * half of a double click. Short enough not to feel slow, long enough for
+ * an unhurried double click.
+ */
+const DOUBLE_CLICK_WAIT = 260
 
 /**
  * One photo or video still, as large as the window allows, over the grid.
- * Opened by holding down on a tile. It shows the picture, where it is on
+ * Opened by clicking a tile. It shows the picture, where it is on
  * the source and whether it is being kept, and lets that be changed here
  * too. Arrow keys move to the next and previous; Escape closes.
  */
