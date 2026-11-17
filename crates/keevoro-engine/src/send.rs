@@ -322,7 +322,16 @@ pub fn run_until(
     }
 
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
-    let over_network = matches!(destination, Destination::Bucket { .. });
+    // Several files at once wherever the far end is across a network: six
+    // to cloud storage, fewer to a folder on a file share. One at a time
+    // to a disk, where more would only make it hop about.
+    let (over_network, at_once) = match &destination {
+        Destination::Bucket { .. } => (true, 6),
+        Destination::Folder(folder) if crate::reach::is_across_a_network(folder) => {
+            (true, crate::reach::AT_ONCE_ACROSS_A_NETWORK)
+        }
+        Destination::Folder(_) => (false, 1),
+    };
     let (store, target, default_url) = open(out, &runtime, destination)?;
     let store = store.as_ref();
     let base_url = base_url.map_or(default_url, str::to_string);
@@ -332,8 +341,7 @@ pub fn run_until(
     let opts = PublishOptions {
         stop: stop.cloned(),
         over_network,
-        // Several at once to cloud storage; one at a time to a disk.
-        at_once: if over_network { 6 } else { 1 },
+        at_once,
         ..PublishOptions::default()
     };
     let report = runtime.block_on(publish(store, catalog, &target, &uploads, &opts, &mut |p| {
