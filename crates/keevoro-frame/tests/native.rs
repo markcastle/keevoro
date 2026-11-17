@@ -6,7 +6,7 @@
 
 #![cfg(any(windows, target_os = "macos"))]
 
-use keevoro_frame::{photo, still, FrameError};
+use keevoro_frame::{still, FrameError};
 use std::path::PathBuf;
 
 fn fixture(name: &str) -> PathBuf {
@@ -62,12 +62,12 @@ fn a_missing_file_is_refused_plainly() {
 #[cfg(windows)]
 #[test]
 fn a_photo_is_decoded_by_the_system_at_full_size_and_shrunk_on_request() {
-    let whole = photo(&fixture("red.jpg"), 0).expect("this computer can open a JPEG");
+    let whole = keevoro_frame::photo(&fixture("red.jpg"), 0).expect("this computer can open a JPEG");
     assert_eq!((whole.width, whole.height), (640, 480));
     assert_eq!((whole.full_width, whole.full_height), (640, 480));
     assert_eq!(whole.rgba.len(), 640 * 480 * 4);
 
-    let small = photo(&fixture("red.jpg"), 160).unwrap();
+    let small = keevoro_frame::photo(&fixture("red.jpg"), 160).unwrap();
     assert_eq!(
         (small.width, small.height),
         (160, 120),
@@ -96,7 +96,7 @@ fn a_photo_is_decoded_by_the_system_at_full_size_and_shrunk_on_request() {
 fn a_file_that_is_not_a_picture_is_refused_plainly() {
     let not_picture = std::env::temp_dir().join(format!("keevoro-not-a-picture-{}.jpg", std::process::id()));
     std::fs::write(&not_picture, b"this is not a picture").unwrap();
-    let result = photo(&not_picture, 512);
+    let result = keevoro_frame::photo(&not_picture, 512);
     let _ = std::fs::remove_file(&not_picture);
     assert!(matches!(result, Err(FrameError::CannotDecode(_))), "{result:?}");
 }
