@@ -149,6 +149,8 @@ pub struct Source {
     pub name: String,
     pub root: PathBuf,
     pub items: u64,
+    /// The size of everything found on it, in bytes.
+    pub bytes: u64,
     /// Seconds since 1970, UTC.
     pub scanned_at: i64,
 }
@@ -281,7 +283,9 @@ impl Catalog {
     /// Every source scanned so far, in the order they were first added.
     pub fn sources(&self) -> Result<Vec<Source>> {
         let mut q = self.conn.prepare(
-            "SELECT s.id, s.name, s.root, s.scanned_at, (SELECT COUNT(*) FROM items i WHERE i.source_id = s.id)
+            "SELECT s.id, s.name, s.root, s.scanned_at,
+                    (SELECT COUNT(*) FROM items i WHERE i.source_id = s.id),
+                    (SELECT COALESCE(SUM(i.bytes), 0) FROM items i WHERE i.source_id = s.id)
              FROM sources s ORDER BY s.id",
         )?;
         let rows = q.query_map([], |r| {
@@ -291,6 +295,7 @@ impl Catalog {
                 root: PathBuf::from(r.get::<_, String>(2)?),
                 scanned_at: r.get(3)?,
                 items: u64::try_from(r.get::<_, i64>(4)?).unwrap_or(0),
+                bytes: u64::try_from(r.get::<_, i64>(5)?).unwrap_or(0),
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)

@@ -693,7 +693,9 @@ function FindScreen(props: {
               <li key={s.id} className="source">
                 <span>{s.name}</span>
                 <FolderLink api={api} path={s.root} onProblem={onProblem} />
-                <span className="badge">{all(s.items)}</span>
+                <span className="badge">
+                  {all(s.items)} · {size(s.bytes)}
+                </span>
                 {removing === s.id ? (
                   <span className="confirm">
                     <button

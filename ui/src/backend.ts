@@ -45,7 +45,14 @@ export type Place = {
   askFirst: boolean
 }
 
-export type Source = { id: number; name: string; root: string; items: number }
+export type Source = {
+  id: number
+  name: string
+  root: string
+  items: number
+  /** The size of everything found on it, in bytes. */
+  bytes: number
+}
 
 export type Discover = {
   photos: number
