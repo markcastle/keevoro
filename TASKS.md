@@ -216,6 +216,17 @@ Separate, remembered jobs ("Drone footage to R2", "Family photos to a folder"), 
 - [ ] Verify a folder destination by reading it back automatically after sending
 - [ ] Backups on the command line
 
+### The catalog (Keevoro's own record of a backup)
+
+The catalog is one SQLite file per backup, `.keevoro/catalog.sqlite`. Losing it never loses a photo, but it does lose choices that cannot be found again by looking: what was unticked, what was rescued from the set-aside list, file-type choices, the destinations and the history.
+
+- [ ] Keep a copy of the catalog inside each destination, written at the end of every backup, so a backup carries its own record
+- [ ] Open a backup from the copy at its destination: on a new computer, or after the catalog here is lost
+- [ ] Check the catalog for damage when a backup is opened, and say so plainly if it is damaged
+- [ ] Offer to rebuild a damaged catalog: from the copy at a destination if there is one, otherwise by looking through the sources again
+- [ ] Use SQLite's write-ahead mode, so the screen can read counts while a backup writes, without queueing
+- [ ] Warn when a backup's own folder is on a network drive, where SQLite is not reliable
+
 ## Phase 4: macOS
 
 - [ ] `keevoro-platform` for macOS: DiskArbitration, volume UUIDs, Keychain
