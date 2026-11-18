@@ -133,7 +133,6 @@ Done when a non-technical tester gets from a drive to a backup without help.
 - [ ] Only fetch thumbnails for the tiles on screen, so a collection of a thousand does not ask for them all at once
 - [x] One button to look through every source again for new photos
 - [ ] Say how many are new after looking again ("12 new photos"), not only the total
-- [ ] Look again by itself: on a schedule, or when a known drive is plugged in
 - [ ] A changed or deleted file on a source: say so (today an edited photo is backed up as a new file and nothing is ever removed from a backup)
 - [ ] Show roughly how long a search has left
 - [x] Camera raw files are never judged by the preview size in their header
@@ -215,6 +214,33 @@ Separate, remembered jobs ("Drone footage to R2", "Family photos to a folder"), 
 - [ ] A backup that only looks for videos, or only photos
 - [ ] Verify a folder destination by reading it back automatically after sending
 - [ ] Backups on the command line
+
+### Scheduled and repeat backups
+
+Today a backup runs when someone presses "Back up now". These make it run by itself, which is what turns a one-off rescue into something that keeps photos safe as new ones are taken.
+
+- [ ] Repeat a backup on a schedule: every day, every week, or every month, at a time the person chooses
+- [ ] Each run looks through the sources again first, then sends only what is new
+- [ ] Run when a known source is plugged in (a camera card, a drone's drive), with a choice of "ask me" or "just do it"
+- [ ] Run when a destination comes back (a backup drive plugged in, the network returns) if a run was missed
+- [ ] Carry on in the background with the window closed: an icon by the clock, and a way to start with the computer
+- [ ] Say what happened: a notification when a run finishes, and louder when one fails or a destination has not been reached for a while
+- [ ] Be a good guest: wait while on battery, on a metered connection, or while the computer is busy, and never start two runs at once
+- [ ] Never back up without the person's say on anything new: files a schedule finds are backed up, but newly found duplicates and set-aside pictures still follow the same rules
+- [ ] Show the next run and the last few on the backup screen, with "Run now" and "Skip the next one"
+- [ ] A missed run (the computer was off) is caught up at the next chance, once, not once per run missed
+- [ ] Command line: a single command a system scheduler can call, for those who prefer their own
+
+### The catalog (Keevoro's own record of a backup)
+
+The catalog is one SQLite file per backup, `.keevoro/catalog.sqlite`. Losing it never loses a photo, but it does lose choices that cannot be found again by looking: what was unticked, what was rescued from the set-aside list, file-type choices, the destinations and the history.
+
+- [ ] Keep a copy of the catalog inside each destination, written at the end of every backup, so a backup carries its own record
+- [ ] Open a backup from the copy at its destination: on a new computer, or after the catalog here is lost
+- [ ] Check the catalog for damage when a backup is opened, and say so plainly if it is damaged
+- [ ] Offer to rebuild a damaged catalog: from the copy at a destination if there is one, otherwise by looking through the sources again
+- [ ] Use SQLite's write-ahead mode, so the screen can read counts while a backup writes, without queueing
+- [ ] Warn when a backup's own folder is on a network drive, where SQLite is not reliable
 
 ## Phase 4: macOS
 
