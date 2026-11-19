@@ -60,6 +60,22 @@ const BACKED: &[(&str, &[Op])] = &[
     ("set_acceleration", &[Op::KeevoroSettings]),
     ("check_update", &[Op::KeevoroUpdate]),
     ("reset_everything", &[Op::KeevoroReset]),
+    // Jobs. Each command starts, asks after or stops one in the API, and
+    // what the job says reaches the window through `jobs.follow`'s stream,
+    // the listener set up in lib.rs.
+    ("survey_place", &[Op::PlacesSurvey]),
+    ("stop_survey", &[Op::JobsStop]),
+    ("scan_place", &[Op::SourcesLook]),
+    ("stop_scanning", &[Op::JobsStop]),
+    // The second half of looking through a source: reading in full, in the
+    // background, what the quick search only sampled. The API starts it
+    // after every search and backup; the screens ask for it when they open.
+    ("keep_checking", &[Op::SourcesLook]),
+    ("send", &[Op::BackupRun]),
+    ("stop_sending", &[Op::JobsStop]),
+    ("check_arrived", &[Op::BackupCheck]),
+    ("send_progress", &[Op::JobsStatus]),
+    ("pause_work", &[Op::JobsPause, Op::JobsCarryOn]),
 ];
 
 /// Commands that are about being a window: nothing in them is Keevoro's to
@@ -91,19 +107,6 @@ const NOT_YET: &[(&str, Option<Op>)] = &[
     ("use_library", None),
     // Copying into the library. It goes with the library model, not moved.
     ("gather", None),
-    // Jobs, which run for a while and are watched, paused and stopped.
-    // They move together in the next step, which gives the API jobs.
-    ("survey_place", Some(Op::PlacesSurvey)),
-    ("scan_place", Some(Op::SourcesLook)),
-    // Reading sampled files in full, in the background.
-    ("keep_checking", None),
-    ("send", Some(Op::BackupRun)),
-    ("check_arrived", Some(Op::BackupCheck)),
-    ("send_progress", Some(Op::JobsStatus)),
-    ("pause_work", Some(Op::JobsPause)),
-    ("stop_sending", Some(Op::JobsStop)),
-    ("stop_scanning", Some(Op::JobsStop)),
-    ("stop_survey", Some(Op::JobsStop)),
 ];
 
 /// The commands the app registers, read from `generate_handler!` itself.

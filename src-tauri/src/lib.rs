@@ -14,9 +14,12 @@
 //! ui/src/App.tsx  ->  ui/src/backend.ts  ->  a #[tauri::command] here  ->  keevoro-api  ->  keevoro-engine
 //! ```
 //!
-//! Long jobs (looking through a drive, gathering) run on their own thread
-//! and report back with events, so the window never freezes. The event
-//! shapes are in `events.rs` and mirrored in `ui/src/backend.ts`.
+//! Long jobs (looking through a drive, surveying, backing up, checking) are
+//! run by the API on their own threads. What they say is handed to the
+//! window as events, so the window never freezes. The event shapes are in
+//! `keevoro-api` (`jobs::said`) and mirrored in `ui/src/backend.ts`;
+//! `events.rs` sends them. Gathering, from the older library model, still
+//! runs here.
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
@@ -31,28 +34,11 @@ use tauri::Manager;
 
 /// What the running app holds in memory.
 pub struct Shared {
-    /// Keevoro itself: its backups, settings, log and keychain, through the
-    /// API the command line uses too.
+    /// Keevoro itself: its backups, settings, log, keychain and jobs,
+    /// through the API the command line uses too.
     keevoro: keevoro_api::Keevoro,
-    /// True while a drive is being looked through; one at a time.
-    scanning: AtomicBool,
     /// True while photos are being gathered.
     gathering: AtomicBool,
-    /// True while files a quick search only sampled are being read in the
-    /// background.
-    checking: AtomicBool,
-    /// Set to stop a search that is running.
-    stop_scanning: std::sync::Arc<AtomicBool>,
-    /// Set to stop a survey that is running.
-    stop_survey: std::sync::Arc<AtomicBool>,
-    /// How many bytes the send in hand set out to send, and what the
-    /// running total stood at when it began.
-    send_total: std::sync::atomic::AtomicU64,
-    send_began_at: std::sync::atomic::AtomicU64,
-    /// Set to stop a send after the file in hand.
-    stop_sending: keevoro_engine::send::Stop,
-    /// True while a backup or a check of one is running.
-    sending: AtomicBool,
 }
 
 pub fn run() {
@@ -74,17 +60,13 @@ pub fn run() {
                 std::env::consts::OS,
                 std::env::consts::ARCH
             ));
+            // Everything a job says goes to the window, as the event the
+            // screens listen for.
+            let window = app.handle().clone();
+            keevoro.listen(move |event| events::to_window(&window, &event.said));
             app.manage(Shared {
                 keevoro,
-                scanning: AtomicBool::new(false),
                 gathering: AtomicBool::new(false),
-                checking: AtomicBool::new(false),
-                stop_scanning: std::sync::Arc::new(AtomicBool::new(false)),
-                stop_survey: std::sync::Arc::new(AtomicBool::new(false)),
-                send_total: std::sync::atomic::AtomicU64::new(0),
-                send_began_at: std::sync::atomic::AtomicU64::new(0),
-                stop_sending: keevoro_engine::send::Stop::default(),
-                sending: AtomicBool::new(false),
             });
             Ok(())
         })

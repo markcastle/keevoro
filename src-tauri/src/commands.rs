@@ -1,28 +1,26 @@
 //! The requests the screens can make, one function each.
 //!
-//! Every function here does the same three things: find the library, call
+//! Every function here does the same three things: find the backup, call
 //! `keevoro-api` (or, for what has not moved there yet, the engine), and
-//! turn any error into a sentence the screen can show. If a function grows
+//! turn any error into a sentence the screen can show. Long jobs are the
+//! API's too: a command starts one and returns, and what the job says
+//! reaches the window through the listener set up in `lib.rs`. If a function grows
 //! beyond that, the extra belongs in the API, where the command line gets
 //! it too. `parity.rs` keeps count of what has still to move.
 
-use crate::events::{CheckEvent, GatherEvent, ScanEvent, SendEvent, SurveyEvent, CHECK, GATHER, SCAN, SEND, SURVEY};
+use crate::events::{GatherEvent, GATHER};
 use crate::Shared;
-use keevoro_api::Backup;
+use keevoro_api::jobs::SurveyView;
+use keevoro_api::{Backup, JobKind, Named, Which};
 use keevoro_catalog::Catalog;
-use keevoro_engine::connect::{self, World};
+use keevoro_engine::connect;
 use keevoro_engine::{Discover, PhotoChoice};
 use keevoro_media::VideoTools;
 use serde::Deserialize;
 use serde::Serialize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
-use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State};
-
-/// How often to tell the screen how a search is going. Often enough to
-/// feel alive, not so often that drawing slows the search down.
-const PROGRESS_EVERY: Duration = Duration::from_millis(150);
 
 /// Errors cross to the screen as plain sentences.
 type Said<T> = Result<T, String>;
@@ -73,13 +71,17 @@ fn current_state(app: &AppHandle, shared: &Shared) -> AppState {
     }
 }
 
-fn library(shared: &Shared) -> Said<PathBuf> {
+/// The backup the window has open.
+fn open_backup(shared: &Shared) -> Said<Named> {
     shared
         .keevoro
         .backups()
         .current()
-        .map(|open| open.home)
         .ok_or_else(|| "Start a backup first.".to_string())
+}
+
+fn library(shared: &Shared) -> Said<PathBuf> {
+    open_backup(shared).map(|open| open.home)
 }
 
 /// The open backup, through the API that the command line uses too.
@@ -99,13 +101,13 @@ pub fn start_backup(app: AppHandle, shared: State<'_, Shared>, name: String) -> 
 /// Opens another backup. Whatever was open is left exactly as it was.
 #[tauri::command]
 pub fn switch_backup(app: AppHandle, shared: State<'_, Shared>, id: String) -> Said<AppState> {
-    if shared.scanning.load(Ordering::SeqCst) || shared.sending.load(Ordering::SeqCst) {
+    if shared.keevoro.busy() {
         return Err("Keevoro is in the middle of something in this backup. Let that finish first.".into());
     }
     if !shared.keevoro.switch_to(&id).map_err(say)? {
         return Err("That backup is no longer there.".into());
     }
-    check_in_background(&app);
+    check_in_background(&shared);
     Ok(current_state(&app, &shared))
 }
 
@@ -115,10 +117,8 @@ pub fn switch_backup(app: AppHandle, shared: State<'_, Shared>, id: String) -> S
 /// anywhere, and no folder outside Keevoro's own data is touched.
 #[tauri::command]
 pub fn reset_everything(app: AppHandle, shared: State<'_, Shared>) -> Said<AppState> {
-    if shared.scanning.load(Ordering::SeqCst)
-        || shared.sending.load(Ordering::SeqCst)
-        || shared.gathering.load(Ordering::SeqCst)
-    {
+    // The API refuses, in the same words, while one of its jobs runs.
+    if shared.gathering.load(Ordering::SeqCst) {
         return Err(
             "Keevoro is in the middle of something. Let that finish, or stop it, before starting again.".into(),
         );
@@ -257,104 +257,20 @@ async fn picture(
 
 /// Reads, in the background, the files a quick search only sampled, so
 /// that true duplicates are known and gathering has less to do. Does
-/// nothing if a pass is already running. It gives way to a search or a
-/// gather, which start it again when they finish.
-fn check_in_background(app: &AppHandle) {
-    let state = app.state::<Shared>();
-    let Ok(library) = library(&state) else { return };
-    if state.checking.swap(true, Ordering::SeqCst) {
-        return;
+/// nothing if a pass is already running. It gives way to a search, a backup
+/// or a gather; the API starts it again after a search or a backup, and
+/// gathering starts it again here.
+fn check_in_background(shared: &Shared) {
+    if let Ok(open) = open_backup(shared) {
+        shared.keevoro.keep_checking(&open);
     }
-    let app = app.clone();
-    std::thread::spawn(move || {
-        let state = app.state::<Shared>();
-        let started = Instant::now();
-        let mut last_said = Instant::now() - PROGRESS_EVERY;
-        let mut total = 0;
-        let result = Catalog::open_in_library(&library)
-            .map_err(anyhow::Error::from)
-            .and_then(|catalog| {
-                keevoro_engine::deep::deep_look(
-                    &catalog,
-                    None,
-                    &mut |p| {
-                        total = p.total;
-                        if p.done == 0 {
-                            state
-                                .keevoro
-                                .log()
-                                .say(&format!("Checking {} files in the background", p.total));
-                        }
-                        if p.bytes >= 64 * 1024 * 1024 {
-                            state.keevoro.log().say(&format!(
-                                "Checking a large file ({}): {}",
-                                keevoro_engine::summary::bytes(p.bytes),
-                                keevoro_engine::friendly_path(p.reading)
-                            ));
-                        }
-                        if last_said.elapsed() >= PROGRESS_EVERY {
-                            last_said = Instant::now();
-                            let _ = app.emit(
-                                CHECK,
-                                CheckEvent {
-                                    done: p.done,
-                                    total: p.total,
-                                    finished: false,
-                                },
-                            );
-                        }
-                    },
-                    // It gives way to a search and to a backup. A backup
-                    // reads the same files, and fingerprints them as it goes,
-                    // so checking alongside it would read them twice over.
-                    &|| {
-                        !state.scanning.load(Ordering::SeqCst)
-                            && !state.gathering.load(Ordering::SeqCst)
-                            && !state.sending.load(Ordering::SeqCst)
-                    },
-                )
-            });
-        state.checking.store(false, Ordering::SeqCst);
-        let done = match &result {
-            Ok(report) => {
-                if report.checked > 0 || !report.failed.is_empty() || report.stopped {
-                    state.keevoro.log().say(&format!(
-                        "Background checking {} after {} seconds: {} checked, {} could not be read",
-                        if report.stopped { "paused" } else { "finished" },
-                        started.elapsed().as_secs(),
-                        report.checked,
-                        report.failed.len()
-                    ));
-                }
-                for (path, why) in report.failed.iter().take(200) {
-                    state.keevoro.log().say(&format!(
-                        "Could not check {}: {why}",
-                        keevoro_engine::friendly_path(path)
-                    ));
-                }
-                report.checked
-            }
-            Err(e) => {
-                state.keevoro.log().say(&format!("Background checking failed: {e:#}"));
-                0
-            }
-        };
-        let _ = app.emit(
-            CHECK,
-            CheckEvent {
-                done,
-                total,
-                finished: true,
-            },
-        );
-    });
 }
 
 /// Asked by the screens when they open: carry on with any checking left
 /// over from last time.
 #[tauri::command]
-pub fn keep_checking(app: AppHandle) {
-    check_in_background(&app);
+pub fn keep_checking(shared: State<'_, Shared>) {
+    check_in_background(&shared);
 }
 
 /// Whether Keevoro is using the computer's own codecs, and what that means
@@ -384,7 +300,7 @@ pub fn send_history(shared: State<'_, Shared>) -> Said<Vec<keevoro_engine::histo
 
 /// How a send is getting on: how much has arrived, how fast, and roughly
 /// how long is left.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SendProgress {
     bytes_done: u64,
@@ -405,37 +321,36 @@ pub struct SendProgress {
     line: String,
 }
 
+/// The running backup or check, as `jobs.status` tells it.
 #[tauri::command]
 pub fn send_progress(shared: State<'_, Shared>) -> SendProgress {
-    let total = shared.send_total.load(Ordering::SeqCst);
-    let done = keevoro_core::meter::totals()
-        .0
-        .saturating_sub(shared.send_began_at.load(Ordering::SeqCst))
-        .min(total);
-    let (samples, _) = keevoro_api::activity::recent();
-    let (speed, seconds_left) = keevoro_api::activity::speed_and_time_left(&samples, total - done);
-    SendProgress {
-        bytes_done: done,
-        bytes_total: total,
-        speed,
-        seconds_left,
-        over_network: samples.iter().rev().take(10).any(|s| s.network > 0.0),
-        running: shared.sending.load(Ordering::SeqCst),
-        stopping: shared.stop_sending.load(Ordering::SeqCst),
-        line: shared.keevoro.backup_step(),
-    }
+    shared
+        .keevoro
+        .jobs(None)
+        .into_iter()
+        .find(|job| matches!(job.handle.job, JobKind::BackUp | JobKind::Check))
+        .map(|job| SendProgress {
+            bytes_done: job.bytes_done,
+            bytes_total: job.bytes_total,
+            speed: job.speed,
+            seconds_left: job.seconds_left,
+            over_network: job.over_network,
+            running: true,
+            stopping: job.stopping,
+            line: job.line,
+        })
+        .unwrap_or_default()
 }
 
 /// Pauses or resumes every heavy job. Each waits at its next safe point,
 /// between one file and the next, and carries on from there when resumed.
 #[tauri::command]
 pub fn pause_work(shared: State<'_, Shared>, paused: bool) {
-    keevoro_core::pause::set_paused(paused);
-    shared.keevoro.log().say(if paused {
-        "Paused: all heavy work is waiting"
+    if paused {
+        shared.keevoro.pause();
     } else {
-        "Resumed: work is carrying on from where it paused"
-    });
+        shared.keevoro.carry_on();
+    }
 }
 
 /// Asks a search that is running to stop. It ends within a moment and
@@ -443,37 +358,7 @@ pub fn pause_work(shared: State<'_, Shared>, paused: bool) {
 /// look as if it were not there.
 #[tauri::command]
 pub fn stop_scanning(shared: State<'_, Shared>) {
-    shared.stop_scanning.store(true, Ordering::SeqCst);
-    // A paused job is waiting, and must wake to see it has been asked to stop.
-    keevoro_core::pause::set_paused(false);
-    shared.keevoro.log().say("Asked to stop the search");
-}
-
-/// A folder a survey suggests looking through.
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct HintView {
-    /// The folder, as it is shown and as it is handed back to be searched.
-    folder: String,
-    photos: usize,
-    videos: usize,
-    bytes: u64,
-    /// False when the pictures are so small they are probably not photos.
-    likely_photos: bool,
-    /// True when this folder is already one of the backup's sources.
-    already_a_source: bool,
-}
-
-/// What a survey of a drive found.
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SurveyView {
-    hints: Vec<HintView>,
-    folders: usize,
-    files: usize,
-    unreadable: usize,
-    seconds: f32,
-    stopped: bool,
+    shared.keevoro.stop(Which::Kinds(&[JobKind::Look, JobKind::LookAgain]));
 }
 
 /// Finds which folders under `path` hold photos and videos, by reading
@@ -481,220 +366,34 @@ pub struct SurveyView {
 /// answer is a list of suggestions for the person to choose from.
 #[tauri::command]
 pub async fn survey_place(app: AppHandle, shared: State<'_, Shared>, path: String) -> Said<SurveyView> {
-    let sources: Vec<String> = match library(&shared) {
-        Ok(library) => Catalog::open_in_library(&library)
-            .and_then(|c| c.sources())
-            .map(|list| list.iter().map(|s| keevoro_engine::friendly_path(&s.root)).collect())
-            .unwrap_or_default(),
-        Err(_) => Vec::new(),
-    };
-    shared.stop_survey.store(false, Ordering::SeqCst);
-    let stop = shared.stop_survey.clone();
-    shared
+    let open = shared.keevoro.backups().current();
+    let job = shared
         .keevoro
-        .log()
-        .say(&format!("Finding where the photos are in {path}"));
-    let root = PathBuf::from(&path);
-    let started = Instant::now();
-    let found = tauri::async_runtime::spawn_blocking(move || {
-        let _busy = keevoro_core::doing::doing(keevoro_core::doing::Work::Surveying);
-        keevoro_scan::survey::survey(&root, &keevoro_core::SkipRules::default(), Some(&stop), &mut |p| {
-            let _ = app.emit(
-                SURVEY,
-                SurveyEvent {
-                    folders: p.folders_seen,
-                    files: p.files_seen,
-                    photos: p.photos,
-                    videos: p.videos,
-                },
-            );
-        })
-    })
-    .await
-    .map_err(say)?;
-    let seconds = started.elapsed().as_secs_f32();
-    shared.keevoro.log().say(&format!(
-        "Looked at {} files in {} folders in {seconds:.1} seconds without opening any: {} folders suggested{}",
-        found.files_seen,
-        found.folders_seen,
-        found.hints.len(),
-        if found.stopped { " (stopped early)" } else { "" }
-    ));
-    Ok(SurveyView {
-        hints: found
-            .hints
-            .into_iter()
-            .map(|h| {
-                let folder = keevoro_engine::friendly_path(&h.folder);
-                HintView {
-                    already_a_source: sources.contains(&folder),
-                    folder,
-                    photos: h.photos,
-                    videos: h.videos,
-                    bytes: h.bytes,
-                    likely_photos: h.likely == keevoro_scan::survey::Likely::Photos,
-                }
-            })
-            .collect(),
-        folders: found.folders_seen,
-        files: found.files_seen,
-        unreadable: found.unreadable,
-        seconds,
-        stopped: found.stopped,
-    })
+        .survey(Path::new(&path), open.as_ref(), None)
+        .map_err(say)?;
+    // The survey runs on its own thread; waiting for it is kept off the
+    // thread that draws the window.
+    let found = tauri::async_runtime::spawn_blocking(move || app.state::<Shared>().keevoro.wait(job.id))
+        .await
+        .map_err(say)?;
+    match found {
+        Some(keevoro_api::Said::Surveyed(view)) => Ok(view),
+        _ => Err("Keevoro couldn't finish looking for your photos.".to_string()),
+    }
 }
 
 /// Asks a running survey to stop. It answers with what it has so far.
 #[tauri::command]
 pub fn stop_survey(shared: State<'_, Shared>) {
-    shared.stop_survey.store(true, Ordering::SeqCst);
+    shared.keevoro.stop(Which::Kinds(&[JobKind::Survey]));
 }
 
 /// Starts looking through a drive or folder. Returns at once; progress and
 /// the result arrive as `scan` events.
 #[tauri::command]
-pub fn scan_place(app: AppHandle, shared: State<'_, Shared>, path: String) -> Said<()> {
-    let library = library(&shared)?;
-    if shared.scanning.swap(true, Ordering::SeqCst) {
-        return Err("Keevoro is already looking through a source. Let that finish first.".into());
-    }
-    // A fresh start: an earlier request to stop does not carry over.
-    shared.stop_scanning.store(false, Ordering::SeqCst);
-    let stop = shared.stop_scanning.clone();
-    let source = PathBuf::from(path);
-    let name = source
-        .file_name()
-        .map_or_else(|| source.display().to_string(), |n| n.to_string_lossy().to_string());
-
-    std::thread::spawn(move || {
-        let started = Instant::now();
-        let state = app.state::<Shared>();
-        let log = state.keevoro.log();
-        log.say(&format!("Looking through {}", keevoro_engine::friendly_path(&source)));
-        let mut last_said = Instant::now();
-        let mut latest = (0, 0, 0);
-        let mut announced: Option<PathBuf> = None;
-        let event = |p: &keevoro_scan::ScanProgress, saving: bool| ScanEvent {
-            name: name.clone(),
-            photos: p.photos,
-            videos: p.videos,
-            files: p.files_seen,
-            folder: keevoro_engine::friendly_path(&p.folder),
-            reading: p
-                .reading
-                .as_ref()
-                .map(|(path, bytes)| (keevoro_engine::friendly_path(path), *bytes)),
-            saving,
-            stopped: false,
-            finished: false,
-            problem: None,
-            unreadable: 0,
-            unreadable_names: Vec::new(),
-        };
-        let mut last_progress = keevoro_scan::ScanProgress::default();
-        let result = Catalog::open_in_library(&library)
-            .map_err(anyhow::Error::from)
-            .and_then(|mut catalog| {
-                let last_progress = std::cell::RefCell::new(&mut last_progress);
-                keevoro_engine::scan_into_with(
-                    &mut catalog,
-                    &source,
-                    Some(&name),
-                    &keevoro_scan::ScanOptions {
-                        quick: true,
-                        stop: Some(stop.clone()),
-                        ..Default::default()
-                    },
-                    &mut |p| {
-                        latest = (p.photos, p.videos, p.files_seen);
-                        **last_progress.borrow_mut() = p.clone();
-                        // A large file starting is always said at once: it
-                        // may be the last thing to change for minutes.
-                        let big = p.reading.as_ref().map(|(path, _)| path.clone());
-                        let news = big.is_some() && big != announced;
-                        if news {
-                            if let Some((path, bytes)) = &p.reading {
-                                log.say(&format!(
-                                    "Reading a large file ({}): {}",
-                                    keevoro_engine::summary::bytes(*bytes),
-                                    keevoro_engine::friendly_path(path)
-                                ));
-                            }
-                            announced = big;
-                        }
-                        if news || last_said.elapsed() >= PROGRESS_EVERY {
-                            last_said = Instant::now();
-                            let _ = app.emit(SCAN, event(p, false));
-                        }
-                    },
-                    &mut || {
-                        let p = last_progress.borrow();
-                        log.say(&format!(
-                            "Finished looking after {} files; saving what was found",
-                            p.files_seen
-                        ));
-                        let _ = app.emit(SCAN, event(&p, true));
-                    },
-                )
-            });
-        state.scanning.store(false, Ordering::SeqCst);
-        let was_stopped = result.as_ref().is_ok_and(|report| report.stopped);
-        match &result {
-            Ok(report) if report.stopped => log.say(&format!(
-                "Stopped looking through {} after {} seconds and {} files. Nothing from it was kept.",
-                keevoro_engine::friendly_path(&source),
-                started.elapsed().as_secs(),
-                latest.2
-            )),
-            Ok(report) => {
-                log.say(&format!(
-                    "Looked through {} in {} seconds: {} photos and videos, {} other files, {} folders skipped, {} unreadable",
-                    keevoro_engine::friendly_path(&source),
-                    started.elapsed().as_secs(),
-                    report.items.len(),
-                    report.other_files,
-                    report.skipped.len(),
-                    report.unreadable.len()
-                ));
-                for unreadable in report.unreadable.iter().take(200) {
-                    log.say(&format!(
-                        "Could not read {}: {}",
-                        keevoro_engine::friendly_path(&unreadable.path),
-                        unreadable.error
-                    ));
-                }
-            }
-            Err(e) => log.say(&format!("Looking through {} failed: {e:#}", source.display())),
-        }
-        let _ = app.emit(
-            SCAN,
-            ScanEvent {
-                name,
-                photos: latest.0,
-                videos: latest.1,
-                files: latest.2,
-                folder: String::new(),
-                reading: None,
-                saving: false,
-                stopped: was_stopped,
-                finished: true,
-                // What could not be read is said on the screen, not only in the log.
-                unreadable: result.as_ref().map_or(0, |r| r.unreadable.len()),
-                unreadable_names: result.as_ref().map_or_else(
-                    |_| Vec::new(),
-                    |r| {
-                        r.unreadable
-                            .iter()
-                            .take(5)
-                            .map(|u| keevoro_engine::friendly_path(&u.path))
-                            .collect()
-                    },
-                ),
-                problem: result.err().map(say),
-            },
-        );
-        check_in_background(&app);
-    });
+pub fn scan_place(shared: State<'_, Shared>, path: String) -> Said<()> {
+    let open = open_backup(&shared)?;
+    shared.keevoro.look(&open, Path::new(&path), None).map_err(say)?;
     Ok(())
 }
 
@@ -706,6 +405,9 @@ pub fn gather(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
     if shared.gathering.swap(true, Ordering::SeqCst) {
         return Err("Keevoro is already gathering your photos.".into());
     }
+    // The check for duplicates gives way while gathering, as it does to a
+    // search or a backup.
+    let give_way = shared.keevoro.give_way();
     std::thread::spawn(move || {
         let state = app.state::<Shared>();
         state.keevoro.log().say("Gathering started");
@@ -731,6 +433,7 @@ pub fn gather(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
                 })
             });
         state.gathering.store(false, Ordering::SeqCst);
+        drop(give_way);
         match &result {
             Ok(Some(outcome)) => state
                 .keevoro
@@ -745,7 +448,7 @@ pub fn gather(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
             Err(e) => GatherEvent::finished(Vec::new(), Some(say(e))),
         };
         let _ = app.emit(GATHER, last);
-        check_in_background(&app);
+        check_in_background(&state);
     });
     Ok(())
 }
@@ -875,112 +578,6 @@ pub fn disconnect_destination(shared: State<'_, Shared>, at: Option<usize>) -> S
     Ok(())
 }
 
-/// Runs a backup job on its own thread, reporting with `backup` events.
-fn send_job(
-    app: AppHandle,
-    shared: &Shared,
-    record: bool,
-    job: impl FnOnce(
-            &std::path::Path,
-            &Catalog,
-            &World<'_>,
-            &mut Vec<u8>,
-            &mut dyn FnMut(&str),
-            &mut Vec<keevoro_engine::history::Sent>,
-        ) -> anyhow::Result<()>
-        + Send
-        + 'static,
-) -> Said<()> {
-    let library = library(shared)?;
-    if shared.sending.swap(true, Ordering::SeqCst) {
-        return Err("Keevoro is already working on your backup. Let that finish first.".into());
-    }
-    // Said at once, before the first real step has anything to report.
-    let opening = if record {
-        "Getting ready: reading what Keevoro knows about this backup"
-    } else {
-        "Getting ready to check"
-    };
-    shared.keevoro.note_backup_step(opening);
-    let _ = app.emit(SEND, SendEvent::progress(opening));
-    // What an earlier backup said when it ended is about that one. A new
-    // one starts with a clean slate, so "Stopped" is never left showing
-    // beside a backup that is running.
-    if record {
-        let _ = Backup::open(&library).and_then(|b| b.forget_last_summary());
-    }
-    std::thread::spawn(move || {
-        let mut said = Vec::new();
-        let mut last_said = Instant::now() - PROGRESS_EVERY;
-        // How each destination's turn went, for the backup's record.
-        let mut turns = Vec::new();
-        let result = (|| {
-            let catalog = Catalog::open_in_library(&library)?;
-            let state = app.state::<Shared>();
-            let world = World {
-                secrets: state.keevoro.secrets(),
-                ask: &connect::testing::nobody_to_ask,
-            };
-            job(
-                &library,
-                &catalog,
-                &world,
-                &mut said,
-                &mut |line| {
-                    // Remembered every time, shown a few times a second.
-                    state.keevoro.note_backup_step(line);
-                    if last_said.elapsed() >= PROGRESS_EVERY {
-                        last_said = Instant::now();
-                        let _ = app.emit(SEND, SendEvent::progress(line));
-                    }
-                },
-                &mut turns,
-            )
-        })();
-        let state = app.state::<Shared>();
-        state.sending.store(false, Ordering::SeqCst);
-        state.keevoro.clear_backup_step();
-        // How it went, said to the person and written into the backup's
-        // record, so "was that slow?" has an answer afterwards.
-        if record && result.is_ok() {
-            let several = turns.len() > 1;
-            for sent in &turns {
-                if let Some(sentence) = sent.sentence() {
-                    // With more than one destination, each sentence says whose it is.
-                    let line = if several {
-                        format!("To {}: {}", sent.to, sentence.to_lowercase())
-                    } else {
-                        sentence
-                    };
-                    said.extend_from_slice(line.as_bytes());
-                    said.push(b'\n');
-                    if let Ok(catalog) = Catalog::open_in_library(&library) {
-                        let _ = keevoro_engine::history::record(&catalog, sent);
-                    }
-                }
-            }
-        }
-        match &result {
-            Ok(()) => state.keevoro.log().say(&format!(
-                "Backup job finished: {}",
-                String::from_utf8_lossy(&said).trim()
-            )),
-            Err(e) => state.keevoro.log().say(&format!("Backup job failed: {e:#}")),
-        }
-        let last = SendEvent::finished(&said, result.err().map(say));
-        // What a backup said when it ended is kept with the backup, so it
-        // is still there after looking at another screen or closing the
-        // app, until the next backup replaces it.
-        if record {
-            let _ = Backup::open(&library).and_then(|b| b.remember_last_summary(&last));
-        }
-        let _ = app.emit(SEND, last);
-        // Whatever the backup did not fingerprint is picked up again now.
-        check_in_background(&app);
-    });
-    Ok(())
-}
-
 /// What this backup's last run said when it ended, or nothing if it has
 /// never run or now goes somewhere else.
 #[tauri::command]
@@ -988,93 +585,29 @@ pub fn last_backup_said(shared: State<'_, Shared>) -> Said<Option<serde_json::Va
     backup(&shared)?.last_summary().map_err(say)
 }
 
-/// Starts backing the library up to where it is connected.
+/// Starts backing up to every destination. Returns at once; progress and
+/// what it said at the end arrive as `send` events.
 #[tauri::command]
-pub fn send(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
-    // A fresh start: an earlier request to stop does not carry over.
-    shared.stop_sending.store(false, Ordering::SeqCst);
-    let stop = shared.stop_sending.clone();
-    // What this send sets out to do, so its speed can become a time left.
-    if let Ok(library) = library(&shared) {
-        let waiting = Catalog::open_in_library(&library)
-            .ok()
-            .and_then(|catalog| keevoro_engine::discover(&library, &catalog).ok())
-            .map_or(0, |found| {
-                // What every destination still lacks, added up.
-                let everywhere: u64 = found.destinations.iter().map(|d| d.waiting_bytes).sum();
-                everywhere.max(found.waiting_bytes)
-            });
-        shared.send_total.store(waiting, Ordering::SeqCst);
-        shared
-            .send_began_at
-            .store(keevoro_core::meter::totals().0, Ordering::SeqCst);
-    }
-    send_job(
-        app,
-        &shared,
-        true,
-        move |library, catalog, world, said, progress, turns| {
-            // To each destination in turn. The files themselves go first;
-            // previews are made and sent after.
-            keevoro_engine::send::everywhere(
-                said,
-                catalog,
-                library,
-                world,
-                VideoTools::find().as_ref(),
-                &stop,
-                progress,
-                &mut |turn| {
-                    turns.push(keevoro_engine::history::Sent {
-                        finished_at: std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .ok()
-                            .and_then(|d| i64::try_from(d.as_secs()).ok())
-                            .unwrap_or(0),
-                        seconds: turn.seconds,
-                        bytes: turn.bytes,
-                        to: turn.to.describe(),
-                        stopped: turn.stopped,
-                    });
-                },
-            )
-        },
-    )
+pub fn send(shared: State<'_, Shared>) -> Said<()> {
+    let open = open_backup(&shared)?;
+    shared.keevoro.run_backup(&open, None).map_err(say)?;
+    Ok(())
 }
 
 /// Asks a send that is running to stop. The file in hand is finished, so
 /// nothing is left half-sent; everything already sent stays where it is.
 #[tauri::command]
 pub fn stop_sending(shared: State<'_, Shared>) {
-    shared.stop_sending.store(true, Ordering::SeqCst);
-    // A paused job is waiting, and must wake to see it has been asked to stop.
-    keevoro_core::pause::set_paused(false);
-    shared.keevoro.log().say("Asked to stop sending after the file in hand");
+    shared.keevoro.stop(Which::Kinds(&[JobKind::BackUp]));
 }
 
-/// Starts checking the library and its backup are both intact.
+/// Starts checking what is at each destination. Returns at once; progress
+/// and what it found arrive as `send` events.
 #[tauri::command]
-pub fn check_arrived(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
-    send_job(
-        app,
-        &shared,
-        false,
-        |library, catalog, world, said, progress, _turns| {
-            let all = connect::destinations(catalog)?;
-            if all.is_empty() {
-                anyhow::bail!("Choose where to back up to first.");
-            }
-            let several = all.len() > 1;
-            for to in &all {
-                if several {
-                    said.extend_from_slice(format!("At {}:\n", to.describe()).as_bytes());
-                }
-                let destination = to.open(world)?;
-                keevoro_engine::send::check(said, catalog, library, Some(destination), false, progress)?;
-            }
-            Ok(())
-        },
-    )
+pub fn check_arrived(shared: State<'_, Shared>) -> Said<()> {
+    let open = open_backup(&shared)?;
+    shared.keevoro.check_backup(&open, None).map_err(say)?;
+    Ok(())
 }
 
 /// The drives plugged into this computer, for the "Where are your photos?"

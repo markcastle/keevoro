@@ -246,6 +246,14 @@ pub(crate) mod tests {
     /// backup whose home is `home`. The way it is looked through is not an
     /// API operation yet, so the engine does it directly.
     pub(crate) fn card_looked_through_into(dir: &Path, home: &Path) -> PathBuf {
+        let card = card_in(dir);
+        let mut catalog = Catalog::open_in_library(home).unwrap();
+        keevoro_engine::scan_into(&mut catalog, &card, Some("Card"), &mut |_| {}).unwrap();
+        card
+    }
+
+    /// That source, made in `dir` and not yet looked through.
+    pub(crate) fn card_in(dir: &Path) -> PathBuf {
         let card = dir.join("Card");
         for (rel, shade) in [
             ("Holidays/Cornwall/IMG_20080812_101500.jpg", 10),
@@ -259,9 +267,14 @@ pub(crate) mod tests {
         }
         let tiny = image::RgbImage::from_pixel(240, 180, image::Rgb([90, 90, 90]));
         tiny.save(card.join("DCIM/1952.png")).unwrap();
-        let mut catalog = Catalog::open_in_library(home).unwrap();
-        keevoro_engine::scan_into(&mut catalog, &card, Some("Card"), &mut |_| {}).unwrap();
         card
+    }
+
+    /// A photo large enough that a quick search only samples it.
+    pub(crate) fn large_photo(shade: u8) -> Vec<u8> {
+        let mut bytes = real_jpeg(shade);
+        bytes.resize(bytes.len() + 300 * 1024, 0);
+        bytes
     }
 
     /// That source, in a backup whose home is somewhere else.

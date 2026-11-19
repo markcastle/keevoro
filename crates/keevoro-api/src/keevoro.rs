@@ -11,7 +11,8 @@ use crate::agents::{AgentAccess, AgentsAccessRequest};
 use crate::backup::Backup;
 use crate::backups::{Backups, Named};
 use crate::destinations::{AddDestinationRequest, DestinationAdded};
-use crate::error::Result;
+use crate::error::{Error, Result};
+use crate::jobs::{FrontEnd, Jobs};
 use crate::log::Log;
 use crate::picture::PictureSize;
 use crate::reset;
@@ -19,7 +20,7 @@ use keevoro_engine::connect::{Keychain, SecretStore};
 use keevoro_update::{Check, GitHub, Web};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, PoisonError};
+use std::sync::Arc;
 
 /// The folders Keevoro keeps its own things in. None of them holds anyone's
 /// photos.
@@ -141,11 +142,11 @@ pub struct Offer {
 pub struct Keevoro {
     backups: Backups,
     cache: PathBuf,
-    log: Log,
-    secrets: Box<dyn SecretStore + Send + Sync>,
+    log: Arc<Log>,
+    secrets: Arc<dyn SecretStore + Send + Sync>,
     web: Box<dyn Web + Send + Sync>,
-    /// What a running backup last said it was doing. Empty when none is.
-    step: Mutex<String>,
+    /// The jobs running, and everyone listening to them.
+    pub(crate) jobs: Arc<Jobs>,
 }
 
 impl Keevoro {
@@ -156,10 +157,10 @@ impl Keevoro {
         let keevoro = Self {
             backups: Backups::load(&folders.config, &folders.data),
             cache: folders.cache.clone(),
-            log: Log::open(&folders.logs),
-            secrets: Box::new(Keychain),
+            log: Arc::new(Log::open(&folders.logs)),
+            secrets: Arc::new(Keychain),
             web: Box::new(GitHub::from_env()),
-            step: Mutex::new(String::new()),
+            jobs: Arc::default(),
         };
         keevoro.apply_saved_choices();
         keevoro
@@ -168,7 +169,23 @@ impl Keevoro {
     /// Keeps storage keys somewhere else: for tests, a keychain in memory.
     #[must_use]
     pub fn with_secrets(mut self, secrets: impl SecretStore + Send + Sync + 'static) -> Self {
-        self.secrets = Box::new(secrets);
+        self.secrets = Arc::new(secrets);
+        self
+    }
+
+    /// Says which front end this is, so a job can say who started it. The
+    /// app's, unless told otherwise.
+    #[must_use]
+    pub fn as_front_end(self, front_end: FrontEnd) -> Self {
+        self.jobs.set_front_end(front_end);
+        self
+    }
+
+    /// How often a running job says how it is getting on; a few times a
+    /// second unless told otherwise. Tests hear every step with zero.
+    #[must_use]
+    pub fn with_progress_every(self, every: std::time::Duration) -> Self {
+        self.jobs.set_progress_every(every);
         self
     }
 
@@ -185,6 +202,14 @@ impl Keevoro {
 
     pub fn log(&self) -> &Log {
         &self.log
+    }
+
+    pub(crate) fn log_shared(&self) -> Arc<Log> {
+        self.log.clone()
+    }
+
+    pub(crate) fn secrets_shared(&self) -> Arc<dyn SecretStore + Send + Sync> {
+        self.secrets.clone()
     }
 
     /// Where storage keys are kept.
@@ -319,19 +344,9 @@ impl Keevoro {
         self.log.tail(lines)
     }
 
-    /// Notes what a running backup is doing now, in its own words.
-    pub fn note_backup_step(&self, line: &str) {
-        line.clone_into(&mut self.step.lock().unwrap_or_else(PoisonError::into_inner));
-    }
-
-    /// No backup is running any more.
-    pub fn clear_backup_step(&self) {
-        self.step.lock().unwrap_or_else(PoisonError::into_inner).clear();
-    }
-
-    /// What a running backup last said it was doing, or empty.
+    /// What a running backup or check last said it was doing, or empty.
     pub fn backup_step(&self) -> String {
-        self.step.lock().unwrap_or_else(PoisonError::into_inner).clone()
+        self.jobs.backup_step()
     }
 
     /// `keevoro.activity`
@@ -345,6 +360,11 @@ impl Keevoro {
     /// that was sent anywhere, and no folder outside Keevoro's own data is
     /// touched.
     pub fn reset(&self) -> Result<reset::Done> {
+        if self.busy() {
+            return Err(Error::refused(
+                "Keevoro is in the middle of something. Let that finish, or stop it, before starting again.",
+            ));
+        }
         let done = reset::reset(&self.backups, self.secrets(), &self.cache)?;
         self.log.say(&format!(
             "Reset to how Keevoro was when first installed: {} backups removed, {} folders left where they are",
@@ -418,6 +438,7 @@ pub(crate) mod tests {
     use super::*;
     use keevoro_engine::connect::testing::MemorySecrets;
     use keevoro_update::UpdateError;
+    use std::sync::Mutex;
 
     /// A keychain in memory that can be shared between threads.
     #[derive(Default)]
@@ -535,21 +556,6 @@ pub(crate) mod tests {
         for field in ["on", "available", "ways", "cores"] {
             assert!(json.get(field).is_some(), "{field}");
         }
-    }
-
-    #[test]
-    fn the_step_a_backup_is_on_is_noted_and_cleared() {
-        let dir = tempfile::tempdir().unwrap();
-        let keevoro = keevoro(dir.path());
-        assert_eq!(keevoro.activity().backup_step, None);
-        keevoro.note_backup_step("Getting ready to check");
-        assert_eq!(keevoro.backup_step(), "Getting ready to check");
-        assert_eq!(
-            keevoro.activity().backup_step.as_deref(),
-            Some("Getting ready to check")
-        );
-        keevoro.clear_backup_step();
-        assert_eq!(keevoro.activity().backup_step, None);
     }
 
     #[test]
