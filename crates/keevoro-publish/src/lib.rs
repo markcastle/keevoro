@@ -269,7 +269,7 @@ pub async fn check_backup(
         let problem = match with_retries(opts, || store.head(&want.key)).await {
             Ok(None) => Some("It is missing from the backup".to_string()),
             Ok(Some(found)) if found.bytes != want.bytes => {
-                Some("The backup's copy is a different size from the one in your library".to_string())
+                Some("The backup's copy is a different size from the original".to_string())
             }
             Ok(Some(_)) if read_back && want.bytes <= MAX_READ_BACK_BYTES => {
                 match with_retries(opts, || store.get(&want.key)).await {
@@ -311,7 +311,7 @@ pub fn plain_reason(e: &StorageError) -> String {
         StorageError::AlreadyExists(_) => {
             "A different file is already stored under this name, and Keevoro never replaces an original".into()
         }
-        StorageError::Io(io) => format!("Couldn't read it from the library ({io})"),
+        StorageError::Io(io) => format!("Couldn't read it from its source ({io})"),
         StorageError::NotTheSame(why) => format!(
             "The copy was not the same as the original, so it was not kept ({why}). It will be tried again next time"
         ),
@@ -410,10 +410,11 @@ async fn send(
 
 /// An object is already stored under this key. It counts as the file being
 /// sent only if it is the same size and, where the store can read its own
-/// contents, has the same fingerprint. Otherwise the upload is refused
-/// rather than replace what is there or pretend it is the original. A
-/// store that cannot tell without downloading the object (cloud storage)
-/// is believed on size, since keys are unique per file in a library.
+/// contents, has the same fingerprint, worked out from the file now for one
+/// not yet fingerprinted. Otherwise the upload is refused rather than
+/// replace what is there or pretend it is the original. A store that
+/// cannot tell without downloading the object (cloud storage) is believed
+/// on size, since keys are unique per file in a backup.
 async fn same_or_refuse(
     store: &dyn MultipartStore,
     upload: &Upload,
@@ -423,8 +424,15 @@ async fn same_or_refuse(
     if stored_bytes != upload.bytes {
         return different();
     }
-    if let Some(fingerprint) = upload.metadata.get("blake3") {
-        if store.holds_exactly(&upload.key, fingerprint).await? == Some(false) {
+    // A file a search only sampled has no fingerprint yet, so one is
+    // worked out from the file itself: a size that matches is not proof.
+    let fingerprint = match upload.metadata.get("blake3") {
+        Some(known) => Some(known.clone()),
+        None if upload.learn_fingerprint => Some(fingerprint_of(&upload.file).await?),
+        None => None,
+    };
+    if let Some(fingerprint) = fingerprint {
+        if store.holds_exactly(&upload.key, &fingerprint).await? == Some(false) {
             return different();
         }
     }

@@ -6,7 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **A backup to a folder keeps each photo's own "date modified".** It is sometimes the only clue to when a photo was taken.
+
+### Fixed
+
+- **A file already in a backup folder only counts as there if it matches exactly,** including a large file Keevoro had not yet read in full. Before, a file of the same name and size was believed.
 
 ## [0.29.3] - 2026-11-19
 

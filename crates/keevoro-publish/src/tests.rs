@@ -300,13 +300,13 @@ async fn a_refused_key_is_not_retried() {
 }
 
 #[tokio::test]
-async fn a_file_missing_from_the_library_is_reported() {
+async fn a_file_missing_from_its_source_is_reported() {
     let w = World::new().await;
     let upload = w.file("originals/a.jpg", b"photo", true);
     std::fs::remove_file(&upload.file).unwrap();
     let r = w.publish(&[upload], &quick()).await;
     assert!(
-        r.failed[0].reason.starts_with("Couldn't read it from the library"),
+        r.failed[0].reason.starts_with("Couldn't read it from its source"),
         "{}",
         r.failed[0].reason
     );
@@ -545,6 +545,36 @@ async fn a_different_file_of_the_same_name_and_size_is_never_counted_as_the_orig
 }
 
 #[tokio::test]
+async fn a_file_not_yet_fingerprinted_is_not_counted_as_there_on_its_size_alone() {
+    let w = World::new().await;
+    let other = vec![1u8; 5000];
+    let already = w.file("originals/photo.jpg", &other, true);
+    w.publish(std::slice::from_ref(&already), &quick()).await;
+
+    // A file a search only sampled, of that name and size, but different.
+    let fresh = Catalog::in_memory().unwrap();
+    let mut upload = w.file("originals/photo.jpg", &[2u8; 5000], true);
+    upload.learn_fingerprint = true;
+    let r = publish(&w.store, &fresh, "test", &[upload], &quick(), &mut |_| {})
+        .await
+        .unwrap();
+    assert_eq!(
+        (r.uploaded, r.already_there, r.failed.len()),
+        (0, 0, 1),
+        "a store that can read itself is asked, not believed on size"
+    );
+    assert!(w.stored("originals/photo.jpg").await == other);
+
+    // The very same file is recognised as itself.
+    let mut same = w.file("originals/photo.jpg", &other, true);
+    same.learn_fingerprint = true;
+    let r = publish(&w.store, &fresh, "test", &[same], &quick(), &mut |_| {})
+        .await
+        .unwrap();
+    assert_eq!((r.already_there, r.failed.len()), (1, 0));
+}
+
+#[tokio::test]
 async fn a_file_not_yet_fingerprinted_is_fingerprinted_as_it_is_sent() {
     let w = World::new().await;
     let small = vec![5u8; 4000];
@@ -728,7 +758,7 @@ async fn missing_and_altered_backup_copies_are_found() {
         reasons,
         [
             "It is missing from the backup",
-            "The backup's copy is a different size from the one in your library"
+            "The backup's copy is a different size from the original"
         ]
     );
 
