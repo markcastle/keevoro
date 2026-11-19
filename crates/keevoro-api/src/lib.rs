@@ -1,7 +1,7 @@
 //! Everything Keevoro can do, said once.
 //!
 //! Three front ends sit on this crate: the desktop app, the `keevoro`
-//! command line and, later, the tools an AI agent is given. None of them
+//! command line and the tools an AI agent is given (`keevoro mcp`). None of them
 //! should hold any logic of its own. Each translates between its own world
 //! (a button, an argument, a tool call) and the operations here.
 //!
@@ -14,7 +14,8 @@
 //!   not about one backup;
 //! - [`Backup`], one backup, whose methods are the operations on it;
 //! - [`call`], the same operations reached by name with JSON in and JSON
-//!   out, which is how the command line and an agent's tools will use them.
+//!   out, which is how the command line uses them; an agent's tools use
+//!   [`call_for_agent`], which holds each call to the person's rules first.
 //!
 //! The long operations are [`jobs`]: starting one answers at once, and
 //! the job is then heard, asked after, paused and stopped.

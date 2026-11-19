@@ -219,42 +219,43 @@ Separate, remembered jobs ("Drone footage to R2", "Family photos to a folder"), 
 
 ### One API, a complete command line, and an MCP server
 
-Planned, not started. The decisions are made and the plan is written out; it waits only on the owner's go-ahead. The aim: anything a person can do in the app, a script can do from the command line and a program through an API, and on top of that an MCP server so an AI agent can run Keevoro for someone, safely.
+Built in five steps: the API and its register, the logic moved out of the app's shell, jobs shared between programs, the command line rebuilt on it, and `keevoro mcp` (docs/mcp.md). What is left is shipping it. The aim: anything a person can do in the app, a script can do from the command line and a program through an API, and on top of that an MCP server so an AI agent can run Keevoro for someone, safely.
 
 Why it is more than adding commands: the app's shell has 47 operations and the command line 13, and much of what the app does (named backups, backing up to every destination, history, stop and pause, room, activity) is written in the shell where nothing else can reach it. That logic has to move to one place first.
 
 The API
 
-- [ ] A `keevoro-api` crate above the engine: one function per operation, with plain requests and answers that can be written as JSON
-- [ ] Jobs for the long operations (look, survey, back up, check): start, watch, pause, carry on, stop
-- [ ] Events from a job in the app's own words: step, counts, speed, time left, closing summary
-- [ ] A register of every operation: name, description, what it takes and gives, and whether it only reads or also changes something
-- [ ] Move out of the shell and into the API: named backups, backing up everywhere with history, stop and pause, room, activity, settings, reset
-- [ ] One job per backup at a time across processes, with a lock a crashed process cannot leave shut
-- [ ] A running job's step and counts readable from another process, and stop and pause requests it can leave
-- [ ] A parity test: the build fails if the app can do something the command line or the MCP server cannot
+- [x] A `keevoro-api` crate above the engine: one function per operation, with plain requests and answers that can be written as JSON
+- [x] Jobs for the long operations (look, survey, back up, check): start, watch, pause, carry on, stop
+- [x] Events from a job in the app's own words: step, counts, speed, time left, closing summary
+- [x] A register of every operation: name, description, what it takes and gives, and whether it only reads or also changes something
+- [x] Move out of the shell and into the API: named backups, backing up everywhere with history, stop and pause, room, activity, settings, reset
+- [x] One job per backup at a time across processes, with a lock a crashed process cannot leave shut
+- [x] A running job's step and counts readable from another process, and stop and pause requests it can leave
+- [x] A parity test: the build fails if the app can do something the command line or the MCP server cannot
 
 The command line
 
-- [ ] Named backups, the same ones the app shows, in place of `--library`
-- [ ] Everything the app can do: backups, quick look, look again, remove a source, file types, duplicates, several destinations, originals only, run, stop, pause, status, history, room, activity, settings, reset
-- [ ] `--json` on every command; one line per event for jobs
-- [ ] Exit codes that tell "worked", "some files failed", "a destination could not be reached" and "no such thing" apart
-- [ ] Remove the old library-and-gather model everywhere, with nothing kept for compatibility: the `--library` commands, `gather`, copying into the library in the engine, and the app's leftover `gather` command
-- [ ] Before that code goes, confirm the folder store proves a copy as strictly as gathering did, so no check is lost
+- [x] Named backups, the same ones the app shows, in place of `--library`
+- [x] Everything the app can do: backups, quick look, look again, remove a source, file types, duplicates, several destinations, originals only, run, stop, pause, status, history, room, activity, settings, reset
+- [x] `--json` on every command; one line per event for jobs
+- [x] Exit codes that tell "worked", "some files failed", "a destination could not be reached" and "no such thing" apart
+- [x] Remove the old library-and-gather model everywhere, with nothing kept for compatibility: the `--library` commands, `gather`, copying into the library in the engine, and the app's leftover `gather` command
+- [x] Before that code goes, confirm the folder store proves a copy as strictly as gathering did, so no check is lost
 
 The MCP server
 
-- [ ] `keevoro mcp`: the Model Context Protocol over standard input and output, in the same binary, calling the API directly. No network port
-- [ ] Tools made from the register, each marked as reading or changing
-- [ ] A rehearsal tool: what backing up would do, changing nothing
-- [ ] Folders an agent may look through and back up to, set by a person; nothing allowed until they are
-- [ ] Storage keys can be supplied through the API, the command line and the MCP server alike, and are write-only everywhere: kept in the keychain, never returned, never logged
-- [ ] A test that supplies a marker key through each front end and searches everything Keevoro wrote for it
-- [ ] No tool to reset Keevoro, remove a backup or delete from one
-- [ ] A look-only mode, which is how the server starts; changes are switched on deliberately
-- [ ] Everything an agent does is in the log, marked as such
-- [ ] A guide to setting it up in an AI app
+- [x] `keevoro mcp`: the Model Context Protocol over standard input and output, in the same binary, calling the API directly. No network port
+- [x] Tools made from the register, each marked as reading or changing
+- [x] A rehearsal tool: what backing up would do, changing nothing
+- [x] Folders an agent may look through and back up to, set by a person; nothing allowed until they are
+- [x] Storage keys can be supplied through the API, the command line and the MCP server alike, and are write-only everywhere: kept in the keychain, never returned, never logged
+- [x] A test that supplies a marker key through each front end and searches everything Keevoro wrote for it
+- [x] No tool to reset Keevoro, remove a backup or delete from one
+- [x] A look-only mode, which is how the server starts; changes are switched on deliberately
+- [x] Everything an agent does is in the log, marked as such
+- [x] An "AI agents" section in Settings: whether changes are allowed, and the folders, with a way to add and remove each
+- [x] A guide to setting it up in an AI app
 - [ ] Built for Windows, Mac and Linux in the release that ships it
 
 Later
@@ -273,7 +274,7 @@ Decided
 
 Before building
 
-- [ ] The owner's go-ahead
+- [x] The owner's go-ahead
 
 ### Scheduled and repeat backups
 

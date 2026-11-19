@@ -308,6 +308,18 @@ Without `-b`, `status`, `follow` and `stop` cover every backup; with it, only th
 | `keevoro agents` | Which folders an AI agent may look through and back up to, and whether it may make changes. |
 | `keevoro agents allow --look FOLDER --back-up-to FOLDER` | Says which folders an agent may use. Give either more than once for several; `--none` for none. |
 | `keevoro agents allow-changes on` | Lets an agent make changes; `off` lets it only look. |
+| `keevoro mcp` | Starts Keevoro's server for an AI agent, which speaks the Model Context Protocol on standard input and output. An AI app starts it itself; you do not type it. |
+
+## AI agents
+
+An AI app, such as Claude Desktop or Claude Code, can use Keevoro for you through `keevoro mcp`. Out of the box it may only look, and may use no folder at all. You decide what more it may do:
+
+```sh
+keevoro agents allow --look "D:\" --back-up-to "F:\Family Backup"
+keevoro agents allow-changes on
+```
+
+`keevoro agents` shows what is allowed now, and Settings in the app shows the same. The folders given replace those allowed before, so name them all each time; `--none` takes them all away. A change counts at once, even while an agent is at work. An agent can read what it is allowed, but can never change it. How to set up an AI app, and what an agent can and cannot do, is in [docs/mcp.md](mcp.md).
 
 ## Where Keevoro keeps its things
 
