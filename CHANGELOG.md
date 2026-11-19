@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.29.3] - 2026-11-19
+
 ### Changed
 
 - **Getting a big backup ready takes seconds, not minutes.** Before the first file moves, Keevoro works out where each file will go at the destination. With thousands of files this took several minutes, because each one was written to Keevoro's record on its own and each lookup read the whole record. It is now done as one change with instant lookups.
@@ -474,7 +478,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.29.2...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.29.3...HEAD
+[0.29.3]: https://github.com/markcastle/keevoro/compare/v0.29.2...v0.29.3
 [0.29.2]: https://github.com/markcastle/keevoro/compare/v0.29.1...v0.29.2
 [0.29.1]: https://github.com/markcastle/keevoro/compare/v0.29.0...v0.29.1
 [0.29.0]: https://github.com/markcastle/keevoro/compare/v0.28.0...v0.29.0
