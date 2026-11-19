@@ -417,8 +417,10 @@ mod tests {
         // refused at the moment it is asked for, though nothing else changed.
         allow(k, &[], &[], true);
         refused(call_for_agent(k, Op::PhotosPicture, None, json!({ "photo": photo })));
+        // Named by its last part: the refusal gives the source's full real
+        // path, which on Windows is not always spelled as it was typed.
         let e = refused(call_for_agent(k, Op::SourcesLookAgain, None, json!({})));
-        assert!(e.contains(&card.display().to_string()), "{e}");
+        assert!(e.contains("look in") && e.contains("Card"), "{e}");
         let e = refused(call_for_agent(k, Op::BackupRun, None, json!({})));
         assert!(e.contains("back up to"), "{e}");
         refused(call_for_agent(k, Op::BackupCheck, None, json!({})));
