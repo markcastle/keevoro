@@ -219,7 +219,7 @@ Separate, remembered jobs ("Drone footage to R2", "Family photos to a folder"), 
 
 ### One API, a complete command line, and an MCP server
 
-Planned, not started. Waiting on decisions and a go-ahead. The aim: anything a person can do in the app, a script can do from the command line and a program through an API, and on top of that an MCP server so an AI agent can run Keevoro for someone, safely.
+Planned, not started. The decisions are made and the plan is written out; it waits only on the owner's go-ahead. The aim: anything a person can do in the app, a script can do from the command line and a program through an API, and on top of that an MCP server so an AI agent can run Keevoro for someone, safely.
 
 Why it is more than adding commands: the app's shell has 47 operations and the command line 13, and much of what the app does (named backups, backing up to every destination, history, stop and pause, room, activity) is written in the shell where nothing else can reach it. That logic has to move to one place first.
 
@@ -240,7 +240,8 @@ The command line
 - [ ] Everything the app can do: backups, quick look, look again, remove a source, file types, duplicates, several destinations, originals only, run, stop, pause, status, history, room, activity, settings, reset
 - [ ] `--json` on every command; one line per event for jobs
 - [ ] Exit codes that tell "worked", "some files failed", "a destination could not be reached" and "no such thing" apart
-- [ ] Decide what becomes of the old commands (`scan --library`, `gather`, `publish --library`)
+- [ ] Remove the old library-and-gather model everywhere, with nothing kept for compatibility: the `--library` commands, `gather`, copying into the library in the engine, and the app's leftover `gather` command
+- [ ] Before that code goes, confirm the folder store proves a copy as strictly as gathering did, so no check is lost
 
 The MCP server
 
@@ -251,14 +252,28 @@ The MCP server
 - [ ] Storage keys can be supplied through the API, the command line and the MCP server alike, and are write-only everywhere: kept in the keychain, never returned, never logged
 - [ ] A test that supplies a marker key through each front end and searches everything Keevoro wrote for it
 - [ ] No tool to reset Keevoro, remove a backup or delete from one
-- [ ] A look-only mode, on the first time
+- [ ] A look-only mode, which is how the server starts; changes are switched on deliberately
 - [ ] Everything an agent does is in the log, marked as such
 - [ ] A guide to setting it up in an AI app
+- [ ] Built for Windows, Mac and Linux in the release that ships it
+
+Later
+
+- [ ] Agents on other machines: reaching Keevoro over a network, with the sign-in and encryption that needs. Local only until then
+
+Decided
+
+- [x] "API" means a Rust crate all three front ends call, plus JSON from every command. No web API over the network
+- [x] No old commands are kept; nobody else uses Keevoro yet
+- [x] Keys can be supplied from the API, the command line and the MCP server, write-only everywhere
+- [x] An agent is allowed no folders until a person names them
+- [x] The server starts in look-only mode
+- [x] This work comes before scheduled backups and the catalog work
+- [x] The register (42 operations), the commands as typed, the tool list and the design for sharing a backup between programs are written out in the plan
 
 Before building
 
-- [ ] The owner's answers to the eight decisions in the plan
-- [ ] The register written out in full, the new commands as they would be typed, and the tool list as an agent would see it
+- [ ] The owner's go-ahead
 
 ### Scheduled and repeat backups
 
