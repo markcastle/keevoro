@@ -502,6 +502,11 @@ try {
   // And the file just dealt with is named beneath.
   await page.getByText(/^Just done: originals\/Holidays\/Cornwall\/IMG_\d+\.jpg$/).waitFor()
   await shot('9l-send-speed')
+  // The bar keeps one length whatever the words under it say.
+  const barWidth = () => page.locator('.speed progress').first().evaluate((bar) => bar.getBoundingClientRect().width)
+  const wide = await barWidth()
+  await page.locator('.speed p').first().evaluate((p) => (p.textContent = '1 GB'))
+  assert.equal(await barWidth(), wide, 'the progress bar does not shrink to its words')
   await page.getByRole('button', { name: 'Stop', exact: true }).click()
   await page.getByText('Stopping after this file…').waitFor()
   await page.getByText(/^Stopped\. Everything backed up so far is safe where it is\./).waitFor()
