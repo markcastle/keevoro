@@ -190,7 +190,7 @@ impl JobKind {
 /// Keevoro is open, and not used by another program running at the same
 /// time: each program's numbers begin at its process number times a
 /// million, which also keeps them small enough for JSON.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(transparent)]
 pub struct JobId(pub u64);
 
@@ -306,6 +306,10 @@ pub struct JobStatus {
     /// last shared about it (a few times a second).
     #[serde(default)]
     pub elsewhere: bool,
+    /// True once it has ended: `last` is then its last word, such as a
+    /// survey's findings or how a backup went.
+    #[serde(default)]
+    pub ended: bool,
 }
 
 /// One thing a job said, with which job said it.
@@ -469,6 +473,8 @@ struct Ended {
     job: JobId,
     backup: Option<String>,
     last: Option<Said>,
+    /// How it stood when it ended, with its last word.
+    status: JobStatus,
 }
 
 #[derive(Default)]
@@ -673,11 +679,21 @@ impl Jobs {
         job.holding.store(false, Ordering::SeqCst);
         job.gone.store(true, Ordering::SeqCst);
         {
+            let status = JobStatus {
+                ended: true,
+                stopping: false,
+                paused: false,
+                seconds_left: None,
+                speed: 0,
+                last: last.clone(),
+                ..Self::status_of(job)
+            };
             let mut registry = lock(&self.registry);
             registry.ended.push_back(Ended {
                 job: job.id(),
                 backup: job.backup_id().map(str::to_string),
                 last,
+                status,
             });
             while registry.ended.len() > ENDED_KEPT {
                 registry.ended.pop_front();
@@ -774,6 +790,7 @@ impl Jobs {
             paused: keevoro_core::pause::is_paused(),
             last: now.last.clone(),
             elsewhere: false,
+            ended: false,
         }
     }
 
@@ -796,6 +813,18 @@ impl Jobs {
             );
         }
         all
+    }
+
+    /// How a job ended, here or in another program, if it has ended and
+    /// is still remembered.
+    fn ended_status(&self, id: JobId) -> Option<JobStatus> {
+        let here = lock(&self.registry)
+            .ended
+            .iter()
+            .rev()
+            .find(|ended| ended.job == id)
+            .map(|ended| ended.status.clone());
+        here.or_else(|| self.across()?.ended_status(id))
     }
 
     fn matching(&self, which: Which<'_>) -> Vec<Arc<Job>> {
@@ -974,6 +1003,7 @@ impl Work for Jobs {
                 .map(|e| across::status::Ended {
                     job: e.job,
                     last: e.last.clone(),
+                    status: Some(e.status.clone()),
                 })
                 .collect();
             ended.reverse();
@@ -1184,6 +1214,13 @@ impl Keevoro {
     /// running.
     pub fn jobs(&self, backup: Option<&str>) -> Vec<JobStatus> {
         self.jobs.status(backup)
+    }
+
+    /// How a job that has ended stood when it ended, with its last word,
+    /// whichever program ran it. `None` while it runs, and for a job not
+    /// heard of or ended too long ago to be remembered.
+    pub fn ended_job(&self, job: JobId) -> Option<JobStatus> {
+        self.jobs.ended_status(job)
     }
 
     /// `jobs.stop`: asks jobs to stop once the file in hand is done,

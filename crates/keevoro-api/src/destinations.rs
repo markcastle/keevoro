@@ -53,8 +53,24 @@ impl<'de> Deserialize<'de> for Key {
     }
 }
 
+// Described as the text it is written as. The description says nothing of
+// any key in particular.
+impl schemars::JsonSchema for Key {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "Key".into()
+    }
+
+    fn inline_schema() -> bool {
+        true
+    }
+
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({ "type": "string" })
+    }
+}
+
 /// What kind of place a destination is.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum DestinationKind {
     /// A folder: an external drive, a network share, anywhere on disk.
@@ -68,18 +84,21 @@ pub enum DestinationKind {
 }
 
 /// `destinations.add`. Its `Debug` form never shows the keys.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AddDestinationRequest {
     pub kind: DestinationKind,
     /// The folder, Cloudflare account ID, Amazon region or server address.
     pub place: String,
+    /// The bucket, for cloud storage.
     #[serde(default)]
     pub bucket: Option<String>,
-    /// For cloud storage. Stored in the computer's keychain, never
-    /// anywhere else, and never given back.
+    /// For cloud storage: the access key ID. Stored in the computer's
+    /// keychain, never anywhere else, and never given back.
     #[serde(default)]
     pub access_key_id: Option<Key>,
+    /// For cloud storage: the secret access key. Stored in the computer's
+    /// keychain, never anywhere else, and never given back.
     #[serde(default)]
     pub secret_access_key: Option<Key>,
 }
@@ -97,11 +116,14 @@ pub struct DestinationAdded {
 
 /// `destinations.remove`: one place by its place in the list, or all of
 /// them, said outright.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RemoveDestinationRequest {
+    /// Which destination, by its place in `destinations.list`, counting
+    /// from 0.
     #[serde(default)]
     pub at: Option<usize>,
+    /// True to remove every destination, instead of one.
     #[serde(default)]
     pub all: bool,
 }

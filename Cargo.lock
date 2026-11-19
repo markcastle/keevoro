@@ -2883,6 +2883,7 @@ dependencies = [
  "keevoro-media",
  "keevoro-scan",
  "keevoro-update",
+ "schemars 1.2.3",
  "serde",
  "serde_json",
  "sysinfo",

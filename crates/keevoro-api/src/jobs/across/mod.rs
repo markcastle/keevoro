@@ -569,6 +569,22 @@ impl Across {
         })
     }
 
+    /// How a job another program ran stood when it ended, if that
+    /// program shared it and still remembers it.
+    pub(crate) fn ended_status(&self, job: JobId) -> Option<JobStatus> {
+        self.places().into_iter().find_map(|place| {
+            place
+                .read_status()
+                .filter(|s| !self.is_mine(&s.token))
+                .and_then(|s| s.ended.into_iter().find(|e| e.job == job))
+                .and_then(|e| e.status)
+                .map(|status| JobStatus {
+                    elsewhere: true,
+                    ..status
+                })
+        })
+    }
+
     /// Leaves a request for another program.
     pub(crate) fn ask(&self, other: &Other, ask: Ask, jobs: Vec<JobId>, by: FrontEnd) {
         let request = Request {

@@ -911,3 +911,51 @@ fn work_can_start_again_the_moment_the_last_job_on_a_backup_is_heard_to_end() {
     let jobs = dir.path().join("data").join("jobs").join(&named.id);
     assert!(!jobs.join("holder.json").exists(), "the lock is let go");
 }
+
+#[test]
+fn status_can_wait_a_while_and_says_how_a_job_ended_wherever_it_ran() {
+    let _turn = one_at_a_time();
+    let _after = CarryOnAfter;
+    let dir = tempfile::tempdir().unwrap();
+    let app = keevoro(dir.path());
+    let named = app.start_backup("Card photos").unwrap();
+    let card = card_in(dir.path());
+    let command_line = command_line(dir.path());
+
+    // Held, it is still running when the short wait is up.
+    app.pause();
+    let job = app.look(&named, &card, None).unwrap();
+    let begun = Instant::now();
+    let held = call(&app, Op::JobsStatus, None, json!({ "job": job.id, "waitSeconds": 1 })).unwrap();
+    assert!(begun.elapsed() >= Duration::from_millis(900), "it waited");
+    assert_eq!(held[0]["ended"], false);
+    assert_eq!(held[0]["id"], job.id.0);
+
+    // Let go, the wait ends when the job does, and says how it ended.
+    app.carry_on();
+    let begun = Instant::now();
+    let ended = call(&app, Op::JobsStatus, None, json!({ "job": job.id, "waitSeconds": 30 })).unwrap();
+    assert!(
+        begun.elapsed() < Duration::from_secs(30),
+        "not a moment longer than needed"
+    );
+    assert_eq!(ended.as_array().map(Vec::len), Some(1), "{ended}");
+    assert_eq!(ended[0]["ended"], true);
+    assert_eq!(ended[0]["op"], "sources.look");
+    assert_eq!(ended[0]["last"]["photos"], 5, "{ended}");
+    assert_eq!(ended[0]["elsewhere"], false);
+
+    // Another program hears how it ended too, from what was shared.
+    let elsewhere = eventually("the end shared", || command_line.ended_job(job.id).filter(|s| s.ended));
+    assert!(elsewhere.elsewhere);
+    assert!(matches!(elsewhere.last, Some(Said::Scan(ref e)) if e.finished));
+
+    // Asked about every job, an ended one is not listed; a job never heard
+    // of is nothing at all.
+    app.wait_for_jobs();
+    assert_eq!(call(&app, Op::JobsStatus, None, json!({})).unwrap(), json!([]));
+    assert_eq!(
+        call(&app, Op::JobsStatus, None, json!({ "job": 7, "waitSeconds": 0 })).unwrap(),
+        json!([])
+    );
+}

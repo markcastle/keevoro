@@ -18,7 +18,7 @@ use std::path::Path;
 use std::sync::{Condvar, Mutex, PoisonError};
 
 /// How big a picture to make.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum PictureSize {
     /// A small picture, for a grid of many.
@@ -29,11 +29,13 @@ pub enum PictureSize {
 }
 
 /// `photos.picture`
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PictureRequest {
     /// The photo's short id, as `collections.photos` gives it.
     pub photo: String,
+    /// `small`, for a grid of many, or `screen`, for a closer look. Small
+    /// when left out.
     #[serde(default)]
     pub size: PictureSize,
 }

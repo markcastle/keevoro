@@ -51,7 +51,7 @@ pub struct AgentAccess {
 
 /// `agents.access`: without anything in it, it only reads. Each part given
 /// replaces what was there.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AgentsAccessRequest {
     #[serde(default)]

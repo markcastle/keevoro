@@ -760,27 +760,6 @@ fn choose(ctx: &Ctx<'_>, m: &ArgMatches, keep: bool) -> Result<(Op, Value), Fail
     })
 }
 
-/// True for an operation on one backup, which `-b` can name.
-fn on_a_backup(op: Op) -> bool {
-    !matches!(
-        op,
-        Op::BackupsList
-            | Op::BackupsStart
-            | Op::BackupsRename
-            | Op::BackupsForget
-            | Op::PlacesList
-            | Op::JobsPause
-            | Op::JobsCarryOn
-            | Op::KeevoroAbout
-            | Op::KeevoroActivity
-            | Op::KeevoroLog
-            | Op::KeevoroSettings
-            | Op::KeevoroUpdate
-            | Op::KeevoroReset
-            | Op::AgentsAccess
-    )
-}
-
 /// The whole command line, for clap, built from the rows.
 pub fn program() -> Command {
     let mut top = Command::new("keevoro")
@@ -906,7 +885,7 @@ pub fn run(keevoro: &Keevoro, typed: &Typed, io: &mut Io<'_>) -> Result<Code, Fa
         backup: typed.backup(),
         json: typed.json(),
     };
-    if ctx.backup.is_some() && !typed.row.ops.iter().any(|op| on_a_backup(*op)) {
+    if ctx.backup.is_some() && !typed.row.ops.iter().any(|op| op.on_a_backup()) {
         return Err(Failure::not_understood(format!(
             "`{}` isn't about one backup, so it takes no -b.",
             typed.row.typed()

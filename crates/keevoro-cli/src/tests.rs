@@ -304,6 +304,16 @@ fn a_first_backup_from_start_to_finish() {
     );
     let ran = at.keevoro(&["status"]);
     assert_eq!(ran.out.trim(), "Nothing is running.");
+    // A job asked after by its number once it has ended says how it went.
+    let ran = at.keevoro(&["look", "--again", "--json"]);
+    let started: Value = serde_json::from_str(ran.out.lines().next().unwrap()).unwrap();
+    let ran = at.keevoro(&["status", &started["id"].to_string()]);
+    assert!(
+        ran.out
+            .starts_with(&format!("Job {} has ended.\nLooked through Card: found", started["id"])),
+        "{}",
+        ran.out
+    );
 
     let ran = at.keevoro(&["destinations", "remove", "1"]);
     assert!(ran.out.starts_with("No longer backing up to the folder"), "{}", ran.out);
