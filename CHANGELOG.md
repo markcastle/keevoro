@@ -6,7 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- The progress bar of a long backup no longer slips backwards now and then. The amount done only ever goes up.
 
 ## [0.29.3] - 2026-11-19
 
