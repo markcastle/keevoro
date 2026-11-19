@@ -2,14 +2,16 @@
 //!
 //! This crate is deliberately thin. It opens a window, and it answers the
 //! handful of requests the screens make (the `commands` below) by calling
-//! `keevoro-engine`. It contains no rules about photos: if you find
-//! yourself writing one here, it belongs in the engine, where the command
-//! line gets it too and where it can be tested without a window.
+//! `keevoro-api`. It contains no rules about photos: if you find yourself
+//! writing one here, it belongs in the API or the engine, where the command
+//! line gets it too and where it can be tested without a window. Some
+//! commands still call the engine directly or hold logic of their own;
+//! `parity.rs` lists them, and that list only gets shorter.
 //!
 //! How a request travels:
 //!
 //! ```text
-//! ui/src/App.tsx  ->  ui/src/backend.ts  ->  a #[tauri::command] here  ->  keevoro-engine
+//! ui/src/App.tsx  ->  ui/src/backend.ts  ->  a #[tauri::command] here  ->  keevoro-api  ->  keevoro-engine
 //! ```
 //!
 //! Long jobs (looking through a drive, gathering) run on their own thread
@@ -22,6 +24,8 @@ mod activity;
 mod commands;
 mod events;
 mod log;
+#[cfg(test)]
+mod parity;
 mod places;
 mod reset;
 mod settings;
