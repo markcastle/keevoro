@@ -16,9 +16,12 @@
 //! - [`call`], the same operations reached by name with JSON in and JSON
 //!   out, which is how the command line and an agent's tools will use them.
 //!
-//! Not every operation in the register is done here yet. Those still done
-//! by the app's shell say so (`implemented: false`), and [`call`] answers
-//! them with a plain "not yet". The app's parity test keeps that honest.
+//! The long operations are [`jobs`]: starting one answers at once, and
+//! the job is then heard, asked after, paused and stopped.
+//!
+//! Every operation in the register is done here. One added to the register
+//! before it is built says so (`implemented: false`), and [`call`] answers
+//! it with a plain "not yet". The app's parity test keeps that honest.
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
@@ -28,6 +31,7 @@ pub mod backup;
 pub mod backups;
 pub mod destinations;
 pub mod error;
+pub mod jobs;
 pub mod keevoro;
 pub mod log;
 pub mod picture;
@@ -43,6 +47,7 @@ pub use destinations::{
     RoomAtAGlance, WaitingAt,
 };
 pub use error::{Error, Kind, Result};
+pub use jobs::{Event, FrontEnd, GiveWay, JobHandle, JobId, JobKind, JobStatus, Listener, Said, Which, PROGRESS_EVERY};
 pub use keevoro::{BackupListing, Codecs, Folders, Keevoro, Offer, SettingsView};
 pub use picture::{Picture, PictureRequest, PictureSize};
 pub use register::{entries, Agents, Changes, Entry, Op};
@@ -51,6 +56,8 @@ use keevoro::{ForgetBackupRequest, LogRequest, RenameBackupRequest, SettingsRequ
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::path::Path;
+use std::sync::{Arc, Mutex, PoisonError};
 
 /// What Keevoro is and what it promises, for `keevoro.about`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -136,6 +143,37 @@ pub struct PreviewsRequest {
     pub wanted: Option<bool>,
 }
 
+/// `places.survey`, `sources.look`
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PlaceRequest {
+    /// The drive or folder, as the computer writes it.
+    pub place: String,
+}
+
+/// `sources.look_again`: one source by its id, or every one.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LookAgainRequest {
+    #[serde(default)]
+    pub source: Option<i64>,
+}
+
+/// `jobs.status`, `jobs.follow`, `jobs.stop`: one job by its id, or every
+/// one running on the backup named, or on any backup when none is named.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct JobRequest {
+    #[serde(default)]
+    pub job: Option<JobId>,
+}
+
+/// `jobs.pause`, `jobs.carry_on`
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct Paused {
+    pub paused: bool,
+}
+
 /// For operations that take nothing: anything given is a mistake worth
 /// saying, above all for one that changes things.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -184,6 +222,7 @@ fn answer(value: impl Serialize) -> Result<Value> {
 /// needs a backup fails plainly when there is none.
 pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> Result<Value> {
     let open = || keevoro.backups().open(backup);
+    let named = || keevoro.backups().named_or_open(backup);
     match op {
         Op::BackupsList => {
             read::<Nothing>(request)?;
@@ -310,20 +349,97 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
             }
         }
 
-        // Jobs, which run for a while and are watched and stopped. They
-        // are the next step of the plan; until then the app's shell runs
-        // them, and their register entries say `implemented: false`.
-        Op::PlacesSurvey
-        | Op::SourcesLook
-        | Op::SourcesLookAgain
-        | Op::BackupRun
-        | Op::BackupCheck
-        | Op::JobsStatus
-        | Op::JobsFollow
-        | Op::JobsPause
-        | Op::JobsCarryOn
-        | Op::JobsStop => Err(Error::not_yet(op)),
+        Op::PlacesSurvey => {
+            let r: PlaceRequest = read(request)?;
+            // A backup is only used to say which folders are already its
+            // sources, so the open one is used if there is one.
+            let named = match backup {
+                Some(_) => Some(keevoro.backups().named_or_open(backup)?),
+                None => keevoro.backups().current(),
+            };
+            answer(keevoro.survey(Path::new(&r.place), named.as_ref(), None)?)
+        }
+        Op::SourcesLook => {
+            let r: PlaceRequest = read(request)?;
+            answer(keevoro.look(&named()?, Path::new(&r.place), None)?)
+        }
+        Op::SourcesLookAgain => {
+            let r: LookAgainRequest = read(request)?;
+            answer(keevoro.look_again(&named()?, r.source, None)?)
+        }
+        Op::BackupRun => {
+            read::<Nothing>(request)?;
+            answer(keevoro.run_backup(&named()?, None)?)
+        }
+        Op::BackupCheck => {
+            read::<Nothing>(request)?;
+            answer(keevoro.check_backup(&named()?, None)?)
+        }
+        Op::JobsStatus => {
+            let r: JobRequest = read(request)?;
+            answer(statuses(keevoro, backup, r.job)?)
+        }
+        // The command line prints each event as it is said, through
+        // `Keevoro::follow`. Asked by name, it waits for the jobs to end
+        // and answers everything they said meanwhile.
+        Op::JobsFollow => {
+            let r: JobRequest = read(request)?;
+            let heard: Arc<Mutex<Vec<Event>>> = Arc::default();
+            let ids: Vec<JobId> = statuses(keevoro, backup, r.job)?
+                .into_iter()
+                .map(|s| s.handle.id)
+                .collect();
+            for id in &ids {
+                let heard = heard.clone();
+                keevoro.follow(
+                    *id,
+                    Arc::new(move |event: &Event| {
+                        heard.lock().unwrap_or_else(PoisonError::into_inner).push(event.clone());
+                    }),
+                );
+            }
+            for id in &ids {
+                keevoro.wait(*id);
+            }
+            let heard = heard.lock().unwrap_or_else(PoisonError::into_inner).clone();
+            answer(heard)
+        }
+        Op::JobsPause => {
+            read::<Nothing>(request)?;
+            keevoro.pause();
+            answer(Paused { paused: true })
+        }
+        Op::JobsCarryOn => {
+            read::<Nothing>(request)?;
+            keevoro.carry_on();
+            answer(Paused { paused: false })
+        }
+        Op::JobsStop => {
+            let r: JobRequest = read(request)?;
+            let on = backup.map(|_| named()).transpose()?;
+            let which = match (r.job, &on) {
+                (Some(id), _) => Which::Job(id),
+                (None, Some(on)) => Which::OnBackup(&on.id),
+                (None, None) => Which::All,
+            };
+            let asked = keevoro.stop(which);
+            match r.job {
+                Some(id) if asked.is_empty() => Err(Error::no_such_job(id)),
+                _ => answer(asked),
+            }
+        }
     }
+}
+
+/// The jobs running on the backup named, or on any backup; only the one
+/// asked for, when one is.
+fn statuses(keevoro: &Keevoro, backup: Option<&str>, job: Option<JobId>) -> Result<Vec<JobStatus>> {
+    let on = backup.map(|_| keevoro.backups().named_or_open(backup)).transpose()?;
+    Ok(keevoro
+        .jobs(on.as_ref().map(|named| named.id.as_str()))
+        .into_iter()
+        .filter(|s| job.is_none_or(|id| s.handle.id == id))
+        .collect())
 }
 
 #[cfg(test)]
@@ -367,11 +483,18 @@ mod tests {
 
     #[test]
     fn the_register_says_truly_which_operations_are_done_here() {
+        // Some start jobs, and pausing is one switch for the whole program.
+        let _turn = crate::jobs::tests::one_at_a_time();
+        let _after = crate::jobs::tests::CarryOnAfter;
         let (_dir, _card, keevoro) = one_keevoro();
         // Resetting would take the backup away from the rest, so it is last.
         let mut all: Vec<Entry> = entries().collect();
         all.sort_by_key(|e| e.op == Op::KeevoroReset);
         for entry in all {
+            if entry.op == Op::KeevoroReset {
+                // Not while the jobs started above are running.
+                keevoro.wait_for_jobs();
+            }
             let result = call(&keevoro, entry.op, None, json!({}));
             let not_yet = matches!(&result, Err(e) if e.kind == Kind::NotYet);
             assert_eq!(
@@ -383,23 +506,9 @@ mod tests {
     }
 
     #[test]
-    fn the_operations_still_to_come_are_the_jobs() {
+    fn every_operation_in_the_register_is_done_here() {
         let not_yet: Vec<&str> = entries().filter(|e| !e.implemented).map(|e| e.name).collect();
-        assert_eq!(
-            not_yet,
-            [
-                "places.survey",
-                "sources.look",
-                "sources.look_again",
-                "backup.run",
-                "backup.check",
-                "jobs.status",
-                "jobs.follow",
-                "jobs.pause",
-                "jobs.carry_on",
-                "jobs.stop",
-            ]
-        );
+        assert_eq!(not_yet, Vec::<&str>::new());
     }
 
     #[test]
@@ -650,8 +759,8 @@ mod tests {
         assert_eq!(e.kind, Kind::Failed);
         assert_eq!(e.message, "That photo isn't known to this library.");
 
-        let e = call(k, Op::BackupRun, None, Value::Null).unwrap_err();
-        assert_eq!(e.kind, Kind::NotYet);
+        let e = call(k, Op::BackupRun, None, json!({ "now": true })).unwrap_err();
+        assert_eq!(e.kind, Kind::NotUnderstood, "nor one given to a job");
     }
 
     /// Every file under `dir`, as bytes, for searching.

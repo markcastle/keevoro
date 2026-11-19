@@ -116,16 +116,16 @@ register! {
         changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     PlacesSurvey = "places.survey",
         "Finds the folders in a place that hold photos and videos, reading listings only",
-        changes: Never, job: true, command_line: true, agents: Agents::Yes, implemented: false;
+        changes: Never, job: true, command_line: true, agents: Agents::Yes, implemented: true;
     SourcesList = "sources.list",
         "A backup's sources: name, place, how many photos and videos, size",
         changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     SourcesLook = "sources.look",
         "Looks through a drive or folder and adds it as a source",
-        changes: Always, job: true, command_line: true, agents: Agents::Yes, implemented: false;
+        changes: Always, job: true, command_line: true, agents: Agents::Yes, implemented: true;
     SourcesLookAgain = "sources.look_again",
         "Looks through one source, or all of them, for what is new",
-        changes: Always, job: true, command_line: true, agents: Agents::Yes, implemented: false;
+        changes: Always, job: true, command_line: true, agents: Agents::Yes, implemented: true;
     SourcesForget = "sources.forget",
         "Takes a source off the backup. Nothing on it is touched",
         changes: Always, job: false, command_line: true, agents: Agents::Yes, implemented: true;
@@ -182,10 +182,10 @@ register! {
         changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     BackupRun = "backup.run",
         "Backs up to every destination, originals first",
-        changes: Always, job: true, command_line: true, agents: Agents::Yes, implemented: false;
+        changes: Always, job: true, command_line: true, agents: Agents::Yes, implemented: true;
     BackupCheck = "backup.check",
         "Confirms what is at each destination",
-        changes: Never, job: true, command_line: true, agents: Agents::Yes, implemented: false;
+        changes: Never, job: true, command_line: true, agents: Agents::Yes, implemented: true;
     BackupHistory = "backup.history",
         "How earlier backups went: when, where, how much, how long, how fast",
         changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
@@ -199,19 +199,19 @@ register! {
     // Jobs
     JobsStatus = "jobs.status",
         "What is running on a backup: the step, counts, speed, time left, who started it",
-        changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: false;
+        changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     JobsFollow = "jobs.follow",
         "Each thing a running job says, as it says it",
-        changes: Never, job: false, command_line: true, agents: Agents::Instead(Op::JobsStatus), implemented: false;
+        changes: Never, job: false, command_line: true, agents: Agents::Instead(Op::JobsStatus), implemented: true;
     JobsPause = "jobs.pause",
         "Makes every heavy job wait after the file in hand",
-        changes: Always, job: false, command_line: true, agents: Agents::Yes, implemented: false;
+        changes: Always, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     JobsCarryOn = "jobs.carry_on",
         "Lets paused jobs go on from where they were",
-        changes: Always, job: false, command_line: true, agents: Agents::Yes, implemented: false;
+        changes: Always, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     JobsStop = "jobs.stop",
         "Stops a job after the file in hand. Nothing is lost",
-        changes: Always, job: false, command_line: true, agents: Agents::Yes, implemented: false;
+        changes: Always, job: false, command_line: true, agents: Agents::Yes, implemented: true;
 
     // Keevoro itself
     KeevoroAbout = "keevoro.about",

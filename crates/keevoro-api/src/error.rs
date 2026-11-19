@@ -35,6 +35,9 @@ pub struct Error {
 }
 
 impl Error {
+    // Every operation in the register is done here now. This is what one
+    // added to the register would answer until it is built.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn not_yet(op: Op) -> Self {
         Self {
             kind: Kind::NotYet,
@@ -42,6 +45,13 @@ impl Error {
                 "Keevoro can't do \"{}\" from here yet. For now it can only be done in the Keevoro app.",
                 op.name()
             ),
+        }
+    }
+
+    pub(crate) fn no_such_job(job: crate::jobs::JobId) -> Self {
+        Self {
+            kind: Kind::NotFound,
+            message: format!("There is no job {} running.", job.0),
         }
     }
 
@@ -56,6 +66,13 @@ impl Error {
         Self {
             kind: Kind::NotFound,
             message: format!("There is no backup called \"{}\".", name.trim()),
+        }
+    }
+
+    pub(crate) fn not_found(message: impl Into<String>) -> Self {
+        Self {
+            kind: Kind::NotFound,
+            message: message.into(),
         }
     }
 

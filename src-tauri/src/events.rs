@@ -2,111 +2,33 @@
 //!
 //! These are sent as Tauri events and received in `ui/src/backend.ts`,
 //! which has the same shapes as TypeScript types. Change both together.
+//!
+//! The jobs themselves are the API's, and so are the shapes of what they
+//! say (`keevoro_api::jobs::said`): the app sends each as it is, under the
+//! name it has always had. Only gathering, from the older library model,
+//! still has its shape here.
 
+use keevoro_api::Said;
 use keevoro_engine::GatherStep;
 use serde::Serialize;
+use tauri::{AppHandle, Emitter, Runtime};
 
-pub const SCAN: &str = "scan";
 pub const GATHER: &str = "gather";
-pub const SEND: &str = "send";
-pub const CHECK: &str = "check";
-pub const SURVEY: &str = "survey";
 
-/// How far a survey of a drive has got. Counts are by file name alone.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-pub struct SurveyEvent {
-    pub folders: usize,
-    pub files: usize,
-    pub photos: usize,
-    pub videos: usize,
-}
-
-/// Progress reading, in the background, the files a quick search only
-/// sampled, and a last one when the pass ends.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct CheckEvent {
-    pub done: usize,
-    pub total: usize,
-    pub finished: bool,
-}
-
-/// Progress looking through a drive, and a last one when it is done.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct ScanEvent {
-    /// The drive's friendly name.
-    pub name: String,
-    pub photos: u64,
-    pub videos: u64,
-    /// Every file looked at so far, photos or not.
-    pub files: u64,
-    /// The folder being looked in right now, for the curious.
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub folder: String,
-    /// A large file being read right now: where it is and its size in
-    /// bytes. Reading one can take minutes.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub reading: Option<(String, u64)>,
-    /// True once the looking is over and what was found is being saved.
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub saving: bool,
-    /// On the last event: true when the search was stopped part-way, so
-    /// nothing from it was kept.
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub stopped: bool,
-    pub finished: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub problem: Option<String>,
-    /// On the last event: how many files could not be read, and the first
-    /// few by name. All of them are in the log.
-    #[serde(skip_serializing_if = "is_zero")]
-    pub unreadable: usize,
-    #[serde(rename = "unreadableNames", skip_serializing_if = "Vec::is_empty")]
-    pub unreadable_names: Vec<String>,
-}
-
-fn is_zero(n: &usize) -> bool {
-    *n == 0
-}
-
-/// Progress backing up or checking, and a last one when it is done.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct SendEvent {
-    /// A short line saying how far it has got, while it runs.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub line: Option<String>,
-    pub finished: bool,
-    /// On the last event: what happened, as sentences to show.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub summary: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub problem: Option<String>,
-}
-
-impl SendEvent {
-    pub fn progress(line: &str) -> Self {
-        Self {
-            line: Some(line.to_string()),
-            finished: false,
-            summary: Vec::new(),
-            problem: None,
-        }
+/// The name of the window event a job's words go out as, or `None` for
+/// what the screens receive another way: a survey's findings are the
+/// answer to `survey_place`.
+pub fn window_event(said: &Said) -> Option<&'static str> {
+    match said {
+        Said::Surveyed(_) => None,
+        other => Some(other.name()),
     }
+}
 
-    /// The last event: the sentences the engine wrote, and any problem.
-    pub fn finished(said: &[u8], problem: Option<String>) -> Self {
-        Self {
-            line: None,
-            finished: true,
-            summary: String::from_utf8_lossy(said)
-                .lines()
-                .map(str::trim_end)
-                // Advice about commands to type belongs to the command
-                // line; the app offers a button instead.
-                .filter(|l| !l.is_empty() && !l.contains("`keevoro "))
-                .map(str::to_string)
-                .collect(),
-            problem,
-        }
+/// Hands what a job said to the window, exactly as the screens expect it.
+pub fn to_window<R: Runtime>(app: &AppHandle<R>, said: &Said) {
+    if let Some(name) = window_event(said) {
+        let _ = app.emit(name, said);
     }
 }
 
@@ -154,8 +76,142 @@ impl GatherEvent {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+    use keevoro_api::jobs::{CheckEvent, HintView, ScanEvent, SendEvent, SurveyEvent, SurveyView};
+    use std::collections::BTreeSet;
+
+    const BACKEND: &str = include_str!("../../ui/src/backend.ts");
+
+    /// The fields a type in `backend.ts` names, such as `ScanEvent`.
+    fn fields_of(name: &str) -> BTreeSet<String> {
+        shape_of(name).into_keys().collect()
+    }
+
+    /// The fields a type in `backend.ts` names, each with whether it may
+    /// be left out (`field?: ...`).
+    pub(crate) fn shape_of(name: &str) -> std::collections::BTreeMap<String, bool> {
+        let start = BACKEND
+            .find(&format!("export type {name} = {{"))
+            .unwrap_or_else(|| panic!("backend.ts has no type {name}"));
+        let body = &BACKEND[start..];
+        let open = body.find('{').unwrap() + 1;
+        let first_line = &body[..body.find('\n').unwrap_or(body.len())];
+        // A type on one line ends on it; a longer one ends with a brace of
+        // its own at the start of a line.
+        let close = if first_line.trim_end().ends_with('}') {
+            first_line.trim_end().len() - 1
+        } else {
+            open + body[open..].find("\n}").unwrap()
+        };
+        let body = &body[open..close];
+        // Comments say things like "where it is: x", which are not fields.
+        let body: String = body
+            .lines()
+            .map(|line| line.split("/**").next().unwrap_or_default())
+            .filter(|line| !line.trim_start().starts_with('*'))
+            .collect::<Vec<_>>()
+            .join(";");
+        body.split(';')
+            .filter_map(|part| part.split_once(':').map(|(field, _)| field.trim()))
+            .map(|field| (field.trim_end_matches('?'), field.ends_with('?')))
+            .filter(|(field, _)| !field.is_empty() && field.chars().all(|c| c.is_ascii_alphanumeric()))
+            .map(|(field, optional)| (field.to_string(), optional))
+            .collect()
+    }
+
+    fn keys(value: &impl Serialize) -> BTreeSet<String> {
+        serde_json::to_value(value)
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect()
+    }
+
+    #[test]
+    fn what_jobs_say_reaches_the_window_in_the_shapes_and_names_the_screens_expect() {
+        let scan = ScanEvent {
+            name: "Card".into(),
+            photos: 1,
+            videos: 2,
+            files: 3,
+            folder: "DCIM".into(),
+            reading: Some(("a.mov".into(), 4)),
+            saving: true,
+            stopped: true,
+            finished: true,
+            problem: Some("x".into()),
+            unreadable: 1,
+            unreadable_names: vec!["b.jpg".into()],
+        };
+        assert_eq!(keys(&scan), fields_of("ScanEvent"), "every field, filled in");
+        let send = SendEvent {
+            line: Some("x".into()),
+            finished: true,
+            summary: vec!["y".into()],
+            problem: Some("z".into()),
+        };
+        assert_eq!(keys(&send), fields_of("SendEvent"));
+        let check = CheckEvent {
+            done: 1,
+            total: 2,
+            finished: false,
+        };
+        assert_eq!(keys(&check), fields_of("CheckEvent"));
+        let survey = SurveyEvent {
+            folders: 1,
+            files: 2,
+            photos: 3,
+            videos: 4,
+        };
+        assert_eq!(keys(&survey), fields_of("SurveyProgress"));
+        let hint = HintView {
+            folder: "x".into(),
+            photos: 1,
+            videos: 2,
+            bytes: 3,
+            likely_photos: true,
+            already_a_source: false,
+        };
+        assert_eq!(keys(&hint), fields_of("Hint"));
+        let found = SurveyView {
+            hints: vec![hint],
+            folders: 1,
+            files: 2,
+            unreadable: 3,
+            seconds: 0.5,
+            stopped: false,
+        };
+        assert_eq!(keys(&found), fields_of("Survey"));
+
+        // Each goes out exactly as it is, under the name the screens
+        // subscribe to; a survey's findings are an answer, not an event.
+        for said in [
+            Said::Scan(scan.clone()),
+            Said::Send(send),
+            Said::Check(check),
+            Said::Survey(survey),
+        ] {
+            let name = window_event(&said).unwrap();
+            assert!(
+                BACKEND.contains(&format!("subscribe('{name}'")),
+                "the screens do not listen for {name}"
+            );
+        }
+        assert_eq!(
+            serde_json::to_value(Said::Scan(scan.clone())).unwrap(),
+            serde_json::to_value(&scan).unwrap()
+        );
+        assert_eq!(window_event(&Said::Surveyed(found)), None);
+    }
+
+    #[test]
+    fn the_progress_of_a_send_has_the_shape_the_screens_expect() {
+        let progress = crate::commands::SendProgress::default();
+        assert_eq!(keys(&progress), fields_of("SendProgress"));
+    }
 
     #[test]
     fn events_have_the_shape_the_screens_expect() {
@@ -177,49 +233,6 @@ mod tests {
         assert_eq!(
             serde_json::to_value(&failed).unwrap()["problem"],
             "There isn't enough room."
-        );
-
-        let going = SendEvent::progress("3,412 of 9,870 safely backed up");
-        assert_eq!(
-            serde_json::to_value(&going).unwrap(),
-            serde_json::json!({ "line": "3,412 of 9,870 safely backed up", "finished": false })
-        );
-        let done = SendEvent::finished(b"Safely backed up 3 files (1.2 MB).\n\nYour private index: x\n", None);
-        assert_eq!(
-            done.summary,
-            ["Safely backed up 3 files (1.2 MB).", "Your private index: x"]
-        );
-        assert!(done.finished && done.line.is_none());
-        let hinted = SendEvent::finished(b"Couldn't back up 1 file:\n  a.jpg: The connection kept dropping.\nRun `keevoro publish` again to retry.\n", None);
-        assert_eq!(
-            hinted.summary.len(),
-            2,
-            "command-line advice is left out: {:?}",
-            hinted.summary
-        );
-        let failed = SendEvent::finished(b"", Some("Couldn't connect to the storage.".into()));
-        assert_eq!(
-            serde_json::to_value(&failed).unwrap(),
-            serde_json::json!({ "finished": true, "problem": "Couldn't connect to the storage." })
-        );
-
-        let scan = ScanEvent {
-            name: "Dad's old Dell".into(),
-            photos: 4210,
-            videos: 312,
-            files: 98_000,
-            folder: String::new(),
-            reading: None,
-            saving: false,
-            stopped: false,
-            finished: false,
-            problem: None,
-            unreadable: 0,
-            unreadable_names: Vec::new(),
-        };
-        assert_eq!(
-            serde_json::to_value(&scan).unwrap(),
-            serde_json::json!({ "name": "Dad's old Dell", "photos": 4210, "videos": 312, "files": 98000, "finished": false })
         );
     }
 }
