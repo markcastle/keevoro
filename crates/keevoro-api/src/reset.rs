@@ -1,4 +1,4 @@
-//! Starting again from nothing.
+//! Starting again from nothing: `keevoro.reset`.
 //!
 //! A reset removes what Keevoro itself made and remembers: its list of
 //! backups, what each one found and chose, its previews, its saved keys.
@@ -11,11 +11,15 @@
 //! forgotten and left exactly where it is. Sources and the places files
 //! were sent to are never opened by a reset at all.
 
-use crate::settings::{Backup, Settings};
+use crate::backups::{Backups, Named, Settings};
+use crate::error::Result;
+use keevoro_engine::connect::{self, SecretStore, World};
+use serde::Serialize;
 use std::path::{Path, PathBuf};
 
 /// What a reset did.
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Done {
     /// Backups whose own folders were removed.
     pub removed: Vec<String>,
@@ -32,30 +36,45 @@ fn is_inside(folder: &Path, owned: &Path) -> bool {
     }
 }
 
-/// Forgets every backup and removes what Keevoro made for them.
+/// Forgets every backup and removes what Keevoro made for them, along
+/// with any storage keys they saved in the keychain.
 ///
-/// `data_dir` is Keevoro's own data folder; `cache_dir` holds previews of
-/// files not yet sent. Problems removing a folder do not stop the reset:
-/// the settings are cleared regardless, so the app starts fresh.
-pub fn reset(settings: &mut Settings, config_dir: &Path, data_dir: &Path, cache_dir: &Path) -> std::io::Result<Done> {
-    let mut done = Done::default();
-    for Backup { name, home, .. } in std::mem::take(&mut settings.backups) {
-        if is_inside(&home, data_dir) {
-            let _ = std::fs::remove_dir_all(&home);
-            done.removed.push(name);
-        } else if home.exists() {
-            done.left_alone.push(home);
+/// `cache_dir` holds previews of files not yet sent. Problems removing a
+/// folder or a key do not stop the reset: the settings are cleared
+/// regardless, so Keevoro starts fresh.
+pub fn reset(backups: &Backups, secrets: &dyn SecretStore, cache_dir: &Path) -> Result<Done> {
+    let data_dir = backups.data_folder().to_path_buf();
+    backups.change(|settings| {
+        let mut done = Done::default();
+        for Named { name, home, .. } in std::mem::take(&mut settings.backups) {
+            // Keys first, while the backup's notes can still be read.
+            if let Some(catalog) = crate::backup::existing_catalog(&home) {
+                let world = World {
+                    secrets,
+                    ask: &connect::testing::nobody_to_ask,
+                };
+                let _ = connect::disconnect(&mut Vec::new(), &catalog, &world);
+            }
+            if is_inside(&home, &data_dir) {
+                let _ = std::fs::remove_dir_all(&home);
+                done.removed.push(name);
+            } else if home.exists() {
+                done.left_alone.push(home);
+            }
         }
-    }
-    let _ = std::fs::remove_dir_all(cache_dir);
-    *settings = Settings::default();
-    settings.save(config_dir)?;
-    Ok(done)
+        let _ = std::fs::remove_dir_all(cache_dir);
+        *settings = Settings::default();
+        Ok(done)
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use crate::agents::AgentsAccessRequest;
+    use keevoro_catalog::Catalog;
+    use keevoro_engine::connect::testing::MemorySecrets;
 
     #[test]
     fn a_reset_removes_what_keevoro_made_and_nothing_else() {
@@ -65,13 +84,9 @@ mod tests {
             dir.path().join("data"),
             dir.path().join("cache"),
         );
-        let mut settings = Settings::default();
-        let home = settings
-            .start_backup("Drone footage", &data.join("backups"))
-            .home
-            .clone();
-        std::fs::create_dir_all(&home).unwrap();
-        std::fs::write(home.join("catalog.sqlite"), "notes").unwrap();
+        let backups = Backups::load(&config, &data);
+        let home = backups.start("Drone footage").unwrap().home;
+        std::fs::write(home.join("notes.txt"), "notes").unwrap();
         std::fs::create_dir_all(&cache).unwrap();
         std::fs::write(cache.join("thumb.webp"), "p").unwrap();
 
@@ -84,20 +99,32 @@ mod tests {
             std::fs::create_dir_all(folder).unwrap();
             std::fs::write(folder.join("IMG_0001.jpg"), "a photo").unwrap();
         }
-        settings.backups.push(Backup {
-            id: "first".into(),
-            name: "My photos".into(),
-            home: old_library.clone(),
-        });
-        settings.save(&config).unwrap();
+        backups
+            .change(|settings| {
+                settings.backups.push(Named {
+                    id: "first".into(),
+                    name: "My photos".into(),
+                    home: old_library.clone(),
+                });
+                settings.plain_decoding = true;
+                settings.agents.apply(AgentsAccessRequest {
+                    may_change: Some(true),
+                    ..AgentsAccessRequest::default()
+                })
+            })
+            .unwrap();
 
-        let done = reset(&mut settings, &config, &data, &cache).unwrap();
+        let done = reset(&backups, &MemorySecrets::default(), &cache).unwrap();
         assert_eq!(done.removed, ["Drone footage"]);
         assert_eq!(done.left_alone, std::slice::from_ref(&old_library));
 
         assert!(!home.exists(), "Keevoro's own notes are gone");
         assert!(!cache.exists(), "and its previews");
-        assert_eq!(settings, Settings::default());
+        assert_eq!(
+            backups.read(),
+            Settings::default(),
+            "every setting is as it was at first"
+        );
         assert_eq!(
             Settings::load(&config),
             Settings::default(),
@@ -140,15 +167,32 @@ mod tests {
     #[test]
     fn resetting_twice_or_with_nothing_there_is_harmless() {
         let dir = tempfile::tempdir().unwrap();
-        let mut settings = Settings::default();
         let nowhere = dir.path().join("none");
-        assert_eq!(
-            reset(&mut settings, &nowhere, &nowhere, &nowhere).unwrap(),
-            Done::default()
-        );
-        assert_eq!(
-            reset(&mut settings, &nowhere, &nowhere, &nowhere).unwrap(),
-            Done::default()
-        );
+        let backups = Backups::load(&nowhere, &nowhere);
+        let secrets = MemorySecrets::default();
+        assert_eq!(reset(&backups, &secrets, &nowhere).unwrap(), Done::default());
+        assert_eq!(reset(&backups, &secrets, &nowhere).unwrap(), Done::default());
+    }
+
+    #[test]
+    fn a_reset_removes_the_keys_a_backup_saved() {
+        let dir = tempfile::tempdir().unwrap();
+        let backups = Backups::load(&dir.path().join("config"), &dir.path().join("data"));
+        let home = backups.start("Cloud").unwrap().home;
+        let catalog = Catalog::open_in_library(&home).unwrap();
+        // A bucket destination saved as it would be once connected.
+        catalog
+            .set_setting(
+                "destinations",
+                r#"[{"kind":"r2","place":"0123456789abcdef0123456789abcdef","bucket":"family"}]"#,
+            )
+            .unwrap();
+        drop(catalog);
+        let secrets = MemorySecrets::default();
+        secrets
+            .set("r2:0123456789abcdef0123456789abcdef/family", "access\nsecret")
+            .unwrap();
+        reset(&backups, &secrets, &dir.path().join("cache")).unwrap();
+        assert!(secrets.0.borrow().is_empty(), "the keys went with it");
     }
 }

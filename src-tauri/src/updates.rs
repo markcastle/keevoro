@@ -1,39 +1,14 @@
-//! Keeping the app itself up to date.
+//! Installing a newer version of the app.
 //!
-//! The app asks GitHub whether a newer release exists. If the person says
-//! yes, it downloads that release's installer, proves it matches the
-//! checksums published with the release, and runs it. This is the same
-//! check `keevoro update` does for the command-line tool, so there is one
-//! set of rules for what counts as a trustworthy download.
+//! Whether there is one is `keevoro.update`, in the API. Installing it is
+//! the app's own business: it downloads that release's installer, proves it
+//! matches the checksums published with the release, runs it and, on
+//! Windows, closes so the installer can replace it. The download is checked
+//! by `keevoro-update`, the same rules `keevoro update` uses, so there is
+//! one set of rules for what counts as a trustworthy download.
 
 use keevoro_update::{Check, GitHub, UpdateError};
-use serde::Serialize;
 use std::path::{Path, PathBuf};
-
-/// What the screen needs to offer an update.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Offer {
-    pub version: String,
-    /// The release's page, where "What's new" is.
-    pub page: String,
-}
-
-/// Is there a newer Keevoro with an installer for this kind of computer?
-///
-/// Being offline, or GitHub being unreachable, is not worth bothering the
-/// person about: it simply means no offer today.
-pub fn offer(current: &str, os: &str) -> Option<Offer> {
-    let release = match keevoro_update::check(&GitHub::from_env(), current) {
-        Ok(Check::Available(release)) => release,
-        Ok(Check::UpToDate) | Err(_) => return None,
-    };
-    let installer = keevoro_update::installer_for(os)?;
-    release.assets.iter().any(|a| a.name == installer).then_some(Offer {
-        version: release.version,
-        page: release.page,
-    })
-}
 
 /// Downloads and checks the newest installer, and returns where it was put.
 pub fn fetch(current: &str, os: &str, into: &Path) -> Result<PathBuf, UpdateError> {

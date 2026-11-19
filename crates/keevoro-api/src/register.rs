@@ -99,21 +99,21 @@ register! {
     // Backups
     BackupsList = "backups.list",
         "Every backup: name, sources, destinations, how many files are safe and waiting",
-        changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: false;
+        changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     BackupsStart = "backups.start",
         "Starts a new, empty backup with a name",
-        changes: Always, job: false, command_line: true, agents: Agents::Yes, implemented: false;
+        changes: Always, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     BackupsRename = "backups.rename",
         "Gives a backup a new name",
-        changes: Always, job: false, command_line: true, agents: Agents::Yes, implemented: false;
+        changes: Always, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     BackupsForget = "backups.forget",
         "Removes a backup from Keevoro. Nothing at any destination or source is touched",
-        changes: Always, job: false, command_line: true, agents: Agents::No, implemented: false;
+        changes: Always, job: false, command_line: true, agents: Agents::No, implemented: true;
 
     // Finding
     PlacesList = "places.list",
         "Drives plugged into this computer",
-        changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: false;
+        changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     PlacesSurvey = "places.survey",
         "Finds the folders in a place that hold photos and videos, reading listings only",
         changes: Never, job: true, command_line: true, agents: Agents::Yes, implemented: false;
@@ -160,7 +160,7 @@ register! {
         changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     PhotosPicture = "photos.picture",
         "A small or screen-sized picture of one file",
-        changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: false;
+        changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
 
     // Destinations
     DestinationsList = "destinations.list",
@@ -168,18 +168,18 @@ register! {
         changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     DestinationsAdd = "destinations.add",
         "Checks a place works, then adds it. A folder, or cloud storage with its keys",
-        changes: Always, job: false, command_line: true, agents: Agents::Yes, implemented: false;
+        changes: Always, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     DestinationsRemove = "destinations.remove",
         "Takes a place off the backup. Nothing stored there is touched",
-        changes: Always, job: false, command_line: true, agents: Agents::Yes, implemented: false;
+        changes: Always, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     DestinationsRoom = "destinations.room",
         "What is waiting for each place, and whether it has the room",
-        changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: false;
+        changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
 
     // Backing up
     BackupRehearse = "backup.rehearse",
         "What backing up now would do: how many files, how much, to where. Changes nothing",
-        changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: false;
+        changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     BackupRun = "backup.run",
         "Backs up to every destination, originals first",
         changes: Always, job: true, command_line: true, agents: Agents::Yes, implemented: false;
@@ -219,22 +219,22 @@ register! {
         changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     KeevoroActivity = "keevoro.activity",
         "What Keevoro is doing now and how hard it is working",
-        changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: false;
+        changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     KeevoroLog = "keevoro.log",
         "The record of what Keevoro did",
-        changes: Never, job: false, command_line: true, agents: Agents::ToRead, implemented: false;
+        changes: Never, job: false, command_line: true, agents: Agents::ToRead, implemented: true;
     KeevoroSettings = "keevoro.settings",
         "Reads or changes a setting, such as using the computer's own codecs",
-        changes: OnlyWhenAsked, job: false, command_line: true, agents: Agents::LookOnly, implemented: false;
+        changes: OnlyWhenAsked, job: false, command_line: true, agents: Agents::LookOnly, implemented: true;
     KeevoroUpdate = "keevoro.update",
         "Whether there is a newer version, and installing it",
-        changes: OnlyWhenAsked, job: false, command_line: true, agents: Agents::LookOnly, implemented: false;
+        changes: OnlyWhenAsked, job: false, command_line: true, agents: Agents::LookOnly, implemented: true;
     KeevoroReset = "keevoro.reset",
         "Puts Keevoro back as it was when first installed",
-        changes: Always, job: false, command_line: true, agents: Agents::No, implemented: false;
+        changes: Always, job: false, command_line: true, agents: Agents::No, implemented: true;
     AgentsAccess = "agents.access",
         "Which folders an agent may use, and whether it may make changes",
-        changes: OnlyWhenAsked, job: false, command_line: true, agents: Agents::LookOnly, implemented: false;
+        changes: OnlyWhenAsked, job: false, command_line: true, agents: Agents::LookOnly, implemented: true;
 }
 
 impl Op {

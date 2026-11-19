@@ -32,7 +32,6 @@ serde_json.workspace = true
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
-sysinfo = { version = "0.37", default-features = false, features = ["disk", "system"] }
 
 [dev-dependencies]
 tempfile.workspace = true

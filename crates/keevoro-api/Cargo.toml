@@ -10,9 +10,13 @@ repository.workspace = true
 [dependencies]
 anyhow.workspace = true
 keevoro-catalog.workspace = true
+keevoro-core.workspace = true
 keevoro-engine.workspace = true
+keevoro-media.workspace = true
+keevoro-update.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sysinfo.workspace = true
 
 [dev-dependencies]
 image.workspace = true

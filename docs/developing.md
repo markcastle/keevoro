@@ -37,7 +37,7 @@ The app is four layers, and almost all the thinking is in the bottom two:
 | Layer | Where | What it is |
 | --- | --- | --- |
 | Screens | `ui/src` | React and TypeScript. They show what they are given and send one request per button. |
-| Shell | `src-tauri/src` | A Tauri window and a handful of commands. Each command finds the open backup, calls the API, and turns an error into a sentence. |
+| Shell | `src-tauri/src` | A Tauri window and a handful of commands. Each command finds the open backup, calls the API, and turns an error into a sentence. The jobs (looking through a source, backing up) still run here until the API has jobs of its own. |
 | API | `crates/keevoro-api` | Every operation Keevoro offers, listed once in a register. What the app, the command line and an AI agent all call. See [The API](#the-api) below. |
 | Engine | `crates/keevoro-engine` | Everything Keevoro actually does: the Discover view, choosing, gathering, previews, backing up and connecting storage. Shared with the command line, and tested without a window. |
 
@@ -150,21 +150,28 @@ The look comes from the Keevoro design system. Its tokens are kept in `design/to
 
 ### The API
 
-Over time a good deal of what the app does was written in its shell, where the command line cannot reach it. `crates/keevoro-api` is where that logic is moving, so that the app, the `keevoro` command and, later, an AI agent's tools can all do the same things with the same words. The work is planned in steps; the first put the crate and its register in place without changing anything a person would notice.
+Over time a good deal of what the app does was written in its shell, where the command line cannot reach it. `crates/keevoro-api` is where that logic is moving, so that the app, the `keevoro` command and, later, an AI agent's tools can all do the same things with the same words. The work is planned in steps. The first put the crate and its register in place; the second moved everything that is not a long-running job: named backups, destinations, room, the rehearsal, pictures, settings, the log, activity, reset, the update check and what agents may do. Nothing a person would notice changed. The jobs (looking through a source, surveying, backing up, checking, and stopping and pausing them) are the next step.
 
-It has three parts:
+It has five parts:
 
 - **The register** (`src/register.rs`). One line for every operation, such as `sources.list` or `backup.run`: what it does in a plain sentence, whether it changes anything, whether it is a long-running job, whether the command line and agents get it, and whether the API does it yet. The command line's help and an agent's list of tools will be made from it, so write each description as carefully as a button.
-- **A backup** (`Backup` in `src/backup.rs`). One backup, opened by its home folder, with a method for each operation. Each takes and gives plain types that can be written as JSON, reusing the engine's own views where they are right.
-- **`call`** (`src/lib.rs`). The same operations reached by name, with JSON in and JSON out, which is how the command line and an agent will use them.
+- **Keevoro as a whole** (`Keevoro` in `src/keevoro.rs`). Made once from its `Folders` (config, data, cache, logs), it holds the named backups, the log and the keychain, with a method for each operation that is not about one backup. Everything is reached through `&self`, and nothing slow happens while the settings are held, so the app can keep one and ask it things from any thread.
+- **Named backups** (`Backups` in `src/backups.rs`). It owns the settings file in the config folder, in exactly the format earlier versions wrote, and hands out a `Backup` by name or id. Which backup is "open" is the app's idea; every operation also takes a backup's name, because the command line has no open backup.
+- **A backup** (`Backup` in `src/backup.rs`, with its destinations in `src/destinations.rs`). One backup, opened by its home folder, with a method for each operation on it. Each takes and gives plain types that can be written as JSON, reusing the engine's own views where they are right.
+- **`call`** (`src/lib.rs`). The same operations reached by name, with JSON in and JSON out, which is how the command line and an agent will use them: `call(&keevoro, op, Some("Drone footage"), request)`.
 
 Errors are one type, `keevoro_api::Error`: the sentence the person sees, exactly as the engine wrote it, and a kind a program can act on.
 
+Two parts need care whenever they are touched:
+
+- **Storage keys.** They may be given to `destinations.add` and go to the keychain and nowhere else. They are held in a `Key`, whose `Debug` form is `[hidden]` and which cannot be printed or serialised; no answer carries one; an error raised while one is in hand has it taken out of its words. `a_key_given_is_never_given_back_shown_logged_or_written_down` in `src/lib.rs` gives a marker key and searches the answer, every form of the error, other operations' answers and every file Keevoro wrote for it.
+- **What agents may do** (`src/agents.rs`). A person names the folders an agent may look through and back up to, and whether it may make changes; until they do, it may use none and only look. `AgentAccess::may_look_in` and `may_back_up_to` answer "is this path inside one of those folders?", judging a path by where it really leads and refusing on any doubt (`..`, links, the many spellings of one Windows path). Its tests attack it; add to them before changing it. Nothing enforces it yet, because there is no agent yet.
+
 To add an operation:
 
-1. Write its tests first, against a real backup in a temporary folder (`backup::tests::one_backup` makes one).
+1. Write its tests first, against real state in a temporary folder (`keevoro::tests::keevoro` makes a `Keevoro` with a keychain in memory and no network, and `backup::tests::one_backup` a backup with photos in it).
 2. Add its line to the `register!` table. The `Op` enum is made from the same table, so there is no other list to remember.
-3. Write the method on `Backup` and its arm in `call`. The compiler insists on the arm, and a test calls every operation to check that `implemented` tells the truth.
+3. Write the method on `Keevoro` or `Backup` and its arm in `call`. The compiler insists on the arm, and a test calls every operation to check that `implemented` tells the truth.
 4. Make the app's command call it, keeping the command's name, arguments and answer exactly as `ui/src/backend.ts` expects them.
 
 The parity test (`src-tauri/src/parity.rs`) is what stops the app drifting ahead again. It reads the app's list of commands from `generate_handler!` in `src-tauri/src/lib.rs` as it runs, and fails if any command is not on exactly one of three lists:

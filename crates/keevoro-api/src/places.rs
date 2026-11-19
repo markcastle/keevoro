@@ -4,7 +4,7 @@
 //! what "E:" or "/Volumes" means. Listing the drives by name, with their
 //! size, lets them recognise the one they just plugged in and click it.
 //!
-//! This only lists drives. It reads nothing from them.
+//! This only lists drives. It reads nothing from them. It is `places.list`.
 
 use serde::Serialize;
 use sysinfo::Disks;
@@ -12,7 +12,7 @@ use sysinfo::Disks;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Place {
-    /// What to pass to `scan_place`.
+    /// Where the drive is, as given back to look through it.
     pub path: String,
     /// What to call it: the drive's own name where it has one.
     pub name: String,

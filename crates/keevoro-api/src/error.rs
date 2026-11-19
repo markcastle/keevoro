@@ -16,6 +16,10 @@ pub enum Kind {
     Failed,
     /// It needs a backup, and none was given.
     NoBackup,
+    /// The backup, or the thing in it, that was named is not there.
+    NotFound,
+    /// It was understood but refused, such as a name already in use.
+    Refused,
     /// The request could not be understood.
     NotUnderstood,
     /// The API cannot do this yet; only the app can, for now.
@@ -48,6 +52,20 @@ impl Error {
         }
     }
 
+    pub(crate) fn no_such_backup(name: &str) -> Self {
+        Self {
+            kind: Kind::NotFound,
+            message: format!("There is no backup called \"{}\".", name.trim()),
+        }
+    }
+
+    pub(crate) fn refused(message: impl Into<String>) -> Self {
+        Self {
+            kind: Kind::Refused,
+            message: message.into(),
+        }
+    }
+
     pub(crate) fn not_understood(why: impl std::fmt::Display) -> Self {
         Self {
             kind: Kind::NotUnderstood,
@@ -55,7 +73,7 @@ impl Error {
         }
     }
 
-    fn failed(message: String) -> Self {
+    pub(crate) fn failed(message: String) -> Self {
         Self {
             kind: Kind::Failed,
             message,
@@ -114,6 +132,7 @@ mod tests {
             Error::not_yet(Op::BackupRun),
             Error::no_backup(),
             Error::not_understood("missing field `source`"),
+            Error::no_such_backup("Holidays"),
         ] {
             assert!(!e.message.contains('\u{2014}'), "{}", e.message);
             assert!(e.message.ends_with('.'), "{}", e.message);
