@@ -524,6 +524,10 @@ pub struct ActivityView {
     paused: bool,
     /// What it is doing in one line, or `None` when idle.
     doing: Option<String>,
+    /// The step a running backup is on, in its own words, such as
+    /// "Working out where each file goes: 2,500 of 11,245". `None` when no
+    /// backup is running.
+    backup_step: Option<String>,
     jobs: Vec<crate::activity::Job>,
     /// One a second, oldest first, for the last two minutes at most.
     samples: Vec<crate::activity::Sample>,
@@ -533,15 +537,28 @@ pub struct ActivityView {
 }
 
 #[tauri::command]
-pub fn activity() -> ActivityView {
+pub fn activity(shared: State<'_, Shared>) -> ActivityView {
+    // Only the step, not the name of the file that follows it after a tab.
+    let backup_step = shared
+        .send_line
+        .lock()
+        .ok()
+        .map(|line| line.split('\t').next().unwrap_or_default().to_string())
+        .filter(|step| !step.is_empty() && shared.sending.load(Ordering::SeqCst));
     let (samples, memory_bytes) = HISTORY
         .lock()
         .map(|h| (h.samples(), h.memory_bytes()))
         .unwrap_or_default();
-    let now = keevoro_core::doing::now();
+    let mut now = keevoro_core::doing::now();
+    // A backup is a backup from the moment it is asked for, including the
+    // time it spends getting ready before the first file moves.
+    if backup_step.is_some() && !now.contains(&keevoro_core::doing::Work::BackingUp) {
+        now.insert(0, keevoro_core::doing::Work::BackingUp);
+    }
     ActivityView {
         paused: keevoro_core::pause::is_paused(),
         doing: crate::activity::in_a_line(&now),
+        backup_step,
         jobs: crate::activity::jobs(&now),
         samples,
         memory_bytes,
@@ -574,6 +591,9 @@ pub struct SendProgress {
     running: bool,
     /// True once that send has been asked to stop and is finishing its file.
     stopping: bool,
+    /// What it last said it was doing, in the same words the screen shows
+    /// as it runs. Empty when nothing is running.
+    line: String,
 }
 
 #[tauri::command]
@@ -593,6 +613,7 @@ pub fn send_progress(shared: State<'_, Shared>) -> SendProgress {
         over_network: samples.iter().rev().take(10).any(|s| s.network > 0.0),
         running: shared.sending.load(Ordering::SeqCst),
         stopping: shared.stop_sending.load(Ordering::SeqCst),
+        line: shared.send_line.lock().map(|l| l.clone()).unwrap_or_default(),
     }
 }
 
@@ -1142,6 +1163,24 @@ fn send_job(
     if shared.sending.swap(true, Ordering::SeqCst) {
         return Err("Keevoro is already working on your backup. Let that finish first.".into());
     }
+    // Said at once, before the first real step has anything to report.
+    let opening = if record {
+        "Getting ready: reading what Keevoro knows about this backup"
+    } else {
+        "Getting ready to check"
+    };
+    if let Ok(mut latest) = shared.send_line.lock() {
+        opening.clone_into(&mut latest);
+    }
+    let _ = app.emit(SEND, SendEvent::progress(opening));
+    // What an earlier backup said when it ended is about that one. A new
+    // one starts with a clean slate, so "Stopped" is never left showing
+    // beside a backup that is running.
+    if record {
+        if let Ok(catalog) = Catalog::open_in_library(&library) {
+            let _ = catalog.set_setting(LAST_BACKUP_SAID, "null");
+        }
+    }
     std::thread::spawn(move || {
         let mut said = Vec::new();
         let mut last_said = Instant::now() - PROGRESS_EVERY;
@@ -1159,6 +1198,10 @@ fn send_job(
                 &world,
                 &mut said,
                 &mut |line| {
+                    // Remembered every time, shown a few times a second.
+                    if let Ok(mut latest) = app.state::<Shared>().send_line.lock() {
+                        line.clone_into(&mut latest);
+                    }
                     if last_said.elapsed() >= PROGRESS_EVERY {
                         last_said = Instant::now();
                         let _ = app.emit(SEND, SendEvent::progress(line));
@@ -1169,6 +1212,9 @@ fn send_job(
         })();
         let state = app.state::<Shared>();
         state.sending.store(false, Ordering::SeqCst);
+        if let Ok(mut latest) = state.send_line.lock() {
+            latest.clear();
+        }
         // How it went, said to the person and written into the backup's
         // record, so "was that slow?" has an answer afterwards.
         if record && result.is_ok() {

@@ -6,7 +6,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **Getting a big backup ready takes seconds, not minutes.** Before the first file moves, Keevoro works out where each file will go at the destination. With thousands of files this took several minutes, because each one was written to Keevoro's record on its own and each lookup read the whole record. It is now done as one change with instant lookups.
+- **Keevoro says what it is doing while it gets ready.** The backup screen now names each step as it happens: "Getting ready: reading what Keevoro knows about this backup", "Telling apart files that look alike: 12 of 300", "Working out where each file goes: 2,500 of 11,245", and then the files themselves. Each counted step shows a bar and, once it has been watched for a few seconds, how long that step has left.
+- **Coming back to a running backup shows its real step at once,** not a bare "Backing up…".
+- **"What Keevoro is doing" says which step a backup is on.** Under "Backing up your files" there is now a "Right now:" line with the same words as the backup screen. A backup also shows there from the moment it is asked for, including while it gets ready.
+- **Keevoro's own record is quicker throughout,** which helps every screen that counts files while a backup is writing.
+
+### Fixed
+
+- **"Stopped" no longer shows beside a backup that is running.** If you stopped a backup and started another, the earlier one's closing message stayed on screen and made it look as if the new one had stopped too. Starting a backup now clears it.
 
 ## [0.29.2] - 2026-11-19
 

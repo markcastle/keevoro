@@ -330,7 +330,9 @@ fn make_ready(
 
     let copied = if !copy_here {
         // Files still only sampled are, by now, ones nothing else looks like.
-        keevoro_collect::agree_places(catalog, &chosen, true)?;
+        keevoro_collect::agree_places(catalog, &chosen, true, &mut |done, total| {
+            on_step(GatherStep::Copying { done, total });
+        })?;
         GatherReport::default()
     } else {
         match gather(library, catalog, &chosen, free_space(library), &mut |p| {

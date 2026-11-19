@@ -145,7 +145,9 @@ fn step_line(step: crate::GatherStep) -> String {
         crate::GatherStep::Checking { done, total } => {
             format!("Telling apart files that look alike: {} of {}", n(done), n(total))
         }
-        crate::GatherStep::Copying { done, total } => format!("Getting ready: {} of {}", n(done), n(total)),
+        crate::GatherStep::Copying { done, total } => {
+            format!("Working out where each file goes: {} of {}", n(done), n(total))
+        }
         crate::GatherStep::MakingPreviews { done, total } => {
             format!("Your files are backed up. Making previews: {} of {}", n(done), n(total))
         }

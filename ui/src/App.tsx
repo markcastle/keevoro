@@ -1142,6 +1142,11 @@ function ActivityScreen(props: {
                   {now.paused && <span className="badge">Paused</span>}
                 </h2>
                 <p>{job.why}</p>
+                {job.what === 'Backing up your files' && now.backupStep && (
+                  <p className="step-now" role="status">
+                    <b>Right now:</b> {now.backupStep}
+                  </p>
+                )}
               </li>
             ))}
           </ul>
@@ -1868,6 +1873,33 @@ function SendPanel(props: {
   const counted = counts
     ? { done: Number(counts[1].replace(/,/g, '')), total: Number(counts[2].replace(/,/g, '')) }
     : null
+  // How long a step has left, judged from how fast its count has moved
+  // since it began. A step is known by its words before the count, so a
+  // new step starts a new estimate. Nothing is guessed until it has been
+  // watched for a few seconds and has moved. It is worked out as each
+  // line arrives (see `noteStep`), not while drawing.
+  const stepBegan = useRef<{ name: string; at: number; done: number } | null>(null)
+  const [stepLeft, setStepLeft] = useState<number | null>(null)
+  const noteStep = useCallback((line: string | null) => {
+    const step = (line ?? '').split('\t')[0]
+    const found = /([\d,]+) of ([\d,]+)/.exec(step)
+    if (!found) {
+      stepBegan.current = null
+      setStepLeft(null)
+      return
+    }
+    const [done, total] = [found[1], found[2]].map((n) => Number(n.replace(/,/g, '')))
+    const name = step.replace(/[\d,]+ of [\d,]+.*$/, '')
+    const now = Date.now()
+    if (stepBegan.current?.name !== name || done < stepBegan.current.done) {
+      stepBegan.current = { name, at: now, done }
+      setStepLeft(null)
+      return
+    }
+    const seconds = (now - stepBegan.current.at) / 1000
+    const moved = done - stepBegan.current.done
+    setStepLeft(seconds >= 4 && moved > 0 ? Math.round((seconds / moved) * (total - done)) : null)
+  }, [])
   useEffect(() => {
     if (!sending) return
     let open = true
@@ -1902,7 +1934,7 @@ function SendPanel(props: {
         if (p.running) {
           setProgress(p)
           setStopping(p.stopping)
-          setRunning((now) => now ?? 'Backing up…')
+          setRunning((now) => now ?? (p.line || 'Backing up…'))
         }
       })
       .catch(() => {})
@@ -1925,12 +1957,14 @@ function SendPanel(props: {
         setRunning(null)
         setStopping(false)
         setSaid(event)
+        noteStep(null)
         onSent()
       } else if (event.line) {
         setRunning(event.line)
+        noteStep(event.line)
       }
     })
-  }, [api, onProblem, onSent])
+  }, [api, onProblem, onSent, noteStep])
 
   const connect = (request: ConnectRequest) => {
     setConnecting(true)
@@ -2200,13 +2234,14 @@ function SendPanel(props: {
                 <b>
                   {thousands(counted.done)} of {thousands(counted.total)}
                 </b>{' '}
-                files done
+                done
                 {progress && progress.speed > 0 && (
                   <>
                     {' '}
                     at <b>{size(progress.speed)}/s</b>
                   </>
                 )}
+                {stepLeft !== null && stepLeft > 0 && <>, {about(stepLeft)} left for this step</>}
               </p>
             </div>
           )}
@@ -2312,12 +2347,14 @@ function SendPanel(props: {
             </div>
             </>
           )}
-          {said?.summary?.map((line) => (
-            <p className="done" key={line}>
-              {line}
-            </p>
-          ))}
-          {said?.problem && (
+          {/* What the last backup said is about that one, so it steps aside while another runs. */}
+          {!running &&
+            said?.summary?.map((line) => (
+              <p className="done" key={line}>
+                {line}
+              </p>
+            ))}
+          {!running && said?.problem && (
             <p className="refused" role="alert">
               {said.problem}
             </p>

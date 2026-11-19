@@ -725,9 +725,9 @@ fn places_are_agreed_without_copying_and_two_files_never_share_one() {
     w.add("Trip/sub/IMG_0002.jpg", &real_jpeg(20));
     let report = w.scan();
     let items: Vec<&FoundItem> = report.items.iter().collect();
-    assert_eq!(agree_places(&w.catalog, &items, false).unwrap(), 2);
+    assert_eq!(agree_places(&w.catalog, &items, false, &mut |_, _| {}).unwrap(), 2);
     assert_eq!(
-        agree_places(&w.catalog, &items, false).unwrap(),
+        agree_places(&w.catalog, &items, false, &mut |_, _| {}).unwrap(),
         0,
         "a place is agreed once"
     );
@@ -753,7 +753,7 @@ fn checking_the_library_ignores_files_that_were_never_meant_to_be_in_it() {
     w.add("Trip/IMG_0001.jpg", &real_jpeg(10));
     let report = w.scan();
     let items: Vec<&FoundItem> = report.items.iter().collect();
-    agree_places(&w.catalog, &items, false).unwrap();
+    agree_places(&w.catalog, &items, false, &mut |_, _| {}).unwrap();
     let checked = verify_library(&w.library(), &w.catalog, &mut |_, _| {}).unwrap();
     assert_eq!((checked.intact, checked.problems.len()), (0, 0));
 }

@@ -130,6 +130,12 @@ const MIGRATIONS: &[&str] = &[
     // preview. Those are photos; put them back, and forget the wrong size.
     "UPDATE items SET junk = NULL, width = NULL, height = NULL
      WHERE (lower(path) LIKE '%.dng' OR lower(path) LIKE '%.cr2' OR lower(path) LIKE '%.cr3' OR lower(path) LIKE '%.crw' OR lower(path) LIKE '%.nef' OR lower(path) LIKE '%.nrw' OR lower(path) LIKE '%.arw' OR lower(path) LIKE '%.srf' OR lower(path) LIKE '%.sr2' OR lower(path) LIKE '%.orf' OR lower(path) LIKE '%.rw2' OR lower(path) LIKE '%.raf' OR lower(path) LIKE '%.pef' OR lower(path) LIKE '%.srw' OR lower(path) LIKE '%.x3f' OR lower(path) LIKE '%.3fr' OR lower(path) LIKE '%.erf' OR lower(path) LIKE '%.kdc' OR lower(path) LIKE '%.mrw' OR lower(path) LIKE '%.raw' OR lower(path) LIKE '%.iiq' OR lower(path) LIKE '%.dcr' OR lower(path) LIKE '%.mef' OR lower(path) LIKE '%.mos' OR lower(path) LIKE '%.rwl');",
+    // 8: looking a file up by its place, and asking whether a place has
+    // reached any destination, were done by reading every row. With ten
+    // thousand files that is a hundred million comparisons before a backup
+    // can start. These make each an instant lookup.
+    "CREATE INDEX IF NOT EXISTS collected_by_path ON collected(path);
+     CREATE INDEX IF NOT EXISTS uploaded_by_key ON uploaded(key);",
 ];
 
 #[derive(Debug, thiserror::Error)]
@@ -219,6 +225,14 @@ impl Catalog {
         // The app reads and writes from more than one thread (a search, and
         // the checking that follows it), so wait for a turn, do not fail.
         conn.busy_timeout(std::time::Duration::from_secs(30))?;
+        // Write-ahead mode: a screen can read counts while a backup writes,
+        // and each small write no longer waits for the disk twice over.
+        // "Normal" syncing is safe from corruption in this mode; at worst a
+        // power cut loses the last moment's notes, which a backup works
+        // out again. Where the mode is not available (some network folders)
+        // SQLite keeps its old one, so the answer is not checked.
+        let _ = conn.query_row("PRAGMA journal_mode = WAL", [], |_| Ok(()));
+        let _ = conn.pragma_update(None, "synchronous", "NORMAL");
         let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         let done = usize::try_from(version).unwrap_or(usize::MAX);
         if done > MIGRATIONS.len() {
@@ -648,6 +662,19 @@ impl Catalog {
             params![blake3, path, to_i64(bytes)],
         )?;
         Ok(())
+    }
+
+    /// Runs `work` as one change to the catalog: all of it is kept, or, if
+    /// it fails, none of it. It is also far quicker for many small writes,
+    /// which otherwise each wait for the disk on their own.
+    pub fn in_one_go<T, E: From<CatalogError>>(
+        &self,
+        work: impl FnOnce() -> std::result::Result<T, E>,
+    ) -> std::result::Result<T, E> {
+        let tx = self.conn.unchecked_transaction().map_err(CatalogError::from)?;
+        let done = work()?;
+        tx.commit().map_err(CatalogError::from)?;
+        Ok(done)
     }
 
     /// Is a copy of this file in this library's own folder?

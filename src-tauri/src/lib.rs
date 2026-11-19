@@ -60,6 +60,9 @@ pub struct Shared {
     stop_sending: keevoro_engine::send::Stop,
     /// True while a backup or a check of one is running.
     sending: AtomicBool,
+    /// What the running backup last said it was doing, so a screen opened
+    /// part-way through, and the activity page, can say it at once.
+    send_line: Mutex<String>,
 }
 
 pub fn run() {
@@ -94,6 +97,7 @@ pub fn run() {
                 send_began_at: std::sync::atomic::AtomicU64::new(0),
                 stop_sending: keevoro_engine::send::Stop::default(),
                 sending: AtomicBool::new(false),
+                send_line: Mutex::new(String::new()),
             });
             Ok(())
         })
