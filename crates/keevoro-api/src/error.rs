@@ -16,6 +16,8 @@ pub enum Kind {
     Failed,
     /// It needs a backup, and none was given.
     NoBackup,
+    /// It was understood but refused, such as a name already in use.
+    Refused,
     /// The request could not be understood.
     NotUnderstood,
     /// The API cannot do this yet; only the app can, for now.
@@ -45,6 +47,13 @@ impl Error {
         Self {
             kind: Kind::NoBackup,
             message: "Choose a backup first.".to_string(),
+        }
+    }
+
+    pub(crate) fn refused(message: impl Into<String>) -> Self {
+        Self {
+            kind: Kind::Refused,
+            message: message.into(),
         }
     }
 

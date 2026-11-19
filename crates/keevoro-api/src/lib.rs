@@ -20,10 +20,12 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
+pub mod agents;
 pub mod backup;
 pub mod error;
 pub mod register;
 
+pub use agents::{AgentAccess, AgentsAccessRequest};
 pub use backup::{Backup, FileTypeView, Found};
 pub use error::{Error, Kind, Result};
 pub use register::{entries, Agents, Changes, Entry, Op};
