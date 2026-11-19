@@ -248,7 +248,8 @@ The MCP server
 - [ ] Tools made from the register, each marked as reading or changing
 - [ ] A rehearsal tool: what backing up would do, changing nothing
 - [ ] Folders an agent may look through and back up to, set by a person; nothing allowed until they are
-- [ ] An agent never sees or supplies a storage key; cloud destinations only where a person has already saved the keys
+- [ ] Storage keys can be supplied through the API, the command line and the MCP server alike, and are write-only everywhere: kept in the keychain, never returned, never logged
+- [ ] A test that supplies a marker key through each front end and searches everything Keevoro wrote for it
 - [ ] No tool to reset Keevoro, remove a backup or delete from one
 - [ ] A look-only mode, on the first time
 - [ ] Everything an agent does is in the log, marked as such
