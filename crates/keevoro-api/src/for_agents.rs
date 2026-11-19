@@ -91,7 +91,7 @@ fn allowed(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: &Value) -> 
         return Err(Error::refused(LOOK_ONLY));
     }
     match op {
-        Op::PlacesSurvey | Op::SourcesLook => may_look_in(&access, text(request, "place")),
+        Op::PlacesSurvey | Op::SourcesLook => may_look_in(&access, place(request)?),
         Op::SourcesLookAgain => {
             let one = request.get("source").and_then(Value::as_i64);
             let sources = keevoro.backups().open(backup)?.sources()?;
@@ -113,7 +113,7 @@ fn allowed(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: &Value) -> 
             "r2" | "s3" | "endpoint" => Ok(()),
             // A folder, or a kind not understood, which the operation will
             // refuse: either way the place is judged as a folder first.
-            _ => may_back_up_to(&access, text(request, "place")),
+            _ => may_back_up_to(&access, place(request)?),
         },
         Op::BackupRun | Op::BackupCheck => {
             for destination in keevoro.backups().open(backup)?.destinations()? {
@@ -124,6 +124,15 @@ fn allowed(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: &Value) -> 
             Ok(())
         }
         _ => Ok(()),
+    }
+}
+
+/// The folder a request names. One that names none is told so plainly,
+/// rather than being refused as if an empty folder were not allowed.
+fn place(request: &Value) -> Result<&str> {
+    match text(request, "place") {
+        "" => Err(Error::not_understood("it names no folder (give one as place)")),
+        named => Ok(named),
     }
 }
 
@@ -204,6 +213,14 @@ fn in_the_log(keevoro: &Keevoro, op: Op, backup: Option<&str>, outcome: &Result<
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_request_that_names_no_folder_is_told_so_not_refused() {
+        let e = super::place(&serde_json::json!({ "folder": "/somewhere" })).unwrap_err();
+        assert_eq!(e.kind, super::Kind::NotUnderstood);
+        assert!(e.message.contains("names no folder"), "{e}");
+        assert_eq!(super::place(&serde_json::json!({ "place": "/a" })).unwrap(), "/a");
+    }
+
     use super::*;
     use crate::agents::AgentsAccessRequest;
     use crate::backup::tests::card_looked_through_into;
