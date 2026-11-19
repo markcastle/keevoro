@@ -1,17 +1,17 @@
 //! A small picture of any file Keevoro has found, on demand.
 //!
-//! The Discover screen shows photos before anything has been gathered, so
-//! it cannot rely on the library's thumbnails. This makes one from wherever
-//! the file can be read:
+//! The Discover screen shows photos before anything has been backed up, so
+//! it cannot rely on a backup's previews. This makes one from wherever the
+//! file can be read:
 //!
-//! 1. the library's own thumbnail, if the file has been gathered;
+//! 1. the backup's own preview, if a backup has made one;
 //! 2. a copy made earlier and kept in the app's cache folder;
-//! 3. otherwise, by reading the file on the old drive and keeping the
-//!    result in the cache for next time.
+//! 3. otherwise, by reading the file on its source and keeping the result
+//!    in the cache for next time.
 //!
 //! The cache is the only thing written, and it lives in the app's own data
-//! folder: never in the library (it is not part of the archive) and never
-//! on the old drive. It can be deleted at any time.
+//! folder: never in the backup (it is not part of what is backed up) and
+//! never on a source. It can be deleted at any time.
 
 use anyhow::{bail, Context, Result};
 use keevoro_catalog::Catalog;
@@ -51,7 +51,7 @@ pub fn preview_at(
     look: Look,
 ) -> Result<Vec<u8>> {
     let Some((source, kind, hash)) = catalog.find_item(id)? else {
-        bail!("That photo isn't known to this library.");
+        bail!("That photo isn't known to this backup.");
     };
     let id = &hash[..hash.len().min(16)];
 
@@ -100,7 +100,7 @@ pub fn preview_at(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{gather_everything, scan_into};
+    use crate::scan_into;
     use std::fs;
 
     fn real_jpeg(shade: u8) -> Vec<u8> {
@@ -116,7 +116,7 @@ mod tests {
     }
 
     #[test]
-    fn a_preview_comes_from_the_drive_then_the_cache_then_the_library() {
+    fn a_preview_comes_from_the_drive_then_the_cache_then_the_backup() {
         let dir = tempfile::tempdir().unwrap();
         let drive = dir.path().join("drive");
         fs::create_dir_all(drive.join("Family")).unwrap();
@@ -141,7 +141,7 @@ mod tests {
         );
         assert!(
             !library.join("renditions").exists(),
-            "the cache is not part of the library"
+            "the cache is not part of the backup"
         );
 
         // A closer look is the same photo, screen-sized, cached beside it.
@@ -159,11 +159,10 @@ mod tests {
         fs::rename(&drive, dir.path().join("unplugged")).unwrap();
         assert_eq!(preview(&library, &catalog, &cache, &id, None).unwrap(), first);
 
-        // Once gathered, the library's own thumbnail is used.
+        // Once a backup has made its previews, the backup's own is used.
         fs::rename(dir.path().join("unplugged"), &drive).unwrap();
-        gather_everything(&library, &catalog, false, None, &mut |_| {})
-            .unwrap()
-            .unwrap();
+        crate::check_and_place(&library, &catalog, &|| true, &mut |_| {}).unwrap();
+        crate::make_previews(&library, &catalog, None, &|| true, &mut |_| {}).unwrap();
         fs::remove_dir_all(&cache).unwrap();
         let from_library = preview(&library, &catalog, &cache, &id, None).unwrap();
         assert!(is_webp(&from_library));
@@ -197,7 +196,7 @@ mod tests {
         };
 
         let err = preview(&library, &catalog, &cache, "0000", None).unwrap_err();
-        assert_eq!(err.to_string(), "That photo isn't known to this library.");
+        assert_eq!(err.to_string(), "That photo isn't known to this backup.");
         let err = preview(&library, &catalog, &cache, &id_of("clip.mp4"), None).unwrap_err();
         // Not a real video, so no decoder here or anywhere can show it.
         assert_eq!(err.to_string(), "This one can't be previewed");

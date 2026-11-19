@@ -1,8 +1,8 @@
 //! `photos.picture`: a small or screen-sized picture of one found file.
 //!
-//! Pictures are WebP, made from the file where it was found (or from the
-//! backup's own copy, once there is one) and kept in Keevoro's cache folder
-//! so the same picture is quick the second time. A video gives a still.
+//! Pictures are WebP, made from the file where it was found (or taken from
+//! the previews a backup made of it) and kept in Keevoro's cache folder so
+//! the same picture is quick the second time. A video gives a still.
 //!
 //! Only a few are made at once, whoever asks. A screen of pictures asks for
 //! all of its previews together, and an agent could ask for many; making a
@@ -54,6 +54,13 @@ impl Picture {
             format: "webp",
             base64: base64(bytes),
         }
+    }
+
+    /// The picture's bytes from what `photos.picture` answered, as the
+    /// command line needs them to save the picture as a file. `None` when
+    /// it is not a picture as written here.
+    pub fn bytes_of(answer: &serde_json::Value) -> Option<Vec<u8>> {
+        from_base64(answer.get("base64")?.as_str()?)
     }
 }
 
@@ -136,6 +143,36 @@ fn base64(bytes: &[u8]) -> String {
     out
 }
 
+/// The bytes written by [`base64`], or `None` for anything else.
+fn from_base64(text: &str) -> Option<Vec<u8>> {
+    let value = |c: u8| match c {
+        b'A'..=b'Z' => Some(c - b'A'),
+        b'a'..=b'z' => Some(c - b'a' + 26),
+        b'0'..=b'9' => Some(c - b'0' + 52),
+        b'+' => Some(62),
+        b'/' => Some(63),
+        _ => None,
+    };
+    if text.len() % 4 != 0 {
+        return None;
+    }
+    let mut out = Vec::with_capacity(text.len() / 4 * 3);
+    for chunk in text.as_bytes().chunks(4) {
+        let padding = chunk.iter().rev().take_while(|&&c| c == b'=').count();
+        if padding > 2 {
+            return None;
+        }
+        let mut n = 0u32;
+        for &c in &chunk[..4 - padding] {
+            n = (n << 6) | u32::from(value(c)?);
+        }
+        n <<= 6 * padding;
+        let bytes = n.to_be_bytes();
+        out.extend_from_slice(&bytes[1..4 - padding]);
+    }
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -158,7 +195,7 @@ mod tests {
         assert!(cache.is_dir() && std::fs::read_dir(&cache).unwrap().count() > 0);
 
         let e = picture(&backup, &cache, "0000", PictureSize::Small).unwrap_err();
-        assert_eq!(e.message, "That photo isn't known to this library.");
+        assert_eq!(e.message, "That photo isn't known to this backup.");
     }
 
     #[test]
@@ -173,6 +210,20 @@ mod tests {
             serde_json::to_value(Picture::webp(b"foo")).unwrap(),
             serde_json::json!({ "format": "webp", "base64": "Zm9v" })
         );
+    }
+
+    #[test]
+    fn a_picture_written_as_base64_reads_back_as_itself() {
+        for bytes in [&b""[..], b"f", b"fo", b"foo", b"foobar", &[0xff, 0xfe, 0x00, 0x01]] {
+            let answer = serde_json::to_value(Picture::webp(bytes)).unwrap();
+            assert_eq!(Picture::bytes_of(&answer).as_deref(), Some(bytes));
+        }
+        let all: Vec<u8> = (0..=255).collect();
+        assert_eq!(from_base64(&base64(&all)), Some(all));
+        for broken in ["Zm9", "Zm9v!", "Z===", "*m9v"] {
+            assert_eq!(from_base64(broken), None, "{broken}");
+        }
+        assert_eq!(Picture::bytes_of(&serde_json::json!({ "format": "webp" })), None);
     }
 
     #[test]

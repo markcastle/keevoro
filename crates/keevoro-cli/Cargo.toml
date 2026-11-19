@@ -1,6 +1,6 @@
 [package]
 name = "keevoro-cli"
-description = "The keevoro engine without a UI, for testing, scripting and power users."
+description = "Everything the Keevoro app does, from the command line, on the same named backups."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,28 +12,14 @@ name = "keevoro"
 path = "src/main.rs"
 
 [dependencies]
-anyhow.workspace = true
 clap.workspace = true
-keevoro-catalog.workspace = true
-keevoro-collect.workspace = true
-keevoro-core.workspace = true
-keevoro-engine.workspace = true
-keevoro-index.workspace = true
-keevoro-media.workspace = true
-keevoro-publish.workspace = true
-keevoro-storage.workspace = true
-keevoro-storage-folder.workspace = true
-keevoro-storage-s3.workspace = true
+keevoro-api.workspace = true
 keevoro-update.workspace = true
-keyring.workspace = true
 rpassword.workspace = true
-getrandom.workspace = true
-tokio = { workspace = true, features = ["time"] }
-keevoro-scan.workspace = true
-serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+anyhow.workspace = true
 image.workspace = true
 tempfile.workspace = true
 

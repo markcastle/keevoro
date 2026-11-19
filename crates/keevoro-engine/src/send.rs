@@ -3,16 +3,16 @@
 //!
 //! A backup is the named job ("Family photos"); this module is the act of
 //! sending what it is keeping somewhere: a folder, or storage that speaks
-//! S3. `run` sends originals and previews and then writes the index. The
-//! order matters: the index goes last, so it never points at something
-//! that is not there yet, and it lists only files confirmed stored.
-//! `check` re-reads what is kept on this computer and, if asked, what was
-//! sent.
+//! S3. [`everywhere`] sends to each destination in turn, originals first,
+//! then previews, and then writes the index. The order matters: the index
+//! goes last, so it never points at something that is not there yet, and
+//! it lists only files confirmed stored. [`check`] confirms what is at a
+//! destination.
 //!
 //! Both say what happened by writing plain sentences to `out`, one per
 //! line, and report progress as a short line of text through a callback.
-//! The command line prints both as they are; the app shows the progress
-//! line while it runs and the sentences when it is done.
+//! Every front end shows the progress line while it runs and the sentences
+//! when it is done.
 
 use crate::summary;
 use anyhow::{Context, Result};
@@ -30,11 +30,11 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// A gathered file and everything known about its copies in the library.
+/// A kept file, its place, and the previews made of it.
 struct Kept<'a> {
     item: &'a FoundItem,
     hash: &'a str,
-    /// Library-relative path of the original, also its storage key.
+    /// The original's place in a backup, which is also its storage key.
     path: String,
     preview: Option<RenditionState>,
     video: Option<VideoState>,
@@ -67,8 +67,7 @@ pub enum Destination {
     /// An external drive or a network share.
     Folder(PathBuf),
     /// An S3-compatible bucket, with the keys to it. The keys come from
-    /// the environment or the system keychain (see `connect.rs`), never
-    /// from the command line, where they would end up in shell history.
+    /// the environment or the system keychain (see `connect.rs`).
     Bucket {
         preset: Preset,
         bucket: String,
@@ -139,19 +138,19 @@ pub fn open(out: &mut dyn Write, runtime: &tokio::runtime::Runtime, destination:
 }
 
 /// What a step of getting ready is called while it happens.
-fn step_line(step: crate::GatherStep) -> String {
+fn step_line(step: crate::ReadyStep) -> String {
     let n = summary::thousands;
     match step {
-        crate::GatherStep::Checking { done, total } => {
+        crate::ReadyStep::Checking { done, total } => {
             format!("Telling apart files that look alike: {} of {}", n(done), n(total))
         }
-        crate::GatherStep::Copying { done, total } => {
+        crate::ReadyStep::Placing { done, total } => {
             format!("Working out where each file goes: {} of {}", n(done), n(total))
         }
-        crate::GatherStep::MakingPreviews { done, total } => {
+        crate::ReadyStep::MakingPreviews { done, total } => {
             format!("Your files are backed up. Making previews: {} of {}", n(done), n(total))
         }
-        crate::GatherStep::WorkingOnVideos { done, total } => {
+        crate::ReadyStep::WorkingOnVideos { done, total } => {
             format!(
                 "Your files are backed up. Making video previews: {} of {}",
                 n(done),
@@ -161,7 +160,12 @@ fn step_line(step: crate::GatherStep) -> String {
     }
 }
 
-/// Sends everything being kept, the files themselves first.
+/// What a backup says when it has been stopped.
+pub const STOPPED: &str =
+    "Stopped. Everything backed up so far is safe where it is. Back up again whenever you like and it carries on from here.";
+
+/// Sends everything being kept, the files themselves first, and answers
+/// how many files could not be sent.
 ///
 /// The order is the point. A person's photos and videos are what matter,
 /// so they start moving as soon as each has been read and checked.
@@ -170,7 +174,8 @@ fn step_line(step: crate::GatherStep) -> String {
 /// is the originals, and running it again carries on.
 ///
 /// A folder is first checked for room, so nobody finds a disk full with
-/// half their photos sent. Setting `stop` ends it after the file in hand.
+/// half their photos sent. Setting `stop` ends it after the file in hand,
+/// and it then says [`STOPPED`].
 #[allow(clippy::too_many_arguments)]
 pub fn originals_first(
     out: &mut dyn Write,
@@ -181,7 +186,7 @@ pub fn originals_first(
     video_tools: Option<&keevoro_media::VideoTools>,
     stop: &Stop,
     on_progress: &mut dyn FnMut(&str),
-) -> Result<()> {
+) -> Result<usize> {
     let keep_going = || !stop.load(Ordering::SeqCst);
     let said = |bytes: &[u8]| String::from_utf8_lossy(bytes).into_owned();
     let files_sent = |out: &mut dyn Write, files: &[u8]| -> Result<()> {
@@ -193,58 +198,79 @@ pub fn originals_first(
         }
         Ok(())
     };
-    let stopped = |out: &mut dyn Write| -> Result<()> {
-        writeln!(
-            out,
-            "Stopped. Everything backed up so far is safe where it is. Back up again whenever you like and it carries on from here."
-        )?;
-        Ok(())
+    let stopped = |out: &mut dyn Write| -> Result<usize> {
+        writeln!(out, "{STOPPED}")?;
+        Ok(0)
     };
 
-    crate::check_and_place(home, catalog, &keep_going, &mut |step| on_progress(&step_line(step)))?;
+    let not_told_apart = crate::check_and_place(home, catalog, &keep_going, &mut |step| on_progress(&step_line(step)))?;
     if !keep_going() {
         return stopped(out);
     }
+    let unsure = |out: &mut dyn Write| -> Result<()> {
+        if not_told_apart > 0 {
+            writeln!(
+                out,
+                "{} like another but couldn't be read in full to tell them apart, so {} not backed up yet. \
+                 Plug in {} source and back up again.",
+                match not_told_apart {
+                    1 => "1 file looks".to_string(),
+                    n => format!("{} files look", summary::thousands(n)),
+                },
+                if not_told_apart == 1 { "it was" } else { "they were" },
+                if not_told_apart == 1 { "its" } else { "their" },
+            )?;
+        }
+        Ok(())
+    };
     if let Destination::Folder(folder) = &destination {
         let needed = crate::discover(home, catalog)?.waiting_bytes;
         if let Some(room) = crate::room::room_in(folder, needed).filter(|room| !room.is_enough()) {
-            anyhow::bail!(room.refusal(folder));
+            return Err(crate::room::NotEnoughRoom(room.refusal(folder)).into());
         }
     }
 
     // The files themselves.
     let mut files = Vec::new();
-    run_until(
+    let failed = run_until(
         &mut files,
         catalog,
         home,
         destination.clone(),
         base_url,
-        false,
         Some(stop),
         on_progress,
     )?;
     if !keep_going() {
         files_sent(out, &files)?;
-        return stopped(out);
+        return stopped(out).map(|_| failed + not_told_apart);
     }
 
     // Then what makes them nice to look through, unless this backup is
     // for the originals alone.
     if !wants_previews(catalog)? {
-        return files_sent(out, &files);
+        files_sent(out, &files)?;
+        // Anything that could not be sent is said once, with its reason.
+        for line in said(&files).lines() {
+            if line.starts_with("Couldn't back up") || line.starts_with("  ") || line.starts_with("Back up again") {
+                writeln!(out, "{line}")?;
+            }
+        }
+        unsure(out)?;
+        return Ok(failed + not_told_apart);
     }
-    crate::prepare_to_send_while(home, catalog, video_tools, &keep_going, &mut |step| {
+    crate::make_previews(home, catalog, video_tools, &keep_going, &mut |step| {
         on_progress(&step_line(step));
     })?;
     let mut extras = Vec::new();
-    run_until(
+    // The second pass tries again whatever the first could not send, so
+    // what it could not send is what was not sent.
+    let failed = run_until(
         &mut extras,
         catalog,
         home,
         destination,
         base_url,
-        false,
         Some(stop),
         on_progress,
     )?;
@@ -260,10 +286,11 @@ pub fn originals_first(
             writeln!(out, "{line}")?;
         }
     }
+    unsure(out)?;
     if !keep_going() {
         stopped(out)?;
     }
-    Ok(())
+    Ok(failed + not_told_apart)
 }
 
 /// How one destination's turn went, for whoever keeps the record.
@@ -275,11 +302,30 @@ pub struct Turn<'a> {
     pub stopped: bool,
 }
 
+/// How backing up to every destination went, for whoever has to say so
+/// in a word: a script's exit code, say.
+#[derive(Debug, Default)]
+pub struct Went {
+    /// Destinations that had their turn.
+    pub reached: usize,
+    /// Destinations that could not be reached: a drive unplugged, a
+    /// connection down, keys that no longer work.
+    pub unreachable: usize,
+    /// Destinations without the room for what is waiting.
+    pub no_room: usize,
+    /// Files that could not be sent, added up over every destination.
+    pub failed_files: usize,
+    /// True when it was stopped before it had finished.
+    pub stopped: bool,
+    /// Why, when no destination could be backed up to at all.
+    pub refused: Option<anyhow::Error>,
+}
+
 /// Backs up to every destination of this backup, one after another, the
 /// originals first each time. A destination that cannot be reached (a
 /// drive unplugged, a connection down) is said and passed over, and the
-/// others still get their turn; it catches up next time. It is an error
-/// only when none of them could be reached.
+/// others still get their turn; it catches up next time. When none of them
+/// could be backed up to, [`Went::refused`] says why.
 #[allow(clippy::too_many_arguments)]
 pub fn everywhere(
     out: &mut dyn Write,
@@ -290,16 +336,19 @@ pub fn everywhere(
     stop: &Stop,
     on_progress: &mut dyn FnMut(&str),
     after_each: &mut dyn FnMut(Turn<'_>),
-) -> Result<()> {
+) -> Result<Went> {
     let all = crate::connect::destinations(catalog)?;
     if all.is_empty() {
         anyhow::bail!("Choose where to back up to first.");
     }
     let several = all.len() > 1;
-    let mut reached = 0;
-    let mut last_refusal = None;
+    let mut went = Went::default();
     for to in &all {
+        // Stopped before this one's turn, even before the first: said the
+        // same way as when it is stopped part-way through one.
         if stop.load(Ordering::SeqCst) {
+            writeln!(out, "{STOPPED}")?;
+            went.stopped = true;
             break;
         }
         let name = to.describe();
@@ -333,26 +382,38 @@ pub fn everywhere(
                 },
             )
         })();
+        let stopped = stop.load(Ordering::SeqCst);
         match turn {
-            Ok(()) => {
-                reached += 1;
+            Ok(failed) => {
+                went.reached += 1;
+                went.failed_files += failed;
                 after_each(Turn {
                     to,
                     seconds: started.elapsed().as_secs(),
                     bytes: keevoro_core::meter::totals().0.saturating_sub(before),
-                    stopped: stop.load(Ordering::SeqCst),
+                    stopped,
                 });
+                // A turn that was stopped has said so itself.
+                if stopped {
+                    went.stopped = true;
+                    break;
+                }
             }
             Err(refused) => {
                 writeln!(out, "Couldn't back up to {name}. {refused:#}")?;
-                last_refusal = Some(refused);
+                if refused.downcast_ref::<crate::room::NotEnoughRoom>().is_some() {
+                    went.no_room += 1;
+                } else {
+                    went.unreachable += 1;
+                }
+                went.refused = Some(refused);
             }
         }
     }
-    match (reached, last_refusal) {
-        (0, Some(refused)) => Err(refused),
-        _ => Ok(()),
+    if went.reached > 0 {
+        went.refused = None;
     }
+    Ok(went)
 }
 
 /// The catalog's name for the choice of whether a backup also gets previews.
@@ -375,27 +436,6 @@ pub fn set_wants_previews(catalog: &Catalog, wanted: bool) -> Result<()> {
 /// in hand is finished but no more are started.
 pub type Stop = std::sync::Arc<std::sync::atomic::AtomicBool>;
 
-pub fn run(
-    out: &mut dyn Write,
-    catalog: &Catalog,
-    library: &Path,
-    destination: Destination,
-    base_url: Option<&str>,
-    new_link: bool,
-    on_progress: &mut dyn FnMut(&str),
-) -> Result<()> {
-    run_until(
-        out,
-        catalog,
-        library,
-        destination,
-        base_url,
-        new_link,
-        None,
-        on_progress,
-    )
-}
-
 /// Everything being kept that has a place agreed for it, as the catalog
 /// stands at this moment.
 fn kept_now<'a>(catalog: &Catalog, reports: &'a [keevoro_scan::ScanReport]) -> Result<Vec<Kept<'a>>> {
@@ -403,8 +443,7 @@ fn kept_now<'a>(catalog: &Catalog, reports: &'a [keevoro_scan::ScanReport]) -> R
     let mut kept = Vec::new();
     for item in unique {
         let Some(hash) = item.blake3.as_deref() else { continue };
-        // A file the user has since unticked stays in the library but is
-        // not published.
+        // A file the person has since unticked is not sent.
         if !crate::wanted(catalog, item)? {
             continue;
         }
@@ -421,26 +460,23 @@ fn kept_now<'a>(catalog: &Catalog, reports: &'a [keevoro_scan::ScanReport]) -> R
     Ok(kept)
 }
 
-/// As [`run`], with a switch that stops it between files.
-#[allow(clippy::too_many_arguments)]
-pub fn run_until(
+/// Sends everything that has its place and has not reached this
+/// destination yet, then writes the index. `stop` stops it between files.
+/// Answers how many files could not be sent.
+fn run_until(
     out: &mut dyn Write,
     catalog: &Catalog,
-    library: &Path,
+    home: &Path,
     destination: Destination,
     base_url: Option<&str>,
-    new_link: bool,
     stop: Option<&Stop>,
     on_progress: &mut dyn FnMut(&str),
-) -> Result<()> {
+) -> Result<usize> {
     let reports = catalog.load_reports()?;
     let kept = kept_now(catalog, &reports)?;
     if kept.is_empty() {
-        writeln!(
-            out,
-            "There is nothing in the library to back up yet. Run `keevoro gather` first."
-        )?;
-        return Ok(());
+        writeln!(out, "Nothing is being kept, so there is nothing to back up yet.")?;
+        return Ok(0);
     }
 
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
@@ -458,7 +494,7 @@ pub fn run_until(
     let store = store.as_ref();
     let base_url = base_url.map_or(default_url, str::to_string);
 
-    let uploads = uploads_for(library, catalog, &kept)?;
+    let uploads = uploads_for(home, &kept)?;
     let n = summary::thousands;
     let opts = PublishOptions {
         stop: stop.cloned(),
@@ -503,12 +539,9 @@ pub fn run_until(
         getrandom::fill(&mut random).map_err(|e| anyhow::anyhow!("Couldn't get random numbers ({e})"))?;
         Ok(index_key(random))
     };
-    let previous = catalog.setting(&setting)?;
-    // The old index is only removed once the new one is safely written.
-    let (key, retired) = match previous {
-        Some(old) if new_link => (fresh_key()?, Some(old)),
-        Some(current) => (current, None),
-        None => (fresh_key()?, None),
+    let key = match catalog.setting(&setting)? {
+        Some(current) => current,
+        None => fresh_key()?,
     };
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -542,15 +575,6 @@ pub fn run_until(
     }
 
     catalog.set_setting(&setting, &key)?;
-    if let Some(old) = retired {
-        runtime.block_on(store.delete(&ObjectKey::new(old)?)).map_err(|e| {
-            anyhow::anyhow!(
-                "The new link works, but the old index couldn't be removed. {}.",
-                keevoro_publish::plain_reason(&e)
-            )
-        })?;
-        writeln!(out, "Your private link has changed. The old one no longer works.")?;
-    }
 
     if report.uploaded > 0 {
         writeln!(
@@ -568,7 +592,7 @@ pub fn run_until(
         for f in &report.failed {
             writeln!(out, "  {}: {}.", f.key, f.reason)?;
         }
-        writeln!(out, "Run `keevoro publish` again to retry.")?;
+        writeln!(out, "Back up again to try them once more.")?;
     }
     writeln!(
         out,
@@ -583,129 +607,85 @@ pub fn run_until(
     } else {
         writeln!(out, "Your private index: {}{key}", index.base_url)?;
     }
-    Ok(())
+    Ok(report.failed.len())
 }
 
-/// `keevoro check`: re-read the library, and optionally the backup, and
-/// say plainly whether everything is still as it was. Fails (so scripts
-/// notice) when anything is wrong.
+/// Confirms that every kept file sent to this destination is there, and
+/// says so plainly. With `read_back`, each one is also read back from the
+/// destination and compared exactly. Answers how many files need
+/// attention. Nothing is changed.
 pub fn check(
     out: &mut dyn Write,
     catalog: &Catalog,
-    library: &Path,
-    backup: Option<Destination>,
+    destination: Destination,
     read_back: bool,
     on_progress: &mut dyn FnMut(&str),
-) -> Result<()> {
+) -> Result<usize> {
     let n = summary::thousands;
     let files = catalog.collected()?;
     if files.is_empty() {
-        writeln!(
-            out,
-            "There is nothing in the library to check yet. Run `keevoro gather` first."
-        )?;
-        return Ok(());
+        writeln!(out, "Nothing has been backed up yet, so there is nothing to check.")?;
+        return Ok(0);
     }
-
-    let report = keevoro_collect::verify_library(library, catalog, &mut |done, total| {
-        on_progress(&format!("Checking your library: {} of {}", n(done), n(total)));
-    })?;
-    let mut wrong = report.problems.len();
-    if report.intact == 0 && report.problems.is_empty() {
-        // Nothing is kept in this folder: everything was sent straight
-        // from its source, so there is no library to speak of.
-    } else if report.problems.is_empty() {
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    let (store, _, _) = open(out, &runtime, destination)?;
+    let expected = files
+        .iter()
+        .map(|f| {
+            Ok(keevoro_publish::Expected {
+                key: ObjectKey::new(f.path.clone())?,
+                bytes: f.bytes,
+                blake3: f.blake3.clone(),
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let opts = PublishOptions::default();
+    let result = runtime.block_on(keevoro_publish::check_backup(
+        store.as_ref(),
+        &expected,
+        read_back,
+        &opts,
+        &mut |p| {
+            on_progress(&format!("Checking your backup: {} of {}", n(p.done), n(p.total)));
+        },
+    ));
+    if result.problems.is_empty() {
+        let how = if read_back && result.read_back == result.present {
+            ", and each one was read back and matches exactly"
+        } else if read_back {
+            ", and all but the largest were read back and match exactly"
+        } else {
+            ""
+        };
         writeln!(
             out,
-            "Your library: all {} are intact.",
-            summary::count(report.intact, "file")
+            "Your backup: all {} are there{how}.",
+            summary::count(result.present, "original")
         )?;
     } else {
         writeln!(
             out,
-            "Your library: {} intact, {} with a problem:",
-            n(report.intact),
-            n(report.problems.len())
+            "Your backup: {} fine, {} with a problem:",
+            n(result.present),
+            n(result.problems.len())
         )?;
-        for p in &report.problems {
-            writeln!(out, "  {}: {}.", p.path.display(), p.reason)?;
+        for p in &result.problems {
+            writeln!(out, "  {}: {}.", p.key, p.reason)?;
         }
-        writeln!(
-            out,
-            "To put these right, plug in the source they came from and run `keevoro gather`, or copy them back from your backup."
-        )?;
+        writeln!(out, "Back up again to send anything that is missing.")?;
     }
-
-    if let Some(destination) = backup {
-        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
-        let (store, _, _) = open(out, &runtime, destination)?;
-        let expected = files
-            .iter()
-            .map(|f| {
-                Ok(keevoro_publish::Expected {
-                    key: ObjectKey::new(f.path.clone())?,
-                    bytes: f.bytes,
-                    blake3: f.blake3.clone(),
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
-        let opts = PublishOptions::default();
-        let result = runtime.block_on(keevoro_publish::check_backup(
-            store.as_ref(),
-            &expected,
-            read_back,
-            &opts,
-            &mut |p| {
-                on_progress(&format!("Checking your backup: {} of {}", n(p.done), n(p.total)));
-            },
-        ));
-        wrong += result.problems.len();
-        if result.problems.is_empty() {
-            let how = if read_back && result.read_back == result.present {
-                ", and each one was read back and matches exactly"
-            } else if read_back {
-                ", and all but the largest were read back and match exactly"
-            } else {
-                ""
-            };
-            writeln!(
-                out,
-                "Your backup: all {} are there{how}.",
-                summary::count(result.present, "original")
-            )?;
-        } else {
-            writeln!(
-                out,
-                "Your backup: {} fine, {} with a problem:",
-                n(result.present),
-                n(result.problems.len())
-            )?;
-            for p in &result.problems {
-                writeln!(out, "  {}: {}.", p.key, p.reason)?;
-            }
-            writeln!(out, "Run `keevoro publish` to send anything that is missing.")?;
-        }
-    }
-    if wrong > 0 {
-        anyhow::bail!(
-            "{} {} attention.",
-            summary::count(wrong, "file"),
-            if wrong == 1 { "needs" } else { "need" }
-        );
-    }
-    Ok(())
+    Ok(result.problems.len())
 }
 
 /// Originals first, then previews.
-fn uploads_for(library: &Path, catalog: &Catalog, kept: &[Kept<'_>]) -> Result<Vec<Upload>> {
-    let local = |relative: &str| relative.split('/').fold(library.to_path_buf(), |p, s| p.join(s));
+fn uploads_for(home: &Path, kept: &[Kept<'_>]) -> Result<Vec<Upload>> {
+    let local = |relative: &str| relative.split('/').fold(home.to_path_buf(), |p, s| p.join(s));
     let mut uploads = Vec::new();
     for k in kept {
         uploads.push(Upload {
             key: ObjectKey::new(k.path.clone())?,
-            // The copy in this library if there is one, otherwise the
-            // file where it was found: the destination does not care.
-            file: keevoro_collect::bytes_of(library, catalog, k.item)?,
+            // Straight from where it was found, only read.
+            file: k.item.path.clone(),
             bytes: k.item.bytes,
             write_once: true,
             content_type: Some(k.item.mime.clone()),
@@ -724,8 +704,8 @@ fn uploads_for(library: &Path, catalog: &Catalog, kept: &[Kept<'_>]) -> Result<V
         for kind in k.renditions() {
             let relative = rendition_path(kind, k.id());
             let file = local(&relative);
-            // A preview deleted from the library is simply left out; the
-            // next `gather` makes it again.
+            // A preview deleted from the backup's own folder is simply
+            // left out; the next backup makes it again.
             let Ok(meta) = std::fs::metadata(&file) else { continue };
             uploads.push(Upload {
                 key: ObjectKey::new(relative)?,
@@ -1040,7 +1020,7 @@ mod tests {
 
         let mut said = Vec::new();
         let mut turns = 0;
-        everywhere(
+        let went = everywhere(
             &mut said,
             &catalog,
             &home,
@@ -1054,6 +1034,17 @@ mod tests {
         let said = String::from_utf8(said).unwrap();
         assert!(said.contains("Couldn't back up to the folder"), "{said}");
         assert_eq!(turns, 1, "the one that works had its turn");
+        assert_eq!(
+            (
+                went.reached,
+                went.unreachable,
+                went.no_room,
+                went.failed_files,
+                went.stopped
+            ),
+            (1, 1, 0, 0, false)
+        );
+        assert!(went.refused.is_none(), "one was backed up to");
         assert!(good.join("originals/Flights/IMG_20240601_100000.jpg").is_file());
         // And it is not called safe: one of its two places has nothing.
         assert!(crate::discover(&home, &catalog).unwrap().waiting_to_gather > 0);
@@ -1235,6 +1226,49 @@ mod tests {
             1,
             "the index is spoken of once: {said}"
         );
+    }
+
+    #[test]
+    fn a_backup_stopped_before_its_first_destination_says_it_was_stopped() {
+        use crate::connect::{self, testing::MemorySecrets, Flags, Saved, World};
+        let (dir, _card, home, catalog) = one_backup();
+        let secrets = MemorySecrets::default();
+        let world = World {
+            secrets: &secrets,
+            ask: &connect::testing::nobody_to_ask,
+        };
+        let to = dir.path().join("usb");
+        let folder = Saved::from_flags(&Flags {
+            to_folder: Some(to.clone()),
+            ..Flags::default()
+        })
+        .unwrap();
+        connect::add(&mut Vec::new(), &catalog, &folder, &world).unwrap();
+        // Asked to stop while it was still getting ready.
+        let stop = Stop::default();
+        stop.store(true, Ordering::SeqCst);
+        let mut said = Vec::new();
+        let went = everywhere(
+            &mut said,
+            &catalog,
+            &home,
+            &world,
+            None,
+            &stop,
+            &mut |_| {},
+            &mut |_| {},
+        )
+        .unwrap();
+        assert_eq!(String::from_utf8(said).unwrap().trim_end(), STOPPED);
+        assert!(went.stopped && went.reached == 0 && went.refused.is_none());
+        assert!(!to.join("originals").exists(), "nothing was sent");
+    }
+
+    #[test]
+    fn a_destination_without_room_is_told_apart_from_one_out_of_reach() {
+        let refused: anyhow::Error = crate::room::NotEnoughRoom("There isn't enough room.".into()).into();
+        assert!(refused.downcast_ref::<crate::room::NotEnoughRoom>().is_some());
+        assert_eq!(format!("{refused:#}"), "There isn't enough room.");
     }
 
     #[test]

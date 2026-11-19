@@ -13,9 +13,12 @@
 //! everything here can be asked of a backup by its name, and the open one
 //! is only what is used when no name is given.
 //!
-//! The file's format is kept exactly as earlier versions wrote it, so an
-//! existing settings file loads unchanged and an older Keevoro can still
-//! read one written by this one.
+//! Several programs may have the file open at once, so it is read afresh
+//! every time it is asked about, and changed only while holding a lock on
+//! it: the change is made to the file as it is at that moment, never to an
+//! older copy, so one program's change never undoes another's. It is
+//! written whole beside itself and moved into place, so nobody ever reads
+//! half of it.
 
 use crate::agents::AgentAccess;
 use crate::backup::Backup;
@@ -25,14 +28,13 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 const FILE: &str = "settings.json";
+/// Held, by whichever program is changing the settings, for the moment it
+/// takes. The operating system lets go of it if that program stops.
+const LOCK: &str = "settings.lock";
 
 /// What the settings file holds.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Settings {
-    /// From before backups: the one library folder. Read once, to turn it
-    /// into the first backup, and kept so an older Keevoro still opens.
-    #[serde(default)]
-    pub library: Option<PathBuf>,
     /// Called `sessions` in the file for a few early versions, which is
     /// still read.
     #[serde(default, alias = "sessions")]
@@ -69,33 +71,50 @@ impl Settings {
     /// "nothing chosen yet": the app then simply asks again, which is
     /// better than refusing to start over a damaged settings file.
     pub fn load(dir: &Path) -> Self {
-        let mut settings: Self = std::fs::read_to_string(dir.join(FILE))
-            .ok()
-            .and_then(|text| serde_json::from_str(&text).ok())
-            .unwrap_or_default();
-        // A library from before backups becomes the first backup, with
-        // everything it had found and chosen.
-        if settings.backups.is_empty() {
-            if let Some(library) = settings.library.clone() {
-                settings.backups.push(Named {
-                    id: "first".to_string(),
-                    name: "My photos".to_string(),
-                    home: library,
-                });
-            }
-        }
-        settings.fall_back_to_the_first();
-        settings
+        Self::read(dir).ok().flatten().unwrap_or_default()
     }
 
-    /// Writes the settings to `dir`, beside the real file and then moved
-    /// over it, so a crash never leaves half a settings file.
+    /// The settings in `dir`: `None` when there is no file, or one that
+    /// cannot be understood; an error only when the file is there and
+    /// cannot be read at all, which another program replacing it can cause
+    /// for a moment on some computers.
+    fn read(dir: &Path) -> std::io::Result<Option<Self>> {
+        let text = match std::fs::read_to_string(dir.join(FILE)) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e),
+        };
+        Ok(serde_json::from_str::<Self>(&text).ok().map(|mut settings| {
+            settings.fall_back_to_the_first();
+            settings
+        }))
+    }
+
+    /// Writes the settings to `dir`, beside the real file under a name of
+    /// its own and then moved over it, so a crash never leaves half a
+    /// settings file and two programs writing at once never share one.
     pub fn save(&self, dir: &Path) -> std::io::Result<()> {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         std::fs::create_dir_all(dir)?;
         let text = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
-        let temp = dir.join(format!("{FILE}.part"));
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let temp = dir.join(format!(".{FILE}.{}.{n}.part", std::process::id()));
         std::fs::write(&temp, text)?;
-        std::fs::rename(temp, dir.join(FILE))
+        // Windows can refuse for a moment while another program reads it.
+        let mut tries = 0;
+        loop {
+            match std::fs::rename(&temp, dir.join(FILE)) {
+                Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied && tries < 20 => {
+                    tries += 1;
+                    std::thread::sleep(std::time::Duration::from_millis(25));
+                }
+                Err(e) => {
+                    let _ = std::fs::remove_file(&temp);
+                    return Err(e);
+                }
+                Ok(()) => return Ok(()),
+            }
+        }
     }
 
     /// The backup the app has open, if there is one.
@@ -153,45 +172,75 @@ impl Settings {
 }
 
 /// Keevoro's list of backups, kept in its settings file. Every change is
-/// saved at once.
+/// saved at once, and every question is answered from the file as it is
+/// now, whichever program last changed it.
 pub struct Backups {
     config: PathBuf,
     data: PathBuf,
-    settings: Mutex<Settings>,
+    /// The settings as last read, for the rare moment the file cannot be
+    /// read because another program is replacing it.
+    last: Mutex<Settings>,
 }
 
 impl Backups {
-    /// Reads the list from the settings file in `config`. New backups get
+    /// Keevoro's list, in the settings file in `config`. New backups get
     /// their home folders under `data`.
     pub fn load(config: &Path, data: &Path) -> Self {
         Self {
             config: config.to_path_buf(),
             data: data.to_path_buf(),
-            settings: Mutex::new(Settings::load(config)),
+            last: Mutex::new(Settings::load(config)),
         }
     }
 
-    /// The settings as they stand. A poisoned lock only means a panic
-    /// elsewhere; what is inside is still the last thing saved.
-    fn settings(&self) -> MutexGuard<'_, Settings> {
-        self.settings.lock().unwrap_or_else(PoisonError::into_inner)
+    fn last(&self) -> MutexGuard<'_, Settings> {
+        // A poisoned lock only means a panic elsewhere; what is inside is
+        // still the last thing read.
+        self.last.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Makes a change and saves it. If it cannot be saved, nothing changes.
+    /// The settings as they are in the file now. It is a small file, so
+    /// reading it each time costs nothing worth saving.
+    fn settings(&self) -> Settings {
+        for _ in 0..20 {
+            match Settings::read(&self.config) {
+                Ok(read) => {
+                    let now = read.unwrap_or_default();
+                    now.clone_into(&mut self.last());
+                    return now;
+                }
+                Err(_) => std::thread::sleep(std::time::Duration::from_millis(10)),
+            }
+        }
+        self.last().clone()
+    }
+
+    /// Makes a change and saves it. The change is made to the file as it
+    /// is now, under a lock that other Keevoro programs wait for, so a
+    /// change another program made a moment ago is kept. If it cannot be
+    /// saved, nothing changes.
     pub(crate) fn change<T>(&self, change: impl FnOnce(&mut Settings) -> Result<T>) -> Result<T> {
-        let mut settings = self.settings();
-        let mut changed = settings.clone();
+        let failed = |e: std::io::Error| Error::failed(format!("Keevoro couldn't save its settings: {e}."));
+        std::fs::create_dir_all(&self.config).map_err(failed)?;
+        let lock = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(self.config.join(LOCK))
+            .map_err(failed)?;
+        fs4::FileExt::lock(&lock).map_err(failed)?;
+        let mut changed = Settings::read(&self.config).map_err(failed)?.unwrap_or_default();
         let answer = change(&mut changed)?;
-        changed
-            .save(&self.config)
-            .map_err(|e| Error::failed(format!("Keevoro couldn't save its settings: {e}.")))?;
-        *settings = changed;
+        changed.save(&self.config).map_err(failed)?;
+        *self.last() = changed;
+        // Let go as soon as it is saved; closing the file would too.
+        let _ = fs4::FileExt::unlock(&lock);
         Ok(answer)
     }
 
     /// A copy of everything in the settings file.
     pub fn read(&self) -> Settings {
-        self.settings().clone()
+        self.settings()
     }
 
     /// Keevoro's own data folder, under which new backups are kept.
@@ -207,7 +256,7 @@ impl Backups {
     /// Every backup, in the order they were started. Quick: nothing is
     /// opened or counted.
     pub fn all(&self) -> Vec<Named> {
-        self.settings().backups.clone()
+        self.settings().backups
     }
 
     /// The backup the app has open, if any.
@@ -247,12 +296,12 @@ impl Backups {
 
     /// Makes this backup the open one. False if there is no such backup.
     pub fn switch_to(&self, id: &str) -> Result<bool> {
-        if !self.settings().backups.iter().any(|s| s.id == id) {
-            return Ok(false);
-        }
         self.change(|settings| {
-            settings.current = Some(id.to_string());
-            Ok(true)
+            let there = settings.backups.iter().any(|s| s.id == id);
+            if there {
+                settings.current = Some(id.to_string());
+            }
+            Ok(there)
         })
     }
 
@@ -301,31 +350,8 @@ impl Backups {
                 .and_then(|found| settings.backups.iter().position(|s| s.id == found.id))
                 .ok_or_else(|| Error::no_such_backup(id_or_name))?;
             let gone = settings.backups.remove(at);
-            // A library from before backups would otherwise come back as
-            // "My photos" the next time the file is read.
-            if settings.library.as_ref() == Some(&gone.home) {
-                settings.library = None;
-            }
             settings.fall_back_to_the_first();
             Ok(gone)
-        })
-    }
-
-    /// Kept for the first-run screen of older builds, which chose a library
-    /// folder: that folder becomes a backup of its own, and is opened. It
-    /// goes with the library model.
-    pub fn adopt_library(&self, home: &Path) -> Result<Named> {
-        Backup::open(home)?;
-        self.change(|settings| {
-            let adopted = Named {
-                id: format!("library-{}", settings.backups.len() + 1),
-                name: "My photos".to_string(),
-                home: home.to_path_buf(),
-            };
-            settings.backups.push(adopted.clone());
-            settings.current = Some(adopted.id.clone());
-            settings.library = Some(home.to_path_buf());
-            Ok(adopted)
         })
     }
 }
@@ -348,11 +374,12 @@ mod tests {
         let started = backups.start("Drone footage").unwrap();
         assert_eq!(Settings::load(&config), backups.read());
         assert_eq!(Backups::load(&config, dir.path()).all(), [started]);
-        assert_eq!(
-            std::fs::read_dir(&config).unwrap().count(),
-            1,
-            "no temporary file is left"
-        );
+        let mut left: Vec<String> = std::fs::read_dir(&config)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+            .collect();
+        left.sort();
+        assert_eq!(left, [FILE, LOCK], "no temporary file is left");
     }
 
     #[test]
@@ -361,20 +388,8 @@ mod tests {
         std::fs::write(dir.path().join(FILE), "{ not json").unwrap();
         assert_eq!(Settings::load(dir.path()), Settings::default());
         // A file from a future version with extra fields still loads.
-        std::fs::write(dir.path().join(FILE), r#"{"library":"/photos","theme":"dark"}"#).unwrap();
-        assert_eq!(Settings::load(dir.path()).library, Some(PathBuf::from("/photos")));
-    }
-
-    #[test]
-    fn a_library_from_before_backups_becomes_the_first_backup() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join(FILE), r#"{"library":"/photos/Keevoro Library"}"#).unwrap();
-        let settings = Settings::load(dir.path());
-        let open = settings.open_backup().unwrap();
-        assert_eq!(
-            (open.name.as_str(), &open.home),
-            ("My photos", &PathBuf::from("/photos/Keevoro Library"))
-        );
+        std::fs::write(dir.path().join(FILE), r#"{"plain_decoding":true,"theme":"dark"}"#).unwrap();
+        assert!(Settings::load(dir.path()).plain_decoding);
     }
 
     #[test]
@@ -382,7 +397,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join(FILE),
-            r#"{"library":null,"sessions":[{"id":"session-1","name":"Drone footage","home":"/data/sessions/session-1"}],"current":"session-1"}"#,
+            r#"{"sessions":[{"id":"session-1","name":"Drone footage","home":"/data/sessions/session-1"}],"current":"session-1"}"#,
         )
         .unwrap();
         let settings = Settings::load(dir.path());
@@ -397,9 +412,8 @@ mod tests {
 
     #[test]
     fn an_existing_settings_file_is_read_and_written_exactly_as_before() {
-        // What 0.29 writes, with the codecs switched off.
+        // What is written, with the codecs switched off.
         let before = r#"{
-  "library": null,
   "backups": [
     {
       "id": "backup-1",
@@ -531,17 +545,6 @@ mod tests {
     }
 
     #[test]
-    fn a_forgotten_library_from_before_backups_stays_forgotten() {
-        let dir = tempfile::tempdir().unwrap();
-        let config = dir.path().join("config");
-        std::fs::create_dir_all(&config).unwrap();
-        std::fs::write(config.join(FILE), r#"{"library":"/photos/Keevoro Library"}"#).unwrap();
-        let backups = Backups::load(&config, dir.path());
-        backups.forget("My photos").unwrap();
-        assert!(Backups::load(&config, dir.path()).all().is_empty());
-    }
-
-    #[test]
     fn the_open_backup_is_remembered_and_a_stale_one_falls_back() {
         let dir = tempfile::tempdir().unwrap();
         let mut settings = Settings::default();
@@ -568,14 +571,61 @@ mod tests {
     }
 
     #[test]
-    fn an_old_library_folder_can_still_be_adopted() {
+    fn two_programs_on_one_folder_see_each_others_backups_at_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("config");
+        let app = Backups::load(&config, dir.path());
+        let command_line = Backups::load(&config, dir.path());
+
+        let drone = app.start("Drone footage").unwrap();
+        assert_eq!(
+            command_line.all(),
+            std::slice::from_ref(&drone),
+            "seen without opening again"
+        );
+        let family = command_line.start("Family").unwrap();
+        assert_eq!(app.find("family"), Some(family.clone()));
+        assert_ne!(family.id, drone.id, "an id is never given twice");
+
+        command_line.rename("Drone footage", "Drone").unwrap();
+        assert_eq!(app.find(&drone.id).unwrap().name, "Drone");
+        app.forget("Family").unwrap();
+        assert_eq!(command_line.all().len(), 1);
+        assert_eq!(command_line.current().unwrap().id, drone.id);
+    }
+
+    #[test]
+    fn a_change_never_undoes_another_programs_change() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("config");
+        let programs: Vec<Backups> = (0..4).map(|_| Backups::load(&config, dir.path())).collect();
+        // Each was opened before any of the others changed anything, and
+        // they all change it at once.
+        std::thread::scope(|threads| {
+            for (n, program) in programs.iter().enumerate() {
+                threads.spawn(move || {
+                    for m in 0..5 {
+                        program.start(&format!("Backup {n}.{m}")).unwrap();
+                    }
+                });
+            }
+        });
+        let all = programs[0].all();
+        assert_eq!(all.len(), 20, "{all:?}");
+        let mut ids: Vec<&str> = all.iter().map(|b| b.id.as_str()).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), 20, "every backup has its own folder");
+        assert_eq!(Settings::load(&config).backups, all);
+    }
+
+    #[test]
+    fn a_settings_file_that_disappears_means_no_backups_not_old_ones() {
         let dir = tempfile::tempdir().unwrap();
         let config = dir.path().join("config");
         let backups = Backups::load(&config, dir.path());
-        let library = dir.path().join("Keevoro Library");
-        let adopted = backups.adopt_library(&library).unwrap();
-        assert_eq!(backups.current(), Some(adopted.clone()));
-        assert_eq!(adopted.name, "My photos");
-        assert_eq!(Settings::load(&config).library, Some(library));
+        backups.start("Drone").unwrap();
+        std::fs::remove_file(config.join(FILE)).unwrap();
+        assert!(backups.all().is_empty(), "reset by another program");
     }
 }

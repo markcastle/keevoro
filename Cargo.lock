@@ -2871,9 +2871,11 @@ dependencies = [
 
 [[package]]
 name = "keevoro-api"
-version = "0.29.2"
+version = "0.29.3"
 dependencies = [
  "anyhow",
+ "dirs",
+ "fs4",
  "image",
  "keevoro-catalog",
  "keevoro-core",
@@ -2895,10 +2897,7 @@ dependencies = [
  "image",
  "keevoro-api",
  "keevoro-catalog",
- "keevoro-core",
  "keevoro-engine",
- "keevoro-media",
- "keevoro-scan",
  "keevoro-update",
  "serde",
  "serde_json",
@@ -2928,33 +2927,18 @@ version = "0.29.3"
 dependencies = [
  "anyhow",
  "clap",
- "getrandom 0.3.4",
  "image",
- "keevoro-catalog",
- "keevoro-collect",
- "keevoro-core",
- "keevoro-engine",
- "keevoro-index",
- "keevoro-media",
- "keevoro-publish",
- "keevoro-scan",
- "keevoro-storage",
- "keevoro-storage-folder",
- "keevoro-storage-s3",
+ "keevoro-api",
  "keevoro-update",
- "keyring",
  "rpassword",
- "serde",
  "serde_json",
  "tempfile",
- "tokio",
 ]
 
 [[package]]
 name = "keevoro-collect"
 version = "0.29.3"
 dependencies = [
- "blake3",
  "fs4",
  "image",
  "keevoro-catalog",
@@ -2964,7 +2948,6 @@ dependencies = [
  "keevoro-scan",
  "serde",
  "tempfile",
- "thiserror 2.0.21",
 ]
 
 [[package]]

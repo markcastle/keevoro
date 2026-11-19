@@ -60,11 +60,11 @@ use keevoro_engine::connect::SecretStore;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
-pub use said::{CheckEvent, HintView, Said, ScanEvent, SendEvent, SurveyEvent, SurveyView};
+pub use said::{CheckEvent, HintView, Outcome, Said, ScanEvent, SendEvent, SurveyEvent, SurveyView};
 
 /// How often a running job says how it is getting on. Often enough to feel
 /// alive, not so often that drawing it slows the job down. What it last
@@ -351,17 +351,6 @@ impl Which<'_> {
     }
 }
 
-/// While held, the background check for duplicates gives way, as it does
-/// to a search or a backup. For work done outside the API, such as the
-/// app's gathering.
-pub struct GiveWay(Arc<Jobs>);
-
-impl Drop for GiveWay {
-    fn drop(&mut self) {
-        self.0.holds.fetch_sub(1, Ordering::SeqCst);
-    }
-}
-
 /// What a job is doing now.
 #[derive(Default)]
 struct Now {
@@ -494,7 +483,6 @@ pub(crate) struct Jobs {
     registry: Mutex<Registry>,
     changed: Condvar,
     everyone: Mutex<Vec<Listener>>,
-    holds: AtomicUsize,
     every_ms: AtomicU64,
     by: Mutex<FrontEnd>,
     /// Starting a job is one thing at a time, from the rules about what may
@@ -511,7 +499,6 @@ impl Default for Jobs {
             registry: Mutex::default(),
             changed: Condvar::new(),
             everyone: Mutex::default(),
-            holds: AtomicUsize::new(0),
             every_ms: AtomicU64::new(u64::try_from(PROGRESS_EVERY.as_millis()).unwrap_or(150)),
             by: Mutex::default(),
             starting: Mutex::default(),
@@ -574,14 +561,14 @@ impl Jobs {
                     .iter()
                     .any(|job| job.kind() == kind && !job.finishing.load(Ordering::SeqCst))
             {
-                return Err(Error::refused("That is running already."));
+                return Err(Error::busy("That is running already."));
             }
             if let (Some(slot), Some(backup)) = (kind.slot(), backup) {
                 let taken = registry.running.iter().any(|job| {
                     job.holding.load(Ordering::SeqCst) && job.on_backup(&backup.id) && job.kind().slot() == Some(slot)
                 });
                 if taken {
-                    return Err(Error::refused(slot.refusal()));
+                    return Err(Error::busy(slot.refusal()));
                 }
             }
         }
@@ -590,8 +577,8 @@ impl Jobs {
                 let work: Arc<dyn Work> = self.clone();
                 let work: Weak<dyn Work> = Arc::downgrade(&work);
                 across.take(backup, self.by(), work).map_err(|not| match not {
-                    NotTaken::Held(Some(other)) => Error::refused(other.refusal(&backup.name)),
-                    NotTaken::Held(None) => Error::refused(format!(
+                    NotTaken::Held(Some(other)) => Error::busy(other.refusal(&backup.name)),
+                    NotTaken::Held(None) => Error::busy(format!(
                         "Keevoro is already working on \"{}\" in another program. Let that finish, or stop it, first.",
                         backup.name
                     )),
@@ -603,7 +590,7 @@ impl Jobs {
             } else if kind == JobKind::Duplicates && across.elsewhere(&backup.id).is_some() {
                 // Another program is working on it, and checks for
                 // duplicates itself when it is done.
-                return Err(Error::refused("Another program is working on that backup."));
+                return Err(Error::busy("Another program is working on that backup."));
             }
         }
         let job = Arc::new(Job {
@@ -725,12 +712,6 @@ impl Jobs {
     /// in this program or another.
     pub(crate) fn busy(&self) -> bool {
         self.busy_here() || self.across().is_some_and(|across| !across.others().is_empty())
-    }
-
-    /// Whether the background check should give way now to work in this
-    /// program.
-    pub(crate) fn should_give_way(&self) -> bool {
-        self.busy_here() || self.holds.load(Ordering::SeqCst) > 0
     }
 
     /// True while another program is working on `backup`.
@@ -1040,6 +1021,18 @@ impl Work for Jobs {
     }
 }
 
+/// A drive or folder to look through must be there to be looked through.
+fn must_be_there(place: &Path) -> Result<()> {
+    if place.is_dir() {
+        Ok(())
+    } else {
+        Err(Error::not_found(format!(
+            "Keevoro can't find the drive or folder {}. Is it plugged in?",
+            place.display()
+        )))
+    }
+}
+
 /// Seconds since 1970, as the backup's history records them.
 pub(crate) fn seconds_now() -> i64 {
     std::time::SystemTime::now()
@@ -1144,12 +1137,14 @@ impl Keevoro {
     /// videos, reading listings only. `backup`, when given, is used to say
     /// which of them are already its sources; nothing is changed.
     pub fn survey(&self, place: &Path, backup: Option<&Named>, listener: Option<Listener>) -> Result<JobHandle> {
+        must_be_there(place)?;
         surveying::start(&self.context(), place, backup, listener)
     }
 
     /// `sources.look`: looks through a drive or folder quickly and adds it
     /// to the backup as a source.
     pub fn look(&self, backup: &Named, place: &Path, listener: Option<Listener>) -> Result<JobHandle> {
+        must_be_there(place)?;
         looking::start(
             &self.context(),
             backup,
@@ -1226,13 +1221,6 @@ impl Keevoro {
     /// background check that a search or a backup starts when it ends.
     pub fn wait_for_jobs(&self) {
         self.jobs.wait_until_idle();
-    }
-
-    /// While the answer is held, the background check for duplicates gives
-    /// way, as it does to a search or a backup.
-    pub fn give_way(&self) -> GiveWay {
-        self.jobs.holds.fetch_add(1, Ordering::SeqCst);
-        GiveWay(self.jobs.clone())
     }
 
     /// True while a search, a backup or a check is running, in this

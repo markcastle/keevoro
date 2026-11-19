@@ -1,0 +1,632 @@
+//! The command line, run as a person or a script runs it, against Keevoro
+//! in a temporary folder with a keychain in memory and no network.
+
+use crate::commands::{program, ROWS};
+use crate::{run, Code, Failure, Io};
+use keevoro_api::{call, entries, FrontEnd, Keevoro, Op, SecretStore};
+use serde_json::{json, Value};
+use std::collections::{BTreeMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+
+/// Storage keys kept in memory, so no test touches the real keychain.
+#[derive(Default)]
+struct KeysInMemory(Mutex<BTreeMap<String, String>>);
+
+impl SecretStore for KeysInMemory {
+    fn get(&self, name: &str) -> anyhow::Result<Option<String>> {
+        Ok(self.0.lock().unwrap().get(name).cloned())
+    }
+    fn set(&self, name: &str, value: &str) -> anyhow::Result<()> {
+        self.0.lock().unwrap().insert(name.into(), value.into());
+        Ok(())
+    }
+    fn delete(&self, name: &str) -> anyhow::Result<()> {
+        self.0.lock().unwrap().remove(name);
+        Ok(())
+    }
+}
+
+/// Pausing is one switch for the whole program, and stopping a job lifts
+/// it, so tests that run jobs take turns.
+static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+
+/// Takes a turn, and lifts any pause however the test ends.
+struct Turn(#[allow(dead_code)] std::sync::MutexGuard<'static, ()>);
+
+fn one_at_a_time() -> Turn {
+    Turn(ONE_AT_A_TIME.lock().unwrap_or_else(std::sync::PoisonError::into_inner))
+}
+
+impl Drop for Turn {
+    fn drop(&mut self) {
+        lift_the_pause();
+    }
+}
+
+/// Lifts the pause, through the API as any program would.
+fn lift_the_pause() {
+    let dir = tempfile::tempdir().unwrap();
+    keevoro_in(dir.path(), FrontEnd::App).carry_on();
+}
+
+/// No network: there is never an update.
+struct Offline;
+
+impl keevoro_update::Web for Offline {
+    fn text(&self, _: &str) -> Result<String, keevoro_update::UpdateError> {
+        Err(keevoro_update::UpdateError::Network("offline".into()))
+    }
+    fn bytes(&self, _: &str) -> Result<Vec<u8>, keevoro_update::UpdateError> {
+        Err(keevoro_update::UpdateError::Network("offline".into()))
+    }
+}
+
+/// Keevoro's folders, as one of its programs would open them.
+fn keevoro_in(dir: &Path, front_end: FrontEnd) -> Keevoro {
+    Keevoro::open(&keevoro_api::Folders::under(&dir.join("home")))
+        .as_front_end(front_end)
+        .with_secrets(KeysInMemory::default())
+        .with_web(Offline)
+        .with_progress_every(std::time::Duration::ZERO)
+}
+
+/// What one command did.
+struct Ran {
+    code: Code,
+    out: String,
+    err: String,
+}
+
+impl Ran {
+    fn json(&self) -> Value {
+        serde_json::from_str(self.out.trim()).unwrap_or_else(|e| panic!("{e}: {}", self.out))
+    }
+}
+
+/// A person, or a script, at a command line.
+struct At<'a> {
+    dir: &'a Path,
+    env: Vec<(&'static str, String)>,
+    stdin: String,
+    watched: bool,
+    keyboard: bool,
+}
+
+impl<'a> At<'a> {
+    fn new(dir: &'a Path) -> Self {
+        Self {
+            dir,
+            env: Vec::new(),
+            stdin: String::new(),
+            watched: false,
+            keyboard: false,
+        }
+    }
+
+    fn keevoro(&self, args: &[&str]) -> Ran {
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let mut input = std::io::Cursor::new(self.stdin.clone().into_bytes());
+        let env = self.env.clone();
+        let lookup = move |name: &str| env.iter().find(|(n, _)| *n == name).map(|(_, v)| v.clone());
+        let mut io = Io {
+            out: &mut out,
+            err: &mut err,
+            input: &mut input,
+            env: &lookup,
+            watched: self.watched,
+            keyboard: self.keyboard,
+            ask_hidden: &|_| None,
+        };
+        let dir = self.dir.to_path_buf();
+        let opener = move |_: &Io<'_>| -> Result<Keevoro, Failure> { Ok(keevoro_in(&dir, FrontEnd::CommandLine)) };
+        let mut all = vec!["keevoro".into()];
+        all.extend(args.iter().map(|a| std::ffi::OsString::from(*a)));
+        let code = run(all, &mut io, &opener);
+        Ran {
+            code,
+            out: String::from_utf8(out).unwrap(),
+            err: String::from_utf8(err).unwrap(),
+        }
+    }
+}
+
+fn jpeg(shade: u8) -> Vec<u8> {
+    let img = image::RgbImage::from_pixel(640, 480, image::Rgb([shade, 120, 60]));
+    let mut bytes = Vec::new();
+    img.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Jpeg)
+        .unwrap();
+    bytes
+}
+
+/// A memory card with an album, a dated photo, a duplicate and a picture
+/// too small to be a photo.
+fn card(dir: &Path) -> PathBuf {
+    let card = dir.join("Card");
+    for (rel, shade) in [
+        ("Holidays/Cornwall/IMG_20080812_101500.jpg", 10),
+        ("Holidays/Cornwall/IMG_20080813_090000.jpg", 90),
+        ("DCIM/100CANON/IMG_20120304_153012.jpg", 170),
+        ("Backup/IMG_20080812_101500.jpg", 10),
+    ] {
+        let p = card.join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, jpeg(shade)).unwrap();
+    }
+    let tiny = image::RgbImage::from_pixel(240, 180, image::Rgb([90, 90, 90]));
+    tiny.save(card.join("DCIM/1952.png")).unwrap();
+    card
+}
+
+fn text(path: &Path) -> String {
+    path.display().to_string()
+}
+
+/// Every file under `dir`.
+fn everything_written(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+    let mut found = Vec::new();
+    let mut folders = vec![dir.to_path_buf()];
+    while let Some(folder) = folders.pop() {
+        for entry in std::fs::read_dir(folder).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                folders.push(path);
+            } else if let Ok(bytes) = std::fs::read(&path) {
+                found.push((path, bytes));
+            }
+        }
+    }
+    found
+}
+
+#[test]
+fn every_operation_the_register_offers_the_command_line_has_a_command() {
+    let called: HashSet<Op> = ROWS.iter().flat_map(|row| row.ops.iter().copied()).collect();
+    for entry in entries().filter(|e| e.command_line) {
+        assert!(
+            called.contains(&entry.op),
+            "{} is offered to the command line, but no command calls it. Add a row for it in commands.rs.",
+            entry.name
+        );
+    }
+    for row in ROWS {
+        for op in row.ops {
+            assert!(
+                op.entry().command_line,
+                "{} calls {}, which is not for the command line",
+                row.typed(),
+                op.name()
+            );
+        }
+    }
+    let typed: HashSet<&[&str]> = ROWS.iter().map(|row| row.words).collect();
+    assert_eq!(typed.len(), ROWS.len(), "two commands are typed the same way");
+}
+
+#[test]
+fn what_each_command_does_is_the_registers_own_words() {
+    let help = program().render_long_help().to_string();
+    for row in ROWS {
+        let about = row.about();
+        assert!(!about.contains('\u{2014}') && !about.contains('\u{2013}'), "{about}");
+        assert!(about.ends_with('.'), "{about}");
+        if row.about.is_none() {
+            assert_eq!(about, format!("{}.", row.ops[0].entry().does));
+        }
+        if row.words.len() == 1 {
+            assert!(help.contains(&about), "`keevoro --help` should say: {about}");
+        }
+        // A job can be left to run on its own, because the register says
+        // it is one.
+        let top = program();
+        let first = top.find_subcommand(row.words[0]).unwrap();
+        let command = match row.words.get(1) {
+            Some(second) => first.find_subcommand(second).unwrap(),
+            None => first,
+        };
+        let detach = command.get_arguments().any(|a| a.get_id() == "detach");
+        assert_eq!(detach, row.starts_a_job(), "{}", row.typed());
+    }
+    let ran = At::new(Path::new(".")).keevoro(&["--help"]);
+    assert_eq!(ran.code, Code::Worked);
+    assert!(ran.out.contains("Usage: keevoro"), "{}", ran.out);
+}
+
+#[test]
+fn a_first_backup_from_start_to_finish() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let card = card(dir.path());
+    let usb = dir.path().join("USB");
+    let at = At::new(dir.path());
+
+    let ran = at.keevoro(&["backups"]);
+    assert!(ran.out.contains("There are no backups yet"), "{}", ran.out);
+    let ran = at.keevoro(&["backups", "start", "Drone footage"]);
+    assert_eq!(ran.code, Code::Worked);
+    assert!(
+        ran.out.starts_with("Started the backup \"Drone footage\"."),
+        "{}",
+        ran.out
+    );
+
+    let ran = at.keevoro(&["look", &text(&card), "-b", "drone footage"]);
+    assert_eq!(ran.code, Code::Worked, "{}", ran.err);
+    assert!(ran.out.contains("Looked through Card: found"), "{}", ran.out);
+
+    let ran = at.keevoro(&["found"]);
+    assert!(ran.out.starts_with("Found 3 photos and 0 videos"), "{}", ran.out);
+    assert!(ran.out.contains("1 duplicate left out"), "{}", ran.out);
+    assert!(ran.out.contains("1 picture set aside"), "{}", ran.out);
+
+    let ran = at.keevoro(&["collections"]);
+    assert!(ran.out.contains("Holidays / Cornwall"), "{}", ran.out);
+    let ran = at.keevoro(&["photos", "Cornwall"]);
+    assert_eq!(ran.out.lines().count(), 2, "{}", ran.out);
+    let first = ran.out.split_whitespace().next().unwrap().to_string();
+    let ran = at.keevoro(&["skip", "Cornwall"]);
+    assert!(
+        ran.out.starts_with("Leaving out that collection (2 files)"),
+        "{}",
+        ran.out
+    );
+    let ran = at.keevoro(&["keep", "--photo", &first]);
+    assert!(ran.out.starts_with("Keeping that one"), "{}", ran.out);
+    let ran = at.keevoro(&["set-aside"]);
+    assert!(ran.out.contains("1952.png"), "{}", ran.out);
+
+    let ran = at.keevoro(&["destinations", "add", "--folder", &text(&usb)]);
+    assert_eq!(ran.code, Code::Worked, "{}", ran.err);
+    assert!(ran.out.contains("works, and will back up there"), "{}", ran.out);
+    let ran = at.keevoro(&["rehearse"]);
+    assert!(ran.out.contains("2 files"), "{}", ran.out);
+
+    let ran = at.keevoro(&["run"]);
+    assert_eq!(ran.code, Code::Worked, "{}{}", ran.out, ran.err);
+    assert!(ran.out.contains("Safely backed up 2 files"), "{}", ran.out);
+    assert!(
+        ran.err.contains("Getting ready"),
+        "the steps are said as it goes: {}",
+        ran.err
+    );
+    assert!(usb.join("originals").is_dir());
+
+    let ran = at.keevoro(&["history"]);
+    assert!(ran.out.contains("to the folder"), "{}", ran.out);
+    let ran = at.keevoro(&["last-backup"]);
+    assert!(ran.out.contains("Safely backed up 2 files"), "{}", ran.out);
+    let ran = at.keevoro(&["check"]);
+    assert_eq!(ran.code, Code::Worked, "{}{}", ran.out, ran.err);
+    assert!(
+        ran.out.contains("Your backup: all 2 originals are there."),
+        "{}",
+        ran.out
+    );
+    let ran = at.keevoro(&["status"]);
+    assert_eq!(ran.out.trim(), "Nothing is running.");
+
+    let ran = at.keevoro(&["destinations", "remove", "1"]);
+    assert!(ran.out.starts_with("No longer backing up to the folder"), "{}", ran.out);
+    assert!(usb.join("originals").is_dir(), "nothing stored there was touched");
+    let ran = at.keevoro(&["sources", "forget", "Card"]);
+    assert_eq!(ran.code, Code::Worked, "{}", ran.err);
+    assert!(
+        card.join("DCIM/1952.png").is_file(),
+        "nothing on the source was touched"
+    );
+}
+
+#[test]
+fn json_is_exactly_what_the_api_answers() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let card = card(dir.path());
+    let at = At::new(dir.path());
+    at.keevoro(&["backups", "start", "Card photos"]);
+    at.keevoro(&["look", &text(&card)]);
+    let api = keevoro_in(dir.path(), FrontEnd::App);
+    for (typed, op, request) in [
+        (vec!["backups"], Op::BackupsList, json!({})),
+        (vec!["sources"], Op::SourcesList, Value::Null),
+        (vec!["found"], Op::FoundSummary, Value::Null),
+        (vec!["collections"], Op::CollectionsList, Value::Null),
+        (
+            vec!["photos", "Holidays / Cornwall"],
+            Op::CollectionsPhotos,
+            json!({ "collection": "Holidays / Cornwall" }),
+        ),
+        (vec!["set-aside"], Op::SetAsideList, Value::Null),
+        (vec!["duplicates"], Op::DuplicatesList, Value::Null),
+        (vec!["destinations"], Op::DestinationsList, Value::Null),
+        (vec!["room"], Op::DestinationsRoom, json!({})),
+        (vec!["rehearse"], Op::BackupRehearse, json!({})),
+        (vec!["history"], Op::BackupHistory, Value::Null),
+        (vec!["previews"], Op::BackupPreviews, json!({})),
+        (vec!["about"], Op::KeevoroAbout, Value::Null),
+        (vec!["settings"], Op::KeevoroSettings, json!({})),
+        (vec!["agents"], Op::AgentsAccess, json!({})),
+        (vec!["update", "--check"], Op::KeevoroUpdate, json!({})),
+    ] {
+        let mut args = typed.clone();
+        args.push("--json");
+        let ran = at.keevoro(&args);
+        assert_eq!(ran.code, Code::Worked, "{typed:?}: {}", ran.err);
+        assert_eq!(ran.json(), call(&api, op, None, request).unwrap(), "{typed:?}");
+    }
+
+    // A job says each thing on a line of its own: how it started, then the
+    // same events the app hears, the last one last.
+    let ran = at.keevoro(&["look", "--again", "--json"]);
+    let lines: Vec<Value> = ran.out.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    assert_eq!(lines[0]["op"], "sources.look_again");
+    assert_eq!(lines[0]["startedBy"], "commandLine");
+    assert!(lines[1..]
+        .iter()
+        .all(|e| e["job"] == lines[0]["id"] && e["event"] == "scan"));
+    assert_eq!(lines.last().unwrap()["said"]["finished"], true);
+    assert!(ran.err.is_empty(), "nothing else is said: {}", ran.err);
+}
+
+#[test]
+fn exit_codes_say_what_happened_without_reading_the_words() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let card = card(dir.path());
+    let at = At::new(dir.path());
+
+    assert_eq!(at.keevoro(&["frobnicate"]).code, Code::NotUnderstood);
+    assert_eq!(at.keevoro(&["backups", "-b", "x"]).code, Code::NotUnderstood);
+    assert_eq!(at.keevoro(&["keep"]).code, Code::NotUnderstood);
+
+    let none = at.keevoro(&["found"]);
+    assert_eq!((none.code, none.err.trim()), (Code::NotFound, "Choose a backup first."));
+    at.keevoro(&["backups", "start", "Card photos"]);
+    assert_eq!(at.keevoro(&["found", "-b", "Holidays"]).code, Code::NotFound);
+    assert_eq!(
+        at.keevoro(&["look", &text(&dir.path().join("Unplugged"))]).code,
+        Code::NotFound
+    );
+    assert_eq!(at.keevoro(&["look", &text(&card)]).code, Code::Worked);
+    assert_eq!(at.keevoro(&["photos", "Narnia"]).code, Code::NotFound);
+    assert_eq!(
+        at.keevoro(&["stop"]).code,
+        Code::Worked,
+        "nothing to stop is no problem"
+    );
+    assert_eq!(at.keevoro(&["stop", "12"]).code, Code::NotFound);
+    assert_eq!(at.keevoro(&["follow", "12"]).code, Code::NotFound);
+
+    // Nowhere to back up to is refused; a destination out of reach is said.
+    assert_eq!(at.keevoro(&["run"]).code, Code::Refused);
+    let usb = dir.path().join("USB");
+    at.keevoro(&["destinations", "add", "--folder", &text(&usb)]);
+    std::fs::remove_dir_all(&usb).unwrap();
+    std::fs::write(&usb, "in the way").unwrap();
+    let ran = at.keevoro(&["run"]);
+    assert_eq!(ran.code, Code::Unreachable, "{}{}", ran.out, ran.err);
+    assert_eq!(at.keevoro(&["check"]).code, Code::Unreachable);
+    std::fs::remove_file(&usb).unwrap();
+
+    // A file gone from its source since it was found cannot be backed up.
+    std::fs::remove_file(card.join("DCIM/100CANON/IMG_20120304_153012.jpg")).unwrap();
+    let ran = at.keevoro(&["run"]);
+    assert_eq!(ran.code, Code::SomeFiles, "{}{}", ran.out, ran.err);
+    assert!(ran.out.contains("Couldn't back up 1 file"), "{}", ran.out);
+
+    // Another program working on the backup.
+    let app = keevoro_in(dir.path(), FrontEnd::App);
+    app.pause();
+    let named = app.backups().find("Card photos").unwrap();
+    let job = app.look(&named, &card, None).unwrap();
+    let busy = at.keevoro(&["look", "--again"]);
+    assert_eq!(busy.code, Code::Busy);
+    assert!(busy.err.contains("in the Keevoro app"), "{}", busy.err);
+    // The app shares what it is doing a few times a second.
+    let started = std::time::Instant::now();
+    let ran = loop {
+        let ran = at.keevoro(&["status"]);
+        if !ran.out.starts_with("Nothing is running") || started.elapsed().as_secs() > 20 {
+            break ran;
+        }
+        std::thread::yield_now();
+    };
+    assert!(
+        ran.out
+            .contains("Looking through a source for \"Card photos\" in the Keevoro app"),
+        "{}",
+        ran.out
+    );
+    let ran = at.keevoro(&["stop"]);
+    assert!(ran.out.starts_with("Asked it to stop"), "{}", ran.out);
+    app.carry_on();
+    app.wait(job.id);
+    app.wait_for_jobs();
+
+    // Resetting is asked about first, and only a yes will do.
+    assert_eq!(
+        at.keevoro(&["reset"]).code,
+        Code::NotUnderstood,
+        "no keyboard and no --yes"
+    );
+    let mut asked = At::new(dir.path());
+    asked.keyboard = true;
+    asked.stdin = "no\n".into();
+    assert_eq!(asked.keevoro(&["reset"]).code, Code::Refused);
+    assert_eq!(at.keevoro(&["backups", "--json"]).json().as_array().unwrap().len(), 1);
+    let ran = at.keevoro(&["reset", "--yes"]);
+    assert_eq!(ran.code, Code::Worked, "{}", ran.err);
+    assert!(ran.out.contains("1 backup forgotten"), "{}", ran.out);
+}
+
+#[test]
+fn the_app_and_the_command_line_see_each_others_backups_at_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let at = At::new(dir.path());
+    // The app is open the whole time, from before anything was made.
+    let app = keevoro_in(dir.path(), FrontEnd::App);
+    app.start_backup("Family photos").unwrap();
+    assert!(at.keevoro(&["backups"]).out.starts_with("Family photos"));
+    at.keevoro(&["backups", "start", "Drone footage"]);
+    at.keevoro(&["backups", "rename", "Family photos", "Family"]);
+    let names: Vec<String> = app.list_backups().into_iter().map(|b| b.name).collect();
+    assert_eq!(names, ["Family", "Drone footage"]);
+    app.forget_backup("Drone footage").unwrap();
+    assert_eq!(at.keevoro(&["backups", "--json"]).json().as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn progress_is_one_line_rewritten_when_watched_and_plain_lines_when_not() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let card = card(dir.path());
+    let mut at = At::new(dir.path());
+    at.keevoro(&["backups", "start", "Card photos"]);
+    let piped = at.keevoro(&["look", &text(&card)]);
+    assert!(
+        !piped.err.contains('\r') && !piped.err.contains('\u{1b}'),
+        "{:?}",
+        piped.err
+    );
+    assert!(piped.err.lines().count() >= 1, "{:?}", piped.err);
+    at.watched = true;
+    let watched = at.keevoro(&["look", &text(&card)]);
+    assert!(watched.err.contains("\r\u{1b}[2K  "), "{:?}", watched.err);
+    assert!(
+        watched.err.ends_with("\r\u{1b}[2K"),
+        "and it is cleared at the end: {:?}",
+        watched.err
+    );
+}
+
+#[test]
+fn smaller_things_a_backup_can_be_asked() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let card = card(dir.path());
+    let at = At::new(dir.path());
+    at.keevoro(&["backups", "start", "Card photos"]);
+    at.keevoro(&["look", &text(&card)]);
+
+    let ran = at.keevoro(&["sources"]);
+    assert!(ran.out.starts_with("1. Card  "), "{}", ran.out);
+    let ran = at.keevoro(&["sources", "types", "1", "--leave-out", "png"]);
+    assert!(ran.out.starts_with("Leaving out .png files"), "{}", ran.out);
+    let ran = at.keevoro(&["sources", "types", &text(&card)]);
+    assert!(ran.out.contains(".png") && ran.out.contains("left out"), "{}", ran.out);
+
+    let ran = at.keevoro(&["photos", "--json", "Cornwall"]);
+    let photo = ran.json()[0]["id"].as_str().unwrap().to_string();
+    let to = dir.path().join("look.webp");
+    let ran = at.keevoro(&["picture", &photo, "--large", "--to", &text(&to)]);
+    assert_eq!(ran.code, Code::Worked, "{}", ran.err);
+    assert_eq!(&std::fs::read(&to).unwrap()[..4], b"RIFF");
+    assert_eq!(
+        at.keevoro(&["picture", &photo]).code,
+        Code::NotUnderstood,
+        "it says where"
+    );
+
+    let ran = at.keevoro(&["previews", "off"]);
+    assert!(ran.out.contains("originals alone"), "{}", ran.out);
+    let ran = at.keevoro(&["settings", "set", "own-codecs", "off"]);
+    assert!(ran.out.starts_with("own-codecs: off"), "{}", ran.out);
+    at.keevoro(&["settings", "set", "own-codecs", "on"]);
+    let photos = text(&dir.path().join("Photos"));
+    let ran = at.keevoro(&["agents", "allow", "--look", &photos]);
+    assert!(ran.out.contains(&photos), "{}", ran.out);
+    let ran = at.keevoro(&["agents", "allow-changes", "on"]);
+    assert!(ran.out.contains("It may make changes."), "{}", ran.out);
+    let ran = at.keevoro(&["agents", "allow", "--none"]);
+    assert!(ran.out.contains("may look through no folders"), "{}", ran.out);
+
+    for (typed, says) in [
+        (vec!["about"], "Keevoro "),
+        (vec!["activity"], ""),
+        (vec!["places"], ""),
+        (vec!["duplicates"], "also IMG_20080812_101500.jpg"),
+        (vec!["update", "--check"], "There is no newer Keevoro"),
+        (vec!["log", "--lines", "3"], "20"),
+        (vec!["pause"], "Paused"),
+        (vec!["carry-on"], "Carrying on"),
+        (vec!["follow"], "Nothing is running."),
+    ] {
+        let ran = at.keevoro(&typed);
+        assert_eq!(ran.code, Code::Worked, "{typed:?}: {}", ran.err);
+        assert!(ran.out.contains(says), "{typed:?}: {}", ran.out);
+    }
+    let ran = at.keevoro(&["backups", "forget", "Card photos"]);
+    assert!(
+        ran.out.contains("Nothing at any source or destination was touched"),
+        "{}",
+        ran.out
+    );
+}
+
+#[test]
+fn a_key_given_is_never_shown_logged_or_written_down() {
+    const ACCESS: &str = "AKIAKEEVOROCLIMARKER01";
+    const SECRET: &str = "keevoro-cli-secret-marker/0002+abc";
+    let dir = tempfile::tempdir().unwrap();
+    let at = At::new(dir.path());
+    at.keevoro(&["backups", "start", "Card photos"]);
+    // Nothing listens here, so the storage cannot be reached and is not added.
+    let add = [
+        "destinations",
+        "add",
+        "--endpoint",
+        "http://127.0.0.1:9",
+        "--bucket",
+        "family",
+    ];
+
+    let mut from_stdin = At::new(dir.path());
+    from_stdin.stdin = format!("{ACCESS}\n{SECRET}\n");
+    let mut args = add.to_vec();
+    args.push("--keys-from-stdin");
+    let mut ran = vec![from_stdin.keevoro(&args)];
+    let mut json = args.clone();
+    json.push("--json");
+    ran.push(from_stdin.keevoro(&json));
+
+    let mut from_env = At::new(dir.path());
+    from_env.env = vec![
+        (crate::keys::ACCESS_VAR, ACCESS.to_string()),
+        (crate::keys::SECRET_VAR, SECRET.to_string()),
+    ];
+    ran.push(from_env.keevoro(&add));
+
+    let mut typed = add.to_vec();
+    typed.extend(["--access-key-id", ACCESS, "--secret-access-key", SECRET]);
+    ran.push(at.keevoro(&typed));
+
+    for said in &ran {
+        assert_eq!(said.code, Code::Unreachable, "{}", said.err);
+        for text in [&said.out, &said.err] {
+            assert!(!text.contains(ACCESS) && !text.contains(SECRET), "{text}");
+        }
+    }
+    let written = everything_written(&dir.path().join("home"));
+    assert!(written.iter().any(|(path, _)| path.ends_with("keevoro.log")));
+    for (path, bytes) in written {
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(
+            !text.contains(ACCESS) && !text.contains(SECRET),
+            "a key was written to {}",
+            path.display()
+        );
+    }
+
+    // Without any keys, and nobody at the keyboard to ask, it says how.
+    let ran = at.keevoro(&add);
+    assert_eq!(ran.code, Code::NotUnderstood);
+    assert!(ran.err.contains("--keys-from-stdin"), "{}", ran.err);
+    // The help says where keys typed on the command end up.
+    let help = program()
+        .find_subcommand("destinations")
+        .and_then(|d| d.find_subcommand("add"))
+        .unwrap()
+        .clone()
+        .render_long_help()
+        .to_string();
+    assert!(help.contains("kept in your shell's history"), "{help}");
+}

@@ -61,11 +61,11 @@ pub struct PhotoView {
     pub id: String,
     pub is_video: bool,
     pub name: String,
-    /// Where it is on the old drive. The app asks for a preview by `id`,
+    /// Where it is on its source. The app asks for a preview by `id`,
     /// never by this path; it is here for showing, not for reading.
     pub source_path: String,
-    /// The thumbnail in the library, once gathered, relative to the
-    /// library folder. `None` before then.
+    /// The thumbnail a backup made of it, relative to the backup's own
+    /// folder. `None` before then.
     pub thumbnail: Option<String>,
 }
 
@@ -83,7 +83,7 @@ pub struct CollectionView {
     pub videos: usize,
     /// False when the user has skipped every file in it.
     pub kept: bool,
-    /// How many of its files are safely in the library already.
+    /// How many of its files are safely backed up already.
     pub gathered: usize,
     pub cover: PhotoView,
     /// The first few files, cover first, for a collage.
@@ -122,7 +122,7 @@ pub struct Discover {
     pub duplicate_bytes: u64,
     /// Pictures set aside as probably not memories.
     pub junk: usize,
-    /// Files being kept that are not yet in the library.
+    /// Files being kept that are not yet safely at every destination.
     pub waiting_to_gather: usize,
     /// How much room those waiting files will need where they are sent,
     /// in bytes.
@@ -177,7 +177,7 @@ fn photo_view(library: &Path, catalog: &Catalog, item: &FoundItem) -> Result<Pho
     let hash = item.blake3.as_deref().unwrap_or_default();
     let id = hash[..hash.len().min(16)].to_string();
     let is_video = item.kind == MediaKind::Video;
-    // A thumbnail exists once the file is gathered and previewed.
+    // A thumbnail exists once a backup has made the file's previews.
     let kind = if is_video { Rendition::Poster } else { Rendition::Thumb };
     let relative = rendition_path(kind, &id);
     let on_disk = relative.split('/').fold(library.to_path_buf(), |p, s| p.join(s));
@@ -196,7 +196,7 @@ fn photo_view(library: &Path, catalog: &Catalog, item: &FoundItem) -> Result<Pho
     })
 }
 
-/// Builds the Discover view from everything the library remembers.
+/// Builds the Discover view from everything the backup remembers.
 pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
     let reports = catalog.load_reports()?;
     let rescued = catalog.kept_hashes()?;
@@ -224,18 +224,17 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
         for item in &members {
             let is_wanted = wanted(catalog, item)?;
             kept |= is_wanted;
-            // Safe means a copy is everywhere it is meant to be: in this
-            // library's own folder, or at every destination of the backup.
-            // At some but not all is not safe yet; that is the whole point
-            // of having more than one.
+            // Safe means a copy is everywhere it is meant to be: at every
+            // destination of the backup. At some but not all is not safe
+            // yet; that is the whole point of having more than one.
             let place = match &item.blake3 {
-                Some(hash) => catalog.collected_path(hash)?.map(|place| (hash, place)),
+                Some(hash) => catalog.collected_path(hash)?,
                 None => None,
             };
             let mut everywhere = !places.is_empty();
             for (to, tally) in places.iter().zip(tallies.iter_mut()) {
                 let there = match &place {
-                    Some((_, place)) => reached(place, to)?,
+                    Some(place) => reached(place, to)?,
                     None => false,
                 };
                 everywhere &= there;
@@ -249,9 +248,7 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
                 }
             }
             let is_in = match &place {
-                Some((hash, place)) => {
-                    catalog.is_here(hash)? || everywhere || (places.is_empty() && catalog.stored_anywhere(place)?)
-                }
+                Some(place) => everywhere || (places.is_empty() && catalog.stored_anywhere(place)?),
                 None => false,
             };
             gathered += usize::from(is_in);
@@ -461,7 +458,7 @@ pub fn duplicates(library: &Path, catalog: &Catalog) -> Result<Vec<DuplicateGrou
 /// Keeps or skips the one file whose content id starts with `id`.
 pub fn set_photo_kept(catalog: &Catalog, id: &str, keep: bool) -> Result<()> {
     let Some((_, _, hash)) = catalog.find_item(id)? else {
-        bail!("That photo isn't known to this library.");
+        bail!("That photo isn't known to this backup.");
     };
     catalog.set_choice(&hash, keep)?;
     Ok(())
@@ -470,7 +467,7 @@ pub fn set_photo_kept(catalog: &Catalog, id: &str, keep: bool) -> Result<()> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::{gather_everything, scan_into};
+    use crate::scan_into;
     use std::fs;
 
     pub(crate) fn real_jpeg(shade: u8) -> Vec<u8> {
@@ -620,86 +617,22 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn gathering_fills_in_thumbnails_and_counts() {
+    fn previews_made_for_a_backup_fill_in_thumbnails() {
         let (_dir, library, catalog) = world();
         set_collection_kept(&catalog, "March 2012", false).unwrap();
         let mut steps = Vec::new();
-        let outcome = gather_everything(&library, &catalog, false, None, &mut |s| steps.push(s))
-            .unwrap()
-            .unwrap();
-        assert_eq!((outcome.copied.copied, outcome.previews.made), (2, 2));
-        assert!(outcome.videos.is_none() && !outcome.videos_need_ffmpeg);
-        assert!(steps.contains(&crate::GatherStep::Copying { done: 2, total: 2 }));
-        assert!(steps.contains(&crate::GatherStep::MakingPreviews { done: 2, total: 2 }));
+        crate::check_and_place(&library, &catalog, &|| true, &mut |s| steps.push(s)).unwrap();
+        crate::make_previews(&library, &catalog, None, &|| true, &mut |s| steps.push(s)).unwrap();
+        assert!(steps.contains(&crate::ReadyStep::Placing { done: 0, total: 2 }));
+        assert!(steps.contains(&crate::ReadyStep::MakingPreviews { done: 2, total: 2 }));
 
         let d = discover(&library, &catalog).unwrap();
-        assert_eq!(d.waiting_to_gather, 0);
-        assert_eq!(d.waiting_bytes, 0, "nothing more is needed once everything is safe");
+        assert_eq!(d.waiting_to_gather, 2, "made ready is not backed up");
         let cornwall = &d.collections[1];
-        assert_eq!(cornwall.gathered, 2);
         let thumb = cornwall.cover.thumbnail.as_deref().unwrap();
         assert_eq!(thumb, format!("renditions/thumb/{}.webp", cornwall.cover.id));
         assert!(library.join(thumb).is_file());
-        assert_eq!(d.collections[0].gathered, 0);
-
-        let said = outcome.sentences();
-        assert_eq!(said.len(), 1, "{said:?}");
-        assert!(said[0].starts_with("Safely copied 2 files ("), "{said:?}");
-        let again = gather_everything(&library, &catalog, false, None, &mut |_| {})
-            .unwrap()
-            .unwrap();
-        assert_eq!(
-            again.sentences(),
-            ["Everything you're keeping was already safely in your library."]
-        );
-
-        // Nothing kept means nothing to do.
-        set_collection_kept(&catalog, "Holidays / Cornwall", false).unwrap();
-        assert!(gather_everything(&library, &catalog, false, None, &mut |_| {})
-            .unwrap()
-            .is_none());
-    }
-
-    #[test]
-    fn the_end_of_a_gather_is_explained_including_what_needs_attention() {
-        let dir = tempfile::tempdir().unwrap();
-        let drive = dir.path().join("drive");
-        fs::create_dir_all(&drive).unwrap();
-        fs::write(drive.join("good.jpg"), real_jpeg(10)).unwrap();
-        fs::write(drive.join("gone.jpg"), real_jpeg(200)).unwrap();
-        // Recognised as a photo by its first bytes, but not a real picture.
-        let mut odd = vec![
-            0xFF, 0xD8, 0xFF, 0xE0, 0, 16, b'J', b'F', b'I', b'F', 0, 1, 1, 0, 0, 1, 0, 1, 0, 0,
-        ];
-        odd.extend([7u8; 64]);
-        fs::write(drive.join("odd.jpg"), odd).unwrap();
-        fs::write(
-            drive.join("clip.mp4"),
-            b"\0\0\0\x18ftypisom\0\0\x02\0isomiso2 pretend video",
-        )
-        .unwrap();
-        let library = dir.path().join("library");
-        let mut catalog = Catalog::open_in_library(&library).unwrap();
-        scan_into(&mut catalog, &drive, None, &mut |_| {}).unwrap();
-        fs::remove_file(drive.join("gone.jpg")).unwrap();
-
-        let outcome = gather_everything(&library, &catalog, true, None, &mut |_| {})
-            .unwrap()
-            .unwrap();
-        let said = outcome.sentences();
-        assert_eq!(said.len(), 4, "{said:?}");
-        assert!(said[0].starts_with("Safely copied 3 files ("), "{said:?}");
-        assert!(
-            said[1].starts_with("1 file couldn't be copied. Nothing was lost"),
-            "{said:?}"
-        );
-        assert_eq!(
-            said[2],
-            "1 photo can't be previewed yet. The originals are safe in your library."
-        );
-        // Whether the computer has no decoder at all or one that cannot play
-        // this (pretend) video, the person is told the same plain thing.
-        assert!(said[3].contains("no preview picture"), "{said:?}");
+        assert!(!library.join("originals").exists(), "no copy of anyone's photos");
     }
 
     #[test]
@@ -725,7 +658,7 @@ pub(crate) mod tests {
 
         assert!(collection_photos(&library, &catalog, "Narnia").is_err());
         let err = set_photo_kept(&catalog, "0000", true).unwrap_err();
-        assert_eq!(err.to_string(), "That photo isn't known to this library.");
+        assert_eq!(err.to_string(), "That photo isn't known to this backup.");
     }
 
     #[test]
@@ -755,17 +688,17 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_library_inside_a_source_is_refused() {
+    fn a_backup_whose_own_folder_is_inside_a_source_is_refused() {
         let dir = tempfile::tempdir().unwrap();
         let drive = dir.path().join("drive");
         fs::create_dir_all(&drive).unwrap();
         fs::write(drive.join("a.jpg"), real_jpeg(1)).unwrap();
-        let library = drive.join("Keevoro Library");
-        let mut catalog = Catalog::open_in_library(&library).unwrap();
+        let home = drive.join("Keevoro backup");
+        let mut catalog = Catalog::open_in_library(&home).unwrap();
         scan_into(&mut catalog, &drive, None, &mut |_| {}).unwrap();
-        let err = gather_everything(&library, &catalog, false, None, &mut |_| {}).unwrap_err();
+        let err = crate::check_and_place(&home, &catalog, &|| true, &mut |_| {}).unwrap_err();
         assert!(err.to_string().contains("Keevoro never writes to those"), "{err}");
-        assert!(!library.join("originals").exists());
+        assert!(catalog.collected().unwrap().is_empty());
         assert_eq!(
             catalog.sources().unwrap()[0].name,
             "drive",

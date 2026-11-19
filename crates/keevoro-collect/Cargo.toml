@@ -1,6 +1,6 @@
 [package]
 name = "keevoro-collect"
-description = "Copies kept photos and videos into the library and proves every copy is exact. Never writes to a source."
+description = "Gives each kept photo and video its place in a backup, and makes the previews a gallery shows. Never writes to a source."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,7 +8,6 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-blake3.workspace = true
 fs4.workspace = true
 keevoro-catalog.workspace = true
 keevoro-core.workspace = true
@@ -16,7 +15,6 @@ keevoro-index.workspace = true
 keevoro-media.workspace = true
 keevoro-scan.workspace = true
 serde.workspace = true
-thiserror.workspace = true
 
 [dev-dependencies]
 image.workspace = true

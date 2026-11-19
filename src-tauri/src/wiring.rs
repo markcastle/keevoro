@@ -100,12 +100,7 @@ impl Heard {
 /// The app, built as `run` builds it, with Keevoro in `dir`, and its main
 /// window, listening for every event the screens listen for.
 fn the_app(dir: &Path) -> (tauri::App<MockRuntime>, WebviewWindow<MockRuntime>, Heard) {
-    let folders = Folders {
-        config: dir.join("config"),
-        data: dir.join("data"),
-        cache: dir.join("cache"),
-        logs: dir.join("logs"),
-    };
+    let folders = Folders::under(dir);
     let mut app = crate::app(mock_builder(), move |_| {
         Ok(Keevoro::open(&folders).with_secrets(KeysInMemory::default()))
     })
@@ -194,6 +189,21 @@ fn snapshot(folder: &Path) -> BTreeMap<PathBuf, (Vec<u8>, SystemTime)> {
         }
     }
     files
+}
+
+#[test]
+fn the_app_keeps_its_things_where_tauri_would_and_the_command_line_looks() {
+    // The command line finds the app's backups through the API's idea of
+    // where an app keeps its things; this is Tauri's idea, for this app.
+    let dir = tempfile::tempdir().unwrap();
+    let (app, _window, _heard) = the_app(dir.path());
+    assert_eq!(app.config().identifier, keevoro_api::keevoro::IDENTIFIER);
+    let paths = app.path();
+    let shared = Folders::for_this_computer().expect("this computer says where an app's folders go");
+    assert_eq!(shared.config, paths.app_config_dir().unwrap());
+    assert_eq!(shared.data, paths.app_data_dir().unwrap());
+    assert_eq!(shared.cache, paths.app_cache_dir().unwrap().join("previews"));
+    assert_eq!(shared.logs, paths.app_log_dir().unwrap());
 }
 
 #[test]

@@ -8,11 +8,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- **The `keevoro` command line has been rebuilt to work on the same named backups as the app.** A backup started in the app is there on the command line, and the other way round. Everything the app can do, the command line can do too: `keevoro backups`, `keevoro look`, `keevoro collections`, `keevoro destinations add`, `keevoro run`, `keevoro check` and the rest. Name a backup with `-b "Family photos"`, or leave it out to use the one the app has open. A backup shows how it is getting on as it runs; `--detach` starts one and comes back at once, and `keevoro status`, `follow`, `pause`, `carry-on` and `stop` work on it from anywhere, even one the app started. Every command takes `--json` for scripts, and the exit code says what happened. The walk-through is in docs/command-line.md.
 - **A backup to a folder keeps each photo's own "date modified".** It is sometimes the only clue to when a photo was taken.
+- **Looking through a drive that is not plugged in** is now refused at once with "Is it plugged in?", instead of starting and finding nothing.
 
 ### Fixed
 
+- **Pressing Stop while a backup is still getting ready** now ends with the usual "Stopped. Everything backed up so far is safe where it is…" message. Before, it ended with an empty one.
+- **The app and the command line see each other's backups straight away.** A backup started in one used to appear in the other only after it was closed and opened again, and two changes made at the same moment could undo each other. Now both see every change at once, and neither loses the other's.
+- **A file is never left out as a duplicate on a guess.** When two large files look alike and one of them cannot be read in full to tell them apart (because its drive is unplugged, say), neither is backed up until it can be, and Keevoro says so, instead of backing up only one of them.
 - **A file already in a backup folder only counts as there if it matches exactly,** including a large file Keevoro had not yet read in full. Before, a file of the same name and size was believed.
+
+### Removed
+
+- **The command line's old "library" commands are gone:** `keevoro gather`, `publish`, `connect`, `disconnect`, `scan` and every command that took `--library`. They copied your photos into a library folder of Keevoro's own before backing up. Keevoro no longer does that: photos go straight from your sources to where you back them up, as the app already does. Making MP4 copies of old videos (`--convert-videos`) and changing a backup's private link (`--new-link`) went with them.
 
 ## [0.29.3] - 2026-11-19
 

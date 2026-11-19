@@ -173,7 +173,7 @@ fn another_programs_search_is_seen_refused_followed_and_stopped_and_it_tidies_up
     assert_eq!(
         (refused.kind, refused.message.as_str()),
         (
-            Kind::Refused,
+            Kind::Busy,
             "Keevoro is already looking through a source for \"Card photos\" from the command line. Let that finish, or stop it, first."
         )
     );

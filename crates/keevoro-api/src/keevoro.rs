@@ -37,6 +37,42 @@ pub struct Folders {
     pub logs: PathBuf,
 }
 
+/// The name Keevoro's folders are kept under on this computer. It is the
+/// app's own identifier (`tauri.conf.json`), so that the app and the
+/// command line share their backups, settings and log.
+pub const IDENTIFIER: &str = "com.markcastle.keevoro";
+
+impl Folders {
+    /// The folders the app keeps its things in on this computer, which
+    /// every Keevoro program shares: `None` only on a computer that will
+    /// not say where its usual folders are.
+    pub fn for_this_computer() -> Option<Self> {
+        let logs = if cfg!(target_os = "macos") {
+            dirs::home_dir()?.join("Library").join("Logs").join(IDENTIFIER)
+        } else {
+            dirs::data_local_dir()?.join(IDENTIFIER).join("logs")
+        };
+        Some(Self {
+            config: dirs::config_dir()?.join(IDENTIFIER),
+            data: dirs::data_dir()?.join(IDENTIFIER),
+            // Previews of photos not yet backed up. Safe to delete.
+            cache: dirs::cache_dir()?.join(IDENTIFIER).join("previews"),
+            logs,
+        })
+    }
+
+    /// Every folder under one: for trying Keevoro out, or a test, without
+    /// touching the real ones.
+    pub fn under(home: &Path) -> Self {
+        Self {
+            config: home.join("config"),
+            data: home.join("data"),
+            cache: home.join("cache"),
+            logs: home.join("logs"),
+        }
+    }
+}
+
 /// One backup in `backups.list`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -372,7 +408,7 @@ impl Keevoro {
     /// touched.
     pub fn reset(&self) -> Result<reset::Done> {
         if self.busy() {
-            return Err(Error::refused(
+            return Err(Error::busy(
                 "Keevoro is in the middle of something. Let that finish, or stop it, before starting again.",
             ));
         }
@@ -482,12 +518,25 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn folders(dir: &Path) -> Folders {
-        Folders {
-            config: dir.join("config"),
-            data: dir.join("data"),
-            cache: dir.join("cache"),
-            logs: dir.join("logs"),
+        Folders::under(dir)
+    }
+
+    #[test]
+    fn keevoros_folders_on_this_computer_are_its_own_and_hold_no_photos() {
+        // Wherever the computer keeps such things, each is named for
+        // Keevoro, and none is inside another's.
+        if let Some(folders) = Folders::for_this_computer() {
+            for folder in [&folders.config, &folders.data, &folders.cache, &folders.logs] {
+                assert!(
+                    folder.components().any(|c| c.as_os_str() == IDENTIFIER),
+                    "{}",
+                    folder.display()
+                );
+            }
+            assert!(folders.cache.ends_with("previews"));
         }
+        let dir = Path::new("try");
+        assert_eq!(Folders::under(dir).data, dir.join("data"));
     }
 
     /// Keevoro in a temporary folder, with a keychain in memory and no
@@ -532,9 +581,10 @@ pub(crate) mod tests {
         let dir = tempfile::tempdir().unwrap();
         let keevoro = keevoro(dir.path());
         let drone = keevoro.start_backup("Drone").unwrap();
-        let unplugged = dir.path().join("Unplugged drive").join("Keevoro Library");
-        keevoro.backups().adopt_library(&unplugged).unwrap();
-        std::fs::remove_dir_all(dir.path().join("Unplugged drive")).unwrap();
+        let unplugged = keevoro.start_backup("Unplugged").unwrap();
+        keevoro.switch_to(&unplugged.id).unwrap();
+        // Its home folder is on a drive that is not plugged in.
+        std::fs::remove_dir_all(&unplugged.home).unwrap();
 
         let list = keevoro.list_backups();
         assert_eq!(list.len(), 2);
@@ -544,7 +594,28 @@ pub(crate) mod tests {
         assert_eq!((counts.sources, counts.photos, counts.waiting), (0, 0, 0));
         assert!(list[1].open);
         assert_eq!(list[1].found, None, "a backup that is not there has no counts");
-        assert!(!unplugged.exists(), "and listing it does not make its folder");
+        assert!(!unplugged.home.exists(), "and listing it does not make its folder");
+    }
+
+    #[test]
+    fn two_keevoros_on_one_folder_see_the_same_backups_as_they_change() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = keevoro(dir.path());
+        let command_line = keevoro(dir.path());
+        let drone = app.start_backup("Drone footage").unwrap();
+        // Started after the command line opened, and seen at once.
+        assert_eq!(command_line.list_backups()[0].id, drone.id);
+        assert_eq!(
+            command_line.backups().named_or_open(Some("drone footage")).unwrap(),
+            drone
+        );
+        command_line.start_backup("Family").unwrap();
+        command_line.rename_backup("Drone footage", "Drone").unwrap();
+        let names: Vec<String> = app.list_backups().into_iter().map(|b| b.name).collect();
+        assert_eq!(names, ["Drone", "Family"]);
+        app.set_own_codecs(false).unwrap();
+        assert!(command_line.backups().read().plain_decoding);
+        app.set_own_codecs(true).unwrap();
     }
 
     #[test]

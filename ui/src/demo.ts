@@ -1,12 +1,12 @@
 // A stand-in for the engine, used when the screens are opened in a browser.
 //
-// It holds a small made-up library in memory and behaves like the real
+// It holds a small made-up backup in memory and behaves like the real
 // thing: adding a place "finds" photos over a couple of seconds, keeping a
-// collection sticks, gathering counts up. The pictures are drawn on the
+// collection sticks, backing up counts up. The pictures are drawn on the
 // spot, so nothing is downloaded and no real photos are in the repository.
 //
 // Add ?demo=new to the address to start as a first-time user with no
-// library, or ?demo=empty for a library with nothing found yet.
+// backup, or ?demo=empty for a backup with nothing found yet.
 
 import type {
   AppState,
@@ -16,7 +16,6 @@ import type {
   Collection,
   Discover,
   FileType,
-  GatherEvent,
   Photo,
   PhotoChoice,
   Sample,
@@ -96,8 +95,8 @@ const FOUND: (() => Collection)[] = [
 
 export function demoBackend(): Backend {
   const mode = new URLSearchParams(window.location.search).get('demo')
-  const suggested = 'C:\\Users\\You\\Pictures\\Keevoro Library'
-  let library: string | null = mode === 'new' ? null : suggested
+  const firstHome = 'C:\\Users\\You\\AppData\\Keevoro\\backups\\s1'
+  let library: string | null = mode === 'new' ? null : firstHome
   const collections: Collection[] = mode === 'new' || mode === 'empty' ? [] : FOUND.slice(0, 5).map((make) => make())
   const sources = collections.length > 0 ? [{ id: 1, name: 'Family hard drive', root: 'E:\\', items: 240, bytes: 1.4 * 1024 ** 3 }] : []
   // The files inside each collection are made up the first time it is opened.
@@ -122,7 +121,6 @@ export function demoBackend(): Backend {
   const scanListeners = new Set<(e: ScanEvent) => void>()
   const surveyListeners = new Set<(e: SurveyProgress) => void>()
   const checkListeners = new Set<(event: CheckEvent) => void>()
-  const gatherListeners = new Set<(e: GatherEvent) => void>()
   const sendListeners = new Set<(e: SendEvent) => void>()
   // What the last backup said when it ended, as the real app keeps it.
   let lastSaid: SendEvent | null = null
@@ -198,7 +196,6 @@ export function demoBackend(): Backend {
   }
   const state = (): AppState => ({
     library,
-    suggestedLibrary: suggested,
     backup: backups.find((s) => s.id === open) ?? null,
     backups: [...backups],
     version: 'demo',
@@ -224,8 +221,6 @@ export function demoBackend(): Backend {
     }
   }
 
-  let opened = 0
-  void opened
   // Pretends to look through a place, finding collections as it goes.
   const look = (name: string, root: string) => {
       const adding = FOUND.filter((_, i) => i >= collections.length).slice(0, sources.length === 0 ? 5 : 2)
@@ -281,14 +276,6 @@ export function demoBackend(): Backend {
 
   return {
     state: async () => state(),
-    async chooseLibrary() {
-      library = suggested
-      return state()
-    },
-    async useLibrary(path) {
-      library = path
-      return state()
-    },
     async startBackup(name) {
       putAway()
       const taken = (n: string) => backups.some((s) => s.name.toLowerCase() === n.toLowerCase())
@@ -464,9 +451,6 @@ export function demoBackend(): Backend {
       await later(600 * pace)
     },
     openReleasePage: async () => {},
-    openLibrary: async () => {
-      opened += 1
-    },
     async keepCollection(key, keep) {
       const found = collections.find((c) => c.key === key)
       if (!found) return
@@ -536,28 +520,6 @@ export function demoBackend(): Backend {
       return pictures.get(id) ?? Promise.reject(new Error('This one can\u2019t be previewed'))
     },
     closerLook: async (id) => pictures.get(id) ?? Promise.reject(new Error('This one can\u2019t be previewed')),
-    async gather() {
-      const kept = collections.filter((c) => c.kept)
-      const total = kept.reduce((n, c) => n + c.photos + c.videos - c.gathered, 0)
-      void (async () => {
-        for (let step = 1; step <= 10; step++) {
-          await later(180 * pace)
-          gatherListeners.forEach((l) => l({ step: 'copying', done: Math.round((total * step) / 10), total }))
-        }
-        await later(300 * pace)
-        gatherListeners.forEach((l) => l({ step: 'previews', done: total, total }))
-        kept.forEach((c) => (c.gathered = c.photos + c.videos))
-        await later(300 * pace)
-        gatherListeners.forEach((l) =>
-          l({
-            step: 'finished',
-            done: total,
-            total,
-            summary: [`Safely copied ${total.toLocaleString('en-GB')} photos and videos into your library.`],
-          }),
-        )
-      })()
-    },
     destination: async () => sendingTo,
     chooseDestinationFolder: async () => 'F:\\Family Backup',
     async connectDestination(request) {
@@ -659,10 +621,6 @@ export function demoBackend(): Backend {
     onCheck(listener) {
       checkListeners.add(listener)
       return () => checkListeners.delete(listener)
-    },
-    onGather(listener) {
-      gatherListeners.add(listener)
-      return () => gatherListeners.delete(listener)
     },
   }
 }

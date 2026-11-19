@@ -11,8 +11,8 @@
 //!
 //! The list of commands is read from `generate_handler!` in `lib.rs` as the
 //! test runs, so a new button cannot slip past. `NOT_YET` is the to-do list
-//! for moving logic out of the shell. It must only ever get shorter, and
-//! when the work is done it is empty.
+//! for moving logic out of the shell. The work is done, so it is empty;
+//! it is there for a command that is honestly waiting for the API.
 
 use keevoro_api::Op;
 use std::collections::{BTreeMap, BTreeSet};
@@ -89,8 +89,6 @@ const WINDOW_ONLY: &[&str] = &[
     "open_destination",
     // Shows a source, or a folder in one, in the file manager.
     "open_place",
-    // Shows the backup's own folder in the file manager.
-    "open_library",
     // Opens the log file in the computer's text editor.
     "open_log",
     // Opens one of Keevoro's own web pages in the browser.
@@ -102,12 +100,7 @@ const WINDOW_ONLY: &[&str] = &[
 /// Commands whose logic still lives in the shell, with the register
 /// operation each will become, where there is one. Move one into the API,
 /// and it moves from here to `BACKED`.
-const NOT_YET: &[(&str, Option<Op>)] = &[
-    // The first-run screen of older builds. It goes with the library model.
-    ("use_library", None),
-    // Copying into the library. It goes with the library model, not moved.
-    ("gather", None),
-];
+const NOT_YET: &[(&str, Option<Op>)] = &[];
 
 /// The commands the app registers, read from `generate_handler!` itself.
 fn registered_commands() -> Vec<String> {

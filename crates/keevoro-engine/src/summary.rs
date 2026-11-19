@@ -1,11 +1,11 @@
-//! Turns scan reports into the plain-English summary the CLI prints.
-//! The desktop app will show the same facts as its Discover screen.
+//! Turns scan reports into the facts the Discover screen shows: what was
+//! found, the collections, duplicates and what was set aside, and the way
+//! numbers and sizes are said.
 
 use keevoro_core::{group_into_collections, Collection, CollectionInput, DateSource, JunkReason, MediaKind};
 use keevoro_scan::{FoundItem, ScanReport};
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::fmt::Write as _;
 
 #[derive(Debug, Serialize)]
 pub struct Summary {
@@ -163,110 +163,6 @@ pub fn summarise_with<'a>(reports: &'a [ScanReport], rescued: &HashSet<String>) 
         collections: group_into_collections(&inputs),
     };
     (summary, unique)
-}
-
-pub fn render(s: &Summary, max_collections: usize) -> String {
-    let mut out = String::new();
-    if s.photos + s.videos == 0 {
-        out.push_str("No photos or videos found.\n");
-        render_junk(&mut out, s);
-        render_footer(&mut out, s);
-        return out;
-    }
-    let _ = writeln!(
-        out,
-        "Found {} and {} ({}).",
-        count(s.photos, "photo"),
-        count(s.videos, "video"),
-        bytes(s.bytes)
-    );
-    match &s.duplicates {
-        Some(d) if d.copies > 0 => {
-            let _ = writeln!(
-                out,
-                "{} ({}) will be kept once.",
-                count(d.copies, "duplicate"),
-                bytes(d.bytes)
-            );
-        }
-        Some(_) => out.push_str("No duplicates.\n"),
-        None => out.push_str("Duplicates not checked (hashing was off).\n"),
-    }
-    render_junk(&mut out, s);
-
-    out.push_str("\nCollections\n");
-    let width = s
-        .collections
-        .iter()
-        .take(max_collections)
-        .map(|c| c.title.chars().count())
-        .max()
-        .unwrap_or(0);
-    for c in s.collections.iter().take(max_collections) {
-        let _ = write!(out, "  {:<width$}  {}", c.title, c.summary());
-        if !c.parents.is_empty() {
-            let _ = write!(out, "  ({})", c.parents.join(" / "));
-        }
-        out.push('\n');
-    }
-    if s.collections.len() > max_collections {
-        let _ = writeln!(out, "  and {} more", s.collections.len() - max_collections);
-    }
-
-    out.push('\n');
-    let mut clues = Vec::new();
-    for (source, words) in [
-        (DateSource::Exif, "from camera data"),
-        (DateSource::Video, "from video data"),
-        (DateSource::Filename, "from file names"),
-        (DateSource::Folder, "from folder names"),
-        (DateSource::Modified, "guessed from file times"),
-    ] {
-        if let Some(n) = s.dates.get(&source) {
-            clues.push(format!("{} {words}", thousands(*n)));
-        }
-    }
-    if s.undated > 0 {
-        clues.push(format!("{} undated", thousands(s.undated)));
-    }
-    let _ = writeln!(out, "Dates: {}.", clues.join(", "));
-    render_footer(&mut out, s);
-    out
-}
-
-/// Junk is never hidden: the user is told what was left out and why.
-fn render_junk(out: &mut String, s: &Summary) {
-    let total: usize = s.junk.values().sum();
-    if total == 0 {
-        return;
-    }
-    let _ = writeln!(
-        out,
-        "Left out {} that {} look like memories:",
-        count(total, "picture"),
-        if total == 1 { "doesn't" } else { "don't" }
-    );
-    for (reason, n) in &s.junk {
-        let _ = writeln!(out, "  {}  {}", thousands(*n), reason.describe());
-    }
-}
-
-fn render_footer(out: &mut String, s: &Summary) {
-    if s.skipped_folders > 0 {
-        let _ = writeln!(
-            out,
-            "Skipped {} (system, app and hidden).",
-            count(s.skipped_folders, "folder")
-        );
-    }
-    if s.unreadable > 0 {
-        let what = if s.unreadable == 1 {
-            "1 file or folder".to_string()
-        } else {
-            format!("{} files or folders", thousands(s.unreadable))
-        };
-        let _ = writeln!(out, "Couldn't read {what}. Run again with --json to see which.");
-    }
 }
 
 /// "1 photo", "9,870 photos".
@@ -461,8 +357,7 @@ mod tests {
             ..Default::default()
         }];
         let (s, _) = summarise(&r);
-        assert_eq!(s.duplicates, None);
-        assert!(render(&s, 10).contains("Duplicates not checked"));
+        assert_eq!(s.duplicates, None, "not checked, so not said to be none");
     }
 
     #[test]
@@ -480,37 +375,6 @@ mod tests {
         let (s, _) = summarise(&r);
         assert_eq!(s.collections[0].title, "Undated");
         assert_eq!(s.dates.get(&DateSource::Modified), Some(&1));
-    }
-
-    #[test]
-    fn renders_like_the_discover_screen() {
-        let r = [ScanReport {
-            items: vec![
-                found("1.jpg", Some("aa"), &["Holidays", "Cornwall"], aug(1), MediaKind::Photo),
-                found("2.mov", Some("bb"), &["Holidays", "Cornwall"], aug(2), MediaKind::Video),
-                found(
-                    "3.jpg",
-                    Some("cc"),
-                    &[],
-                    Some((DateSource::Filename, PartialDate::day(2011, 12, 25).unwrap())),
-                    MediaKind::Photo,
-                ),
-            ],
-            ..Default::default()
-        }];
-        let (s, _) = summarise(&r);
-        let text = render(&s, 10);
-        assert!(
-            text.starts_with("Found 2 photos and 1 video (3.0 MB).\nNo duplicates.\n"),
-            "{text}"
-        );
-        assert!(
-            text.contains("Cornwall       August 2008 \u{b7} 1 photo \u{b7} 1 video  (Holidays)"),
-            "{text}"
-        );
-        assert!(text.contains("December 2011  1 photo"), "{text}");
-        assert!(text.contains("Dates: 2 from camera data, 1 from file names."), "{text}");
-        assert!(!text.contains("Skipped"));
     }
 
     #[test]
@@ -539,53 +403,24 @@ mod tests {
             Some(&1),
             "a duplicate of junk is counted once"
         );
-        let text = render(&s, 10);
-        assert!(
-            text.contains(
-                "Left out 2 pictures that don't look like memories:\n  1  Looks like app icons\n  1  Tiny images (under 300 px)\n"
-            ),
-            "{text}"
-        );
+        assert_eq!(s.junk.get(&JunkReason::AppIcons), Some(&1), "and said, not hidden");
     }
 
     #[test]
-    fn a_drive_of_nothing_but_junk_still_explains_itself() {
+    fn a_drive_of_nothing_but_junk_still_counts_what_was_left_out() {
         let mut icon = found("save.png", Some("cc"), &[], None, MediaKind::Photo);
         icon.junk = Some(JunkReason::AppIcons);
         let r = [ScanReport {
             items: vec![icon],
             ..Default::default()
         }];
-        let text = render(&summarise(&r).0, 10);
-        assert!(
-            text.starts_with("No photos or videos found.\nLeft out 1 picture that doesn't look like memories:"),
-            "{text}"
-        );
+        let (s, kept) = summarise(&r);
+        assert!(kept.is_empty() && s.collections.is_empty());
+        assert_eq!(s.junk.get(&JunkReason::AppIcons), Some(&1));
     }
 
     #[test]
-    fn caps_the_collection_list() {
-        let items = (1..=5)
-            .map(|i| {
-                found(
-                    &format!("{i}.jpg"),
-                    Some(&i.to_string()),
-                    &[&format!("Album {i}")],
-                    None,
-                    MediaKind::Photo,
-                )
-            })
-            .collect();
-        let r = [ScanReport {
-            items,
-            ..Default::default()
-        }];
-        let (s, _) = summarise(&r);
-        assert!(render(&s, 2).contains("  and 3 more\n"));
-    }
-
-    #[test]
-    fn empty_scan_says_so() {
+    fn what_could_not_be_read_is_counted() {
         let r = [ScanReport {
             unreadable: vec![keevoro_scan::Unreadable {
                 path: "x".into(),
@@ -594,9 +429,7 @@ mod tests {
             ..Default::default()
         }];
         let (s, _) = summarise(&r);
-        let text = render(&s, 10);
-        assert!(text.starts_with("No photos or videos found.\n"));
-        assert!(text.contains("Couldn't read 1 file or folder."));
+        assert_eq!((s.photos, s.videos, s.unreadable), (0, 0, 1));
     }
 
     #[test]

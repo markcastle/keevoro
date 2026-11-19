@@ -641,20 +641,8 @@ impl Catalog {
 }
 
 impl Catalog {
-    /// Records that a file has been copied into the library and verified.
-    /// `path` is relative to the library folder, with `/` between folders.
-    pub fn mark_collected(&self, blake3: &str, path: &str, bytes: u64) -> Result<()> {
-        self.conn.execute(
-            "INSERT INTO collected (blake3, path, bytes, here) VALUES (?1, ?2, ?3, 1)
-             ON CONFLICT(blake3) DO UPDATE SET path = excluded.path, bytes = excluded.bytes, here = 1",
-            params![blake3, path, to_i64(bytes)],
-        )?;
-        Ok(())
-    }
-
-    /// Agrees the place a kept file will have wherever it is copied to,
-    /// without saying a copy exists in this library's folder. Does nothing
-    /// if the file already has a place.
+    /// Agrees the place a kept file will have wherever it is backed up to.
+    /// Does nothing if the file already has a place.
     pub fn mark_placed(&self, blake3: &str, path: &str, bytes: u64) -> Result<()> {
         self.conn.execute(
             "INSERT INTO collected (blake3, path, bytes, here) VALUES (?1, ?2, ?3, 0)
@@ -677,17 +665,6 @@ impl Catalog {
         Ok(done)
     }
 
-    /// Is a copy of this file in this library's own folder?
-    pub fn is_here(&self, blake3: &str) -> Result<bool> {
-        Ok(self
-            .conn
-            .query_row("SELECT here FROM collected WHERE blake3 = ?1", [blake3], |r| {
-                r.get::<_, bool>(0)
-            })
-            .optional()?
-            .unwrap_or(false))
-    }
-
     /// Is this place already taken by some file?
     pub fn place_taken(&self, path: &str) -> Result<bool> {
         Ok(self
@@ -706,8 +683,7 @@ impl Catalog {
             .is_some())
     }
 
-    /// Where in the library a file with this content was put, if it has
-    /// been gathered already.
+    /// The place agreed for the file with this content, if it has one.
     pub fn collected_path(&self, blake3: &str) -> Result<Option<String>> {
         Ok(self
             .conn
@@ -715,43 +691,30 @@ impl Catalog {
             .optional()?)
     }
 
-    /// Every file gathered into the library: its content hash, its
-    /// library-relative path and its size, in path order.
+    /// Every file that has its place: its content hash, its place and its
+    /// size, in order of place.
     pub fn collected(&self) -> Result<Vec<Collected>> {
         let mut q = self
             .conn
-            .prepare("SELECT blake3, path, bytes, here FROM collected ORDER BY path")?;
+            .prepare("SELECT blake3, path, bytes FROM collected ORDER BY path")?;
         let rows = q.query_map([], |r| {
             Ok(Collected {
                 blake3: r.get(0)?,
                 path: r.get(1)?,
                 bytes: u64::try_from(r.get::<_, i64>(2)?).unwrap_or(0),
-                here: r.get(3)?,
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
-
-    /// How many files are in the library, and their total size in bytes.
-    pub fn collected_totals(&self) -> Result<(u64, u64)> {
-        let (n, bytes): (i64, i64) = self.conn.query_row(
-            "SELECT COUNT(*), COALESCE(SUM(bytes), 0) FROM collected WHERE here = 1",
-            [],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )?;
-        Ok((u64::try_from(n).unwrap_or(0), u64::try_from(bytes).unwrap_or(0)))
-    }
 }
 
-/// One file in the library, as recorded when it was gathered.
+/// One kept file and the place agreed for it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Collected {
     pub blake3: String,
-    /// Relative to the library folder, with `/` between folders.
+    /// Its folders and name in a backup, with `/` between folders.
     pub path: String,
     pub bytes: u64,
-    /// True when a copy is in this library's own folder.
-    pub here: bool,
 }
 
 /// What is known about one video and the copies made of it.

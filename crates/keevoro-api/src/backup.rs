@@ -398,7 +398,7 @@ pub(crate) mod tests {
 
         let err = backup.keep_photo("0000", true).unwrap_err();
         assert_eq!(err.kind, crate::Kind::Failed);
-        assert_eq!(err.message, "That photo isn't known to this library.");
+        assert_eq!(err.message, "That photo isn't known to this backup.");
     }
 
     #[test]

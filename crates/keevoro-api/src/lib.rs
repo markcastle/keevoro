@@ -38,6 +38,7 @@ pub mod picture;
 pub mod places;
 pub mod register;
 pub mod reset;
+pub mod words;
 
 pub use agents::{AgentAccess, AgentsAccessRequest};
 pub use backup::{Backup, FileTypeView, Found};
@@ -47,8 +48,9 @@ pub use destinations::{
     RoomAtAGlance, WaitingAt,
 };
 pub use error::{Error, Kind, Result};
-pub use jobs::{Event, FrontEnd, GiveWay, JobHandle, JobId, JobKind, JobStatus, Listener, Said, Which, PROGRESS_EVERY};
+pub use jobs::{Event, FrontEnd, JobHandle, JobId, JobKind, JobStatus, Listener, Outcome, Said, Which, PROGRESS_EVERY};
 pub use keevoro::{BackupListing, Codecs, Folders, Keevoro, Offer, SettingsView};
+pub use keevoro_engine::connect::SecretStore;
 pub use picture::{Picture, PictureRequest, PictureSize};
 pub use register::{entries, Agents, Changes, Entry, Op};
 
@@ -757,7 +759,7 @@ mod tests {
 
         let e = call(k, Op::PhotosKeep, None, json!({ "photo": "0000", "keep": true })).unwrap_err();
         assert_eq!(e.kind, Kind::Failed);
-        assert_eq!(e.message, "That photo isn't known to this library.");
+        assert_eq!(e.message, "That photo isn't known to this backup.");
 
         let e = call(k, Op::BackupRun, None, json!({ "now": true })).unwrap_err();
         assert_eq!(e.kind, Kind::NotUnderstood, "nor one given to a job");
@@ -807,7 +809,7 @@ mod tests {
         let e = call(k, op("destinations.add"), None, request).unwrap_err();
         let said = format!("{e} {e:#} {e:?} {}", serde_json::to_string(&e).unwrap());
         assert!(!has_a_key(&said), "{said}");
-        assert_eq!(e.kind, Kind::Failed);
+        assert_eq!(e.kind, Kind::Unreachable, "{e}");
 
         // Its error, when the request itself is wrong.
         let e = call(

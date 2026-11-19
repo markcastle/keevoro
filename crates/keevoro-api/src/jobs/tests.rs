@@ -266,7 +266,7 @@ fn a_second_job_that_writes_is_refused_while_the_first_runs() {
         assert_eq!(
             (e.kind, e.message.as_str()),
             (
-                Kind::Refused,
+                Kind::Busy,
                 "Keevoro is already looking through a source. Let that finish first."
             )
         );
@@ -278,7 +278,7 @@ fn a_second_job_that_writes_is_refused_while_the_first_runs() {
         assert_eq!(
             (e.kind, e.message.as_str()),
             (
-                Kind::Refused,
+                Kind::Busy,
                 "Keevoro is already working on your backup. Let that finish first."
             )
         );
@@ -288,7 +288,7 @@ fn a_second_job_that_writes_is_refused_while_the_first_runs() {
     keevoro.survey(&card, Some(&named), None).unwrap();
     assert!(keevoro.busy());
     let e = keevoro.reset().unwrap_err();
-    assert_eq!(e.kind, Kind::Refused);
+    assert_eq!(e.kind, Kind::Busy);
     assert_eq!(
         e.message,
         "Keevoro is in the middle of something. Let that finish, or stop it, before starting again."
@@ -318,7 +318,7 @@ fn a_backup_goes_to_a_folder_saying_each_step_and_records_how_it_went() {
         panic!("a backup ends with what it said")
     };
     keevoro.wait_for_jobs();
-    assert_eq!(last.problem, None);
+    assert_eq!((last.problem.as_deref(), last.outcome), (None, Some(Outcome::Worked)));
     assert!(
         last.summary.iter().any(|l| l.starts_with("Safely backed up 3 files")),
         "{last:?}"
@@ -359,7 +359,10 @@ fn a_backup_goes_to_a_folder_saying_each_step_and_records_how_it_went() {
         panic!("a check ends with what it found")
     };
     keevoro.wait_for_jobs();
-    assert_eq!(checked.problem, None);
+    assert_eq!(
+        (checked.problem.as_deref(), checked.outcome),
+        (None, Some(Outcome::Worked))
+    );
     assert!(!checked.summary.is_empty());
     assert_eq!(heard.lines()[0], "Getting ready to check");
     assert_eq!(backup.history().unwrap().len(), 1);
@@ -391,7 +394,7 @@ fn a_backup_stopped_part_way_keeps_what_it_sent_and_carries_on_when_run_again() 
         panic!("a stopped backup still says how it ended")
     };
     keevoro.wait_for_jobs();
-    assert_eq!(last.problem, None);
+    assert_eq!((last.problem.as_deref(), last.outcome), (None, Some(Outcome::Stopped)));
     assert!(last.summary.iter().any(|l| l.starts_with("Stopped.")), "{last:?}");
     assert_eq!(there(&named), 1, "what was sent is kept");
     let backup = Backup::open(&named.home).unwrap();
@@ -411,6 +414,76 @@ fn a_backup_stopped_part_way_keeps_what_it_sent_and_carries_on_when_run_again() 
     );
     assert_eq!(there(&named), 3);
     assert_eq!(backup.history().unwrap().len(), 2);
+}
+
+#[test]
+fn a_backup_stopped_while_it_is_getting_ready_says_it_was_stopped() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro(dir.path());
+    let (named, _card, usb) = card_going_to_usb(dir.path(), &keevoro);
+
+    // Stopped the moment it says it is getting ready, before anything else.
+    let (jobs, log) = (keevoro.jobs.clone(), keevoro.log_shared());
+    let stopper: Listener = Arc::new(move |event: &Event| {
+        if let Said::Send(SendEvent { line: Some(line), .. }) = &event.said {
+            if line.starts_with("Getting ready") {
+                jobs.stop(Which::Job(event.job), &log);
+            }
+        }
+    });
+    let job = keevoro.run_backup(&named, Some(stopper)).unwrap();
+    let Some(Said::Send(last)) = keevoro.wait(job.id) else {
+        panic!("a backup stopped early still says how it ended")
+    };
+    keevoro.wait_for_jobs();
+    assert_eq!(last.problem, None);
+    assert_eq!(last.outcome, Some(Outcome::Stopped));
+    assert_eq!(last.summary, [keevoro_engine::send::STOPPED], "not an empty message");
+    assert!(!usb.join("originals").exists(), "nothing was sent");
+    assert_eq!(
+        Backup::open(&named.home).unwrap().last_summary().unwrap(),
+        Some(serde_json::to_value(&last).unwrap())
+    );
+}
+
+#[test]
+fn a_destination_out_of_reach_is_said_in_a_word_and_in_a_sentence() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro(dir.path());
+    let (named, _card, usb) = card_going_to_usb(dir.path(), &keevoro);
+    // Where the folder was, there is now a file: it cannot be backed up to.
+    std::fs::remove_dir_all(&usb).unwrap();
+    std::fs::write(&usb, "in the way").unwrap();
+    for start in [Keevoro::run_backup, Keevoro::check_backup] {
+        let job = start(&keevoro, &named, None).unwrap();
+        let Some(Said::Send(last)) = keevoro.wait(job.id) else {
+            panic!("it says how it ended")
+        };
+        keevoro.wait_for_jobs();
+        assert_eq!(last.outcome, Some(Outcome::Unreachable), "{last:?}");
+        assert!(last.problem.is_some(), "{last:?}");
+        assert!(last.summary.iter().any(|l| l.starts_with("Couldn't")), "{last:?}");
+    }
+}
+
+#[test]
+fn a_place_that_is_not_there_is_not_looked_through() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro(dir.path());
+    let named = keevoro.start_backup("Card photos").unwrap();
+    let nowhere = dir.path().join("Unplugged");
+    for refused in [
+        keevoro.look(&named, &nowhere, None),
+        keevoro.survey(&nowhere, None, None),
+    ] {
+        let e = refused.unwrap_err();
+        assert_eq!(e.kind, Kind::NotFound);
+        assert!(e.message.contains("Is it plugged in?"), "{e}");
+    }
+    assert!(keevoro.jobs(None).is_empty());
 }
 
 #[test]
@@ -556,28 +629,45 @@ fn the_check_for_duplicates_runs_after_a_search_and_gives_way() {
     );
     assert!(keevoro.log_tail(10).contains("Checking 1 files in the background"));
 
-    // While something outside the API holds it back, the check that a
-    // search starts gives way at once, and the new photo stays sampled.
-    let hold = keevoro.give_way();
+    // A photo found outside any job is left sampled for the check to read.
     std::fs::write(card.join("DCIM/IMG_20200102_120000.jpg"), large_photo(220)).unwrap();
-    let job = keevoro.look(&named, &card, None).unwrap();
-    keevoro.wait(job.id);
-    keevoro.wait_for_jobs();
+    let mut catalog = Catalog::open_in_library(&named.home).unwrap();
+    let quick = keevoro_scan::ScanOptions {
+        quick: true,
+        ..Default::default()
+    };
+    keevoro_engine::scan_into_with(&mut catalog, &card, None, &quick, &mut |_| {}, &mut || {}).unwrap();
+    drop(catalog);
     assert_eq!(unchecked(), 1);
-    assert!(keevoro.log_tail(3).contains("Background checking paused after"));
 
     // Only one runs at a time. Held by the pause, the first is still
     // running when a second is asked for.
     keevoro.pause();
-    drop(hold);
     let first = keevoro.keep_checking(&named).unwrap();
     assert_eq!(first.job, JobKind::Duplicates);
     assert_eq!(first.op, None, "it is Keevoro's own, not an operation");
     assert!(keevoro.keep_checking(&named).is_none());
+
+    // It gives way to a search: one started while it waits makes it stop
+    // as soon as it carries on, and the photo is left for later. The search
+    // is held at the first thing it says until the check has given way.
+    let (release, held) = std::sync::mpsc::channel::<()>();
+    let held = Mutex::new(held);
+    let once = AtomicBool::new(true);
+    let hold: Listener = Arc::new(move |_: &Event| {
+        if once.swap(false, Ordering::SeqCst) {
+            let _ = lock(&held).recv_timeout(Duration::from_secs(30));
+        }
+    });
+    let job = keevoro.look(&named, &card, Some(hold)).unwrap();
     keevoro.carry_on();
     keevoro.wait(first.id);
+    let log = keevoro.log_tail(40);
+    assert!(log.contains("Background checking paused after"), "{log}");
+    release.send(()).unwrap();
+    keevoro.wait(job.id);
     keevoro.wait_for_jobs();
-    assert_eq!(unchecked(), 0, "and it carries on from where it was");
+    assert_eq!(unchecked(), 0, "the search starts it again, and it carries on");
 }
 
 #[test]
@@ -710,7 +800,7 @@ fn a_job_in_another_program_is_seen_refused_followed_waited_for_and_stopped() {
         assert_eq!(
             (refused.kind, refused.message.as_str()),
             (
-                Kind::Refused,
+                Kind::Busy,
                 "Keevoro is already looking through a source for \"Card photos\" in the Keevoro app. Let that finish, or stop it, first."
             )
         );
@@ -795,7 +885,7 @@ fn reset_waits_while_another_program_is_working() {
     let command_line = command_line(dir.path());
     command_line.pause();
     let job = command_line.look(&named, &card, None).unwrap();
-    assert_eq!(app.reset().unwrap_err().kind, Kind::Refused);
+    assert_eq!(app.reset().unwrap_err().kind, Kind::Busy);
     command_line.stop(Which::Job(job.id));
     command_line.wait_for_jobs();
     app.reset().unwrap();

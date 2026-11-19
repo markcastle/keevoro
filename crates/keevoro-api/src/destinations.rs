@@ -234,7 +234,13 @@ impl Backup {
         let world = World { secrets, ask: &ask };
         // Any warning (such as a publicly listable bucket) and the command
         // line's hints are written here, and not passed on.
-        connect::add(&mut Vec::new(), self.catalog(), &saved, &world)?;
+        connect::add(&mut Vec::new(), self.catalog(), &saved, &world).map_err(|e| {
+            if e.downcast_ref::<connect::CannotReach>().is_some() {
+                Error::unreachable(format!("{e:#}"))
+            } else {
+                Error::from(e)
+            }
+        })?;
         // What the last backup said was about the places as they were.
         let _ = self.forget_last_summary();
         let at = connect::destinations(self.catalog())?
