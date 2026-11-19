@@ -54,6 +54,25 @@ pub fn call_for_agent(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: 
     outcome
 }
 
+/// Reads something the register offers an agent to read, not as a tool
+/// (`keevoro.log`), and writes that it did to the log.
+pub fn read_for_agent(keevoro: &Keevoro, op: Op) -> Result<Value> {
+    if op.entry().agents != Agents::ToRead {
+        return Err(Error::refused("That isn't something an AI agent can read."));
+    }
+    let read = crate::call(keevoro, op, None, Value::Null);
+    let how = match &read {
+        Ok(_) => "it worked".to_string(),
+        Err(e) => format!("it didn't work. {}", e.message),
+    };
+    let what = match op {
+        Op::KeevoroLog => "the log",
+        _ => op.name(),
+    };
+    keevoro.log().say(&format!("An AI agent read {what}: {how}"));
+    read
+}
+
 /// Would the person's rules allow this call? Says why not, if not.
 fn allowed(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: &Value) -> Result<()> {
     let Some(tool) = op.tool() else {
@@ -443,6 +462,19 @@ mod tests {
             "{log}"
         );
         drop(dir);
+    }
+
+    #[test]
+    fn an_agent_can_read_the_log_and_nothing_else_that_way() {
+        let (_dir, _card, keevoro) = for_an_agent();
+        keevoro.log().say("Something worth knowing");
+        let log = read_for_agent(&keevoro, Op::KeevoroLog).unwrap();
+        assert!(log.as_str().unwrap().contains("Something worth knowing"));
+        assert!(keevoro.log_tail(1).ends_with("An AI agent read the log: it worked"));
+        for op in [Op::KeevoroReset, Op::SourcesList, Op::AgentsAccess] {
+            refused(read_for_agent(&keevoro, op));
+        }
+        assert_eq!(keevoro.backups().all().len(), 1);
     }
 
     #[test]

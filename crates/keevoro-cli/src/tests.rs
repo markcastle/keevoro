@@ -204,6 +204,22 @@ fn every_operation_the_register_offers_the_command_line_has_a_command() {
 }
 
 #[test]
+fn the_server_for_an_ai_agent_is_offered_and_takes_no_backup() {
+    let dir = tempfile::tempdir().unwrap();
+    let at = At::new(dir.path());
+    let ran = at.keevoro(&["--help"]);
+    assert!(ran.out.contains("mcp"), "{}", ran.out);
+    let ran = at.keevoro(&["mcp", "--help"]);
+    assert_eq!(ran.code, Code::Worked);
+    assert!(ran.out.contains("Model Context Protocol"), "{}", ran.out);
+    for args in [&["mcp", "-b", "Card photos"][..], &["-b", "Card photos", "mcp"][..]] {
+        let ran = at.keevoro(args);
+        assert_eq!(ran.code, Code::NotUnderstood, "{args:?}");
+        assert!(ran.err.contains("takes no -b"), "{}", ran.err);
+    }
+}
+
+#[test]
 fn what_each_command_does_is_the_registers_own_words() {
     let help = program().render_long_help().to_string();
     for row in ROWS {

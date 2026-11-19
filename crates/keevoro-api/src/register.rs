@@ -288,6 +288,17 @@ impl Op {
         )
     }
 
+    /// True for an operation that loses something a person cannot simply
+    /// put back, though never a photo: forgetting a source loses what was
+    /// found there and chosen, removing a destination loses its saved keys.
+    /// An AI app may ask its person before one of these.
+    pub const fn loses_something(self) -> bool {
+        matches!(
+            self,
+            Op::SourcesForget | Op::DestinationsRemove | Op::BackupsForget | Op::KeevoroReset
+        )
+    }
+
     /// Would this request change anything? Always for an operation that
     /// always changes something, never for one that only looks, and for
     /// one that looks unless asked to change something, only when asked.
@@ -853,6 +864,15 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("30"));
+    }
+
+    #[test]
+    fn only_what_changes_things_can_lose_something() {
+        for entry in entries() {
+            if entry.op.loses_something() {
+                assert_eq!(entry.changes, Changes::Always, "{}", entry.name);
+            }
+        }
     }
 
     #[test]

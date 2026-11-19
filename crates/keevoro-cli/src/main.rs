@@ -11,7 +11,9 @@
 //!   API's register, so the two cannot drift apart;
 //! - `show.rs` says each answer in plain English;
 //! - `jobs.rs` runs and follows the long operations, with progress;
-//! - `keys.rs` takes storage keys, which are written down nowhere.
+//! - `keys.rs` takes storage keys, which are written down nowhere;
+//! - `keevoro mcp` hands the program over to `keevoro-mcp`, the server an
+//!   AI agent speaks to.
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
@@ -146,9 +148,21 @@ pub type Opener<'a> = &'a dyn Fn(&Io<'_>) -> Result<Keevoro, Failure>;
 
 /// Runs one command, as typed, and gives the exit code.
 pub fn run(args: Vec<OsString>, io: &mut Io<'_>, keevoro: Opener<'_>) -> Code {
-    let said = commands::parse(args).and_then(|typed| {
-        let keevoro = keevoro(io)?;
-        commands::run(&keevoro, &typed, io)
+    let said = commands::parse(args).and_then(|asked| match asked {
+        commands::Asked::Command(typed) => {
+            let keevoro = keevoro(io)?;
+            commands::run(&keevoro, &typed, io)
+        }
+        commands::Asked::AgentServer => {
+            let keevoro = keevoro(io)?.as_front_end(FrontEnd::Agent);
+            keevoro_mcp::serve_on_stdio(keevoro).map_err(|e| {
+                Failure::new(
+                    Code::SomeFiles,
+                    format!("Keevoro's server for an AI agent stopped: {e}."),
+                )
+            })?;
+            Ok(Code::Worked)
+        }
     });
     match said {
         Ok(code) => code,
@@ -167,8 +181,11 @@ pub fn run(args: Vec<OsString>, io: &mut Io<'_>, keevoro: Opener<'_>) -> Code {
 }
 
 fn main() -> ExitCode {
-    let (mut out, mut err) = (std::io::stdout().lock(), std::io::stderr().lock());
-    let mut input = std::io::stdin().lock();
+    // Not locked for the whole run: `keevoro mcp` hands standard input and
+    // output to the agent server, which reads and writes them from threads
+    // of its own and would wait for ever on a lock held here.
+    let (mut out, mut err) = (std::io::stdout(), std::io::stderr());
+    let mut input = std::io::BufReader::new(std::io::stdin());
     let mut io = Io {
         watched: std::io::stderr().is_terminal(),
         keyboard: std::io::stdin().is_terminal(),

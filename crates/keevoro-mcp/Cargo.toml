@@ -1,0 +1,22 @@
+[package]
+name = "keevoro-mcp"
+description = "Keevoro for an AI agent: a Model Context Protocol server, over standard input and output, with a tool for each operation the person allows."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+keevoro-api.workspace = true
+rmcp.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["io-std", "time"] }
+
+[dev-dependencies]
+anyhow.workspace = true
+image.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true
