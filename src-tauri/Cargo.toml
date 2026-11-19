@@ -20,6 +20,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 anyhow.workspace = true
+keevoro-api.workspace = true
 keevoro-catalog.workspace = true
 keevoro-core.workspace = true
 keevoro-engine.workspace = true

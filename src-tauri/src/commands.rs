@@ -1,11 +1,14 @@
 //! The requests the screens can make, one function each.
 //!
 //! Every function here does the same three things: find the library, call
-//! the engine, and turn any error into a sentence the screen can show. If a
-//! function grows beyond that, the extra belongs in `keevoro-engine`.
+//! `keevoro-api` (or, for what has not moved there yet, the engine), and
+//! turn any error into a sentence the screen can show. If a function grows
+//! beyond that, the extra belongs in the API, where the command line gets
+//! it too. `parity.rs` keeps count of what has still to move.
 
 use crate::events::{CheckEvent, GatherEvent, ScanEvent, SendEvent, SurveyEvent, CHECK, GATHER, SCAN, SEND, SURVEY};
 use crate::Shared;
+use keevoro_api::Backup;
 use keevoro_catalog::Catalog;
 use keevoro_engine::connect::{self, Flags, Keychain, Saved, World};
 use keevoro_engine::{Discover, PhotoChoice};
@@ -77,6 +80,11 @@ fn library(shared: &Shared) -> Said<PathBuf> {
         .ok()
         .and_then(|s| s.open_backup().map(|open| open.home.clone()))
         .ok_or_else(|| "Start a backup first.".to_string())
+}
+
+/// The open backup, through the API that the command line uses too.
+fn backup(shared: &Shared) -> Said<Backup> {
+    Backup::open(&library(shared)?).map_err(say)
 }
 
 /// Starts a new backup with this name and opens it.
@@ -204,70 +212,42 @@ pub fn use_library(app: AppHandle, shared: State<'_, Shared>, path: String) -> S
 
 #[tauri::command]
 pub fn discover(shared: State<'_, Shared>) -> Said<Discover> {
-    let library = library(&shared)?;
-    let catalog = Catalog::open_in_library(&library).map_err(say)?;
-    keevoro_engine::discover(&library, &catalog).map_err(say)
+    backup(&shared)?.discover().map_err(say)
 }
 
 #[tauri::command]
 pub fn keep_collection(shared: State<'_, Shared>, key: String, keep: bool) -> Said<()> {
-    let catalog = Catalog::open_in_library(&library(&shared)?).map_err(say)?;
-    keevoro_engine::set_collection_kept(&catalog, &key, keep).map_err(say)?;
+    backup(&shared)?.keep_collection(&key, keep).map_err(say)?;
     Ok(())
 }
 
 /// Every file in one collection, for ticking and unticking.
 #[tauri::command]
 pub fn collection_photos(shared: State<'_, Shared>, key: String) -> Said<Vec<PhotoChoice>> {
-    let library = library(&shared)?;
-    let catalog = Catalog::open_in_library(&library).map_err(say)?;
-    keevoro_engine::collection_photos(&library, &catalog, &key).map_err(say)
+    backup(&shared)?.collection_photos(&key).map_err(say)
 }
 
 /// Stops remembering a source. Its files are never touched.
 #[tauri::command]
 pub fn forget_source(shared: State<'_, Shared>, id: i64) -> Said<()> {
-    let mut catalog = Catalog::open_in_library(&library(&shared)?).map_err(say)?;
-    keevoro_engine::forget_source(&mut catalog, id).map_err(say)?;
+    backup(&shared)?.forget_source(id).map_err(say)?;
     shared.log.say(&format!(
         "Removed source {id} from the list (its files were not touched)"
     ));
     Ok(())
 }
 
-/// One kind of file found on a source, for the "File types" list.
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FileTypeView {
-    ending: String,
-    files: u64,
-    bytes: u64,
-    included: bool,
-}
-
 /// The kinds of file found on a source, most numerous first.
 #[tauri::command]
-pub fn file_types(shared: State<'_, Shared>, id: i64) -> Said<Vec<FileTypeView>> {
-    let catalog = Catalog::open_in_library(&library(&shared)?).map_err(say)?;
-    Ok(catalog
-        .file_types(id)
-        .map_err(say)?
-        .into_iter()
-        .map(|kind| FileTypeView {
-            ending: kind.ending,
-            files: kind.files,
-            bytes: kind.bytes,
-            included: kind.included,
-        })
-        .collect())
+pub fn file_types(shared: State<'_, Shared>, id: i64) -> Said<Vec<keevoro_api::FileTypeView>> {
+    backup(&shared)?.file_types(id).map_err(say)
 }
 
 /// Includes or leaves out every file of one kind on one source. Nothing on
 /// the source is touched; left-out files are simply not offered or sent.
 #[tauri::command]
 pub fn include_file_type(shared: State<'_, Shared>, id: i64, ending: String, included: bool) -> Said<()> {
-    let catalog = Catalog::open_in_library(&library(&shared)?).map_err(say)?;
-    catalog.set_type_included(id, &ending, included).map_err(say)?;
+    backup(&shared)?.include_type(id, &ending, included).map_err(say)?;
     shared.log.say(&format!(
         "{} .{ending} files on source {id}",
         if included { "Including" } else { "Leaving out" }
@@ -278,23 +258,18 @@ pub fn include_file_type(shared: State<'_, Shared>, id: i64, ending: String, inc
 /// Every file found more than once: which copy is kept, which are left out.
 #[tauri::command]
 pub fn duplicates(shared: State<'_, Shared>) -> Said<Vec<keevoro_engine::DuplicateGroup>> {
-    let library = library(&shared)?;
-    let catalog = Catalog::open_in_library(&library).map_err(say)?;
-    keevoro_engine::duplicates(&library, &catalog).map_err(say)
+    backup(&shared)?.duplicates().map_err(say)
 }
 
 /// The pictures set aside as probably not memories, with the reason.
 #[tauri::command]
 pub fn set_aside(shared: State<'_, Shared>) -> Said<Vec<PhotoChoice>> {
-    let library = library(&shared)?;
-    let catalog = Catalog::open_in_library(&library).map_err(say)?;
-    keevoro_engine::set_aside(&library, &catalog).map_err(say)
+    backup(&shared)?.set_aside().map_err(say)
 }
 
 #[tauri::command]
 pub fn keep_photo(shared: State<'_, Shared>, id: String, keep: bool) -> Said<()> {
-    let catalog = Catalog::open_in_library(&library(&shared)?).map_err(say)?;
-    keevoro_engine::set_photo_kept(&catalog, &id, keep).map_err(say)
+    backup(&shared)?.keep_photo(&id, keep).map_err(say)
 }
 
 /// Lets only a few slow jobs run at once; the rest wait their turn.
@@ -569,8 +544,7 @@ pub fn activity(shared: State<'_, Shared>) -> ActivityView {
 /// This backup's earlier sends, newest first: when, how much, how long.
 #[tauri::command]
 pub fn send_history(shared: State<'_, Shared>) -> Said<Vec<keevoro_engine::history::Sent>> {
-    let catalog = Catalog::open_in_library(&library(&shared)?).map_err(say)?;
-    keevoro_engine::history::recent(&catalog).map_err(say)
+    backup(&shared)?.history().map_err(say)
 }
 
 /// How a send is getting on: how much has arrived, how fast, and roughly
@@ -967,15 +941,13 @@ pub struct RoomView {
 /// Whether this backup also makes and sends previews for a gallery.
 #[tauri::command]
 pub fn previews_wanted(shared: State<'_, Shared>) -> Said<bool> {
-    let catalog = Catalog::open_in_library(&library(&shared)?).map_err(say)?;
-    keevoro_engine::send::wants_previews(&catalog).map_err(say)
+    backup(&shared)?.previews().map_err(say)
 }
 
 /// Sets, for this backup, whether previews are made and sent.
 #[tauri::command]
 pub fn set_previews_wanted(shared: State<'_, Shared>, wanted: bool) -> Said<()> {
-    let catalog = Catalog::open_in_library(&library(&shared)?).map_err(say)?;
-    keevoro_engine::send::set_wants_previews(&catalog, wanted).map_err(say)?;
+    backup(&shared)?.set_previews(wanted).map_err(say)?;
     shared.log.say(if wanted {
         "This backup will also make and send previews"
     } else {
@@ -1110,7 +1082,7 @@ pub async fn connect_destination(shared: State<'_, Shared>, request: ConnectRequ
         // Added to the places this backup goes to; those already there stay.
         connect::add(&mut said, &catalog, &saved, &world)?;
         // What the last backup said was about the places as they were.
-        let _ = catalog.set_setting(LAST_BACKUP_SAID, "null");
+        let _ = Backup::open(&library).and_then(|b| b.forget_last_summary());
         Ok(saved.describe())
     })
     .await
@@ -1127,7 +1099,7 @@ pub fn disconnect_destination(shared: State<'_, Shared>, at: Option<usize>) -> S
         ask: &connect::testing::nobody_to_ask,
     };
     // What the last backup said was about the destinations as they were.
-    let _ = catalog.set_setting(LAST_BACKUP_SAID, "null");
+    let _ = Backup::open(&library(&shared)?).and_then(|b| b.forget_last_summary());
     match at {
         // One of them, by its place in the list. Nothing there is deleted.
         Some(at) => {
@@ -1177,9 +1149,7 @@ fn send_job(
     // one starts with a clean slate, so "Stopped" is never left showing
     // beside a backup that is running.
     if record {
-        if let Ok(catalog) = Catalog::open_in_library(&library) {
-            let _ = catalog.set_setting(LAST_BACKUP_SAID, "null");
-        }
+        let _ = Backup::open(&library).and_then(|b| b.forget_last_summary());
     }
     std::thread::spawn(move || {
         let mut said = Vec::new();
@@ -1247,9 +1217,7 @@ fn send_job(
         // is still there after looking at another screen or closing the
         // app, until the next backup replaces it.
         if record {
-            if let (Ok(catalog), Ok(json)) = (Catalog::open_in_library(&library), serde_json::to_string(&last)) {
-                let _ = catalog.set_setting(LAST_BACKUP_SAID, &json);
-            }
+            let _ = Backup::open(&library).and_then(|b| b.remember_last_summary(&last));
         }
         let _ = app.emit(SEND, last);
         // Whatever the backup did not fingerprint is picked up again now.
@@ -1258,19 +1226,11 @@ fn send_job(
     Ok(())
 }
 
-/// The catalog's name for what the last backup said when it ended.
-const LAST_BACKUP_SAID: &str = "last_backup_said";
-
 /// What this backup's last run said when it ended, or nothing if it has
 /// never run or now goes somewhere else.
 #[tauri::command]
 pub fn last_backup_said(shared: State<'_, Shared>) -> Said<Option<serde_json::Value>> {
-    let catalog = Catalog::open_in_library(&library(&shared)?).map_err(say)?;
-    Ok(catalog
-        .setting(LAST_BACKUP_SAID)
-        .map_err(say)?
-        .and_then(|json| serde_json::from_str(&json).ok())
-        .filter(|said: &serde_json::Value| said.is_object()))
+    backup(&shared)?.last_summary().map_err(say)
 }
 
 /// Starts backing the library up to where it is connected.

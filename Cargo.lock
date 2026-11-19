@@ -2870,10 +2870,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "keevoro-api"
+version = "0.29.2"
+dependencies = [
+ "anyhow",
+ "image",
+ "keevoro-catalog",
+ "keevoro-engine",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "keevoro-app"
 version = "0.29.3"
 dependencies = [
  "anyhow",
+ "keevoro-api",
  "keevoro-catalog",
  "keevoro-core",
  "keevoro-engine",
