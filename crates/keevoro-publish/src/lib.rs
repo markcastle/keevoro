@@ -48,6 +48,11 @@ pub struct Upload {
     /// Stored on the object where the provider supports it, for example
     /// the BLAKE3 hash.
     pub metadata: BTreeMap<String, String>,
+    /// True for a file whose whole fingerprint is not known yet (a search
+    /// only sampled it). It is fingerprinted as it is sent, in the same
+    /// pass over the file, and the answer comes back in the report, so the
+    /// file never has to be read once to fingerprint it and again to send.
+    pub learn_fingerprint: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -102,6 +107,9 @@ pub struct PublishReport {
     pub failed: Vec<FailedUpload>,
     /// True when it was asked to stop before every file had been tried.
     pub stopped: bool,
+    /// The fingerprints worked out while sending, for uploads that asked:
+    /// the key each went under, and its whole-file BLAKE3.
+    pub learned: Vec<(String, String)>,
 }
 
 /// Counts for "3,412 of 9,870 safely backed up".
@@ -115,7 +123,8 @@ pub struct PublishProgress {
 }
 
 enum Outcome {
-    Sent,
+    /// Sent now, with its fingerprint if that was asked for and found.
+    Sent(Option<String>),
     AlreadyThere,
 }
 
@@ -175,7 +184,10 @@ pub async fn publish(
             Ok(outcome) => {
                 catalog.mark_uploaded(target, upload.key.as_str(), upload.bytes)?;
                 match outcome {
-                    Outcome::Sent => {
+                    Outcome::Sent(fingerprint) => {
+                        if let Some(fingerprint) = fingerprint {
+                            report.learned.push((upload.key.to_string(), fingerprint));
+                        }
                         report.uploaded += 1;
                         report.uploaded_bytes += upload.bytes;
                     }
@@ -206,6 +218,7 @@ pub async fn put_document(
     let put = PutOptions {
         create_only: false,
         expect_blake3: None,
+        learn_blake3: false,
         content_type: Some(content_type.to_string()),
         metadata: BTreeMap::new(),
     };
@@ -351,6 +364,7 @@ async fn send(
         // The fingerprint goes along whatever the store keeps of it, so a
         // store that can prove its copy exact does.
         expect_blake3: upload.metadata.get("blake3").cloned(),
+        learn_blake3: upload.learn_fingerprint,
         content_type: upload.content_type.clone(),
         metadata: if caps.custom_metadata {
             upload.metadata.clone()
@@ -361,20 +375,29 @@ async fn send(
     let sent = if in_parts {
         send_in_parts(store, catalog, target, upload, &put, opts).await
     } else {
+        // A store that cannot fingerprint as it writes (cloud storage, which
+        // streams the file itself) has it done here first. For the sizes
+        // that go up whole this is a quick local read.
+        let before = if upload.learn_fingerprint && !caps.whole_files_preferred {
+            Some(fingerprint_of(&upload.file).await?)
+        } else {
+            None
+        };
         with_retries(opts, || {
             store.put(&upload.key, ByteSource::File(upload.file.clone()), &put)
         })
         .await
-        .map(|_| {
+        .map(|receipt| {
             // A store that counts as it writes has already reported these.
             if !caps.counts_its_own_bytes {
                 keevoro_core::meter::sent(upload.bytes, opts.over_network);
             }
+            receipt.blake3.or(before)
         })
         .map_err(SendError::from)
     };
     match sent {
-        Ok(()) => Ok(Outcome::Sent),
+        Ok(fingerprint) => Ok(Outcome::Sent(fingerprint.filter(|_| upload.learn_fingerprint))),
         Err(SendError::Storage(StorageError::AlreadyExists(_))) => {
             let found = with_retries(opts, || store.head(&upload.key)).await?;
             same_or_refuse(store, upload, found.map_or(u64::MAX, |f| f.bytes))
@@ -415,7 +438,7 @@ async fn send_in_parts(
     upload: &Upload,
     put: &PutOptions,
     opts: &PublishOptions,
-) -> Result<(), SendError> {
+) -> Result<Option<String>, SendError> {
     let key = upload.key.as_str();
     // Carry on an earlier attempt if the provider still knows about it.
     let mut held = Vec::new();
@@ -442,6 +465,10 @@ async fn send_in_parts(
     };
 
     let part_bytes = part_size(store, upload.bytes, opts.part_bytes);
+    // Fingerprinted part by part as it is read, when every part is read
+    // here. If some parts were sent on an earlier run they are not read
+    // again, so the file is fingerprinted on its own afterwards.
+    let mut whole = (upload.learn_fingerprint && held.is_empty()).then(blake3::Hasher::new);
     let mut receipts = Vec::new();
     let mut offset = 0u64;
     let mut number: u16 = 1;
@@ -451,6 +478,9 @@ async fn send_in_parts(
             Some(already) => already.clone(),
             None => {
                 let body = read_range(&upload.file, offset, len)?;
+                if let Some(hasher) = whole.as_mut() {
+                    hasher.update(&body);
+                }
                 let landed =
                     with_retries(opts, || store.put_part(&id, number, ByteSource::Bytes(body.clone()))).await?;
                 // Counted part by part, so a large file shows steady progress.
@@ -465,7 +495,35 @@ async fn send_in_parts(
             .ok_or_else(|| StorageError::InvalidParts("too many parts".into()))?;
     }
     finish(store, &id, &receipts, opts).await?;
-    Ok(())
+    Ok(match whole {
+        Some(hasher) => Some(hasher.finalize().to_hex().to_string()),
+        None if upload.learn_fingerprint => Some(fingerprint_of(&upload.file).await?),
+        None => None,
+    })
+}
+
+/// The whole-file BLAKE3 of `file`, read in pieces off the async thread.
+async fn fingerprint_of(file: &std::path::Path) -> Result<String, StorageError> {
+    let file = file.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        use std::io::Read;
+        let mut input = std::fs::File::open(&file)?;
+        let mut hasher = blake3::Hasher::new();
+        let mut buffer = vec![0u8; 1024 * 1024];
+        loop {
+            match input.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(n) => {
+                    hasher.update(&buffer[..n]);
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(e) => return Err(StorageError::from(e)),
+            }
+        }
+        Ok(hasher.finalize().to_hex().to_string())
+    })
+    .await
+    .map_err(|e| StorageError::Provider(e.to_string()))?
 }
 
 async fn finish(

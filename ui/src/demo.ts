@@ -582,7 +582,7 @@ export function demoBackend(): Backend {
       const total = kept.reduce((n, c) => n + c.photos + c.videos, 0)
       stopAsked = false
       void (async () => {
-        sendListeners.forEach((l) => l({ line: 'Reading each file in full first: 0 of 12', finished: false }))
+        sendListeners.forEach((l) => l({ line: 'Telling apart files that look alike: 0 of 12', finished: false }))
         await later(200 * pace)
         for (let step = 1; step <= 6; step++) {
           // `?slow` leaves time to press Stop.

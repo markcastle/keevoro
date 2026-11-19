@@ -213,12 +213,20 @@ impl ObjectStore for FolderStore {
     async fn put(&self, key: &ObjectKey, body: ByteSource, opts: &PutOptions) -> Result<PutReceipt, StorageError> {
         let dest = self.path_for(key)?;
         let tmp = self.temp_path().await;
-        let bytes = write_source(&tmp, body, self.watcher.clone(), opts.expect_blake3.clone()).await?;
+        let (bytes, blake3) = write_source(
+            &tmp,
+            body,
+            self.watcher.clone(),
+            opts.expect_blake3.clone(),
+            opts.learn_blake3,
+        )
+        .await?;
         self.publish(&tmp, &dest, key, opts.create_only).await?;
         Ok(PutReceipt {
             key: key.clone(),
             bytes,
             etag: None,
+            blake3,
         })
     }
 
@@ -283,7 +291,7 @@ impl MultipartStore for FolderStore {
             return Err(StorageError::InvalidParts("part numbers start at 1".into()));
         }
         let tmp = dir.join(format!("part-{number:05}.tmp"));
-        let bytes = write_source(&tmp, body, None, None).await?;
+        let (bytes, _) = write_source(&tmp, body, None, None, false).await?;
         fs::rename(&tmp, dir.join(part_name(number))).await?;
         Ok(PartReceipt {
             number,
@@ -337,6 +345,7 @@ impl MultipartStore for FolderStore {
             key,
             bytes: total,
             etag: None,
+            blake3: None,
         })
     }
 
@@ -384,17 +393,18 @@ async fn write_source(
     body: ByteSource,
     watcher: Option<Watcher>,
     expect: Option<String>,
-) -> Result<u64, StorageError> {
+    learn: bool,
+) -> Result<(u64, Option<String>), StorageError> {
     match body {
         ByteSource::Bytes(b) => {
             let mut f = fs::File::create(dest).await?;
             f.write_all(&b).await?;
             f.sync_all().await?;
-            Ok(b.len() as u64)
+            Ok((b.len() as u64, None))
         }
         ByteSource::File(src) => {
             let dest = dest.to_path_buf();
-            tokio::task::spawn_blocking(move || copy_file(&src, &dest, watcher.as_ref(), expect.as_deref()))
+            tokio::task::spawn_blocking(move || copy_file(&src, &dest, watcher.as_ref(), expect.as_deref(), learn))
                 .await
                 .map_err(|e| StorageError::Provider(e.to_string()))?
         }
@@ -416,12 +426,19 @@ async fn write_source(
 ///
 /// Either way the copy is removed and the failure reported; nothing wrong
 /// is ever left under a real name.
-fn copy_file(src: &Path, dest: &Path, watcher: Option<&Watcher>, expect: Option<&str>) -> Result<u64, StorageError> {
+fn copy_file(
+    src: &Path,
+    dest: &Path,
+    watcher: Option<&Watcher>,
+    expect: Option<&str>,
+    learn: bool,
+) -> Result<(u64, Option<String>), StorageError> {
     use std::io::{Read, Write};
     let mut input = std::fs::File::open(src)?;
     let mut output = std::fs::File::create(dest)?;
     let mut buffer = vec![0u8; COPY_BUFFER];
     let mut total = 0u64;
+    let prove = expect.is_some() || learn;
     let mut read = blake3::Hasher::new();
     loop {
         let n = match input.read(&mut buffer) {
@@ -430,7 +447,7 @@ fn copy_file(src: &Path, dest: &Path, watcher: Option<&Watcher>, expect: Option<
             Err(e) if e.kind() == ErrorKind::Interrupted => continue,
             Err(e) => return Err(e.into()),
         };
-        if expect.is_some() {
+        if prove {
             read.update(&buffer[..n]);
         }
         output.write_all(&buffer[..n])?;
@@ -440,12 +457,17 @@ fn copy_file(src: &Path, dest: &Path, watcher: Option<&Watcher>, expect: Option<
         }
     }
     output.flush()?;
-    let Some(expected) = expect else { return Ok(total) };
+    if !prove {
+        return Ok((total, None));
+    }
     let refuse = |why: &str| {
         let _ = std::fs::remove_file(dest);
         Err(StorageError::NotTheSame(why.to_string()))
     };
-    if read.finalize().to_hex().as_str() != expected {
+    // What was read is the file: either it matches the fingerprint already
+    // known, or (when none is known yet) it becomes the fingerprint.
+    let fingerprint = read.finalize().to_hex().to_string();
+    if expect.is_some_and(|expected| expected != fingerprint) {
         return refuse("the file is not as it was when it was looked at");
     }
     // Past the system's own memory and onto the disk before it is read back.
@@ -463,10 +485,10 @@ fn copy_file(src: &Path, dest: &Path, watcher: Option<&Watcher>, expect: Option<
             Err(e) => return Err(e.into()),
         }
     }
-    if written.finalize().to_hex().as_str() != expected {
+    if written.finalize().to_hex().as_str() != fingerprint {
         return refuse("what was written did not read back the same");
     }
-    Ok(total)
+    Ok((total, Some(fingerprint)))
 }
 
 /// Walks the root and returns `(key, bytes)` for every file outside the work area.
@@ -656,6 +678,34 @@ mod tests {
         );
         // The source was only read.
         assert_eq!(std::fs::read(&photo).unwrap(), vec![43u8; 300_000]);
+    }
+
+    #[tokio::test]
+    async fn a_file_with_no_known_fingerprint_is_fingerprinted_as_it_is_copied() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = FolderStore::open(dir.path().join("to")).await.unwrap();
+        let video = dir.path().join("flight.mp4");
+        let bytes = vec![9u8; COPY_BUFFER + 77];
+        std::fs::write(&video, &bytes).unwrap();
+        let key = ObjectKey::new("originals/flight.mp4").unwrap();
+        let learn = PutOptions {
+            learn_blake3: true,
+            ..Default::default()
+        };
+        let receipt = store.put(&key, ByteSource::File(video), &learn).await.unwrap();
+        // One pass over the source gave both the copy and its fingerprint.
+        assert_eq!(receipt.blake3.as_deref(), Some(blake3::hash(&bytes).to_hex().as_str()));
+        assert!(store.get(&key).await.unwrap() == bytes);
+        // Not asked, not given.
+        let plain = store
+            .put(
+                &ObjectKey::new("renditions/a.webp").unwrap(),
+                ByteSource::Bytes(vec![1, 2, 3]),
+                &PutOptions::default(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(plain.blake3, None);
     }
 
     #[tokio::test]

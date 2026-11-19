@@ -161,6 +161,8 @@ Done when a non-technical tester gets from a drive to a backup without help.
 - [ ] Several destinations sent at the same time, each file read from the source once
 - [ ] Previews on or off per destination (today it is per backup)
 - [ ] Command line: `connect` and `publish` know one destination; the app's list is not yet reachable from it
+- [x] Files are fingerprinted as they are sent, not read once beforehand; only lookalikes are read first
+- [ ] Cloud storage: label an object with its fingerprint when that is only learnt during the upload
 - [x] Six files at once to cloud storage
 - [x] Four files at once to a folder on a file share (Windows)
 - [x] Every copy written to a folder is read back and compared with the original's fingerprint

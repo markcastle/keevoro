@@ -147,6 +147,7 @@ impl World {
             write_once,
             content_type: Some("image/jpeg".into()),
             metadata: BTreeMap::new(),
+            learn_fingerprint: false,
         }
     }
     async fn publish(&self, uploads: &[Upload], opts: &PublishOptions) -> PublishReport {
@@ -544,6 +545,35 @@ async fn a_different_file_of_the_same_name_and_size_is_never_counted_as_the_orig
 }
 
 #[tokio::test]
+async fn a_file_not_yet_fingerprinted_is_fingerprinted_as_it_is_sent() {
+    let w = World::new().await;
+    let small = vec![5u8; 4000];
+    let big = pattern(3 * MIB);
+    let mut uploads = vec![
+        w.file("originals/small.jpg", &small, true),
+        w.file("originals/big.mov", &big, true),
+        w.file("originals/known.jpg", &[1u8; 100], true),
+    ];
+    uploads[0].learn_fingerprint = true;
+    uploads[1].learn_fingerprint = true;
+    let r = w.publish(&uploads, &quick()).await;
+    assert_eq!((r.uploaded, r.failed.len()), (3, 0));
+    let mut learned = r.learned.clone();
+    learned.sort();
+    // Whole and in parts alike, and only for the ones that asked.
+    assert_eq!(
+        learned,
+        vec![
+            ("originals/big.mov".to_string(), blake3::hash(&big).to_hex().to_string()),
+            (
+                "originals/small.jpg".to_string(),
+                blake3::hash(&small).to_hex().to_string()
+            ),
+        ]
+    );
+}
+
+#[tokio::test]
 async fn part_sizes_respect_the_providers_limits() {
     let mut w = World::new().await;
     // Preferred size below the provider's minimum is raised to it.
@@ -725,6 +755,7 @@ async fn asked_to_stop_it_finishes_nothing_more_and_says_so() {
                 write_once: true,
                 content_type: None,
                 metadata: BTreeMap::new(),
+                learn_fingerprint: false,
             }
         })
         .collect();

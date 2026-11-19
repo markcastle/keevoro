@@ -227,12 +227,19 @@ fn place_for(item: &FoundItem, agreed: Option<&str>) -> (Vec<String>, String) {
 /// Agrees a place for each of `items` without copying anything, for when
 /// the files go straight from their source to other storage. A file that
 /// already has a place keeps it. Returns how many were given one now.
-pub fn agree_places(catalog: &Catalog, items: &[&FoundItem]) -> Result<usize, CatalogError> {
+///
+/// A file a search only sampled has no whole fingerprint yet. With
+/// `sampled_too` it is given a place all the same, under its quick
+/// fingerprint, so that it can be fingerprinted as it is sent instead of
+/// being read once beforehand. The caller must only pass such files when
+/// no other file shares their quick fingerprint: a place is one file's.
+pub fn agree_places(catalog: &Catalog, items: &[&FoundItem], sampled_too: bool) -> Result<usize, CatalogError> {
     let mut placed = 0;
     for item in items {
-        let (Some(hash), true) = (item.blake3.as_deref(), item.hashed) else {
+        let Some(hash) = item.blake3.as_deref() else { continue };
+        if !item.hashed && !sampled_too {
             continue;
-        };
+        }
         if catalog.collected_path(hash)?.is_some() {
             continue;
         }

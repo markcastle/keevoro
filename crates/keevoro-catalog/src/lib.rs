@@ -368,6 +368,28 @@ impl Catalog {
                  AND NOT EXISTS (SELECT 1 FROM items WHERE blake3 = ?1 AND hashed = 0)",
                 [quick],
             )?;
+            // A file sent while only its quick fingerprint was known was
+            // given its place under that fingerprint. The place follows the
+            // file to its real one, so it is still known to be there. This
+            // waits until no file goes by the quick fingerprint any more.
+            let still_used: bool = tx
+                .query_row(
+                    "SELECT EXISTS (SELECT 1 FROM items WHERE blake3 = ?1 AND hashed = 0)",
+                    [quick],
+                    |r| r.get(0),
+                )
+                .unwrap_or(true);
+            if !still_used {
+                tx.execute(
+                    "UPDATE OR IGNORE collected SET blake3 = ?1 WHERE blake3 = ?2",
+                    params![whole, quick],
+                )?;
+                tx.execute("DELETE FROM collected WHERE blake3 = ?1", [quick])?;
+                // Previews made under the quick fingerprint are named after
+                // it; they are forgotten, and made again under the real one.
+                tx.execute("DELETE FROM renditions WHERE blake3 = ?1", [quick])?;
+                tx.execute("DELETE FROM videos WHERE blake3 = ?1", [quick])?;
+            }
         }
         tx.commit()?;
         Ok(())
