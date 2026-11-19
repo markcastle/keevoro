@@ -489,6 +489,15 @@ pub fn status(io: &mut Io<'_>, _: &ArgMatches, list: &Value) -> Said_ {
         writeln!(io.out, "Nothing is running.")?;
     }
     for job in each(list) {
+        if yes(job, "ended") {
+            // Only a job asked for by its number, once it has ended.
+            writeln!(io.out, "Job {} has ended.", b(job, "id"))?;
+            let last: Option<Said> = job
+                .get("last")
+                .and_then(|last| serde_json::from_value(last.clone()).ok());
+            last_word(io, last.as_ref())?;
+            continue;
+        }
         writeln!(
             io.out,
             "{} {} (job {}){}",

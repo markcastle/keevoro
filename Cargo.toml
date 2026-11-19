@@ -17,6 +17,7 @@ keevoro-core = { path = "crates/keevoro-core" }
 keevoro-engine = { path = "crates/keevoro-engine" }
 keevoro-frame = { path = "crates/keevoro-frame" }
 keevoro-index = { path = "crates/keevoro-index" }
+keevoro-mcp = { path = "crates/keevoro-mcp" }
 keevoro-media = { path = "crates/keevoro-media" }
 keevoro-publish = { path = "crates/keevoro-publish" }
 keevoro-scan = { path = "crates/keevoro-scan" }
@@ -40,6 +41,9 @@ infer = "0.19"
 kamadak-exif = "0.6"
 keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native"] }
 regex = "1"
+# The official Model Context Protocol SDK: only the server and its stdio
+# transport, nothing that opens a network connection.
+rmcp = { version = "3.11", default-features = false, features = ["server", "transport-io"] }
 schemars = "1"
 rpassword = "7"
 rusqlite = { version = "0.43", features = ["bundled"] }

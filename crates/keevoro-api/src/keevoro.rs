@@ -103,14 +103,14 @@ pub struct BackupCounts {
 }
 
 /// `backups.start`
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StartBackupRequest {
     pub name: String,
 }
 
 /// `backups.rename`
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RenameBackupRequest {
     /// The backup's name or id.
@@ -119,7 +119,7 @@ pub struct RenameBackupRequest {
 }
 
 /// `backups.forget`
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ForgetBackupRequest {
     /// The backup's name or id.
@@ -150,7 +150,7 @@ pub struct SettingsView {
 }
 
 /// `keevoro.settings`: without anything in it, it only reads.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SettingsRequest {
     #[serde(default)]
@@ -158,7 +158,7 @@ pub struct SettingsRequest {
 }
 
 /// `keevoro.log`
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LogRequest {
     /// How many of the last lines; 400 when not said.

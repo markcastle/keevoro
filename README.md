@@ -92,6 +92,7 @@ These are rules the code is built around and automated tests guard, not hopes.
 - 🔁 **Incremental:** open a backup again later and it sends only what is new.
 - 🔄 **Updates itself:** downloads the new version, checks it against the published checksums, and installs it.
 - 🌗 **Light and dark:** or whatever your computer is set to.
+- 🤖 **AI agents:** an AI app such as Claude can find your photos and back them up for you, through `keevoro mcp`. It may only look until you allow more, only in folders you name, and can never touch a source or delete a photo. See [docs/mcp.md](docs/mcp.md).
 
 ![The same screen in the dark theme](docs/screens/10-choose-dark.png)
 
@@ -178,6 +179,7 @@ Honest limits today:
 - Mac and Linux versions are built at milestones, so they trail Windows.
 - The app is not code-signed, hence the one-time trust prompt.
 - Cloud backups are tested against MinIO, which speaks the same language as R2 and S3. Try a spare bucket first.
+- An AI agent can use Keevoro only on the computer it runs on. Agents on other machines are for later.
 
 What is planned is in [TASKS.md](TASKS.md).
 
@@ -218,6 +220,7 @@ npm run ui:dev
 | `keevoro-engine` | What Keevoro does, as plain function calls. |
 | `keevoro-api` | Everything Keevoro can do, listed once, so the app, the command line and an AI agent can all do the same things. |
 | `keevoro-cli` | The `keevoro` command: every operation in the API, on the same named backups as the app. |
+| `keevoro-mcp` | `keevoro mcp`: a Model Context Protocol server, so an AI agent can do what the person allows, through the same API. |
 | `src-tauri` and `ui` | The desktop app: a Tauri shell and its screens. |
 | `xtask` | The project's own tooling: the changelog and cutting a release. |
 

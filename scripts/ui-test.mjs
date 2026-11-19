@@ -395,7 +395,7 @@ try {
   // --- Settings holds everything in one place, including the log.
   await page.getByRole('button', { name: 'Settings' }).click()
   await page.getByRole('heading', { name: 'Settings', level: 1 }).waitFor()
-  for (const title of ['This backup', 'Where it backs up to', 'Appearance', 'Speed', 'Updates', 'What Keevoro has been doing']) {
+  for (const title of ['This backup', 'Where it backs up to', 'Appearance', 'Speed', 'AI agents', 'Updates', 'What Keevoro has been doing']) {
     await page.getByRole('heading', { name: title, level: 3 }).waitFor()
   }
   // Speed: the computer's own codecs are used unless switched off, and it says what that means.
@@ -406,6 +406,22 @@ try {
   assert.equal(await codecs.getAttribute('aria-checked'), 'false')
   await page.getByText(/Photos are opened by: the built-in decoder, then/).waitFor()
   await codecs.click()
+  // AI agents: looking only, and no folders, until the person says.
+  const agentChanges = page.getByRole('switch', { name: 'Let AI agents make changes' })
+  assert.equal(await agentChanges.getAttribute('aria-checked'), 'false', 'an agent may only look until allowed')
+  await page.getByText('None yet, so it cannot look for photos anywhere.').waitFor()
+  await agentChanges.click()
+  assert.equal(await agentChanges.getAttribute('aria-checked'), 'true')
+  await page.locator('.agent-folders').nth(0).getByRole('button', { name: 'Add a folder…' }).click()
+  await page.getByRole('list', { name: 'Folders an agent may look through' }).getByText('D:\\Photos').waitFor()
+  await page.locator('.agent-folders').nth(1).getByRole('button', { name: 'Add a folder…' }).click()
+  await page.getByRole('list', { name: 'Folders an agent may back up to' }).getByText('F:\\Family Backup').waitFor()
+  await page.locator('.agent-folders').nth(0).scrollIntoViewIfNeeded()
+  await shot('9s-settings-agents')
+  await page.getByRole('button', { name: 'Stop allowing D:\\Photos' }).click()
+  await page.getByText('None yet, so it cannot look for photos anywhere.').waitFor()
+  await agentChanges.click()
+  assert.equal(await agentChanges.getAttribute('aria-checked'), 'false')
   // Appearance: light, dark, or the same as the computer, and it is remembered.
   const ground = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor)
   assert.equal(await ground(), 'rgb(255, 254, 251)', 'the cream ground of the light theme')

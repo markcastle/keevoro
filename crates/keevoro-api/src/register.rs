@@ -249,6 +249,372 @@ impl Op {
     }
 }
 
+/// The tool an AI agent is given for an operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Tool {
+    /// What the agent calls it, such as `list_backups`.
+    pub name: &'static str,
+    /// What the agent reads to decide when to use it: what it does, when
+    /// to use it, what it gives back and what it will not do. The agent
+    /// passes these words on to a person, so they are plain.
+    pub tells: &'static str,
+}
+
+/// What an agent is told about choosing a backup, for every tool about one.
+pub const NAMING_A_BACKUP: &str = "The backup to work on, by its name as list_backups gives it. Leave it out when \
+     there is only one backup, or to use the one open in the Keevoro app.";
+
+impl Op {
+    /// True for an operation on one backup, which can be named. Without a
+    /// name it is the one the app has open, which is the only one when
+    /// there is one.
+    pub const fn on_a_backup(self) -> bool {
+        !matches!(
+            self,
+            Op::BackupsList
+                | Op::BackupsStart
+                | Op::BackupsRename
+                | Op::BackupsForget
+                | Op::PlacesList
+                | Op::JobsPause
+                | Op::JobsCarryOn
+                | Op::KeevoroAbout
+                | Op::KeevoroActivity
+                | Op::KeevoroLog
+                | Op::KeevoroSettings
+                | Op::KeevoroUpdate
+                | Op::KeevoroReset
+                | Op::AgentsAccess
+        )
+    }
+
+    /// True for an operation that loses something a person cannot simply
+    /// put back, though never a photo: forgetting a source loses what was
+    /// found there and chosen, removing a destination loses its saved keys.
+    /// An AI app may ask its person before one of these.
+    pub const fn loses_something(self) -> bool {
+        matches!(
+            self,
+            Op::SourcesForget | Op::DestinationsRemove | Op::BackupsForget | Op::KeevoroReset
+        )
+    }
+
+    /// Would this request change anything? Always for an operation that
+    /// always changes something, never for one that only looks, and for
+    /// one that looks unless asked to change something, only when asked.
+    pub fn changes_with(self, request: &serde_json::Value) -> bool {
+        let given = |field: &str| request.get(field).is_some_and(|v| !v.is_null());
+        match self.entry().changes {
+            Changes::Never => false,
+            Changes::Always => true,
+            Changes::OnlyWhenAsked => match self {
+                Op::BackupPreviews => given("wanted"),
+                Op::KeevoroSettings => given("ownCodecs"),
+                Op::AgentsAccess => given("lookIn") || given("backUpTo") || given("mayChange"),
+                // Through the API, only the check: installing is the app's.
+                Op::KeevoroUpdate => false,
+                // Anything else that may change is taken to change.
+                _ => true,
+            },
+        }
+    }
+
+    /// What its request may hold, as a JSON Schema: made from the very
+    /// type the API reads the request into, so the two cannot differ.
+    pub fn request_schema(self) -> serde_json::Value {
+        use crate::agents::AgentsAccessRequest as Agents;
+        use crate::destinations::{AddDestinationRequest as Add, RemoveDestinationRequest as Remove};
+        use crate::keevoro::{
+            ForgetBackupRequest, LogRequest, RenameBackupRequest, SettingsRequest, StartBackupRequest,
+        };
+        use crate::picture::PictureRequest;
+        use crate::{
+            CollectionRequest, IncludeTypeRequest, JobRequest, KeepCollectionRequest, KeepPhotoRequest,
+            LookAgainRequest, Nothing, PlaceRequest, PreviewsRequest, SourceRequest, StatusRequest,
+        };
+        match self {
+            Op::BackupsStart => schema::<StartBackupRequest>(),
+            Op::BackupsRename => schema::<RenameBackupRequest>(),
+            Op::BackupsForget => schema::<ForgetBackupRequest>(),
+            Op::PlacesSurvey | Op::SourcesLook => schema::<PlaceRequest>(),
+            Op::SourcesLookAgain => schema::<LookAgainRequest>(),
+            Op::SourcesForget | Op::SourcesFileTypes => schema::<SourceRequest>(),
+            Op::SourcesIncludeType => schema::<IncludeTypeRequest>(),
+            Op::CollectionsPhotos => schema::<CollectionRequest>(),
+            Op::CollectionsKeep => schema::<KeepCollectionRequest>(),
+            Op::PhotosKeep => schema::<KeepPhotoRequest>(),
+            Op::PhotosPicture => schema::<PictureRequest>(),
+            Op::DestinationsAdd => schema::<Add>(),
+            Op::DestinationsRemove => schema::<Remove>(),
+            Op::BackupPreviews => schema::<PreviewsRequest>(),
+            Op::JobsStatus => schema::<StatusRequest>(),
+            Op::JobsFollow | Op::JobsStop => schema::<JobRequest>(),
+            Op::KeevoroLog => schema::<LogRequest>(),
+            Op::KeevoroSettings => schema::<SettingsRequest>(),
+            Op::AgentsAccess => schema::<Agents>(),
+            Op::BackupsList
+            | Op::PlacesList
+            | Op::SourcesList
+            | Op::FoundSummary
+            | Op::CollectionsList
+            | Op::SetAsideList
+            | Op::DuplicatesList
+            | Op::DestinationsList
+            | Op::DestinationsRoom
+            | Op::BackupRehearse
+            | Op::BackupRun
+            | Op::BackupCheck
+            | Op::BackupHistory
+            | Op::BackupLastSummary
+            | Op::JobsPause
+            | Op::JobsCarryOn
+            | Op::KeevoroAbout
+            | Op::KeevoroActivity
+            | Op::KeevoroUpdate
+            | Op::KeevoroReset => schema::<Nothing>(),
+        }
+    }
+
+    /// The tool an AI agent is given for it, if any. Every operation
+    /// offered to agents has one, and no other does (a test sees to it).
+    pub const fn tool(self) -> Option<Tool> {
+        let (name, tells) = match self {
+            Op::BackupsList => (
+                "list_backups",
+                "Lists the person's backups: each one's name, how many sources and destinations it has, how many \
+                 photos and videos it found, and how many files are still waiting to be backed up. Start here; the \
+                 names it gives are what the other tools take as \"backup\". Changes nothing.",
+            ),
+            Op::BackupsStart => (
+                "start_backup",
+                "Starts a new, empty backup with the name given, and gives back its name and id. It has no sources \
+                 or destinations yet: add them with look_through and add_destination.",
+            ),
+            Op::BackupsRename => (
+                "rename_backup",
+                "Gives a backup a new name. Nothing else changes: its sources, choices and destinations stay as they \
+                 were.",
+            ),
+            Op::PlacesList => (
+                "list_places",
+                "Lists the drives plugged into this computer that could be looked through for photos, with their \
+                 names and sizes. Changes nothing.",
+            ),
+            Op::PlacesSurvey => (
+                "survey_place",
+                "Finds which folders in a drive or folder hold photos and videos. Reads folder listings only and \
+                 opens no file, so it is quick. Use it to decide what to look through. It starts a job and gives \
+                 back its id at once; ask job_status with that id, and waitSeconds, for the folders it found. \
+                 Changes nothing. Only works in folders the person has allowed (see my_access).",
+            ),
+            Op::SourcesList => (
+                "list_sources",
+                "Lists the places a backup looks for photos (its sources), with each one's id, where it is, and how \
+                 many photos and videos were found there. Changes nothing.",
+            ),
+            Op::SourcesLook => (
+                "look_through",
+                "Looks through a drive or folder for photos and videos and adds it to a backup as a source. Only \
+                 reads: nothing on the drive or folder is changed, moved or deleted. It starts a job and gives back \
+                 its id at once; follow it with job_status. Only works in folders the person has allowed (see \
+                 my_access).",
+            ),
+            Op::SourcesLookAgain => (
+                "look_again",
+                "Looks through a backup's sources again, or just one, to find photos added since last time. Only \
+                 reads the sources. It starts a job and gives back its id at once; follow it with job_status.",
+            ),
+            Op::SourcesForget => (
+                "forget_source",
+                "Takes a source off a backup, by the id list_sources gives. Nothing on the source is changed or \
+                 deleted, and what has already been backed up stays where it is.",
+            ),
+            Op::SourcesFileTypes => (
+                "list_file_types",
+                "Lists the kinds of file found on a source (by ending, such as jpg or mov), how many of each, and \
+                 which are included. Changes nothing.",
+            ),
+            Op::SourcesIncludeType => (
+                "include_file_type",
+                "Includes, or leaves out, every file with one ending on a source. Leaving out only means those files \
+                 are not backed up; nothing is deleted.",
+            ),
+            Op::FoundSummary => (
+                "summarise_backup",
+                "Says what a backup holds: how many photos and videos, their size, the duplicates left out and the \
+                 room that saves, and how many pictures were set aside as probably not photos. Changes nothing.",
+            ),
+            Op::CollectionsList => (
+                "list_collections",
+                "Lists a backup's collections (the folders and moments its photos fall into), newest first, with \
+                 each one's key, how many files it holds, and whether it is being kept. Changes nothing.",
+            ),
+            Op::CollectionsPhotos => (
+                "list_photos",
+                "Lists the photos and videos in one collection, by the key list_collections gives, with each one's \
+                 short id and whether it is being kept. Changes nothing.",
+            ),
+            Op::CollectionsKeep => (
+                "keep_collection",
+                "Keeps, or leaves out, a whole collection, by the key list_collections gives. Leaving out only means \
+                 it is not backed up; nothing is deleted. Gives back how many files changed.",
+            ),
+            Op::PhotosKeep => (
+                "keep_photo",
+                "Keeps, or leaves out, one photo or video, by the short id list_photos gives. Nothing is deleted.",
+            ),
+            Op::SetAsideList => (
+                "list_set_aside",
+                "Lists pictures Keevoro set aside as probably not photos (screenshots, icons, tiny images), each with \
+                 the reason. Any of them can be kept after all with keep_photo. Changes nothing.",
+            ),
+            Op::DuplicatesList => (
+                "list_duplicates",
+                "Lists files found more than once: the copy being kept and the copies left out. A copy is left out \
+                 only when it matches byte for byte, never on a guess. Changes nothing.",
+            ),
+            Op::PhotosPicture => (
+                "show_picture",
+                "Gives back a picture of one photo, or a still from a video, by the short id list_photos gives: \
+                 small, or screen-sized, so you can look at it or show it to the person. Changes nothing. Only for \
+                 files in folders the person has allowed (see my_access).",
+            ),
+            Op::DestinationsList => (
+                "list_destinations",
+                "Lists where a backup goes (folders and cloud storage), in order, and how many files have reached \
+                 each. Never gives back storage keys. Changes nothing.",
+            ),
+            Op::DestinationsAdd => (
+                "add_destination",
+                "Adds a place to back up to, after checking it works: a folder (kind \"folder\", place the folder), \
+                 or cloud storage (kind \"r2\", \"s3\" or \"endpoint\", with bucket and keys). Keys are stored in \
+                 the computer's keychain and can never be read back by anyone. A folder must be one the person has \
+                 allowed (see my_access). Nothing already stored there is changed.",
+            ),
+            Op::DestinationsRemove => (
+                "remove_destination",
+                "Stops backing up to one place, by its position in list_destinations (counting from 0), or to every \
+                 place with all. Nothing stored there is deleted.",
+            ),
+            Op::DestinationsRoom => (
+                "check_room",
+                "Says how much each destination still needs, how much room it has, and whether that is enough. \
+                 Changes nothing.",
+            ),
+            Op::BackupRehearse => (
+                "rehearse_backup",
+                "Says what backing up now would do: how many files, how much, and to where. Changes nothing. Use it \
+                 before run_backup and tell the person what it says.",
+            ),
+            Op::BackupRun => (
+                "run_backup",
+                "Backs up everything being kept to every destination, originals first, and proves each copy exact. \
+                 It can take hours, so it starts a job and gives back its id at once; follow it with job_status, and \
+                 read last_summary when it ends. Never changes or deletes anything on a source, and never replaces \
+                 or removes anything already backed up. Safe to stop and run again. Every folder it backs up to must \
+                 be one the person has allowed (see my_access).",
+            ),
+            Op::BackupCheck => (
+                "check_arrived",
+                "Confirms that what should be at each destination is there. Changes nothing. It starts a job and \
+                 gives back its id at once; follow it with job_status.",
+            ),
+            Op::BackupHistory => (
+                "backup_history",
+                "Lists how earlier backups went, newest first: when, to where, how many files and how much, how long \
+                 and how fast. Changes nothing.",
+            ),
+            Op::BackupLastSummary => (
+                "last_summary",
+                "Gives back what the last backup said when it finished, in the words the person would have seen, or \
+                 nothing if it has never run. Changes nothing.",
+            ),
+            Op::BackupPreviews => (
+                "set_previews",
+                "Says whether a backup also makes previews for a gallery, or sends the originals alone. Give wanted \
+                 to change it; leave it out to only ask.",
+            ),
+            Op::JobsStatus => (
+                "job_status",
+                "Says what is running on a backup, or on any: each job's id, the step it is on, how far it has got, \
+                 its speed and roughly how long is left, and who started it. Give job for one job; once it has ended \
+                 it says so (ended is true) with its last word in last, such as the folders a survey found. Give \
+                 waitSeconds (up to 30) to wait for it to end before answering, rather than asking again and again. \
+                 Changes nothing.",
+            ),
+            Op::JobsPause => (
+                "pause_jobs",
+                "Makes all of Keevoro's heavy work wait once the file in hand is finished, in every Keevoro program. \
+                 Nothing is lost; carry_on lets it go on.",
+            ),
+            Op::JobsCarryOn => ("carry_on", "Lets paused work go on from where it was."),
+            Op::JobsStop => (
+                "stop_job",
+                "Stops a running job once the file in hand is finished, or every job on a backup. Everything done so \
+                 far is kept, and running it again carries on from there.",
+            ),
+            Op::KeevoroAbout => (
+                "about_keevoro",
+                "Gives back Keevoro's version, the promises it keeps about people's photos, and its licence. Changes \
+                 nothing.",
+            ),
+            Op::KeevoroActivity => (
+                "activity",
+                "Says what Keevoro is doing right now and how hard it is working the computer. Changes nothing.",
+            ),
+            Op::KeevoroSettings => (
+                "read_settings",
+                "Gives back Keevoro's settings, such as whether it uses this computer's own picture codecs. You \
+                 cannot change them; the person can.",
+            ),
+            Op::KeevoroUpdate => (
+                "check_for_update",
+                "Says whether a newer version of Keevoro is available. You cannot install it; the person can.",
+            ),
+            Op::AgentsAccess => (
+                "my_access",
+                "Says which folders you may look through and back up to, and whether you may make changes. If \
+                 something is refused, this explains why; only the person can change it.",
+            ),
+            Op::BackupsForget | Op::KeevoroLog | Op::KeevoroReset | Op::JobsFollow => return None,
+        };
+        Some(Tool { name, tells })
+    }
+}
+
+/// A request type's JSON Schema, as plain JSON: every part written out in
+/// place, with no references to follow, as the simplest readers expect.
+fn schema<T: schemars::JsonSchema>() -> serde_json::Value {
+    let generator = schemars::generate::SchemaSettings::draft2020_12()
+        .with(|settings| settings.inline_subschemas = true)
+        .into_generator();
+    let mut schema = generator.into_root_schema_for::<T>().to_value();
+    if let Some(object) = schema.as_object_mut() {
+        // Its name in code and its doc comment are for developers.
+        for field in ["$schema", "title", "description"] {
+            object.remove(field);
+        }
+    }
+    unwrap_descriptions(&mut schema);
+    schema
+}
+
+/// A doc comment is wrapped to fit the code; a description is one line.
+fn unwrap_descriptions(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(object) => {
+            for (key, inner) in object.iter_mut() {
+                match inner {
+                    serde_json::Value::String(text) if key == "description" => *text = text.replace('\n', " "),
+                    _ => unwrap_descriptions(inner),
+                }
+            }
+        }
+        serde_json::Value::Array(all) => all.iter_mut().for_each(unwrap_descriptions),
+        _ => {}
+    }
+}
+
 /// Every line of the register, in order.
 pub fn entries() -> impl Iterator<Item = Entry> {
     Op::ALL.iter().map(|op| op.entry())
@@ -257,6 +623,7 @@ pub fn entries() -> impl Iterator<Item = Entry> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
     use std::collections::HashSet;
 
     #[test]
@@ -367,6 +734,161 @@ mod tests {
         ]
         .into();
         assert_eq!(jobs, plan);
+    }
+
+    /// The tools the plan lists, in its order.
+    const PLANNED_TOOLS: &[&str] = &[
+        "list_backups",
+        "start_backup",
+        "rename_backup",
+        "list_places",
+        "survey_place",
+        "list_sources",
+        "look_through",
+        "look_again",
+        "forget_source",
+        "list_file_types",
+        "include_file_type",
+        "summarise_backup",
+        "list_collections",
+        "list_photos",
+        "keep_collection",
+        "keep_photo",
+        "list_set_aside",
+        "list_duplicates",
+        "show_picture",
+        "list_destinations",
+        "add_destination",
+        "remove_destination",
+        "check_room",
+        "rehearse_backup",
+        "run_backup",
+        "check_arrived",
+        "backup_history",
+        "last_summary",
+        "set_previews",
+        "job_status",
+        "pause_jobs",
+        "carry_on",
+        "stop_job",
+        "about_keevoro",
+        "activity",
+        "read_settings",
+        "check_for_update",
+        "my_access",
+    ];
+
+    #[test]
+    fn every_operation_offered_to_agents_has_a_tool_and_no_other_does() {
+        for entry in entries() {
+            let offered = matches!(entry.agents, Agents::Yes | Agents::LookOnly);
+            assert_eq!(
+                entry.op.tool().is_some(),
+                offered,
+                "{} is offered to agents as {:?}",
+                entry.name,
+                entry.agents
+            );
+        }
+        let names: Vec<&str> = Op::ALL.iter().filter_map(|op| op.tool()).map(|t| t.name).collect();
+        assert_eq!(
+            names, PLANNED_TOOLS,
+            "the tools, named and ordered as the plan has them"
+        );
+    }
+
+    #[test]
+    fn what_a_tool_tells_an_agent_is_plain_and_names_only_real_tools() {
+        let names: HashSet<&str> = PLANNED_TOOLS.iter().copied().collect();
+        for tool in Op::ALL.iter().filter_map(|op| op.tool()) {
+            let tells = tool.tells;
+            assert!(tells.ends_with('.'), "{}", tool.name);
+            assert!(
+                !tells.contains('\u{2014}') && !tells.contains('\u{2013}'),
+                "{}",
+                tool.name
+            );
+            assert!(!tells.contains("  "), "{}", tool.name);
+            assert!(tells.len() >= 40, "{} says too little", tool.name);
+            // Any word written like a tool's name is one.
+            for word in tells.split(|c: char| !(c.is_ascii_lowercase() || c == '_')) {
+                if word.contains('_') {
+                    assert!(names.contains(word), "{} mentions {word}, which is no tool", tool.name);
+                }
+            }
+            for american in ["summarize", "organize", "color", "favorite", "canceled"] {
+                assert!(!tells.contains(american), "{}: {american}", tool.name);
+            }
+        }
+    }
+
+    #[test]
+    fn every_request_is_described_as_an_object_with_nothing_unknown_allowed() {
+        for op in Op::ALL {
+            let schema = op.request_schema();
+            assert_eq!(schema["type"], "object", "{}", op.name());
+            assert_eq!(schema["additionalProperties"], false, "{}", op.name());
+            assert!(
+                schema.get("$ref").is_none() && schema.get("$defs").is_none(),
+                "{}",
+                op.name()
+            );
+            assert!(!schema.to_string().contains("$ref"), "{} has a reference", op.name());
+            if op.on_a_backup() {
+                assert!(
+                    schema["properties"].get("backup").is_none(),
+                    "{}: \"backup\" is how a backup is named, so no request may use it",
+                    op.name()
+                );
+            }
+        }
+        let add = Op::DestinationsAdd.request_schema();
+        assert_eq!(add["required"], serde_json::json!(["kind", "place"]));
+        let kinds: Vec<&Value> = add["properties"]["kind"]["oneOf"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|kind| &kind["const"])
+            .collect();
+        assert_eq!(kinds, ["folder", "r2", "s3", "endpoint"]);
+        assert!(
+            !add.to_string().contains("\\n"),
+            "a description wrapped in the code is one line here"
+        );
+        assert_eq!(
+            add["properties"]["secretAccessKey"]["type"],
+            serde_json::json!(["string", "null"])
+        );
+        let status = Op::JobsStatus.request_schema();
+        assert!(status["properties"]["waitSeconds"]["description"]
+            .as_str()
+            .unwrap()
+            .contains("30"));
+    }
+
+    #[test]
+    fn only_what_changes_things_can_lose_something() {
+        for entry in entries() {
+            if entry.op.loses_something() {
+                assert_eq!(entry.changes, Changes::Always, "{}", entry.name);
+            }
+        }
+    }
+
+    #[test]
+    fn a_request_changes_things_only_where_it_asks_to() {
+        use serde_json::json;
+        assert!(!Op::SourcesList.changes_with(&json!({})));
+        assert!(Op::BackupRun.changes_with(&json!({})));
+        assert!(!Op::BackupPreviews.changes_with(&json!({})));
+        assert!(!Op::BackupPreviews.changes_with(&json!({ "wanted": null })));
+        assert!(Op::BackupPreviews.changes_with(&json!({ "wanted": false })));
+        assert!(!Op::KeevoroSettings.changes_with(&Value::Null));
+        assert!(Op::KeevoroSettings.changes_with(&json!({ "ownCodecs": true })));
+        assert!(!Op::AgentsAccess.changes_with(&json!({})));
+        assert!(Op::AgentsAccess.changes_with(&json!({ "mayChange": true })));
+        assert!(Op::AgentsAccess.changes_with(&json!({ "lookIn": [] })));
+        assert!(!Op::KeevoroUpdate.changes_with(&json!({})));
     }
 
     #[test]

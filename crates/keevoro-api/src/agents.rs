@@ -26,9 +26,9 @@
 //! - A relative path, an empty one, or one that is not valid text is
 //!   refused.
 //!
-//! Nothing enforces this yet, because there is no agent yet. This module
-//! keeps the person's choice and answers the question; the agent's tools
-//! will ask it before every look and every backup.
+//! This module keeps the person's choice and answers the question;
+//! [`crate::for_agents`] asks it at every call an agent makes, before every
+//! look and every backup.
 
 use crate::error::{Error, Result};
 use serde::{Deserialize, Serialize};
@@ -51,7 +51,7 @@ pub struct AgentAccess {
 
 /// `agents.access`: without anything in it, it only reads. Each part given
 /// replaces what was there.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AgentsAccessRequest {
     #[serde(default)]

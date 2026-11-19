@@ -45,6 +45,7 @@ impl Work for FakeWork {
             ended: vec![status::Ended {
                 job: JobId(9),
                 last: None,
+                status: None,
             }],
         }
     }
@@ -84,6 +85,7 @@ fn running(kind: JobKind) -> status::Running {
             paused: false,
             last: None,
             elsewhere: false,
+            ended: false,
         },
         told: 3,
     }

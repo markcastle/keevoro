@@ -1,7 +1,7 @@
 //! Everything Keevoro can do, said once.
 //!
 //! Three front ends sit on this crate: the desktop app, the `keevoro`
-//! command line and, later, the tools an AI agent is given. None of them
+//! command line and the tools an AI agent is given (`keevoro mcp`). None of them
 //! should hold any logic of its own. Each translates between its own world
 //! (a button, an argument, a tool call) and the operations here.
 //!
@@ -14,7 +14,8 @@
 //!   not about one backup;
 //! - [`Backup`], one backup, whose methods are the operations on it;
 //! - [`call`], the same operations reached by name with JSON in and JSON
-//!   out, which is how the command line and an agent's tools will use them.
+//!   out, which is how the command line uses them; an agent's tools use
+//!   [`call_for_agent`], which holds each call to the person's rules first.
 //!
 //! The long operations are [`jobs`]: starting one answers at once, and
 //! the job is then heard, asked after, paused and stopped.
@@ -31,6 +32,7 @@ pub mod backup;
 pub mod backups;
 pub mod destinations;
 pub mod error;
+pub mod for_agents;
 pub mod jobs;
 pub mod keevoro;
 pub mod log;
@@ -48,11 +50,12 @@ pub use destinations::{
     RoomAtAGlance, WaitingAt,
 };
 pub use error::{Error, Kind, Result};
+pub use for_agents::{call_for_agent, read_for_agent};
 pub use jobs::{Event, FrontEnd, JobHandle, JobId, JobKind, JobStatus, Listener, Outcome, Said, Which, PROGRESS_EVERY};
 pub use keevoro::{BackupListing, Codecs, Folders, Keevoro, Offer, SettingsView};
 pub use keevoro_engine::connect::SecretStore;
 pub use picture::{Picture, PictureRequest, PictureSize};
-pub use register::{entries, Agents, Changes, Entry, Op};
+pub use register::{entries, Agents, Changes, Entry, Op, Tool};
 
 use keevoro::{ForgetBackupRequest, LogRequest, RenameBackupRequest, SettingsRequest, StartBackupRequest};
 use serde::de::DeserializeOwned;
@@ -95,7 +98,7 @@ pub fn about() -> About {
 }
 
 /// `sources.forget`, `sources.file_types`
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SourceRequest {
     /// The source's id, as `sources.list` gives it.
@@ -103,17 +106,19 @@ pub struct SourceRequest {
 }
 
 /// `sources.include_type`
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct IncludeTypeRequest {
+    /// The source's id, as `sources.list` gives it.
     pub source: i64,
     /// The ending, such as `png`, with or without its dot.
     pub ending: String,
+    /// True to include files with this ending, false to leave them out.
     pub included: bool,
 }
 
 /// `collections.photos`
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CollectionRequest {
     /// The collection's key, as `collections.list` gives it.
@@ -121,53 +126,81 @@ pub struct CollectionRequest {
 }
 
 /// `collections.keep`
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct KeepCollectionRequest {
+    /// The collection's key, as `collections.list` gives it.
     pub collection: String,
+    /// True to keep it, so it is backed up; false to leave it out.
     pub keep: bool,
 }
 
 /// `photos.keep`
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct KeepPhotoRequest {
     /// The photo's short id, as `collections.photos` gives it.
     pub photo: String,
+    /// True to keep it, so it is backed up; false to leave it out.
     pub keep: bool,
 }
 
 /// `backup.previews`: without `wanted` it only reads.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PreviewsRequest {
+    /// True to make previews as well as sending the originals, false to
+    /// send the originals alone. Left out, nothing changes.
     #[serde(default)]
     pub wanted: Option<bool>,
 }
 
 /// `places.survey`, `sources.look`
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PlaceRequest {
-    /// The drive or folder, as the computer writes it.
+    /// The drive or folder, written whole as the computer writes it, such
+    /// as `D:\DCIM` or `/Volumes/Card/DCIM`.
     pub place: String,
 }
 
 /// `sources.look_again`: one source by its id, or every one.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LookAgainRequest {
+    /// One source, by its id as `sources.list` gives it. Left out, every
+    /// source is looked through again.
     #[serde(default)]
     pub source: Option<i64>,
 }
 
-/// `jobs.status`, `jobs.follow`, `jobs.stop`: one job by its id, or every
-/// one running on the backup named, or on any backup when none is named.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+/// `jobs.follow`, `jobs.stop`: one job by its id, or every one running on
+/// the backup named, or on any backup when none is named.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct JobRequest {
+    /// One job, by the id it was started with. Left out, every job.
     #[serde(default)]
     pub job: Option<JobId>,
+}
+
+/// The longest `jobs.status` waits for jobs to end, in seconds. A caller
+/// that must not be kept waiting long, such as an agent's tool call, asks
+/// again rather than waiting for hours.
+pub const LONGEST_WAIT: u64 = 30;
+
+/// `jobs.status`: as [`JobRequest`], and it may wait a while for the jobs
+/// to end before it answers.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StatusRequest {
+    /// One job, by the id it was started with. Left out, every job.
+    #[serde(default)]
+    pub job: Option<JobId>,
+    /// Wait up to this many seconds (at most 30) for the job, or every
+    /// job, to end before answering. Left out, it answers at once.
+    #[serde(default)]
+    pub wait_seconds: Option<u64>,
 }
 
 /// `jobs.pause`, `jobs.carry_on`
@@ -178,9 +211,12 @@ pub struct Paused {
 
 /// For operations that take nothing: anything given is a mistake worth
 /// saying, above all for one that changes things.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Nothing {}
+
+/// How often `jobs.status` looks again while it waits for jobs to end.
+const LOOK_AGAIN_EVERY: std::time::Duration = std::time::Duration::from_millis(200);
 
 /// How many lines of the log `keevoro.log` gives when not told.
 const LOG_LINES: usize = 400;
@@ -246,7 +282,10 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
             read::<Nothing>(request)?;
             answer(places::plugged_in())
         }
-        Op::SourcesList => answer(open()?.sources()?),
+        Op::SourcesList => {
+            read::<Nothing>(request)?;
+            answer(open()?.sources()?)
+        }
         Op::SourcesForget => {
             let r: SourceRequest = read(request)?;
             answer(open()?.forget_source(r.source)?)
@@ -259,8 +298,14 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
             let r: IncludeTypeRequest = read(request)?;
             answer(open()?.include_type(r.source, &r.ending, r.included)?)
         }
-        Op::FoundSummary => answer(open()?.found()?),
-        Op::CollectionsList => answer(open()?.collections()?),
+        Op::FoundSummary => {
+            read::<Nothing>(request)?;
+            answer(open()?.found()?)
+        }
+        Op::CollectionsList => {
+            read::<Nothing>(request)?;
+            answer(open()?.collections()?)
+        }
         Op::CollectionsPhotos => {
             let r: CollectionRequest = read(request)?;
             answer(open()?.collection_photos(&r.collection)?)
@@ -273,14 +318,23 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
             let r: KeepPhotoRequest = read(request)?;
             answer(open()?.keep_photo(&r.photo, r.keep)?)
         }
-        Op::SetAsideList => answer(open()?.set_aside()?),
-        Op::DuplicatesList => answer(open()?.duplicates()?),
+        Op::SetAsideList => {
+            read::<Nothing>(request)?;
+            answer(open()?.set_aside()?)
+        }
+        Op::DuplicatesList => {
+            read::<Nothing>(request)?;
+            answer(open()?.duplicates()?)
+        }
         Op::PhotosPicture => {
             let r: PictureRequest = read(request)?;
             let bytes = keevoro.picture(&open()?, &r.photo, r.size)?;
             answer(Picture::webp(&bytes))
         }
-        Op::DestinationsList => answer(open()?.destinations()?),
+        Op::DestinationsList => {
+            read::<Nothing>(request)?;
+            answer(open()?.destinations()?)
+        }
         Op::DestinationsAdd => {
             let r: AddDestinationRequest = read_with_keys(request)?;
             answer(keevoro.add_destination(&open()?, &r)?)
@@ -306,8 +360,14 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
             read::<Nothing>(request)?;
             answer(open()?.rehearse()?)
         }
-        Op::BackupHistory => answer(open()?.history()?),
-        Op::BackupLastSummary => answer(open()?.last_summary()?),
+        Op::BackupHistory => {
+            read::<Nothing>(request)?;
+            answer(open()?.history()?)
+        }
+        Op::BackupLastSummary => {
+            read::<Nothing>(request)?;
+            answer(open()?.last_summary()?)
+        }
         Op::BackupPreviews => {
             let r: PreviewsRequest = read(request)?;
             let backup = open()?;
@@ -316,7 +376,10 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
             }
             answer(backup.previews()?)
         }
-        Op::KeevoroAbout => answer(about()),
+        Op::KeevoroAbout => {
+            read::<Nothing>(request)?;
+            answer(about())
+        }
         Op::KeevoroActivity => {
             read::<Nothing>(request)?;
             answer(keevoro.activity())
@@ -378,8 +441,19 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
             answer(keevoro.check_backup(&named()?, None)?)
         }
         Op::JobsStatus => {
-            let r: JobRequest = read(request)?;
-            answer(statuses(keevoro, backup, r.job)?)
+            let r: StatusRequest = read(request)?;
+            let seconds = r.wait_seconds.unwrap_or(0).min(LONGEST_WAIT);
+            let until = std::time::Instant::now() + std::time::Duration::from_secs(seconds);
+            let mut running = statuses(keevoro, backup, r.job)?;
+            while !running.is_empty() && std::time::Instant::now() < until {
+                std::thread::sleep(LOOK_AGAIN_EVERY);
+                running = statuses(keevoro, backup, r.job)?;
+            }
+            // One job asked for by its id, and ended: how it ended.
+            if let (Some(id), true) = (r.job, running.is_empty()) {
+                running.extend(keevoro.ended_job(id));
+            }
+            answer(running)
         }
         // The command line prints each event as it is said, through
         // `Keevoro::follow`. Asked by name, it waits for the jobs to end

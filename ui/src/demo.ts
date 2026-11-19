@@ -137,6 +137,7 @@ export function demoBackend(): Backend {
   let stopAsked = false
   let stopLooking = false
   let systemCodecs = true
+  let agents = { lookIn: [] as string[], backUpTo: [] as string[], mayChange: false }
   let previews = true
   const speed = () => ({
     on: systemCodecs,
@@ -368,6 +369,12 @@ export function demoBackend(): Backend {
       pausedNow = paused
     },
     acceleration: async () => speed(),
+    agentAccess: async () => ({ ...agents }),
+    setAgentAccess: async (change) => {
+      agents = { ...agents, ...change }
+      return { ...agents }
+    },
+    chooseAgentFolder: async () => (agents.lookIn.includes('D:\\Photos') ? 'F:\\Family Backup' : 'D:\\Photos'),
     setAcceleration: async (on) => {
       systemCodecs = on
       return speed()

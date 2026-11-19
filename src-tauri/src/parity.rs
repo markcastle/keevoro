@@ -58,6 +58,9 @@ const BACKED: &[(&str, &[Op])] = &[
     ("log_tail", &[Op::KeevoroLog]),
     ("acceleration", &[Op::KeevoroSettings]),
     ("set_acceleration", &[Op::KeevoroSettings]),
+    // What an AI agent may do: for the person, never the agent.
+    ("agent_access", &[Op::AgentsAccess]),
+    ("set_agent_access", &[Op::AgentsAccess]),
     ("check_update", &[Op::KeevoroUpdate]),
     ("reset_everything", &[Op::KeevoroReset]),
     // Jobs. Each command starts, asks after or stops one in the API, and

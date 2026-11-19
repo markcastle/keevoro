@@ -264,6 +264,22 @@ pub fn set_acceleration(shared: State<'_, Shared>, on: bool) -> Said<keevoro_api
     Ok(shared.keevoro.set_own_codecs(on).map_err(say)?.own_codecs)
 }
 
+/// What an AI agent may do, as the person has allowed: the folders it may
+/// look through and back up to, and whether it may make changes.
+#[tauri::command]
+pub fn agent_access(shared: State<'_, Shared>) -> keevoro_api::AgentAccess {
+    shared.keevoro.agent_access()
+}
+
+/// Changes what an AI agent may do. Each part given replaces what was there.
+#[tauri::command]
+pub fn set_agent_access(
+    shared: State<'_, Shared>,
+    change: keevoro_api::AgentsAccessRequest,
+) -> Said<keevoro_api::AgentAccess> {
+    shared.keevoro.set_agent_access(change).map_err(say)
+}
+
 /// What Keevoro is doing now, why, and how hard it has been working.
 #[tauri::command]
 pub fn activity(shared: State<'_, Shared>) -> keevoro_api::activity::ActivityView {

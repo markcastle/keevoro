@@ -6,7 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **An AI app, such as Claude Desktop or Claude Code, can now use Keevoro for you.** Ask it to find the photos on a drive and back them up, and it can, through `keevoro mcp`, which is part of the `keevoro` command. It is careful by design: out of the box it can only look at your backups, and it can look in no folder at all. You choose, in Settings under the new AI agents section or with `keevoro agents`, which folders it may look through and back up to, and whether it may make changes. Whatever you allow, it can never change anything on a source, delete a photo, forget a backup, reset Keevoro or change what it is allowed to do, and a storage key you give it goes to your computer's keychain and is never shown again. Everything it does is written in Keevoro's log. How to set it up is in docs/mcp.md.
+- **`keevoro status` with a job's number says how that job ended,** once it has, whichever Keevoro program ran it.
 
 ## [0.30.1] - 2026-11-19
 

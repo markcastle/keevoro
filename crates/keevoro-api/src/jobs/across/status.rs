@@ -44,6 +44,10 @@ pub(crate) struct Running {
 pub(crate) struct Ended {
     pub job: JobId,
     pub last: Option<Said>,
+    /// How it stood when it ended. Left out by a program from before this
+    /// was shared.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<JobStatus>,
 }
 
 /// How many ended jobs a status remembers.

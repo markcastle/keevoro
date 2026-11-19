@@ -760,27 +760,6 @@ fn choose(ctx: &Ctx<'_>, m: &ArgMatches, keep: bool) -> Result<(Op, Value), Fail
     })
 }
 
-/// True for an operation on one backup, which `-b` can name.
-fn on_a_backup(op: Op) -> bool {
-    !matches!(
-        op,
-        Op::BackupsList
-            | Op::BackupsStart
-            | Op::BackupsRename
-            | Op::BackupsForget
-            | Op::PlacesList
-            | Op::JobsPause
-            | Op::JobsCarryOn
-            | Op::KeevoroAbout
-            | Op::KeevoroActivity
-            | Op::KeevoroLog
-            | Op::KeevoroSettings
-            | Op::KeevoroUpdate
-            | Op::KeevoroReset
-            | Op::AgentsAccess
-    )
-}
-
 /// The whole command line, for clap, built from the rows.
 pub fn program() -> Command {
     let mut top = Command::new("keevoro")
@@ -836,7 +815,21 @@ pub fn program() -> Command {
         }
         top = top.subcommand(command);
     }
-    top
+    top.subcommand(Command::new(AGENT_SERVER).about(
+        "Starts Keevoro's server for an AI agent, which speaks the Model Context Protocol on standard input and \
+         output. An AI app, such as Claude Desktop, starts it itself; docs/mcp.md says how to set that up. An agent \
+         may only look until you allow more with `keevoro agents`.",
+    ))
+}
+
+/// The command that starts the server for an AI agent. It is not an
+/// operation: it is a way in to all of them.
+pub const AGENT_SERVER: &str = "mcp";
+
+/// What was asked for: a command, or the server for an AI agent.
+pub enum Asked {
+    Command(Typed),
+    AgentServer,
 }
 
 fn with_job_flags(row: &Row, command: Command) -> Command {
@@ -872,7 +865,7 @@ impl Typed {
 
 /// Understands what was typed, or says why not. Help and the version come
 /// back as a "failure" with the exit code for success.
-pub fn parse(args: Vec<OsString>) -> Result<Typed, Failure> {
+pub fn parse(args: Vec<OsString>) -> Result<Asked, Failure> {
     let matches = program().try_get_matches_from(args).map_err(|e| {
         let code = match e.kind() {
             clap::error::ErrorKind::DisplayHelp
@@ -885,6 +878,14 @@ pub fn parse(args: Vec<OsString>) -> Result<Typed, Failure> {
     let (first, rest) = matches
         .subcommand()
         .ok_or_else(|| Failure::not_understood("Say what to do. `keevoro --help` lists everything."))?;
+    if first == AGENT_SERVER {
+        if text(&matches, "backup").is_some() || text(rest, "backup").is_some() {
+            return Err(Failure::not_understood(
+                "`keevoro mcp` isn't about one backup, so it takes no -b. An agent names the backup in each tool.",
+            ));
+        }
+        return Ok(Asked::AgentServer);
+    }
     let (words, leaf): (Vec<&str>, &ArgMatches) = match rest.subcommand() {
         Some((second, leaf)) => (vec![first, second], leaf),
         None => (vec![first], rest),
@@ -893,10 +894,10 @@ pub fn parse(args: Vec<OsString>) -> Result<Typed, Failure> {
         .iter()
         .find(|r| r.words == words.as_slice())
         .ok_or_else(|| Failure::not_understood("Keevoro doesn't know that command. `keevoro --help` lists them."))?;
-    Ok(Typed {
+    Ok(Asked::Command(Typed {
         row,
         matches: leaf.clone(),
-    })
+    }))
 }
 
 /// Does what was typed.
@@ -906,7 +907,7 @@ pub fn run(keevoro: &Keevoro, typed: &Typed, io: &mut Io<'_>) -> Result<Code, Fa
         backup: typed.backup(),
         json: typed.json(),
     };
-    if ctx.backup.is_some() && !typed.row.ops.iter().any(|op| on_a_backup(*op)) {
+    if ctx.backup.is_some() && !typed.row.ops.iter().any(|op| op.on_a_backup()) {
         return Err(Failure::not_understood(format!(
             "`{}` isn't about one backup, so it takes no -b.",
             typed.row.typed()
