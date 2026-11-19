@@ -2,6 +2,59 @@
 
 Work top to bottom. Each task is done when its tests pass, clippy is clean and coverage holds. Tick tasks off in the same commit that completes them.
 
+## What is next
+
+Version 0.31.0 finished the big piece of plumbing: one API, a command line that does everything the app does, and an MCP server for AI agents. This section is the order of work from here. The detail of each item is further down, under its own heading.
+
+### 1. Prove 0.31.0 on real computers
+
+Everything below was built and tested by machine. None of it has been tried by a person yet, and it should be before more is built on top.
+
+- [ ] Windows: install 0.31.0 and run a real search and a real backup. It is the first version where the app's buttons go through the new API
+- [ ] Connect Claude Code to `keevoro mcp` and ask it to do a small backup
+- [ ] Connect Claude Desktop the same way, and correct the snippet in docs/mcp.md if the app wants something different (it was not checked against the official page)
+- [ ] Mac: open the app once. The Mac build has never been run by a person
+- [ ] Confirm on the mapped network drive that "Find where the photos are" marks a folder that is already a source
+- [ ] Watch a long backup for the progress bar: it should keep one length and never step back
+
+### 2. Loose ends from the API and MCP work
+
+Small, known, and better closed while the work is fresh.
+
+- [ ] Close the gap between checking a folder for an agent and opening it: pass the checked path on, so a link swapped in between cannot be followed
+- [ ] After an agent looks through a folder, keep the automatic duplicate check to folders that agent may read
+- [ ] Decide what a key given in a request means when a key is also set in the environment (today the environment wins)
+- [ ] Pause and carry on should reach a survey or a duplicate check running alone in another program
+- [ ] `keevoro status` straight after another program starts a job can say "Nothing is running" for a moment
+- [ ] `keevoro update --check` on Linux always says there is nothing newer
+- [ ] Remove the unused MP4 conversion code, or bring it back as a proper feature (see "Old video conversion prompt")
+- [ ] Third-party licence acknowledgements in the app, now including the MCP library
+- [ ] Progress notifications to an agent as a job runs, so it need not ask
+
+### 3. Scheduled and repeat backups
+
+The next thing a person would notice, and the reason the jobs work came first: a scheduled run is just another program asking the API to run a backup, taking its turn with the app. Start with the single command a system scheduler can call, then the schedule in the app, then running with the window closed. See "Scheduled and repeat backups".
+
+### 4. The catalog travels with the backup
+
+A copy of Keevoro's record inside each destination, so a backup can be opened on a new computer or after the record here is lost. This matters more once backups run unattended. See "The catalog".
+
+### 5. Cloud storage as sure as a folder
+
+A folder backup is fingerprinted as it is sent and read back afterwards. Cloud storage is not yet held to the same standard.
+
+- [ ] Send a checksum with each file and part, so the storage itself refuses a damaged upload
+- [ ] Fingerprint what is read from the source as it is sent
+- [ ] Label an object with its fingerprint when that is only learnt during the upload
+- [ ] Several destinations sent at the same time, each file read once
+
+### Later
+
+- [ ] Agents on other machines: reaching Keevoro over a network, with sign-in and encryption
+- [ ] The website: what Keevoro is, how to get it, that it is in beta, and where to send feedback (the spec is written; the domain and 16 questions are open)
+- [ ] Windows code signing and Apple notarisation, when certificates exist
+- [ ] Watch someone non-technical use the app without help
+
 ## Phase 1: Engine and CLI
 
 Done when `keevoro scan` on a real old drive produces a believable summary and catalog.
@@ -114,7 +167,7 @@ Done when a non-technical tester gets from a drive to a backup without help.
 - [x] Settings screen: library, backup, updates and the log in one place
 - [x] A log of what the app did (`keevoro.log` in the app's log folder), viewable from Settings
 - [x] Snappy search: a quick fingerprint while searching, the whole-file one afterwards in the background, and always before a file is gathered
-- [ ] Fingerprint a file while copying it, so a file gathered straight after a search is read once, not twice
+- [x] Fingerprint a file while copying it, so a file gathered straight after a search is read once, not twice
 - [x] A quick search from the command line too: `keevoro look` searches the way the app does
 - [x] Stop a search part-way (nothing from a stopped search is kept)
 - [x] Review duplicates before backing up: the copy kept, the copies left out, and where each is
@@ -160,7 +213,7 @@ Done when a non-technical tester gets from a drive to a backup without help.
 - [x] Several destinations for one backup, sent one after another, each counted on its own
 - [ ] Several destinations sent at the same time, each file read from the source once
 - [ ] Previews on or off per destination (today it is per backup)
-- [ ] Command line: `connect` and `publish` know one destination; the app's list is not yet reachable from it
+- [x] Command line: `connect` and `publish` know one destination; the app's list is not yet reachable from it
 - [x] Files are fingerprinted as they are sent, not read once beforehand; only lookalikes are read first
 - [ ] Cloud storage: label an object with its fingerprint when that is only learnt during the upload
 - [x] Six files at once to cloud storage
@@ -207,15 +260,15 @@ Separate, remembered jobs ("Drone footage to R2", "Family photos to a folder"), 
 - [x] Folder names open the folder
 - [x] Live speed and time left while sending; a summary when it finishes; a record of earlier sends
 - [x] Network graph on the Activity page (what Keevoro sends to cloud storage)
-- [ ] Count bytes as they are read, so a single huge file to a folder shows steady progress and not one jump at the end
+- [x] Count bytes as they are read, so a single huge file to a folder shows steady progress and not one jump at the end
 - [ ] Stop part-way through one very large file (it currently finishes the file in hand)
 - [ ] Show how much room a cloud bucket has, where the provider will say
-- [ ] More than one destination per backup
+- [x] More than one destination per backup
 - [x] Reset to factory settings from Settings (only ever removes Keevoro's own data)
 - [ ] Rename and remove a backup
 - [ ] A backup that only looks for videos, or only photos
-- [ ] Verify a folder destination by reading it back automatically after sending
-- [ ] Backups on the command line
+- [x] Verify a folder destination by reading it back automatically after sending
+- [x] Backups on the command line
 
 ### One API, a complete command line, and an MCP server
 
@@ -256,7 +309,7 @@ The MCP server
 - [x] Everything an agent does is in the log, marked as such
 - [x] An "AI agents" section in Settings: whether changes are allowed, and the folders, with a way to add and remove each
 - [x] A guide to setting it up in an AI app
-- [ ] Built for Windows, Mac and Linux in the release that ships it
+- [x] Built for Windows, Mac and Linux in the release that ships it
 
 Later
 
