@@ -2343,6 +2343,9 @@ main > section > :nth-last-child(2) {
 /* How a send is getting on: how much, how fast, how long. */
 .speed {
   margin: var(--space-3) 0;
+  /* A fixed width of its own: left to itself it shrinks to fit the words
+     under the bar, and the bar then grows and shrinks as they change. */
+  width: 100%;
   max-width: 640px;
 }
 

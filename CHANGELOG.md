@@ -6,7 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **The progress bar of a backup keeps one length.** It used to stretch and shrink with the words under it, which made it look as if progress was going up and down.
 
 ## [0.30.0] - 2026-11-19
 
