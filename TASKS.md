@@ -217,6 +217,48 @@ Separate, remembered jobs ("Drone footage to R2", "Family photos to a folder"), 
 - [ ] Verify a folder destination by reading it back automatically after sending
 - [ ] Backups on the command line
 
+### One API, a complete command line, and an MCP server
+
+Planned, not started. Waiting on decisions and a go-ahead. The aim: anything a person can do in the app, a script can do from the command line and a program through an API, and on top of that an MCP server so an AI agent can run Keevoro for someone, safely.
+
+Why it is more than adding commands: the app's shell has 47 operations and the command line 13, and much of what the app does (named backups, backing up to every destination, history, stop and pause, room, activity) is written in the shell where nothing else can reach it. That logic has to move to one place first.
+
+The API
+
+- [ ] A `keevoro-api` crate above the engine: one function per operation, with plain requests and answers that can be written as JSON
+- [ ] Jobs for the long operations (look, survey, back up, check): start, watch, pause, carry on, stop
+- [ ] Events from a job in the app's own words: step, counts, speed, time left, closing summary
+- [ ] A register of every operation: name, description, what it takes and gives, and whether it only reads or also changes something
+- [ ] Move out of the shell and into the API: named backups, backing up everywhere with history, stop and pause, room, activity, settings, reset
+- [ ] One job per backup at a time across processes, with a lock a crashed process cannot leave shut
+- [ ] A running job's step and counts readable from another process, and stop and pause requests it can leave
+- [ ] A parity test: the build fails if the app can do something the command line or the MCP server cannot
+
+The command line
+
+- [ ] Named backups, the same ones the app shows, in place of `--library`
+- [ ] Everything the app can do: backups, quick look, look again, remove a source, file types, duplicates, several destinations, originals only, run, stop, pause, status, history, room, activity, settings, reset
+- [ ] `--json` on every command; one line per event for jobs
+- [ ] Exit codes that tell "worked", "some files failed", "a destination could not be reached" and "no such thing" apart
+- [ ] Decide what becomes of the old commands (`scan --library`, `gather`, `publish --library`)
+
+The MCP server
+
+- [ ] `keevoro mcp`: the Model Context Protocol over standard input and output, in the same binary, calling the API directly. No network port
+- [ ] Tools made from the register, each marked as reading or changing
+- [ ] A rehearsal tool: what backing up would do, changing nothing
+- [ ] Folders an agent may look through and back up to, set by a person; nothing allowed until they are
+- [ ] An agent never sees or supplies a storage key; cloud destinations only where a person has already saved the keys
+- [ ] No tool to reset Keevoro, remove a backup or delete from one
+- [ ] A look-only mode, on the first time
+- [ ] Everything an agent does is in the log, marked as such
+- [ ] A guide to setting it up in an AI app
+
+Before building
+
+- [ ] The owner's answers to the eight decisions in the plan
+- [ ] The register written out in full, the new commands as they would be typed, and the tool list as an agent would see it
+
 ### Scheduled and repeat backups
 
 Today a backup runs when someone presses "Back up now". These make it run by itself, which is what turns a one-off rescue into something that keeps photos safe as new ones are taken.
