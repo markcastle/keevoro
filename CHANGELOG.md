@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.31.0] - 2026-11-19
+
 ### Added
 
 - **An AI app, such as Claude Desktop or Claude Code, can now use Keevoro for you.** Ask it to find the photos on a drive and back them up, and it can, through `keevoro mcp`, which is part of the `keevoro` command. It is careful by design: out of the box it can only look at your backups, and it can look in no folder at all. You choose, in Settings under the new AI agents section or with `keevoro agents`, which folders it may look through and back up to, and whether it may make changes. Whatever you allow, it can never change anything on a source, delete a photo, forget a backup, reset Keevoro or change what it is allowed to do, and a storage key you give it goes to your computer's keychain and is never shown again. Everything it does is written in Keevoro's log. How to set it up is in docs/mcp.md.
@@ -507,7 +511,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.30.1...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.31.0...HEAD
+[0.31.0]: https://github.com/markcastle/keevoro/compare/v0.30.1...v0.31.0
 [0.30.1]: https://github.com/markcastle/keevoro/compare/v0.30.0...v0.30.1
 [0.30.0]: https://github.com/markcastle/keevoro/compare/v0.29.3...v0.30.0
 [0.29.3]: https://github.com/markcastle/keevoro/compare/v0.29.2...v0.29.3
