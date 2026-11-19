@@ -5,11 +5,17 @@
 //! is working (its own share of the processor and the disk, not the whole
 //! computer's) and names each job in hand with the reason for it, so the
 //! person can see what is going on and pause it if they need the computer.
+//!
+//! This is `keevoro.activity`. The measurements are of the program that
+//! asks: the app measures itself once a second for as long as it runs, so
+//! a one-off question from the command line has what is being done now but
+//! no history to speak of.
 
 use keevoro_core::doing::Work;
 use serde::Serialize;
 use std::collections::VecDeque;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, PoisonError};
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
 
 /// How many measurements are kept: two minutes at one a second.
@@ -184,8 +190,72 @@ pub fn in_a_line(now: &[Work]) -> Option<String> {
     })
 }
 
-/// Measures this program once a second for as long as it runs.
-pub fn watch(history: &'static Mutex<History>) {
+/// How hard this program has been working, kept for as long as it runs.
+static HISTORY: Mutex<History> = Mutex::new(History {
+    samples: VecDeque::new(),
+    memory_bytes: 0,
+});
+
+/// True once something is measuring, so asking again starts nothing more.
+static WATCHING: AtomicBool = AtomicBool::new(false);
+
+/// The measurements so far, oldest first, and the memory in use now.
+pub fn recent() -> (Vec<Sample>, u64) {
+    let history = HISTORY.lock().unwrap_or_else(PoisonError::into_inner);
+    (history.samples(), history.memory_bytes())
+}
+
+/// What Keevoro is doing now, why, and how hard it has been working.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivityView {
+    pub paused: bool,
+    /// What it is doing in one line, or `None` when idle.
+    pub doing: Option<String>,
+    /// The step a running backup is on, in its own words, such as
+    /// "Working out where each file goes: 2,500 of 11,245". `None` when no
+    /// backup is running.
+    pub backup_step: Option<String>,
+    pub jobs: Vec<Job>,
+    /// One a second, oldest first, for the last two minutes at most.
+    pub samples: Vec<Sample>,
+    pub memory_bytes: u64,
+    /// How many processor cores this computer has.
+    pub cores: usize,
+}
+
+/// What is being done now. `backup_step` is what a running backup last
+/// said it was doing, if one is running.
+pub fn now(backup_step: Option<&str>) -> ActivityView {
+    // Only the step, not the name of the file that follows it after a tab.
+    let backup_step = backup_step
+        .map(|line| line.split('\t').next().unwrap_or_default().to_string())
+        .filter(|step| !step.is_empty());
+    let (samples, memory_bytes) = recent();
+    let mut now = keevoro_core::doing::now();
+    // A backup is a backup from the moment it is asked for, including the
+    // time it spends getting ready before the first file moves.
+    if backup_step.is_some() && !now.contains(&Work::BackingUp) {
+        now.insert(0, Work::BackingUp);
+    }
+    ActivityView {
+        paused: keevoro_core::pause::is_paused(),
+        doing: in_a_line(&now),
+        backup_step,
+        jobs: jobs(&now),
+        samples,
+        memory_bytes,
+        cores: std::thread::available_parallelism().map_or(1, std::num::NonZero::get),
+    }
+}
+
+/// Measures this program once a second for as long as it runs. Asking more
+/// than once is harmless: there is only ever one measuring.
+pub fn watch() {
+    if WATCHING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let history = &HISTORY;
     std::thread::spawn(move || {
         let Ok(me) = sysinfo::get_current_pid() else { return };
         let cores = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
@@ -210,9 +280,10 @@ pub fn watch(history: &'static Mutex<History>) {
                 seconds,
             );
             counted = now;
-            if let Ok(mut history) = history.lock() {
-                history.push(measured, process.memory());
-            }
+            history
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(measured, process.memory());
         }
     });
 }
@@ -334,6 +405,44 @@ mod tests {
             assert!(job.why.len() > 60, "{} needs a real reason", job.what);
             assert!(!job.why.contains('!'));
         }
+    }
+
+    #[test]
+    fn a_running_backup_is_named_by_its_step_alone() {
+        let view = now(Some(
+            "Working out where each file goes: 2,500 of 11,245\tD:\\DCIM\\a.jpg",
+        ));
+        assert_eq!(
+            view.backup_step.as_deref(),
+            Some("Working out where each file goes: 2,500 of 11,245")
+        );
+        assert_eq!(view.jobs[0].what, "Backing up your files");
+        assert!(view.doing.unwrap().starts_with("Backing up your files"));
+        assert!(view.cores >= 1);
+        // What the app has always received.
+        let json = serde_json::to_value(now(None)).unwrap();
+        for field in [
+            "paused",
+            "doing",
+            "backupStep",
+            "jobs",
+            "samples",
+            "memoryBytes",
+            "cores",
+        ] {
+            assert!(json.get(field).is_some(), "{field} is missing from {json}");
+        }
+        assert_eq!(json["backupStep"], serde_json::Value::Null);
+        assert_eq!(now(Some("")).backup_step, None, "an empty step is no step");
+    }
+
+    #[test]
+    fn measuring_is_started_once_however_often_it_is_asked() {
+        watch();
+        watch();
+        assert!(WATCHING.load(Ordering::SeqCst));
+        let (samples, _) = recent();
+        assert!(samples.len() <= KEPT);
     }
 
     #[test]

@@ -20,31 +20,20 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-mod activity;
 mod commands;
 mod events;
-mod log;
 #[cfg(test)]
 mod parity;
-mod places;
-mod reset;
-mod settings;
 mod updates;
 
-use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
-use std::sync::Mutex;
 use tauri::Manager;
 
 /// What the running app holds in memory.
 pub struct Shared {
-    settings: Mutex<settings::Settings>,
-    /// The record of what the app did, for when someone asks.
-    log: log::Log,
-    /// The app's own settings folder.
-    config_dir: PathBuf,
-    /// Where previews of not-yet-gathered photos are kept. Safe to delete.
-    cache_dir: PathBuf,
+    /// Keevoro itself: its backups, settings, log and keychain, through the
+    /// API the command line uses too.
+    keevoro: keevoro_api::Keevoro,
     /// True while a drive is being looked through; one at a time.
     scanning: AtomicBool,
     /// True while photos are being gathered.
@@ -64,9 +53,6 @@ pub struct Shared {
     stop_sending: keevoro_engine::send::Stop,
     /// True while a backup or a check of one is running.
     sending: AtomicBool,
-    /// What the running backup last said it was doing, so a screen opened
-    /// part-way through, and the activity page, can say it at once.
-    send_line: Mutex<String>,
 }
 
 pub fn run() {
@@ -74,24 +60,22 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            let config_dir = app.path().app_config_dir()?;
-            let cache_dir = app.path().app_cache_dir()?.join("previews");
-            activity::watch(&commands::HISTORY);
-            keevoro_media::decode::set_use_system(
-                !settings::Settings::load(&app.path().app_config_dir()?).plain_decoding,
-            );
-            let log = log::Log::open(&app.path().app_log_dir()?);
-            log.say(&format!(
+            let keevoro = keevoro_api::Keevoro::open(&keevoro_api::Folders {
+                config: app.path().app_config_dir()?,
+                data: app.path().app_data_dir()?,
+                // Previews of photos not yet backed up. Safe to delete.
+                cache: app.path().app_cache_dir()?.join("previews"),
+                logs: app.path().app_log_dir()?,
+            });
+            keevoro_api::activity::watch();
+            keevoro.log().say(&format!(
                 "Keevoro {} started on {} ({})",
                 env!("CARGO_PKG_VERSION"),
                 std::env::consts::OS,
                 std::env::consts::ARCH
             ));
             app.manage(Shared {
-                log,
-                settings: Mutex::new(settings::Settings::load(&config_dir)),
-                config_dir,
-                cache_dir,
+                keevoro,
                 scanning: AtomicBool::new(false),
                 gathering: AtomicBool::new(false),
                 checking: AtomicBool::new(false),
@@ -101,7 +85,6 @@ pub fn run() {
                 send_began_at: std::sync::atomic::AtomicU64::new(0),
                 stop_sending: keevoro_engine::send::Stop::default(),
                 sending: AtomicBool::new(false),
-                send_line: Mutex::new(String::new()),
             });
             Ok(())
         })

@@ -2876,9 +2876,13 @@ dependencies = [
  "anyhow",
  "image",
  "keevoro-catalog",
+ "keevoro-core",
  "keevoro-engine",
+ "keevoro-media",
+ "keevoro-update",
  "serde",
  "serde_json",
+ "sysinfo",
  "tempfile",
 ]
 
@@ -2896,7 +2900,6 @@ dependencies = [
  "keevoro-update",
  "serde",
  "serde_json",
- "sysinfo",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",

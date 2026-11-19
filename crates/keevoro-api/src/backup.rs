@@ -4,10 +4,9 @@
 //! record of it (`.keevoro/catalog.sqlite`) and the previews it makes. It
 //! is working space, never a copy of anyone's photos.
 //!
-//! For now a backup is opened by its home folder. Named backups ("Drone
-//! footage") are remembered by the app today, and move here next: a
-//! `Backups` type will find the home folder for a name and hand back this
-//! same [`Backup`], so none of the operations below need to change.
+//! A backup is opened by its home folder. Named backups ("Drone footage")
+//! are listed by [`crate::Backups`], which finds the home folder for a name
+//! and hands back this same [`Backup`].
 
 use crate::error::Result;
 use keevoro_catalog::Catalog;
@@ -69,9 +68,21 @@ impl Backup {
         })
     }
 
+    pub(crate) fn with_catalog(home: &Path, catalog: Catalog) -> Self {
+        Self {
+            home: home.to_path_buf(),
+            catalog,
+        }
+    }
+
     /// The backup's home folder.
     pub fn home(&self) -> &Path {
         &self.home
+    }
+
+    /// Keevoro's record of this backup.
+    pub(crate) fn catalog(&self) -> &Catalog {
+        &self.catalog
     }
 
     /// Everything the Discover screen shows, read in one go: what
@@ -206,6 +217,16 @@ impl Backup {
     }
 }
 
+/// The record kept in `home`, if there is one there. Unlike
+/// [`Backup::open`], this never makes a folder: a backup whose drive is
+/// unplugged is simply not there.
+pub(crate) fn existing_catalog(home: &Path) -> Option<Catalog> {
+    let file = keevoro_catalog::CATALOG_PATH
+        .split('/')
+        .fold(home.to_path_buf(), |path, part| path.join(part));
+    file.is_file().then(|| Catalog::open(&file).ok()).flatten()
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -221,12 +242,11 @@ pub(crate) mod tests {
     }
 
     /// A source with an album, a dated photo, a duplicate and a picture
-    /// too small to be a photo, looked through into a backup whose home is
-    /// somewhere else. The way it is looked through is not an API operation
-    /// yet, so the engine does it directly.
-    pub(crate) fn one_backup() -> (tempfile::TempDir, PathBuf, Backup) {
-        let dir = tempfile::tempdir().unwrap();
-        let card = dir.path().join("Card");
+    /// too small to be a photo, made in `dir` and looked through into the
+    /// backup whose home is `home`. The way it is looked through is not an
+    /// API operation yet, so the engine does it directly.
+    pub(crate) fn card_looked_through_into(dir: &Path, home: &Path) -> PathBuf {
+        let card = dir.join("Card");
         for (rel, shade) in [
             ("Holidays/Cornwall/IMG_20080812_101500.jpg", 10),
             ("Holidays/Cornwall/IMG_20080813_090000.jpg", 90),
@@ -239,10 +259,16 @@ pub(crate) mod tests {
         }
         let tiny = image::RgbImage::from_pixel(240, 180, image::Rgb([90, 90, 90]));
         tiny.save(card.join("DCIM/1952.png")).unwrap();
-        let home = dir.path().join("home");
-        let mut catalog = Catalog::open_in_library(&home).unwrap();
+        let mut catalog = Catalog::open_in_library(home).unwrap();
         keevoro_engine::scan_into(&mut catalog, &card, Some("Card"), &mut |_| {}).unwrap();
-        drop(catalog);
+        card
+    }
+
+    /// That source, in a backup whose home is somewhere else.
+    pub(crate) fn one_backup() -> (tempfile::TempDir, PathBuf, Backup) {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let card = card_looked_through_into(dir.path(), &home);
         let backup = Backup::open(&home).unwrap();
         (dir, card, backup)
     }

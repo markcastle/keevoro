@@ -1,0 +1,200 @@
+//! `photos.picture`: a small or screen-sized picture of one found file.
+//!
+//! Pictures are WebP, made from the file where it was found (or from the
+//! backup's own copy, once there is one) and kept in Keevoro's cache folder
+//! so the same picture is quick the second time. A video gives a still.
+//!
+//! Only a few are made at once, whoever asks. A screen of pictures asks for
+//! all of its previews together, and an agent could ask for many; making a
+//! few at a time keeps the computer responsive, above all for videos, where
+//! each picture runs a separate program.
+
+use crate::backup::Backup;
+use crate::error::Result;
+use keevoro_engine::Look;
+use keevoro_media::VideoTools;
+use serde::{Deserialize, Serialize};
+use std::path::Path;
+use std::sync::{Condvar, Mutex, PoisonError};
+
+/// How big a picture to make.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PictureSize {
+    /// A small picture, for a grid of many.
+    #[default]
+    Small,
+    /// A screen-sized picture, for looking closely at one.
+    Screen,
+}
+
+/// `photos.picture`
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PictureRequest {
+    /// The photo's short id, as `collections.photos` gives it.
+    pub photo: String,
+    #[serde(default)]
+    pub size: PictureSize,
+}
+
+/// A picture, as JSON can carry it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Picture {
+    /// Always `webp`.
+    pub format: &'static str,
+    /// The picture's bytes, in standard Base64.
+    pub base64: String,
+}
+
+impl Picture {
+    pub fn webp(bytes: &[u8]) -> Self {
+        Self {
+            format: "webp",
+            base64: base64(bytes),
+        }
+    }
+}
+
+/// Makes (or finds in `cache`) a picture of one file in `backup`, as WebP
+/// bytes. Waits its turn behind the few being made already.
+pub fn picture(backup: &Backup, cache: &Path, photo: &str, size: PictureSize) -> Result<Vec<u8>> {
+    let look = match size {
+        PictureSize::Small => Look::Small,
+        PictureSize::Screen => Look::Closer,
+    };
+    let _turn = PICTURES.wait_for_a_turn();
+    Ok(keevoro_engine::preview_at(
+        backup.home(),
+        backup.catalog(),
+        cache,
+        photo,
+        VideoTools::find().as_ref(),
+        look,
+    )?)
+}
+
+/// Lets only a few slow jobs run at once; the rest wait their turn.
+struct Turns {
+    free: Mutex<usize>,
+    freed: Condvar,
+}
+
+/// Holding one of these is having a turn. Dropping it passes the turn on.
+struct Turn<'a>(&'a Turns);
+
+impl Turns {
+    const fn new(at_once: usize) -> Self {
+        Self {
+            free: Mutex::new(at_once),
+            freed: Condvar::new(),
+        }
+    }
+
+    fn wait_for_a_turn(&self) -> Turn<'_> {
+        // A poisoned lock only means another picture panicked; the count
+        // inside is still right, so carry on with it.
+        let mut free = self.free.lock().unwrap_or_else(PoisonError::into_inner);
+        while *free == 0 {
+            free = self.freed.wait(free).unwrap_or_else(PoisonError::into_inner);
+        }
+        *free -= 1;
+        Turn(self)
+    }
+}
+
+impl Drop for Turn<'_> {
+    fn drop(&mut self) {
+        *self.0.free.lock().unwrap_or_else(PoisonError::into_inner) += 1;
+        self.0.freed.notify_one();
+    }
+}
+
+static PICTURES: Turns = Turns::new(3);
+
+/// Standard Base64 with padding. A few lines here rather than a crate for
+/// one use.
+fn base64(bytes: &[u8]) -> String {
+    const LETTERS: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let b = [
+            chunk[0],
+            chunk.get(1).copied().unwrap_or(0),
+            chunk.get(2).copied().unwrap_or(0),
+        ];
+        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+        for (i, shift) in [18, 12, 6, 0].into_iter().enumerate() {
+            if i <= chunk.len() {
+                out.push(char::from(LETTERS[((n >> shift) & 63) as usize]));
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backup::tests::one_backup;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn a_picture_is_made_once_and_kept_in_the_cache() {
+        let (dir, _card, backup) = one_backup();
+        let cache = dir.path().join("cache");
+        let photo = backup.collection_photos("Holidays / Cornwall").unwrap()[0]
+            .photo
+            .id
+            .clone();
+        let small = picture(&backup, &cache, &photo, PictureSize::Small).unwrap();
+        assert_eq!(&small[..4], b"RIFF");
+        assert_eq!(&small[8..12], b"WEBP");
+        let screen = picture(&backup, &cache, &photo, PictureSize::Screen).unwrap();
+        assert_ne!(screen, small, "a screen-sized picture is another picture");
+        assert!(cache.is_dir() && std::fs::read_dir(&cache).unwrap().count() > 0);
+
+        let e = picture(&backup, &cache, "0000", PictureSize::Small).unwrap_err();
+        assert_eq!(e.message, "That photo isn't known to this library.");
+    }
+
+    #[test]
+    fn base64_is_the_standard_kind() {
+        assert_eq!(base64(b""), "");
+        assert_eq!(base64(b"f"), "Zg==");
+        assert_eq!(base64(b"fo"), "Zm8=");
+        assert_eq!(base64(b"foo"), "Zm9v");
+        assert_eq!(base64(b"foobar"), "Zm9vYmFy");
+        assert_eq!(base64(&[0xff, 0xfe, 0x00]), "//4A");
+        assert_eq!(
+            serde_json::to_value(Picture::webp(b"foo")).unwrap(),
+            serde_json::json!({ "format": "webp", "base64": "Zm9v" })
+        );
+    }
+
+    #[test]
+    fn only_a_few_slow_jobs_run_at_once() {
+        static TURNS: Turns = Turns::new(2);
+        static RUNNING: AtomicUsize = AtomicUsize::new(0);
+        static MOST: AtomicUsize = AtomicUsize::new(0);
+        let jobs: Vec<_> = (0..12)
+            .map(|_| {
+                std::thread::spawn(|| {
+                    let _turn = TURNS.wait_for_a_turn();
+                    let now = RUNNING.fetch_add(1, Ordering::SeqCst) + 1;
+                    MOST.fetch_max(now, Ordering::SeqCst);
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                    RUNNING.fetch_sub(1, Ordering::SeqCst);
+                })
+            })
+            .collect();
+        for job in jobs {
+            job.join().unwrap();
+        }
+        assert_eq!(MOST.load(Ordering::SeqCst), 2);
+        assert_eq!(RUNNING.load(Ordering::SeqCst), 0);
+    }
+}

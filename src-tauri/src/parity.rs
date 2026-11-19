@@ -19,6 +19,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 /// Commands that only translate between the screens and the API.
 const BACKED: &[(&str, &[Op])] = &[
+    // Named backups. The window's list needs only names, which the API
+    // gives without opening or counting each backup.
+    ("app_state", &[Op::BackupsList]),
+    ("start_backup", &[Op::BackupsStart]),
     // The Discover screen asks for all four in one go.
     (
         "discover",
@@ -29,6 +33,7 @@ const BACKED: &[(&str, &[Op])] = &[
             Op::CollectionsList,
         ],
     ),
+    ("places", &[Op::PlacesList]),
     ("forget_source", &[Op::SourcesForget]),
     ("file_types", &[Op::SourcesFileTypes]),
     ("include_file_type", &[Op::SourcesIncludeType]),
@@ -37,15 +42,33 @@ const BACKED: &[(&str, &[Op])] = &[
     ("keep_photo", &[Op::PhotosKeep]),
     ("set_aside", &[Op::SetAsideList]),
     ("duplicates", &[Op::DuplicatesList]),
+    ("preview", &[Op::PhotosPicture]),
+    ("closer_look", &[Op::PhotosPicture]),
+    // The one-line summary names the places without counting what has
+    // reached each, which the API does quickly.
+    ("destination", &[Op::DestinationsList]),
+    ("connect_destination", &[Op::DestinationsAdd]),
+    ("disconnect_destination", &[Op::DestinationsRemove]),
+    ("room", &[Op::DestinationsRoom]),
     ("send_history", &[Op::BackupHistory]),
     ("last_backup_said", &[Op::BackupLastSummary]),
     ("previews_wanted", &[Op::BackupPreviews]),
     ("set_previews_wanted", &[Op::BackupPreviews]),
+    ("activity", &[Op::KeevoroActivity]),
+    ("log_tail", &[Op::KeevoroLog]),
+    ("acceleration", &[Op::KeevoroSettings]),
+    ("set_acceleration", &[Op::KeevoroSettings]),
+    ("check_update", &[Op::KeevoroUpdate]),
+    ("reset_everything", &[Op::KeevoroReset]),
 ];
 
 /// Commands that are about being a window: nothing in them is Keevoro's to
 /// share with the command line or an agent.
 const WINDOW_ONLY: &[&str] = &[
+    // Which backup the window shows. The API keeps the choice in the
+    // settings file, but it is not an operation: the command line and an
+    // agent name the backup they mean each time.
+    "switch_backup",
     // Shows the folder a backup goes to in the file manager.
     "open_destination",
     // Shows a source, or a folder in one, in the file manager.
@@ -64,47 +87,23 @@ const WINDOW_ONLY: &[&str] = &[
 /// operation each will become, where there is one. Move one into the API,
 /// and it moves from here to `BACKED`.
 const NOT_YET: &[(&str, Option<Op>)] = &[
-    // Named backups are kept in the app's settings.
-    ("app_state", Some(Op::BackupsList)),
-    ("start_backup", Some(Op::BackupsStart)),
-    // Which backup the window has open is part of those settings.
-    ("switch_backup", None),
     // The first-run screen of older builds. It goes with the library model.
     ("use_library", None),
-    // Finding.
-    ("places", Some(Op::PlacesList)),
-    ("survey_place", Some(Op::PlacesSurvey)),
-    ("scan_place", Some(Op::SourcesLook)),
-    // Reading sampled files in full, in the background. Becomes a job.
-    ("keep_checking", None),
-    // Previews are made with the app's own cache and taken in turns.
-    ("preview", Some(Op::PhotosPicture)),
-    ("closer_look", Some(Op::PhotosPicture)),
     // Copying into the library. It goes with the library model, not moved.
     ("gather", None),
-    // Destinations. The one-line summary reads only the saved list, which
-    // is much quicker than `destinations.list` counting what has reached
-    // each place, so it waits for a quick way to ask the API for names.
-    ("destination", None),
-    ("connect_destination", Some(Op::DestinationsAdd)),
-    ("disconnect_destination", Some(Op::DestinationsRemove)),
-    ("room", Some(Op::DestinationsRoom)),
-    // Backing up to every destination and recording how it went.
+    // Jobs, which run for a while and are watched, paused and stopped.
+    // They move together in the next step, which gives the API jobs.
+    ("survey_place", Some(Op::PlacesSurvey)),
+    ("scan_place", Some(Op::SourcesLook)),
+    // Reading sampled files in full, in the background.
+    ("keep_checking", None),
     ("send", Some(Op::BackupRun)),
     ("check_arrived", Some(Op::BackupCheck)),
-    // Jobs: what is running, pausing and stopping.
     ("send_progress", Some(Op::JobsStatus)),
     ("pause_work", Some(Op::JobsPause)),
     ("stop_sending", Some(Op::JobsStop)),
     ("stop_scanning", Some(Op::JobsStop)),
     ("stop_survey", Some(Op::JobsStop)),
-    // Keevoro itself.
-    ("activity", Some(Op::KeevoroActivity)),
-    ("log_tail", Some(Op::KeevoroLog)),
-    ("acceleration", Some(Op::KeevoroSettings)),
-    ("set_acceleration", Some(Op::KeevoroSettings)),
-    ("check_update", Some(Op::KeevoroUpdate)),
-    ("reset_everything", Some(Op::KeevoroReset)),
 ];
 
 /// The commands the app registers, read from `generate_handler!` itself.
