@@ -1903,11 +1903,25 @@ function SendPanel(props: {
   useEffect(() => {
     if (!sending) return
     let open = true
-    const ask = () =>
-      api
+    // Answers can come back late or out of order when the disk is busy, and
+    // a bar that slips backwards looks like lost work. So an answer older
+    // than one already shown is dropped, and within one backup the amount
+    // done only ever goes up.
+    let asked = 0
+    let shown = 0
+    let furthest = 0
+    const ask = () => {
+      const mine = ++asked
+      return api
         .sendProgress()
-        .then((p) => open && setProgress(p))
+        .then((p) => {
+          if (!open || mine < shown) return
+          shown = mine
+          furthest = Math.max(furthest, p.bytesDone)
+          setProgress({ ...p, bytesDone: Math.min(furthest, p.bytesTotal) })
+        })
         .catch(() => {})
+    }
     void ask()
     const timer = window.setInterval(ask, 1000)
     return () => {
