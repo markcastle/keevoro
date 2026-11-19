@@ -37,7 +37,7 @@ The app is four layers, and almost all the thinking is in the bottom two:
 | Layer | Where | What it is |
 | --- | --- | --- |
 | Screens | `ui/src` | React and TypeScript. They show what they are given and send one request per button. |
-| Shell | `src-tauri/src` | A Tauri window and a handful of commands. Each command finds the open backup, calls the API, and turns an error into a sentence. The jobs (looking through a source, backing up) still run here until the API has jobs of its own. |
+| Shell | `src-tauri/src` | A Tauri window and a handful of commands. Each command finds the open backup, calls the API, and turns an error into a sentence. Long jobs are the API's; what they say reaches the window through one listener set up in `lib.rs`. |
 | API | `crates/keevoro-api` | Every operation Keevoro offers, listed once in a register. What the app, the command line and an AI agent all call. See [The API](#the-api) below. |
 | Engine | `crates/keevoro-engine` | Everything Keevoro actually does: the Discover view, choosing, gathering, previews, backing up and connecting storage. Shared with the command line, and tested without a window. |
 
@@ -133,6 +133,8 @@ The app keeps a log (`src-tauri/src/log.rs`): one line per event with the time i
 The app works in backups (see `src-tauri/src/settings.rs`): each is a named job, such as "Family photos" or "Drone footage", with its own home folder for its catalog. In the code a backup is the job (`Backup`, `start_backup`), and sending its files to their destination is "send" (`send`, `SendPanel`, `destination`). The engine module that does the sending is `keevoro_engine::send`, shared with the command line. Within a backup there are three steps (`find`, `choose`, `backup` in `ui/src/App.tsx`; the last is shown as "Back them up somewhere safe") and the steps in the sidebar are the only navigation. The rule for any new screen: one question as the heading, one main button in the bar at the bottom, and words a person who has never heard of Keevoro would understand. The drives offered on the first step come from `src-tauri/src/places.rs`, which decides what a drive is called and which system volumes to hide.
 
 `ui/src/backend.ts` is the only place the screens touch the outside world. Its types mirror the Rust structs in `crates/keevoro-engine/src/discover.rs` and `src-tauri/src/events.rs`; change them together.
+
+The shell's wiring has a test of its own, `src-tauri/src/wiring.rs`, because nobody can click through a real window in CI. It builds the app exactly as `run` does (the same plugins, commands, listener, `tauri.conf.json` and capabilities) on Tauri's stand-in for a window, `tauri::test`, with Keevoro's folders in a temporary folder. It then does what the screens do: invokes commands by the names in `backend.ts`, listens for the events `backend.ts` subscribes to, and checks every answer and every event against the types there. Along the way it surveys a made-up card, looks through it, backs it up to a folder, stops a search and a backup, and finally checks the photo arrived and the card was not touched. To make that possible, `app` in `lib.rs` takes a `tauri::Builder` for any runtime, and every command that needs the app's handle takes an `AppHandle<R>`, so a new command must too. The one step the stand-in cannot show is the page's own JavaScript receiving an event once Tauri has sent it; that is Tauri's work, and the browser test below covers the screens.
 
 The browser test uses the screens the way a person would and saves a screenshot of each to `ui/tests/screens/`:
 

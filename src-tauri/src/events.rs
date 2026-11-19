@@ -11,7 +11,7 @@
 use keevoro_api::Said;
 use keevoro_engine::GatherStep;
 use serde::Serialize;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Runtime};
 
 pub const GATHER: &str = "gather";
 
@@ -26,7 +26,7 @@ pub fn window_event(said: &Said) -> Option<&'static str> {
 }
 
 /// Hands what a job said to the window, exactly as the screens expect it.
-pub fn to_window(app: &AppHandle, said: &Said) {
+pub fn to_window<R: Runtime>(app: &AppHandle<R>, said: &Said) {
     if let Some(name) = window_event(said) {
         let _ = app.emit(name, said);
     }
@@ -76,7 +76,7 @@ impl GatherEvent {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use keevoro_api::jobs::{CheckEvent, HintView, ScanEvent, SendEvent, SurveyEvent, SurveyView};
     use std::collections::BTreeSet;
@@ -85,6 +85,12 @@ mod tests {
 
     /// The fields a type in `backend.ts` names, such as `ScanEvent`.
     fn fields_of(name: &str) -> BTreeSet<String> {
+        shape_of(name).into_keys().collect()
+    }
+
+    /// The fields a type in `backend.ts` names, each with whether it may
+    /// be left out (`field?: ...`).
+    pub(crate) fn shape_of(name: &str) -> std::collections::BTreeMap<String, bool> {
         let start = BACKEND
             .find(&format!("export type {name} = {{"))
             .unwrap_or_else(|| panic!("backend.ts has no type {name}"));
@@ -107,12 +113,10 @@ mod tests {
             .collect::<Vec<_>>()
             .join(";");
         body.split(';')
-            .filter_map(|part| {
-                part.split_once(':')
-                    .map(|(field, _)| field.trim().trim_end_matches('?'))
-            })
-            .filter(|field| !field.is_empty() && field.chars().all(|c| c.is_ascii_alphanumeric()))
-            .map(str::to_string)
+            .filter_map(|part| part.split_once(':').map(|(field, _)| field.trim()))
+            .map(|field| (field.trim_end_matches('?'), field.ends_with('?')))
+            .filter(|(field, _)| !field.is_empty() && field.chars().all(|c| c.is_ascii_alphanumeric()))
+            .map(|(field, optional)| (field.to_string(), optional))
             .collect()
     }
 

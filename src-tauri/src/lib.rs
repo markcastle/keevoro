@@ -28,9 +28,11 @@ mod events;
 #[cfg(test)]
 mod parity;
 mod updates;
+#[cfg(test)]
+mod wiring;
 
 use std::sync::atomic::AtomicBool;
-use tauri::Manager;
+use tauri::{Manager, Runtime};
 
 /// What the running app holds in memory.
 pub struct Shared {
@@ -42,17 +44,43 @@ pub struct Shared {
 }
 
 pub fn run() {
-    let built = tauri::Builder::default()
+    let built = app(tauri::Builder::default(), |app| {
+        Ok(keevoro_api::Keevoro::open(&keevoro_api::Folders {
+            config: app.path().app_config_dir()?,
+            data: app.path().app_data_dir()?,
+            // Previews of photos not yet backed up. Safe to delete.
+            cache: app.path().app_cache_dir()?.join("previews"),
+            logs: app.path().app_log_dir()?,
+        }))
+    })
+    .run(context());
+    if let Err(e) = built {
+        eprintln!("Keevoro couldn't start: {e}");
+        std::process::exit(1);
+    }
+}
+
+/// The app's own settings, icons and screens, as `tauri.conf.json` and
+/// `capabilities/` describe them, for whichever runtime it runs on.
+fn context<R: Runtime>() -> tauri::Context<R> {
+    tauri::generate_context!()
+}
+
+/// The whole app, ready to run: its plugins, its commands, and the
+/// listener that hands what jobs say to the window. `open` makes Keevoro
+/// once the app is starting: in the computer's usual folders for an app in
+/// `run`, in a temporary folder in a test. Built on any Tauri runtime, so
+/// the tests drive exactly what a person's window drives, through Tauri's
+/// stand-in for a window (`tauri::test`, in `wiring.rs`).
+fn app<R: Runtime>(
+    builder: tauri::Builder<R>,
+    open: impl FnOnce(&tauri::App<R>) -> Result<keevoro_api::Keevoro, Box<dyn std::error::Error>> + Send + 'static,
+) -> tauri::Builder<R> {
+    builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .setup(|app| {
-            let keevoro = keevoro_api::Keevoro::open(&keevoro_api::Folders {
-                config: app.path().app_config_dir()?,
-                data: app.path().app_data_dir()?,
-                // Previews of photos not yet backed up. Safe to delete.
-                cache: app.path().app_cache_dir()?.join("previews"),
-                logs: app.path().app_log_dir()?,
-            });
+        .setup(move |app| {
+            let keevoro = open(app)?;
             keevoro_api::activity::watch();
             keevoro.log().say(&format!(
                 "Keevoro {} started on {} ({})",
@@ -119,9 +147,4 @@ pub fn run() {
             commands::send,
             commands::check_arrived,
         ])
-        .run(tauri::generate_context!());
-    if let Err(e) = built {
-        eprintln!("Keevoro couldn't start: {e}");
-        std::process::exit(1);
-    }
 }

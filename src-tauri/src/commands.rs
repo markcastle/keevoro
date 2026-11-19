@@ -20,7 +20,7 @@ use serde::Deserialize;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
 /// Errors cross to the screen as plain sentences.
 type Said<T> = Result<T, String>;
@@ -49,7 +49,7 @@ pub struct BackupView {
     name: String,
 }
 
-fn current_state(app: &AppHandle, shared: &Shared) -> AppState {
+fn current_state<R: Runtime>(app: &AppHandle<R>, shared: &Shared) -> AppState {
     let settings = shared.keevoro.backups().read();
     let view = |s: &keevoro_api::Named| BackupView {
         id: s.id.clone(),
@@ -91,7 +91,7 @@ fn backup(shared: &Shared) -> Said<Backup> {
 
 /// Starts a new backup with this name and opens it.
 #[tauri::command]
-pub fn start_backup(app: AppHandle, shared: State<'_, Shared>, name: String) -> Said<AppState> {
+pub fn start_backup<R: Runtime>(app: AppHandle<R>, shared: State<'_, Shared>, name: String) -> Said<AppState> {
     let started = shared.keevoro.start_backup(&name).map_err(say)?;
     // The window shows the one just started.
     shared.keevoro.backups().switch_to(&started.id).map_err(say)?;
@@ -100,7 +100,7 @@ pub fn start_backup(app: AppHandle, shared: State<'_, Shared>, name: String) -> 
 
 /// Opens another backup. Whatever was open is left exactly as it was.
 #[tauri::command]
-pub fn switch_backup(app: AppHandle, shared: State<'_, Shared>, id: String) -> Said<AppState> {
+pub fn switch_backup<R: Runtime>(app: AppHandle<R>, shared: State<'_, Shared>, id: String) -> Said<AppState> {
     if shared.keevoro.busy() {
         return Err("Keevoro is in the middle of something in this backup. Let that finish first.".into());
     }
@@ -116,7 +116,7 @@ pub fn switch_backup(app: AppHandle, shared: State<'_, Shared>, id: String) -> S
 /// storage keys in the keychain. Nothing on a source, nothing that was sent
 /// anywhere, and no folder outside Keevoro's own data is touched.
 #[tauri::command]
-pub fn reset_everything(app: AppHandle, shared: State<'_, Shared>) -> Said<AppState> {
+pub fn reset_everything<R: Runtime>(app: AppHandle<R>, shared: State<'_, Shared>) -> Said<AppState> {
     // The API refuses, in the same words, while one of its jobs runs.
     if shared.gathering.load(Ordering::SeqCst) {
         return Err(
@@ -129,7 +129,7 @@ pub fn reset_everything(app: AppHandle, shared: State<'_, Shared>) -> Said<AppSt
 
 /// Shows the folder this backup sends to, if it sends to a folder.
 #[tauri::command]
-pub fn open_destination(app: AppHandle, shared: State<'_, Shared>, at: Option<usize>) -> Said<()> {
+pub fn open_destination<R: Runtime>(app: AppHandle<R>, shared: State<'_, Shared>, at: Option<usize>) -> Said<()> {
     use tauri_plugin_opener::OpenerExt;
     let catalog = Catalog::open_in_library(&library(&shared)?).map_err(say)?;
     // The one asked for, by its place in the list; the first otherwise.
@@ -144,13 +144,13 @@ pub fn open_destination(app: AppHandle, shared: State<'_, Shared>, at: Option<us
 }
 
 #[tauri::command]
-pub fn app_state(app: AppHandle, shared: State<'_, Shared>) -> AppState {
+pub fn app_state<R: Runtime>(app: AppHandle<R>, shared: State<'_, Shared>) -> AppState {
     current_state(&app, &shared)
 }
 
 /// Sets where the library lives, creating it if it is new.
 #[tauri::command]
-pub fn use_library(app: AppHandle, shared: State<'_, Shared>, path: String) -> Said<AppState> {
+pub fn use_library<R: Runtime>(app: AppHandle<R>, shared: State<'_, Shared>, path: String) -> Said<AppState> {
     // Kept for the first-run screen of older builds: the folder becomes a
     // backup of its own.
     shared
@@ -225,18 +225,26 @@ pub fn keep_photo(shared: State<'_, Shared>, id: String, keep: bool) -> Said<()>
 
 /// A small picture of one found file, as raw WebP bytes.
 #[tauri::command]
-pub async fn preview(app: AppHandle, shared: State<'_, Shared>, id: String) -> Said<tauri::ipc::Response> {
+pub async fn preview<R: Runtime>(
+    app: AppHandle<R>,
+    shared: State<'_, Shared>,
+    id: String,
+) -> Said<tauri::ipc::Response> {
     picture(app, &shared, id, keevoro_api::PictureSize::Small).await
 }
 
 /// A screen-sized picture of one found file, for looking at it closely.
 #[tauri::command]
-pub async fn closer_look(app: AppHandle, shared: State<'_, Shared>, id: String) -> Said<tauri::ipc::Response> {
+pub async fn closer_look<R: Runtime>(
+    app: AppHandle<R>,
+    shared: State<'_, Shared>,
+    id: String,
+) -> Said<tauri::ipc::Response> {
     picture(app, &shared, id, keevoro_api::PictureSize::Screen).await
 }
 
-async fn picture(
-    app: AppHandle,
+async fn picture<R: Runtime>(
+    app: AppHandle<R>,
     shared: &State<'_, Shared>,
     id: String,
     size: keevoro_api::PictureSize,
@@ -365,7 +373,7 @@ pub fn stop_scanning(shared: State<'_, Shared>) {
 /// folder listings only. No file is opened and nothing is remembered: the
 /// answer is a list of suggestions for the person to choose from.
 #[tauri::command]
-pub async fn survey_place(app: AppHandle, shared: State<'_, Shared>, path: String) -> Said<SurveyView> {
+pub async fn survey_place<R: Runtime>(app: AppHandle<R>, shared: State<'_, Shared>, path: String) -> Said<SurveyView> {
     let open = shared.keevoro.backups().current();
     let job = shared
         .keevoro
@@ -400,7 +408,7 @@ pub fn scan_place(shared: State<'_, Shared>, path: String) -> Said<()> {
 /// Starts gathering everything the user is keeping. Returns at once;
 /// progress and the result arrive as `gather` events.
 #[tauri::command]
-pub fn gather(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
+pub fn gather<R: Runtime>(app: AppHandle<R>, shared: State<'_, Shared>) -> Said<()> {
     let library = library(&shared)?;
     if shared.gathering.swap(true, Ordering::SeqCst) {
         return Err("Keevoro is already gathering your photos.".into());
@@ -489,7 +497,7 @@ pub fn room(shared: State<'_, Shared>) -> Said<keevoro_api::RoomAtAGlance> {
 /// sends to, or the backup's own folder. Anything else is refused, so a
 /// screen can never be used to open an arbitrary place.
 #[tauri::command]
-pub fn open_place(app: AppHandle, shared: State<'_, Shared>, path: String) -> Said<()> {
+pub fn open_place<R: Runtime>(app: AppHandle<R>, shared: State<'_, Shared>, path: String) -> Said<()> {
     use tauri_plugin_opener::OpenerExt;
     let library = library(&shared)?;
     let catalog = Catalog::open_in_library(&library).map_err(say)?;
@@ -556,7 +564,11 @@ impl From<ConnectRequest> for keevoro_api::AddDestinationRequest {
 
 /// Checks a backup destination works, then remembers it. Returns it in words.
 #[tauri::command]
-pub async fn connect_destination(app: AppHandle, shared: State<'_, Shared>, request: ConnectRequest) -> Said<String> {
+pub async fn connect_destination<R: Runtime>(
+    app: AppHandle<R>,
+    shared: State<'_, Shared>,
+    request: ConnectRequest,
+) -> Said<String> {
     let library = library(&shared)?;
     let request = keevoro_api::AddDestinationRequest::from(request);
     // Connecting talks to the storage, which can take a few seconds.
@@ -628,7 +640,7 @@ fn is_a_keevoro_page(page: &str) -> bool {
 /// the licence, the source. Nothing else is opened, whatever the screen
 /// asks for.
 #[tauri::command]
-pub fn open_release_page(app: AppHandle, page: String) -> Said<()> {
+pub fn open_release_page<R: Runtime>(app: AppHandle<R>, page: String) -> Said<()> {
     use tauri_plugin_opener::OpenerExt;
     if !is_a_keevoro_page(&page) {
         return Err("That isn't one of Keevoro's own pages.".to_string());
@@ -644,7 +656,7 @@ pub fn log_tail(shared: State<'_, Shared>) -> String {
 
 /// Opens the log file in whatever the computer uses for text files.
 #[tauri::command]
-pub fn open_log(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
+pub fn open_log<R: Runtime>(app: AppHandle<R>, shared: State<'_, Shared>) -> Said<()> {
     use tauri_plugin_opener::OpenerExt;
     app.opener()
         .open_path(shared.keevoro.log().path().display().to_string(), None::<&str>)
@@ -653,7 +665,7 @@ pub fn open_log(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
 
 /// A newer Keevoro, if there is one this computer can install.
 #[tauri::command]
-pub async fn check_update(app: AppHandle) -> Said<Option<keevoro_api::Offer>> {
+pub async fn check_update<R: Runtime>(app: AppHandle<R>) -> Said<Option<keevoro_api::Offer>> {
     tauri::async_runtime::spawn_blocking(move || app.state::<Shared>().keevoro.update_offer())
         .await
         .map_err(say)
@@ -662,7 +674,7 @@ pub async fn check_update(app: AppHandle) -> Said<Option<keevoro_api::Offer>> {
 /// Downloads the newer Keevoro, checks it, and starts installing it. On
 /// Windows the app then closes so the installer can replace it.
 #[tauri::command]
-pub async fn install_update(app: AppHandle) -> Said<()> {
+pub async fn install_update<R: Runtime>(app: AppHandle<R>) -> Said<()> {
     let os = std::env::consts::OS;
     let into = app.path().app_cache_dir().map_err(say)?.join("update");
     let installer =
@@ -685,7 +697,7 @@ pub async fn install_update(app: AppHandle) -> Said<()> {
 /// Shows the library folder in the system's file manager, so the user can
 /// see their photos are really there.
 #[tauri::command]
-pub fn open_library(app: AppHandle, shared: State<'_, Shared>) -> Said<()> {
+pub fn open_library<R: Runtime>(app: AppHandle<R>, shared: State<'_, Shared>) -> Said<()> {
     use tauri_plugin_opener::OpenerExt;
     let library = library(&shared)?;
     // The originals are what people want to see; fall back to the library
