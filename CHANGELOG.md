@@ -18,7 +18,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **The app and the command line see each other's backups straight away.** A backup started in one used to appear in the other only after it was closed and opened again, and two changes made at the same moment could undo each other. Now both see every change at once, and neither loses the other's.
 - **A file is never left out as a duplicate on a guess.** When two large files look alike and one of them cannot be read in full to tell them apart (because its drive is unplugged, say), neither is backed up until it can be, and Keevoro says so, instead of backing up only one of them.
 - **A file already in a backup folder only counts as there if it matches exactly,** including a large file Keevoro had not yet read in full. Before, a file of the same name and size was believed.
-
 - **The progress bar of a long backup no longer slips backwards now and then.** The amount done only ever goes up.
 
 ### Removed
