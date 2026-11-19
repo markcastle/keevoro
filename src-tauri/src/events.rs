@@ -5,15 +5,10 @@
 //!
 //! The jobs themselves are the API's, and so are the shapes of what they
 //! say (`keevoro_api::jobs::said`): the app sends each as it is, under the
-//! name it has always had. Only gathering, from the older library model,
-//! still has its shape here.
+//! name it has always had.
 
 use keevoro_api::Said;
-use keevoro_engine::GatherStep;
-use serde::Serialize;
 use tauri::{AppHandle, Emitter, Runtime};
-
-pub const GATHER: &str = "gather";
 
 /// The name of the window event a job's words go out as, or `None` for
 /// what the screens receive another way: a survey's findings are the
@@ -32,53 +27,11 @@ pub fn to_window<R: Runtime>(app: &AppHandle<R>, said: &Said) {
     }
 }
 
-/// Progress gathering, and a last one (`step: "finished"`) when it is done.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct GatherEvent {
-    pub step: &'static str,
-    pub done: usize,
-    pub total: usize,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub summary: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub problem: Option<String>,
-}
-
-impl From<GatherStep> for GatherEvent {
-    fn from(step: GatherStep) -> Self {
-        let (step, done, total) = match step {
-            GatherStep::Checking { done, total } => ("checking", done, total),
-            GatherStep::Copying { done, total } => ("copying", done, total),
-            GatherStep::MakingPreviews { done, total } => ("previews", done, total),
-            GatherStep::WorkingOnVideos { done, total } => ("videos", done, total),
-        };
-        Self {
-            step,
-            done,
-            total,
-            summary: None,
-            problem: None,
-        }
-    }
-}
-
-impl GatherEvent {
-    /// The last event of a gather: what happened, or what went wrong.
-    pub fn finished(summary: Vec<String>, problem: Option<String>) -> Self {
-        Self {
-            step: "finished",
-            done: 0,
-            total: 0,
-            summary: Some(summary),
-            problem,
-        }
-    }
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use keevoro_api::jobs::{CheckEvent, HintView, ScanEvent, SendEvent, SurveyEvent, SurveyView};
+    use keevoro_api::jobs::{CheckEvent, HintView, Outcome, ScanEvent, SendEvent, SurveyEvent, SurveyView};
+    use serde::Serialize;
     use std::collections::BTreeSet;
 
     const BACKEND: &str = include_str!("../../ui/src/backend.ts");
@@ -152,6 +105,7 @@ pub(crate) mod tests {
             finished: true,
             summary: vec!["y".into()],
             problem: Some("z".into()),
+            outcome: Some(Outcome::Worked),
         };
         assert_eq!(keys(&send), fields_of("SendEvent"));
         let check = CheckEvent {
@@ -211,28 +165,5 @@ pub(crate) mod tests {
     fn the_progress_of_a_send_has_the_shape_the_screens_expect() {
         let progress = crate::commands::SendProgress::default();
         assert_eq!(keys(&progress), fields_of("SendProgress"));
-    }
-
-    #[test]
-    fn events_have_the_shape_the_screens_expect() {
-        let copying: GatherEvent = GatherStep::Copying { done: 3, total: 10 }.into();
-        assert_eq!(
-            serde_json::to_value(&copying).unwrap(),
-            serde_json::json!({ "step": "copying", "done": 3, "total": 10 })
-        );
-        let previews: GatherEvent = GatherStep::MakingPreviews { done: 1, total: 2 }.into();
-        let videos: GatherEvent = GatherStep::WorkingOnVideos { done: 1, total: 2 }.into();
-        assert_eq!((previews.step, videos.step), ("previews", "videos"));
-
-        let done = GatherEvent::finished(vec!["Safely copied 2 files.".into()], None);
-        assert_eq!(
-            serde_json::to_value(&done).unwrap(),
-            serde_json::json!({ "step": "finished", "done": 0, "total": 0, "summary": ["Safely copied 2 files."] })
-        );
-        let failed = GatherEvent::finished(vec![], Some("There isn't enough room.".into()));
-        assert_eq!(
-            serde_json::to_value(&failed).unwrap()["problem"],
-            "There isn't enough room."
-        );
     }
 }

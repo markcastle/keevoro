@@ -3,16 +3,12 @@
 //! The crates below this one each do one job: scan a drive, copy a file,
 //! make a thumbnail. This crate strings those jobs into the things a person
 //! actually asks for ("look through this drive", "show me what you found",
-//! "gather my photos"), and returns plain data describing the result.
+//! "back up my photos"), and returns plain data describing the result.
 //!
-//! Two front ends sit on top of it and neither contains any of this logic:
-//!
-//! - the `keevoro` command line, which prints the results as sentences;
-//! - the desktop app, which shows them as screens.
-//!
-//! Keeping the logic here is what stops the two drifting apart. A rule such
+//! `keevoro-api` sits on top of it, and the app and the `keevoro` command
+//! line sit on that; none of them contains any of this logic. A rule such
 //! as "a picture the user chose to keep is not junk" is written once, in
-//! [`wanted`], and both front ends get it.
+//! [`wanted`], and every front end gets it.
 //!
 //! Nothing here prints, prompts or knows about windows. Progress is reported
 //! through callbacks so each front end can show it in its own way.
@@ -37,16 +33,15 @@ pub use discover::{
 pub use discover::{duplicates, forget_source, friendly_path, CopyView, DuplicateGroup};
 pub use preview::{preview, preview_at, Look};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use keevoro_catalog::Catalog;
-use keevoro_collect::{free_space, gather, GatherError, GatherReport, PreviewReport, VideoReport};
 use keevoro_core::MediaKind;
 use keevoro_media::VideoTools;
 use keevoro_scan::{scan, FoundItem, ScanOptions, ScanProgress, ScanReport};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Does the user want this file in their library?
+/// Does the person want this file backed up?
 ///
 /// An explicit choice always wins. Without one, everything is kept except
 /// what looks like junk, which is how "junk is pre-unticked" works.
@@ -59,7 +54,7 @@ pub fn wanted(catalog: &Catalog, item: &FoundItem) -> Result<bool> {
 }
 
 /// Looks through one drive or folder and remembers what was found in the
-/// library's catalog under a friendly name. Nothing on the drive is
+/// backup's catalog under a friendly name. Nothing on the drive is
 /// changed. Scanning the same place again replaces what was known about it.
 pub fn scan_into(
     catalog: &mut Catalog,
@@ -101,15 +96,18 @@ pub fn scan_into_with(
     Ok(report)
 }
 
-/// Which part of gathering is under way, for a progress display.
+/// Which part of getting ready to back up is under way, for a progress
+/// display.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GatherStep {
-    /// Reading files a quick search only sampled, before copying them.
+pub enum ReadyStep {
+    /// Reading in full files a quick search only sampled, where two look
+    /// alike and must be told apart.
     Checking {
         done: usize,
         total: usize,
     },
-    Copying {
+    /// Giving each file its place.
+    Placing {
         done: usize,
         total: usize,
     },
@@ -123,168 +121,83 @@ pub enum GatherStep {
     },
 }
 
-/// Everything that happened in one gather.
-#[derive(Debug)]
-pub struct GatherOutcome {
-    pub copied: GatherReport,
-    pub previews: PreviewReport,
-    /// `None` when there were no videos, or nothing here that can read them.
-    pub videos: Option<VideoReport>,
-    /// True when there were videos but this computer has neither a video
-    /// decoder of its own nor ffmpeg, so they
-    /// have no posters or MP4 copies. They are still safely gathered.
-    pub videos_need_ffmpeg: bool,
-}
-
-impl GatherOutcome {
-    /// What happened, as sentences to show the user when gathering ends.
-    /// Good news first; anything needing attention last.
-    pub fn sentences(&self) -> Vec<String> {
-        let mut said = Vec::new();
-        let c = &self.copied;
-        if c.copied > 0 {
-            said.push(format!(
-                "Safely copied {} ({}) into your library.",
-                summary::count(c.copied, "file"),
-                summary::bytes(c.copied_bytes)
-            ));
-        } else if c.failed.is_empty() {
-            said.push("Everything you're keeping was already safely in your library.".to_string());
-        }
-        let converted = self.videos.as_ref().map_or(0, |v| v.converted + v.repackaged);
-        if converted > 0 {
-            said.push(format!(
-                "Made MP4 copies of {} so they play everywhere. The originals are kept.",
-                summary::count(converted, "old video")
-            ));
-        }
-        if !c.failed.is_empty() {
-            said.push(format!(
-                "{} couldn't be copied. Nothing was lost: plug the source in and gather again to retry.",
-                summary::count(c.failed.len(), "file")
-            ));
-        }
-        if !self.previews.no_preview.is_empty() {
-            said.push(format!(
-                "{} can't be previewed yet. The originals are safe in your library.",
-                summary::count(self.previews.no_preview.len(), "photo")
-            ));
-        }
-        if self.videos_need_ffmpeg {
-            said.push(
-                "Your videos are safe, but have no preview pictures because this computer has no way to read videos."
-                    .to_string(),
-            );
-        }
-        if let Some(videos) = self.videos.as_ref().filter(|v| !v.problems.is_empty()) {
-            said.push(format!(
-                "{} safe, but with no preview picture because this computer can't play {}.",
-                match videos.problems.len() {
-                    1 => "1 video is".to_string(),
-                    n => format!("{} videos are", summary::thousands(n)),
-                },
-                if videos.problems.len() == 1 { "it" } else { "them" }
-            ));
-        }
-        said
-    }
-}
-
-/// Copies everything the user is keeping into the library, verifies each
-/// copy, then makes previews. `Ok(None)` means there was nothing to gather.
-///
-/// Sources are only read. Safe to stop and run again.
-pub fn gather_everything(
-    library: &Path,
-    catalog: &Catalog,
-    convert_videos: bool,
-    video_tools: Option<&VideoTools>,
-    on_step: &mut dyn FnMut(GatherStep),
-) -> Result<Option<GatherOutcome>> {
-    make_ready(
-        library,
-        catalog,
-        convert_videos,
-        video_tools,
-        true,
-        true,
-        &|| true,
-        on_step,
-    )
-}
-
-/// Gets everything the user is keeping ready to be sent somewhere, without
-/// copying it into this library's own folder: every file is read in full
-/// and checked, given its place, and has its preview made. The files stay
-/// on their sources and are sent from there (see [`send::run`]).
-pub fn prepare_to_send(
-    home: &Path,
-    catalog: &Catalog,
-    video_tools: Option<&VideoTools>,
-    on_step: &mut dyn FnMut(GatherStep),
-) -> Result<Option<GatherOutcome>> {
-    prepare_to_send_while(home, catalog, video_tools, &|| true, on_step)
-}
-
-/// As [`prepare_to_send`], asking `keep_going` before each file so the work
-/// can be stopped. Whatever was done stays done.
-pub fn prepare_to_send_while(
+/// Makes the previews and video posters a gallery shows, for everything
+/// being kept, from each file where it was found. They are kept in the
+/// backup's own folder (`home`) until they are sent. Whatever was made
+/// stays made if this is stopped.
+pub fn make_previews(
     home: &Path,
     catalog: &Catalog,
     video_tools: Option<&VideoTools>,
     keep_going: &dyn Fn() -> bool,
-    on_step: &mut dyn FnMut(GatherStep),
-) -> Result<Option<GatherOutcome>> {
-    make_ready(home, catalog, false, video_tools, false, true, keep_going, on_step)
+    on_step: &mut dyn FnMut(ReadyStep),
+) -> Result<()> {
+    let reports = catalog.load_reports()?;
+    let chosen = chosen(catalog, &reports)?;
+    keevoro_collect::make_previews_while(
+        home,
+        catalog,
+        &chosen,
+        &mut |done, total| on_step(ReadyStep::MakingPreviews { done, total }),
+        keep_going,
+    )?;
+    if chosen.iter().any(|i| i.kind == MediaKind::Video) && keevoro_media::video::can_make_posters(video_tools) {
+        keevoro_collect::make_video_previews_while(
+            home,
+            catalog,
+            &chosen,
+            video_tools,
+            &mut |done, total| on_step(ReadyStep::WorkingOnVideos { done, total }),
+            keep_going,
+        )?;
+    }
+    Ok(())
+}
+
+/// Everything being kept, once each.
+fn chosen<'a>(catalog: &Catalog, reports: &'a [ScanReport]) -> Result<Vec<&'a FoundItem>> {
+    let (unique, _) = summary::unique_items(reports);
+    let mut chosen = Vec::new();
+    for item in unique {
+        if wanted(catalog, item)? {
+            chosen.push(item);
+        }
+    }
+    Ok(chosen)
 }
 
 /// The part of getting ready that has to come before anything is sent:
-/// every kept file is read in full and checked, and given its place.
-/// Previews are left for later (see [`send::originals_first`]), because
-/// the originals are what matter and should start moving first.
+/// files that look alike are told apart, and every kept file is given its
+/// place. Previews are left for later (see [`make_previews`]), because the
+/// originals are what matter and should start moving first.
+///
+/// A file that looks like another but could not be read in full to tell
+/// them apart (its source unplugged, say) is given no place, so it is
+/// neither sent nor left out as a duplicate on the strength of a sample.
+/// It waits until it can be read. Answers how many files are waiting so.
 pub fn check_and_place(
     home: &Path,
     catalog: &Catalog,
     keep_going: &dyn Fn() -> bool,
-    on_step: &mut dyn FnMut(GatherStep),
-) -> Result<()> {
-    make_ready(home, catalog, false, None, false, false, keep_going, on_step)?;
-    Ok(())
-}
-
-#[allow(clippy::too_many_arguments)]
-fn make_ready(
-    library: &Path,
-    catalog: &Catalog,
-    convert_videos: bool,
-    video_tools: Option<&VideoTools>,
-    copy_here: bool,
-    previews: bool,
-    keep_going: &dyn Fn() -> bool,
-    on_step: &mut dyn FnMut(GatherStep),
-) -> Result<Option<GatherOutcome>> {
+    on_step: &mut dyn FnMut(ReadyStep),
+) -> Result<usize> {
     let reports = catalog.load_reports()?;
-    // Rule one: never write to a source. A library inside a scanned folder
-    // would do exactly that.
-    let home = std::fs::canonicalize(library).unwrap_or_else(|_| library.to_path_buf());
+    // Rule one: never write to a source. A backup's own folder, where its
+    // previews are made, inside a source would do exactly that.
+    let home = std::fs::canonicalize(home).unwrap_or_else(|_| home.to_path_buf());
     if let Some(r) = reports.iter().find(|r| home.starts_with(&r.root)) {
         bail!(
-            "The library is inside {}, which is one of the places being gathered from. \
-             Keevoro never writes to those. Choose a library folder somewhere else.",
+            "This backup's own folder is inside {}, which is one of its sources. \
+             Keevoro never writes to those.",
             r.root.display()
         );
     }
 
     // A quick search only sampled the large files, so two of them can look
-    // alike without being the same. What has to be read in full before
-    // anything moves depends on where it is going:
-    //
-    // - Into this library (`copy_here`): every file being kept, because
-    //   the copy is proved against the whole fingerprint.
-    // - Straight to a destination: only files that look like another file.
-    //   Those must be told apart first, since a true copy is left out and
-    //   a lookalike is not. Every other file is fingerprinted as it is
-    //   sent, in the same pass over it, so nothing is read twice.
+    // alike without being the same. Those must be told apart before
+    // anything moves, since a true copy is left out and a lookalike is not.
+    // Every other file is fingerprinted as it is sent, in the same pass
+    // over it, so nothing is read twice.
     let mut looks_like = std::collections::HashMap::<&str, usize>::new();
     for item in reports.iter().flat_map(|r| &r.items) {
         if let (false, Some(quick)) = (item.hashed, &item.blake3) {
@@ -295,7 +208,7 @@ fn make_ready(
     for item in reports.iter().flat_map(|r| &r.items) {
         if let (false, Some(quick)) = (item.hashed, &item.blake3) {
             let alike = looks_like.get(quick.as_str()).copied().unwrap_or(0) > 1;
-            if (copy_here || alike) && wanted(catalog, item)? {
+            if alike && wanted(catalog, item)? {
                 to_check.insert(quick.clone());
             }
         }
@@ -307,7 +220,7 @@ fn make_ready(
             catalog,
             Some(&to_check),
             &mut |p| {
-                on_step(GatherStep::Checking {
+                on_step(ReadyStep::Checking {
                     done: p.done,
                     total: p.total,
                 });
@@ -317,82 +230,32 @@ fn make_ready(
         catalog.load_reports()?
     };
 
-    let (unique, _) = summary::unique_items(&reports);
-    let mut chosen = Vec::new();
-    for item in unique {
-        if wanted(catalog, item)? {
-            chosen.push(item);
+    // Files still only sampled are, by now, ones nothing else looks like,
+    // unless they could not be read.
+    let mut looks_like = std::collections::HashMap::<&str, usize>::new();
+    for item in reports.iter().flat_map(|r| &r.items) {
+        if let (false, Some(quick)) = (item.hashed, &item.blake3) {
+            *looks_like.entry(quick.as_str()).or_default() += 1;
         }
     }
-    if chosen.is_empty() {
-        return Ok(None);
-    }
-
-    let copied = if !copy_here {
-        // Files still only sampled are, by now, ones nothing else looks like.
-        keevoro_collect::agree_places(catalog, &chosen, true, &mut |done, total| {
-            on_step(GatherStep::Copying { done, total });
-        })?;
-        GatherReport::default()
-    } else {
-        match gather(library, catalog, &chosen, free_space(library), &mut |p| {
-            on_step(GatherStep::Copying {
-                done: p.done,
-                total: p.total,
-            });
-        }) {
-            Ok(report) => report,
-            Err(GatherError::NotEnoughRoom { needed, free }) => bail!(
-                "There isn't enough room for your library. It needs {} and the disk has {} free.",
-                summary::bytes(needed),
-                summary::bytes(free)
-            ),
-            Err(e) => return Err(e).context("Couldn't gather your photos"),
+    let alike = |item: &FoundItem| {
+        !item.hashed
+            && item
+                .blake3
+                .as_deref()
+                .is_some_and(|quick| looks_like.get(quick).copied().unwrap_or(0) > 1)
+    };
+    let mut waiting = 0;
+    for item in reports.iter().flat_map(|r| &r.items) {
+        if alike(item) && wanted(catalog, item)? {
+            waiting += 1;
         }
-    };
-
-    if !previews {
-        return Ok(Some(GatherOutcome {
-            copied,
-            previews: PreviewReport::default(),
-            videos: None,
-            videos_need_ffmpeg: false,
-        }));
     }
-
-    // Previews come from the library's own copies, so they are made for
-    // everything gathered so far, including on earlier runs.
-    let previews = keevoro_collect::make_previews_while(
-        library,
-        catalog,
-        &chosen,
-        &mut |done, total| {
-            on_step(GatherStep::MakingPreviews { done, total });
-        },
-        keep_going,
-    )?;
-
-    let has_videos = chosen.iter().any(|i| i.kind == MediaKind::Video);
-    let can_make_posters = keevoro_media::video::can_make_posters(video_tools);
-    let videos = match can_make_posters {
-        true if has_videos => Some(keevoro_collect::make_video_previews_while(
-            library,
-            catalog,
-            &chosen,
-            video_tools,
-            convert_videos,
-            &mut |done, total| on_step(GatherStep::WorkingOnVideos { done, total }),
-            keep_going,
-        )?),
-        _ => None,
-    };
-
-    Ok(Some(GatherOutcome {
-        copied,
-        previews,
-        videos_need_ffmpeg: has_videos && !can_make_posters,
-        videos,
-    }))
+    let chosen: Vec<&FoundItem> = chosen(catalog, &reports)?.into_iter().filter(|i| !alike(i)).collect();
+    keevoro_collect::agree_places(catalog, &chosen, true, &mut |done, total| {
+        on_step(ReadyStep::Placing { done, total });
+    })?;
+    Ok(waiting)
 }
 
 fn now() -> i64 {

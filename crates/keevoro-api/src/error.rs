@@ -18,8 +18,15 @@ pub enum Kind {
     NoBackup,
     /// The backup, or the thing in it, that was named is not there.
     NotFound,
-    /// It was understood but refused, such as a name already in use.
+    /// It was understood but refused, such as a name already in use or a
+    /// destination without the room.
     Refused,
+    /// Something else is already being done to that backup, here or in
+    /// another of Keevoro's programs. Let it finish, or stop it, first.
+    Busy,
+    /// The place asked for could not be reached: a drive unplugged, a
+    /// connection down, keys that are wrong.
+    Unreachable,
     /// The request could not be understood.
     NotUnderstood,
     /// The API cannot do this yet; only the app can, for now.
@@ -80,6 +87,20 @@ impl Error {
         Self {
             kind: Kind::Refused,
             message: message.into(),
+        }
+    }
+
+    pub(crate) fn busy(message: impl Into<String>) -> Self {
+        Self {
+            kind: Kind::Busy,
+            message: message.into(),
+        }
+    }
+
+    pub(crate) fn unreachable(message: String) -> Self {
+        Self {
+            kind: Kind::Unreachable,
+            message,
         }
     }
 

@@ -9,6 +9,8 @@ repository.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+dirs.workspace = true
+fs4.workspace = true
 keevoro-catalog.workspace = true
 keevoro-core.workspace = true
 keevoro-engine.workspace = true

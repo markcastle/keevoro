@@ -4,9 +4,9 @@
 //! handful of requests the screens make (the `commands` below) by calling
 //! `keevoro-api`. It contains no rules about photos: if you find yourself
 //! writing one here, it belongs in the API or the engine, where the command
-//! line gets it too and where it can be tested without a window. Some
-//! commands still call the engine directly or hold logic of their own;
-//! `parity.rs` lists them, and that list only gets shorter.
+//! line gets it too and where it can be tested without a window.
+//! `parity.rs` checks that every command is backed by the API or is only
+//! about being a window.
 //!
 //! How a request travels:
 //!
@@ -18,8 +18,7 @@
 //! run by the API on their own threads. What they say is handed to the
 //! window as events, so the window never freezes. The event shapes are in
 //! `keevoro-api` (`jobs::said`) and mirrored in `ui/src/backend.ts`;
-//! `events.rs` sends them. Gathering, from the older library model, still
-//! runs here.
+//! `events.rs` sends them.
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
@@ -31,7 +30,6 @@ mod updates;
 #[cfg(test)]
 mod wiring;
 
-use std::sync::atomic::AtomicBool;
 use tauri::{Manager, Runtime};
 
 /// What the running app holds in memory.
@@ -39,19 +37,15 @@ pub struct Shared {
     /// Keevoro itself: its backups, settings, log, keychain and jobs,
     /// through the API the command line uses too.
     keevoro: keevoro_api::Keevoro,
-    /// True while photos are being gathered.
-    gathering: AtomicBool,
 }
 
 pub fn run() {
-    let built = app(tauri::Builder::default(), |app| {
-        Ok(keevoro_api::Keevoro::open(&keevoro_api::Folders {
-            config: app.path().app_config_dir()?,
-            data: app.path().app_data_dir()?,
-            // Previews of photos not yet backed up. Safe to delete.
-            cache: app.path().app_cache_dir()?.join("previews"),
-            logs: app.path().app_log_dir()?,
-        }))
+    let built = app(tauri::Builder::default(), |_| {
+        // The same folders the command line uses, so both see the same
+        // backups.
+        let folders =
+            keevoro_api::Folders::for_this_computer().ok_or("this computer does not say where an app's folders go")?;
+        Ok(keevoro_api::Keevoro::open(&folders))
     })
     .run(context());
     if let Err(e) = built {
@@ -92,15 +86,11 @@ fn app<R: Runtime>(
             // screens listen for.
             let window = app.handle().clone();
             keevoro.listen(move |event| events::to_window(&window, &event.said));
-            app.manage(Shared {
-                keevoro,
-                gathering: AtomicBool::new(false),
-            });
+            app.manage(Shared { keevoro });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::app_state,
-            commands::use_library,
             commands::start_backup,
             commands::switch_backup,
             commands::open_destination,
@@ -124,7 +114,6 @@ fn app<R: Runtime>(
             commands::survey_place,
             commands::stop_survey,
             commands::places,
-            commands::open_library,
             commands::check_update,
             commands::keep_checking,
             commands::log_tail,
@@ -140,7 +129,6 @@ fn app<R: Runtime>(
             commands::keep_photo,
             commands::preview,
             commands::closer_look,
-            commands::gather,
             commands::destination,
             commands::connect_destination,
             commands::disconnect_destination,

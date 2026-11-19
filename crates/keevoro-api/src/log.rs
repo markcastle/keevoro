@@ -77,7 +77,7 @@ fn now() -> u64 {
 
 /// Seconds since 1970 as `2026-11-16 14:02:11`, in UTC. Done by hand so the
 /// app needs no date library for one line of text.
-fn stamp(seconds: u64) -> String {
+pub(crate) fn stamp(seconds: u64) -> String {
     let (days, rest) = (seconds / 86_400, seconds % 86_400);
     // Days since 1970 to a calendar date (Howard Hinnant's method).
     let z = days + 719_468;

@@ -73,18 +73,18 @@ A Rust workspace of small crates. The core has no I/O, and storage sits behind n
 | `keevoro-scan` | Built | Walk a source, detect media by content, read EXIF and video dates and pixel sizes, hash with BLAKE3. Read-only. |
 | `keevoro-storage` | Built | Storage traits, errors, keys, and the shared conformance suite. |
 | `keevoro-storage-folder` | Built | Local folder, external drive or NAS target. Reference provider. |
-| `keevoro-cli` | Built | `keevoro scan`, `collections`, `sources`, `keep`, `skip`, `gather` and `publish`: the engine without a UI. |
+| `keevoro-cli` | Built | The `keevoro` command: every operation in the API's register, on the same named backups as the app, with `--json` and exit codes for scripts. |
 | `keevoro-update` | Built | `keevoro update`: finds the latest GitHub release, checks the download against its checksum file and swaps the program (`ureq`, `sha2`, `self-replace`). |
 | `xtask` | Built | Release tooling: changelog rules, version choice, release cut. Run with `cargo xtask`. |
 | `keevoro-catalog` | Built | SQLite catalog (`rusqlite`, bundled): sources, what was found, keep choices. The job queue arrives with `keevoro-collect`. |
-| `keevoro-collect` | Built | Copy and verify into the library (`fs4` for the free-space check). Renditions and conversion are separate, in `keevoro-media`. |
+| `keevoro-collect` | Built | Agrees each kept file's place in a backup and makes its previews (`fs4` for the free-space check). Rendering itself is in `keevoro-media`. |
 | `keevoro-media` | Part built | Thumbnails and display copies as WebP (`image`, `webp`), blurhash, rotation baked in, no metadata carried over. Video posters and MP4 conversion by running the computer's own ffmpeg as a separate program. HEIC and RAW previews to come. |
 | `keevoro-publish` | Built | The upload engine: write-once originals, resumable multipart, retries. Depends only on the storage traits. |
 | `keevoro-storage-s3` | Built | One S3-compatible adapter (`aws-sdk-s3`) with presets for R2, AWS S3 and any custom endpoint. Checked against MinIO in CI. B2 and Wasabi presets to come. |
 | `keevoro-index` | Built | v2 index writer, its JSON Schema (`schemars`), and v1 gallery.json export. |
 | `keevoro-platform` | Planned | Drive events, volume ids, keychain, per-OS differences. |
-| `keevoro-engine` | Built | What Keevoro does as plain function calls: scan into a library, the Discover view, keep or skip, gather, previews. The command line and the app both sit on it. |
-| `keevoro-api` | Part built | Every operation Keevoro offers, listed once in a register, for the app, the command line and an AI agent to share. Moving the app's shell logic into it is under way; the app's parity test lists what is left. |
+| `keevoro-engine` | Built | What Keevoro does as plain function calls: scan into a backup, the Discover view, keep or skip, previews, backing up. `keevoro-api` sits on it. |
+| `keevoro-api` | Built | Every operation Keevoro offers, listed once in a register, for the app, the command line and an AI agent to share. The app and the command line each have a parity test against it. |
 | `keevoro-app` (`src-tauri`) | Part built | Tauri 2 desktop shell: a thin layer of commands over the engine. Screens are in `ui/` (React, Vite, TypeScript). No installer or updater yet. |
 
 ### Storage plug-ins
@@ -133,10 +133,10 @@ A **destination** is anywhere files can be sent: a folder (on this computer, ano
 How it is built:
 
 - Each backup has a home folder in the app's own data, holding its catalog and previews. The photos themselves are not copied there.
-- `settings.json` lists the backups and which is open. A library from before backups existed becomes the first one, in place.
-- Sending is `prepare_to_send` (read each kept file in full, agree its place, make its preview) followed by `send::run` (send, skipping what is already there, then write the index).
+- `settings.json` lists the backups and which is open, read afresh each time so the app and the command line agree.
+- Sending is `check_and_place` (tell apart files that look alike, agree each file's place) and the originals, then `make_previews` and the previews, then the index, to each destination in turn (`send::everywhere`).
 
-Still to do: more than one destination per backup; renaming and removing a backup; a backup that only looks for videos, or only photos; backups on the command line (`--library` selects a home folder today).
+Still to do: a backup that only looks for videos, or only photos.
 
 ## Open questions
 

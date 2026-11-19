@@ -412,7 +412,8 @@ async fn write_source(
 }
 
 /// Copies `src` to `dest` in large pieces, telling `watcher` after each
-/// piece. The source is only ever read.
+/// piece, and gives the copy the original's modified time. The source is
+/// only ever read.
 ///
 /// When the file's fingerprint is known (`expect`), the copy is proved
 /// exact in two steps, because a backup nobody has checked is only a hope:
@@ -457,6 +458,11 @@ fn copy_file(
         }
     }
     output.flush()?;
+    // Keep the original's modified time: it is sometimes the only clue to
+    // when a photo was taken.
+    if let Ok(modified) = input.metadata().and_then(|m| m.modified()) {
+        let _ = output.set_modified(modified);
+    }
     if !prove {
         return Ok((total, None));
     }
@@ -678,6 +684,36 @@ mod tests {
         );
         // The source was only read.
         assert_eq!(std::fs::read(&photo).unwrap(), vec![43u8; 300_000]);
+    }
+
+    #[tokio::test]
+    async fn a_copy_keeps_the_originals_modified_time() {
+        // Sometimes the only clue to when a photo was taken.
+        let dir = tempfile::tempdir().unwrap();
+        let store = FolderStore::open(dir.path().join("to")).await.unwrap();
+        let photo = dir.path().join("photo.jpg");
+        std::fs::write(&photo, vec![7u8; 1000]).unwrap();
+        let old = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_247_605_802);
+        std::fs::File::options()
+            .write(true)
+            .open(&photo)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+        let key = ObjectKey::new("originals/photo.jpg").unwrap();
+        let learn = PutOptions {
+            create_only: true,
+            learn_blake3: true,
+            ..Default::default()
+        };
+        store.put(&key, ByteSource::File(photo.clone()), &learn).await.unwrap();
+        let copied = std::fs::metadata(dir.path().join("to/originals/photo.jpg")).unwrap();
+        assert_eq!(copied.modified().unwrap(), old);
+        assert_eq!(
+            std::fs::metadata(&photo).unwrap().modified().unwrap(),
+            old,
+            "the source is untouched"
+        );
     }
 
     #[tokio::test]

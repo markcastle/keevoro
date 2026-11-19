@@ -115,7 +115,7 @@ Done when a non-technical tester gets from a drive to a backup without help.
 - [x] A log of what the app did (`keevoro.log` in the app's log folder), viewable from Settings
 - [x] Snappy search: a quick fingerprint while searching, the whole-file one afterwards in the background, and always before a file is gathered
 - [ ] Fingerprint a file while copying it, so a file gathered straight after a search is read once, not twice
-- [ ] `keevoro scan --quick` for the command line (it still reads every file whole)
+- [x] A quick search from the command line too: `keevoro look` searches the way the app does
 - [x] Stop a search part-way (nothing from a stopped search is kept)
 - [x] Review duplicates before backing up: the copy kept, the copies left out, and where each is
 - [ ] Choose which copy of a duplicate is the one kept (today Keevoro picks the best filed one)

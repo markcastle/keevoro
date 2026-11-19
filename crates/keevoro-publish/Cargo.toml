@@ -1,6 +1,6 @@
 [package]
 name = "keevoro-publish"
-description = "The upload engine: sends a library to a storage provider, resumably, without ever overwriting an original."
+description = "The upload engine: sends a backup to a storage provider, resumably, without ever overwriting an original."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

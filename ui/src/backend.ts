@@ -139,8 +139,6 @@ export type AppState = {
   backup: Backup | null
   /** Every backup, in the order they were started. */
   backups: Backup[]
-  /** A sensible place to suggest for a new library. */
-  suggestedLibrary: string
   version: string
 }
 
@@ -169,18 +167,15 @@ export type ScanEvent = {
 /** Sent while files a quick search only sampled are read in the background. */
 export type CheckEvent = { done: number; total: number; finished: boolean }
 
-/** Sent while photos are being gathered, and once more when done. */
-export type GatherEvent = {
-  step: 'checking' | 'copying' | 'previews' | 'videos' | 'finished'
-  done: number
-  total: number
-  /** On the last event: what happened, as sentences to show. */
+/** Sent while a backup or a check runs, and once more when it is done. */
+export type SendEvent = {
+  line?: string
+  finished: boolean
   summary?: string[]
   problem?: string
+  /** On the last event: how it ended, in a word. */
+  outcome?: 'worked' | 'someFiles' | 'unreachable' | 'refused' | 'stopped'
 }
-
-/** Sent while a backup or a check runs, and once more when it is done. */
-export type SendEvent = { line?: string; finished: boolean; summary?: string[]; problem?: string }
 
 /** What the "connect" form collects. Keys go to the system keychain. */
 export type ConnectRequest = {
@@ -268,9 +263,6 @@ export type Update = { version: string; page: string }
 
 export interface Backend {
   state(): Promise<AppState>
-  /** Asks the user to pick a folder for the library. Null if they cancel. */
-  chooseLibrary(): Promise<AppState | null>
-  useLibrary(path: string): Promise<AppState>
   /** Starts a new backup with this name and opens it. */
   startBackup(name: string): Promise<AppState>
   /** Opens another backup; the one that was open is left as it was. */
@@ -333,8 +325,6 @@ export interface Backend {
   installUpdate(): Promise<void>
   /** Opens a release's "What's new" page in the browser. */
   openReleasePage(page: string): Promise<void>
-  /** Shows the library folder in the system's file manager. */
-  openLibrary(): Promise<void>
   keepCollection(key: string, keep: boolean): Promise<void>
   /** Every file in a collection, in date order. */
   collectionPhotos(key: string): Promise<PhotoChoice[]>
@@ -353,8 +343,7 @@ export interface Backend {
   preview(id: string): Promise<string>
   /** A screen-sized picture of one file, for looking at it closely. Fetched afresh each time. */
   closerLook(id: string): Promise<string>
-  gather(): Promise<void>
-  /** Where the library is backed up to, in words, or null if nowhere yet. */
+  /** Where this backup goes, in words, or null if nowhere yet. */
   destination(): Promise<string | null>
   /** Asks for a folder to back up to. Null if they cancel. */
   chooseDestinationFolder(): Promise<string | null>
@@ -372,7 +361,6 @@ export interface Backend {
   /** Carries on with any background checking left over from last time. */
   keepChecking(): Promise<void>
   onCheck(listener: (event: CheckEvent) => void): () => void
-  onGather(listener: (event: GatherEvent) => void): () => void
 }
 
 const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
@@ -396,7 +384,6 @@ async function tauriBackend(): Promise<Backend> {
 
   return {
     state: () => invoke('app_state'),
-    useLibrary: (path) => invoke('use_library', { path }),
     startBackup: (name) => invoke('start_backup', { name }),
     switchBackup: (id) => invoke('switch_backup', { id }),
     openDestination: (at) => invoke('open_destination', { at: at ?? null }),
@@ -414,17 +401,12 @@ async function tauriBackend(): Promise<Backend> {
     resetEverything: () => invoke('reset_everything'),
     stopSending: () => invoke('stop_sending'),
     openPlace: (path) => invoke('open_place', { path }),
-    async chooseLibrary() {
-      const path = await pickFolder('Choose where your library will live')
-      return path ? invoke<AppState>('use_library', { path }) : null
-    },
     discover: () => invoke('discover'),
     places: () => invoke('places'),
     scanPlace: (path) => invoke('scan_place', { path }),
     surveyPlace: (path) => invoke('survey_place', { path }),
     stopSurvey: () => invoke('stop_survey'),
     onSurvey: (listener) => subscribe('survey', listener),
-    openLibrary: () => invoke('open_library'),
     logTail: () => invoke('log_tail'),
     openLog: () => invoke('open_log'),
     checkUpdate: () => invoke('check_update'),
@@ -455,7 +437,6 @@ async function tauriBackend(): Promise<Backend> {
       invoke<ArrayBuffer>('closer_look', { id }).then((bytes) =>
         URL.createObjectURL(new Blob([bytes], { type: 'image/webp' })),
       ),
-    gather: () => invoke('gather'),
     destination: () => invoke('destination'),
     chooseDestinationFolder: () => pickFolder('Choose a folder to back up to'),
     connectDestination: (request) => invoke('connect_destination', { request }),
@@ -466,7 +447,6 @@ async function tauriBackend(): Promise<Backend> {
     onScan: (listener) => subscribe('scan', listener),
     keepChecking: () => invoke('keep_checking'),
     onCheck: (listener) => subscribe('check', listener),
-    onGather: (listener) => subscribe('gather', listener),
   }
 }
 

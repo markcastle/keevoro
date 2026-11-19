@@ -40,6 +40,20 @@ impl Room {
     }
 }
 
+/// A destination refused because what is waiting will not fit, so that
+/// whoever reports how a backup went can tell it from one that could not
+/// be reached at all.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotEnoughRoom(pub String);
+
+impl std::fmt::Display for NotEnoughRoom {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for NotEnoughRoom {}
+
 /// Weighs `needed` bytes against the free space on the disk holding
 /// `folder`. `None` when the system will not say how much is free (some
 /// network drives), in which case sending is simply allowed to try.

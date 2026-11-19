@@ -76,6 +76,28 @@ pub struct SendEvent {
     pub summary: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub problem: Option<String>,
+    /// On the last event: how it ended, in a word, for a program to act on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<Outcome>,
+}
+
+/// How a backup or a check ended, in a word, for a program to act on. The
+/// sentences say the same to a person.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Outcome {
+    /// Everything it set out to do was done.
+    Worked,
+    /// It ran, but some files could not be backed up, or are not as they
+    /// should be at a destination.
+    SomeFiles,
+    /// A destination could not be reached.
+    Unreachable,
+    /// It was refused: a destination without the room, or nowhere to back
+    /// up to yet.
+    Refused,
+    /// It was stopped before it had finished. Nothing is lost.
+    Stopped,
 }
 
 impl SendEvent {
@@ -85,23 +107,24 @@ impl SendEvent {
             finished: false,
             summary: Vec::new(),
             problem: None,
+            outcome: None,
         }
     }
 
-    /// The last event: the sentences the engine wrote, and any problem.
-    pub fn finished(said: &[u8], problem: Option<String>) -> Self {
+    /// The last event: the sentences the engine wrote, any problem, and
+    /// how it ended.
+    pub fn finished(said: &[u8], problem: Option<String>, outcome: Outcome) -> Self {
         Self {
             line: None,
             finished: true,
             summary: String::from_utf8_lossy(said)
                 .lines()
                 .map(str::trim_end)
-                // Advice about commands to type belongs to the command
-                // line; the app offers a button instead.
-                .filter(|l| !l.is_empty() && !l.contains("`keevoro "))
+                .filter(|l| !l.is_empty())
                 .map(str::to_string)
                 .collect(),
             problem,
+            outcome: Some(outcome),
         }
     }
 }
@@ -246,9 +269,9 @@ mod tests {
                 stopped: false,
             }),
             Said::Send(SendEvent::progress("Getting ready")),
-            Said::Send(SendEvent::finished(b"Done.\n", Some("x".into()))),
+            Said::Send(SendEvent::finished(b"Done.\n", Some("x".into()), Outcome::Unreachable)),
             // The fewest fields any of them has.
-            Said::Send(SendEvent::finished(b"", None)),
+            Said::Send(SendEvent::finished(b"", None, Outcome::Stopped)),
             Said::Check(CheckEvent {
                 done: 1,
                 total: 2,
@@ -269,24 +292,33 @@ mod tests {
             serde_json::to_value(&going).unwrap(),
             serde_json::json!({ "line": "3,412 of 9,870 safely backed up", "finished": false })
         );
-        let done = SendEvent::finished(b"Safely backed up 3 files (1.2 MB).\n\nYour private index: x\n", None);
+        let done = SendEvent::finished(
+            b"Safely backed up 3 files (1.2 MB).\n\nYour private index: x\n",
+            None,
+            Outcome::Worked,
+        );
         assert_eq!(
             done.summary,
             ["Safely backed up 3 files (1.2 MB).", "Your private index: x"]
         );
         assert!(done.finished && done.line.is_none());
-        let hinted = SendEvent::finished(b"Couldn't back up 1 file:\n  a.jpg: The connection kept dropping.\nRun `keevoro publish` again to retry.\n", None);
-        assert_eq!(
-            hinted.summary.len(),
-            2,
-            "command-line advice is left out: {:?}",
-            hinted.summary
+        assert_eq!(serde_json::to_value(&done).unwrap()["outcome"], "worked");
+        let failed = SendEvent::finished(
+            b"",
+            Some("Couldn't connect to the storage.".into()),
+            Outcome::Unreachable,
         );
-        let failed = SendEvent::finished(b"", Some("Couldn't connect to the storage.".into()));
         assert_eq!(
             serde_json::to_value(&failed).unwrap(),
-            serde_json::json!({ "finished": true, "problem": "Couldn't connect to the storage." })
+            serde_json::json!({ "finished": true, "problem": "Couldn't connect to the storage.", "outcome": "unreachable" })
         );
+        for (outcome, word) in [
+            (Outcome::SomeFiles, "someFiles"),
+            (Outcome::Refused, "refused"),
+            (Outcome::Stopped, "stopped"),
+        ] {
+            assert_eq!(serde_json::to_value(outcome).unwrap(), word);
+        }
 
         let scan = ScanEvent {
             name: "Dad's old Dell".into(),
@@ -353,6 +385,6 @@ mod tests {
         .collect();
         assert_eq!(names, ["scan", "survey", "send", "check"]);
         assert!(!Said::Send(SendEvent::progress("x")).is_last());
-        assert!(Said::Send(SendEvent::finished(b"", None)).is_last());
+        assert!(Said::Send(SendEvent::finished(b"", None, Outcome::Worked)).is_last());
     }
 }

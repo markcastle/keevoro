@@ -209,19 +209,19 @@ fn a_file_that_is_not_a_database_gives_a_plain_error() {
 }
 
 #[test]
-fn gathered_files_are_remembered() {
+fn places_are_agreed_once() {
     let c = Catalog::in_memory().unwrap();
     assert_eq!(c.collected_path("aa").unwrap(), None);
-    assert_eq!(c.collected_totals().unwrap(), (0, 0));
-    c.mark_collected("aa", "originals/Undated/a.jpg", 100).unwrap();
-    c.mark_collected("bb", "originals/Undated/b.jpg", 50).unwrap();
-    // Recording the same file twice is harmless.
-    c.mark_collected("aa", "originals/Undated/a.jpg", 100).unwrap();
+    c.mark_placed("aa", "originals/Undated/a.jpg", 100).unwrap();
+    c.mark_placed("bb", "originals/Undated/b.jpg", 50).unwrap();
+    // A file that has its place keeps it.
+    c.mark_placed("aa", "originals/Undated/elsewhere.jpg", 100).unwrap();
     assert_eq!(
         c.collected_path("aa").unwrap().as_deref(),
         Some("originals/Undated/a.jpg")
     );
-    assert_eq!(c.collected_totals().unwrap(), (2, 150));
+    assert!(c.place_taken("originals/Undated/b.jpg").unwrap());
+    assert!(!c.place_taken("originals/Undated/elsewhere.jpg").unwrap());
 }
 
 #[test]
@@ -241,7 +241,7 @@ fn an_older_catalog_is_upgraded_in_place() {
         Some(false),
         "existing data survives the upgrade"
     );
-    c.mark_collected("abc", "originals/Undated/a.jpg", 1).unwrap();
+    c.mark_placed("abc", "originals/Undated/a.jpg", 1).unwrap();
 }
 
 #[test]
@@ -408,11 +408,11 @@ fn the_files_explicitly_kept_can_be_listed() {
 }
 
 #[test]
-fn everything_gathered_can_be_listed_for_checking() {
+fn everything_with_a_place_can_be_listed_for_checking() {
     let c = Catalog::in_memory().unwrap();
     assert!(c.collected().unwrap().is_empty());
-    c.mark_collected("bb", "originals/b.jpg", 50).unwrap();
-    c.mark_collected("aa", "originals/a.jpg", 100).unwrap();
+    c.mark_placed("bb", "originals/b.jpg", 50).unwrap();
+    c.mark_placed("aa", "originals/a.jpg", 100).unwrap();
     let all = c.collected().unwrap();
     assert_eq!(all.len(), 2);
     assert_eq!(

@@ -8,7 +8,7 @@
 //! The work is done by ffmpeg, run as a separate program. Keevoro does not
 //! contain ffmpeg; it uses the copy found on the computer. That keeps the
 //! door open on licensing (ffmpeg's best encoder is GPL) and means a
-//! computer without ffmpeg still gathers and backs up videos perfectly
+//! computer without ffmpeg still finds and backs up videos perfectly
 //! well, just without posters or conversion.
 //!
 //! What matters here:

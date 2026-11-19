@@ -41,7 +41,7 @@ pub struct ScanOptions {
     /// Fingerprint large files from a few samples instead of reading them
     /// to the end, so a search takes seconds where it took minutes. Such an
     /// item is marked `hashed: false` until [`whole_hash`] has been run on
-    /// it, which must happen before it is gathered.
+    /// it, or it is fingerprinted as it is backed up.
     pub quick: bool,
     /// Set to true from anywhere to stop the search. It ends within a
     /// moment, and its report says it was stopped.

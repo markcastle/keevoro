@@ -9,7 +9,7 @@ Keevoro rescues family photos and videos from old drives for people who are not 
 ## Non-negotiable rules
 
 1. **Never write to a source.** Scanning and collecting open source files read-only. No renames, no metadata writes, no temp files on the source drive.
-2. **Never overwrite or delete an original** in the library or a bucket. Use `PutOptions { create_only: true, .. }` for originals.
+2. **Never overwrite or delete an original** in a backup, whether a folder or a bucket. Use `PutOptions { create_only: true, .. }` for originals.
 3. **Verify every copy** by re-reading and comparing the BLAKE3 hash before counting it as collected.
 4. **Nothing leaves the machine** except to storage the user connected. No telemetry, no third-party APIs for image analysis.
 5. **No `unsafe`.** It is forbidden at the workspace level.
@@ -31,7 +31,7 @@ Keevoro rescues family photos and videos from old drives for people who are not 
 cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-cargo run -p keevoro-cli -- scan <path>
+cargo run -p keevoro-cli -- survey <path>
 ```
 
 All four must succeed before you finish.

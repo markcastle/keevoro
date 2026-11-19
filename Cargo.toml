@@ -30,6 +30,7 @@ async-trait = "0.1"
 aws-sdk-s3 = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio", "sigv4a"] }
 blake3 = "1"
 blurhash = { version = "0.2", default-features = false }
+dirs = "7"
 clap = { version = "4", features = ["derive"] }
 fs4 = "1"
 getrandom = "0.3"

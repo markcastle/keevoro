@@ -1,13 +1,13 @@
-//! Making thumbnails and display copies for everything in the library.
+//! Making thumbnails and display copies of the photos a backup keeps.
 //!
-//! Previews are made from the library's own verified copies, never from the
-//! old drive, so this step works after the drive has gone back in the
-//! drawer. Each preview is named after the file's content id, which means
-//! renaming or moving an album never breaks a thumbnail.
+//! Previews are made from each photo where it was found, only reading it,
+//! and kept in the backup's own folder until they are sent. Each preview
+//! is named after the file's content id, which means renaming or moving an
+//! album never breaks a thumbnail.
 //!
 //! Some files cannot be previewed yet (HEIC, camera RAW, damaged pictures).
 //! That is remembered with its reason, so the same file is not attempted on
-//! every run, and the original stays safely in the library regardless.
+//! every run, and the original is backed up regardless.
 
 use crate::{in_library, Failed};
 use keevoro_catalog::{Catalog, CatalogError, RenditionState};
@@ -38,7 +38,8 @@ fn workers_for(photos: usize) -> usize {
     (cores / 2).clamp(1, 4).min(photos.max(1))
 }
 
-/// Makes previews for every gathered photo in `items` that lacks them.
+/// Makes previews for every photo in `items` that has its place and lacks
+/// them.
 /// `on_progress` is called with (done, total) after each photo.
 pub fn make_previews(
     library: &Path,
@@ -63,19 +64,19 @@ pub fn make_previews_while(
     let mut todo = Vec::new();
     for item in items.iter().filter(|i| i.kind == MediaKind::Photo) {
         let Some(hash) = item.blake3.as_deref() else { continue };
-        let Some(relative) = catalog.collected_path(hash)? else {
+        if catalog.collected_path(hash)?.is_none() {
             continue;
-        };
+        }
         let id = &hash[..hash.len().min(16)];
         let thumb = in_library(library, &rendition_path(Rendition::Thumb, id));
         let display = in_library(library, &rendition_path(Rendition::Display, id));
         match catalog.rendition(hash)? {
             Some(RenditionState::Made { .. }) if thumb.is_file() && display.is_file() => report.already_there += 1,
             Some(RenditionState::NoPreview { reason }) => report.no_preview.push(Failed {
-                path: in_library(library, &relative),
+                path: item.path.clone(),
                 reason,
             }),
-            _ => todo.push((hash, crate::bytes_of(library, catalog, item)?, thumb, display)),
+            _ => todo.push((hash, item.path.clone(), thumb, display)),
         }
     }
 

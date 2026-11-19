@@ -8,8 +8,8 @@
 //!
 //! This module reads the files a search only sampled and records their
 //! whole-file fingerprints. It runs in the background after a search, and
-//! gathering runs it first for whatever it is about to copy, so nothing is
-//! ever copied or dropped on the strength of a sample.
+//! a backup runs it first for files that look alike, so nothing is ever
+//! left out as a duplicate on the strength of a sample.
 
 use anyhow::Result;
 use keevoro_catalog::Catalog;
@@ -21,8 +21,8 @@ use std::path::{Path, PathBuf};
 pub struct DeepReport {
     /// Files whose whole fingerprint is now known.
     pub checked: usize,
-    /// Files that could not be read, and why. They stay unchecked, and so
-    /// cannot be gathered until a later pass manages to read them.
+    /// Files that could not be read, and why. They stay unchecked until a
+    /// later pass manages to read them.
     pub failed: Vec<(PathBuf, String)>,
     /// True when the pass was asked to stop before it had finished.
     pub stopped: bool,
@@ -39,8 +39,8 @@ pub struct DeepProgress<'a> {
 }
 
 /// Reads every file that has only a quick fingerprint and records its
-/// whole one. `only` limits the pass to those quick fingerprints (what is
-/// about to be gathered, say); `None` means all of them. `keep_going` is
+/// whole one. `only` limits the pass to those quick fingerprints (files
+/// about to be backed up that look alike, say); `None` means all of them. `keep_going` is
 /// asked before each file, so a pass can be stopped between files.
 pub fn deep_look(
     catalog: &Catalog,
@@ -199,35 +199,39 @@ mod tests {
     }
 
     #[test]
-    fn gathering_after_a_quick_search_checks_first_and_copies_every_different_photo() {
-        let (_dir, _drive, library, catalog) = world();
+    fn getting_ready_after_a_quick_search_tells_lookalikes_apart_and_places_every_different_photo() {
+        let (_dir, drive, library, catalog) = world();
         let mut steps = Vec::new();
-        let outcome = crate::gather_everything(&library, &catalog, false, None, &mut |s| steps.push(s))
-            .unwrap()
-            .unwrap();
-        assert!(steps.contains(&crate::GatherStep::Checking { done: 0, total: 3 }));
-        // The original, the lookalike and the small photo; the backup copy
-        // is a true duplicate and is not copied twice.
-        assert_eq!(outcome.copied.copied, 3);
-        assert!(outcome.copied.failed.is_empty());
+        let waiting = crate::check_and_place(&library, &catalog, &|| true, &mut |s| steps.push(s)).unwrap();
+        assert_eq!(waiting, 0);
+        assert!(steps.contains(&crate::ReadyStep::Checking { done: 0, total: 3 }));
         assert!(catalog.unhashed().unwrap().is_empty());
-        // Every copy in the library is exactly the file it was copied from.
-        for file in catalog.collected().unwrap() {
-            let copy = library.join(file.path.replace('/', std::path::MAIN_SEPARATOR_STR));
-            assert_eq!(keevoro_scan::whole_hash(&copy).unwrap(), file.blake3);
+        // The original, the lookalike and the small photo each have their
+        // own place; the backup copy is a true duplicate and has none.
+        let placed = catalog.collected().unwrap();
+        assert_eq!(placed.len(), 3);
+        for file in &placed {
+            assert!(!file.path.contains("Backup"), "{}", file.path);
         }
+        assert!(
+            drive.join("Backup/IMG_20100101_100000.jpg").is_file(),
+            "the source is only read"
+        );
     }
 
     #[test]
-    fn a_file_that_cannot_be_checked_is_never_copied_on_trust() {
+    fn a_file_that_cannot_be_told_apart_is_never_sent_or_left_out_on_trust() {
         let (_dir, drive, library, catalog) = world();
-        // Leave only a lookalike of the missing file's sample on the source.
+        // The two true copies go; their lookalike stays.
         fs::remove_file(drive.join("Trip/IMG_20100101_100000.jpg")).unwrap();
         fs::remove_file(drive.join("Backup/IMG_20100101_100000.jpg")).unwrap();
-        let outcome = crate::gather_everything(&library, &catalog, false, None, &mut |_| {})
-            .unwrap()
-            .unwrap();
-        assert_eq!(outcome.copied.copied, 2, "the lookalike and the small photo");
+        let waiting = crate::check_and_place(&library, &catalog, &|| true, &mut |_| {}).unwrap();
+        assert_eq!(waiting, 2, "both unreadable copies wait to be told apart");
+        assert_eq!(
+            catalog.collected().unwrap().len(),
+            2,
+            "only the lookalike and the small photo have a place"
+        );
         assert_eq!(catalog.unhashed().unwrap().len(), 2, "the missing ones stay unchecked");
     }
 }

@@ -3,21 +3,19 @@
 // Keevoro is used by people who would not call themselves technical, so
 // the app is a short walk with one question per screen:
 //
-//   1  Where are your photos?        pick a drive, or a folder
-//   2  Which should we keep?         collections, all kept unless you say
-//   3  Gather them into one place    one button, then "they are safe"
-//   4  Keep a second copy            another disk, or cloud storage
+//   1  Find your photos              pick a drive, or a folder
+//   2  Choose what to keep           collections, all kept unless you say
+//   3  Back them up somewhere safe   another disk, or cloud storage
 //
 // Every screen has one heading that asks the question, and one big button
-// at the bottom that moves on. The four steps down the side are the only
+// at the bottom that moves on. The three steps down the side are the only
 // navigation; there are no tabs to learn. Nothing is asked that has a
-// sensible default: the library goes in the Pictures folder unless the
-// user says otherwise.
+// sensible default.
 //
 // Nothing here decides anything about photos. Every fact on screen comes
 // from the engine through backend.ts, and every button sends one request
 // back. Wording follows the house rules: plain English, no jargon, and
-// progress in human terms ("3,412 of 9,870 safely copied").
+// progress in human terms ("3,412 of 9,870 safely backed up").
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
@@ -38,7 +36,6 @@ import type {
   ConnectRequest,
   Discover,
   FileType,
-  GatherEvent,
   Photo,
   PhotoChoice,
   Place,
@@ -79,7 +76,6 @@ export function App() {
   const [overlay, setOverlay] = useState<Overlay>(null)
   const [scan, setScan] = useState<ScanEvent | null>(null)
   const [justFound, setJustFound] = useState<ScanEvent | null>(null)
-  const [, setGather] = useState<GatherEvent | null>(null)
   // Background checking of files a quick search only sampled.
   const [check, setCheck] = useState<CheckEvent | null>(null)
   // True while the person has paused Keevoro's heavy work.
@@ -133,7 +129,6 @@ export function App() {
 
   useEffect(() => {
     let stopScan = () => {}
-    let stopGather = () => {}
     let stopCheck = () => {}
     let stopSend = () => {}
     let closed = false
@@ -160,11 +155,6 @@ export function App() {
       stopSend = b.onSend((event) => {
         if (event.finished) void refresh(b)
       })
-      stopGather = b.onGather((event) => {
-        setGather(event)
-        if (event.problem) report(event.problem)
-        if (event.step === 'finished') void refresh(b)
-      })
       try {
         const s = await b.state()
         setState(s)
@@ -184,7 +174,6 @@ export function App() {
     return () => {
       closed = true
       stopScan()
-      stopGather()
       stopCheck()
       stopSend()
     }

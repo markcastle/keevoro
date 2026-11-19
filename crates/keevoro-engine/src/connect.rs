@@ -1,20 +1,17 @@
-//! `keevoro connect`: set up a backup destination once.
+//! Where a backup goes: remembering each destination, and its keys.
 //!
-//! Without this, backing up to a bucket means remembering an account ID, a
-//! bucket name and two keys every time. `connect` checks that they work,
-//! then remembers them in two places chosen for what they hold:
+//! Adding a destination checks that it works, then remembers it in two
+//! places chosen for what they hold:
 //!
 //! - **The keys go in the computer's own keychain** (Credential Manager on
-//!   Windows, Keychain on macOS). They are never written to the library, a
-//!   config file or a log, and other users of the computer cannot read
+//!   Windows, Keychain on macOS). They are never written to the backup, a
+//!   settings file or a log, and other users of the computer cannot read
 //!   them.
-//! - **Where to back up to goes in the library's catalog.** That is not a
-//!   secret, and it belongs with the library: a library on an external
-//!   drive remembers its own destination.
+//! - **Where to back up to goes in the backup's catalog.** That is not a
+//!   secret, and it belongs with the backup.
 //!
-//! After that, `keevoro publish --library <folder>` is the whole command.
 //! Keys set in the environment still win over the keychain, which is what
-//! scripts and CI use.
+//! scripts use.
 
 use crate::send::{Destination, ACCESS_KEY_VAR, SECRET_KEY_VAR};
 use anyhow::{bail, Result};
@@ -101,7 +98,7 @@ pub struct Saved {
     pub target: Option<String>,
 }
 
-/// The destination flags shared by `connect` and `publish`.
+/// A destination as it is asked for: one of the places, and its bucket.
 #[derive(Debug, Default, Clone)]
 pub struct Flags {
     pub to_folder: Option<PathBuf>,
@@ -133,12 +130,12 @@ impl Saved {
         })
     }
 
-    /// The destination this library was connected to, if any.
+    /// The one destination a backup saved before it could have several.
     pub fn load(catalog: &Catalog) -> Result<Option<Self>> {
         match catalog.setting(SETTING)? {
             // `null` is what disconnecting leaves behind.
             Some(json) => serde_json::from_str::<Option<Self>>(&json).map_err(|_| {
-                anyhow::anyhow!("The saved backup destination can't be read. Run `keevoro connect` again.")
+                anyhow::anyhow!("The saved backup destination can't be read. Choose where to back up to again.")
             }),
             None => Ok(None),
         }
@@ -199,7 +196,7 @@ impl Saved {
             None => match world.secrets.get(&self.secret_name())?.as_deref().and_then(split_keys) {
                 Some(keys) => keys,
                 None => bail!(
-                    "Keevoro needs the storage keys for {}. Run `keevoro connect` once to save them, \
+                    "Keevoro needs the storage keys for {}. Add it as a destination again to save them, \
                      or set {ACCESS_KEY_VAR} and {SECRET_KEY_VAR}.",
                     self.describe()
                 ),
@@ -270,11 +267,24 @@ pub fn note_target(catalog: &Catalog, saved: &Saved, target: &str) -> Result<()>
     Ok(())
 }
 
+/// A destination that could not be reached when it was being added, so
+/// that it can be told apart from anything else that went wrong.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CannotReach(pub String);
+
+impl std::fmt::Display for CannotReach {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for CannotReach {}
+
 /// Checks a destination works, then adds it to those this backup goes to.
 /// The ones already there are kept. Adding one that is already there only
 /// refreshes its keys.
 pub fn add(out: &mut dyn Write, catalog: &Catalog, saved: &Saved, world: &World<'_>) -> Result<()> {
-    prove_and_remember(out, catalog, saved, world, true)
+    prove_and_remember(out, catalog, saved, world)
 }
 
 /// Takes one destination off the list, by its place in it, and removes its
@@ -293,19 +303,7 @@ pub fn remove(catalog: &Catalog, world: &World<'_>, at: usize) -> Result<Option<
     Ok(Some(gone))
 }
 
-/// Checks a destination works, then remembers it and its keys as the one
-/// place this backup goes to, in place of any other.
-pub fn connect(out: &mut dyn Write, catalog: &Catalog, saved: &Saved, world: &World<'_>) -> Result<()> {
-    prove_and_remember(out, catalog, saved, world, false)
-}
-
-fn prove_and_remember(
-    out: &mut dyn Write,
-    catalog: &Catalog,
-    saved: &Saved,
-    world: &World<'_>,
-    also: bool,
-) -> Result<()> {
+fn prove_and_remember(out: &mut dyn Write, catalog: &Catalog, saved: &Saved, world: &World<'_>) -> Result<()> {
     let destination = match saved.preset() {
         None => Destination::Folder(PathBuf::from(&saved.place)),
         Some(preset) => {
@@ -337,7 +335,7 @@ fn prove_and_remember(
 
     // Prove it works before remembering anything.
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
-    let opened = crate::send::open(out, &runtime, destination)?;
+    let opened = crate::send::open(out, &runtime, destination).map_err(|e| CannotReach(format!("{e:#}")))?;
 
     let (_, target, _) = opened;
     let saved = &Saved {
@@ -347,7 +345,7 @@ fn prove_and_remember(
     if let Some(keys) = keys {
         world.secrets.set(&saved.secret_name(), &keys)?;
     }
-    let mut all = if also { destinations(catalog)? } else { Vec::new() };
+    let mut all = destinations(catalog)?;
     match all.iter_mut().find(|d| d.same_place(saved)) {
         Some(already) => *already = saved.clone(),
         None => all.push(saved.clone()),
@@ -357,13 +355,9 @@ fn prove_and_remember(
     if saved.preset().is_some() {
         writeln!(
             out,
-            "The keys are saved in this computer's keychain, not in the library."
+            "The keys are saved in this computer's keychain, not with the backup."
         )?;
     }
-    writeln!(
-        out,
-        "From now on, `keevoro publish --library <your library>` backs up there."
-    )?;
     Ok(())
 }
 
@@ -372,7 +366,7 @@ fn prove_and_remember(
 pub fn disconnect(out: &mut dyn Write, catalog: &Catalog, world: &World<'_>) -> Result<()> {
     let all = destinations(catalog)?;
     let Some(saved) = all.first() else {
-        writeln!(out, "This library isn't connected to a backup destination.")?;
+        writeln!(out, "This backup doesn't go anywhere yet.")?;
         return Ok(());
     };
     for each in &all {

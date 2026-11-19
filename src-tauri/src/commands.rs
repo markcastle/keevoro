@@ -8,19 +8,16 @@
 //! beyond that, the extra belongs in the API, where the command line gets
 //! it too. `parity.rs` keeps count of what has still to move.
 
-use crate::events::{GatherEvent, GATHER};
 use crate::Shared;
 use keevoro_api::jobs::SurveyView;
 use keevoro_api::{Backup, JobKind, Named, Which};
 use keevoro_catalog::Catalog;
 use keevoro_engine::connect;
 use keevoro_engine::{Discover, PhotoChoice};
-use keevoro_media::VideoTools;
 use serde::Deserialize;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::Ordering;
-use tauri::{AppHandle, Emitter, Manager, Runtime, State};
+use tauri::{AppHandle, Manager, Runtime, State};
 
 /// Errors cross to the screen as plain sentences.
 type Said<T> = Result<T, String>;
@@ -34,7 +31,6 @@ fn say(e: impl std::fmt::Display) -> String {
 pub struct AppState {
     /// The open backup's own folder, or `None` before the first backup.
     library: Option<String>,
-    suggested_library: String,
     /// The backup that is open.
     backup: Option<BackupView>,
     /// Every backup, in the order they were started.
@@ -49,22 +45,14 @@ pub struct BackupView {
     name: String,
 }
 
-fn current_state<R: Runtime>(app: &AppHandle<R>, shared: &Shared) -> AppState {
+fn current_state(shared: &Shared) -> AppState {
     let settings = shared.keevoro.backups().read();
     let view = |s: &keevoro_api::Named| BackupView {
         id: s.id.clone(),
         name: s.name.clone(),
     };
-    let library = settings.open_backup().map(|s| s.home.clone());
-    // The Pictures folder is where people expect photos to live.
-    let pictures = app
-        .path()
-        .picture_dir()
-        .or_else(|_| app.path().home_dir())
-        .unwrap_or_else(|_| PathBuf::from("."));
     AppState {
-        library: library.map(|p| p.display().to_string()),
-        suggested_library: pictures.join("Keevoro Library").display().to_string(),
+        library: settings.open_backup().map(|s| s.home.display().to_string()),
         backup: settings.open_backup().map(view),
         backups: settings.backups.iter().map(view).collect(),
         version: env!("CARGO_PKG_VERSION"),
@@ -91,16 +79,16 @@ fn backup(shared: &Shared) -> Said<Backup> {
 
 /// Starts a new backup with this name and opens it.
 #[tauri::command]
-pub fn start_backup<R: Runtime>(app: AppHandle<R>, shared: State<'_, Shared>, name: String) -> Said<AppState> {
+pub fn start_backup(shared: State<'_, Shared>, name: String) -> Said<AppState> {
     let started = shared.keevoro.start_backup(&name).map_err(say)?;
     // The window shows the one just started.
     shared.keevoro.backups().switch_to(&started.id).map_err(say)?;
-    Ok(current_state(&app, &shared))
+    Ok(current_state(&shared))
 }
 
 /// Opens another backup. Whatever was open is left exactly as it was.
 #[tauri::command]
-pub fn switch_backup<R: Runtime>(app: AppHandle<R>, shared: State<'_, Shared>, id: String) -> Said<AppState> {
+pub fn switch_backup(shared: State<'_, Shared>, id: String) -> Said<AppState> {
     // Only this window's own work holds it to the backup it has open.
     if shared.keevoro.busy_here() {
         return Err("Keevoro is in the middle of something in this backup. Let that finish first.".into());
@@ -109,7 +97,7 @@ pub fn switch_backup<R: Runtime>(app: AppHandle<R>, shared: State<'_, Shared>, i
         return Err("That backup is no longer there.".into());
     }
     check_in_background(&shared);
-    Ok(current_state(&app, &shared))
+    Ok(current_state(&shared))
 }
 
 /// Puts Keevoro back as it was when first installed: every backup is
@@ -117,15 +105,10 @@ pub fn switch_backup<R: Runtime>(app: AppHandle<R>, shared: State<'_, Shared>, i
 /// storage keys in the keychain. Nothing on a source, nothing that was sent
 /// anywhere, and no folder outside Keevoro's own data is touched.
 #[tauri::command]
-pub fn reset_everything<R: Runtime>(app: AppHandle<R>, shared: State<'_, Shared>) -> Said<AppState> {
-    // The API refuses, in the same words, while one of its jobs runs.
-    if shared.gathering.load(Ordering::SeqCst) {
-        return Err(
-            "Keevoro is in the middle of something. Let that finish, or stop it, before starting again.".into(),
-        );
-    }
+pub fn reset_everything(shared: State<'_, Shared>) -> Said<AppState> {
+    // The API refuses while any of Keevoro's programs is working.
     shared.keevoro.reset().map_err(say)?;
-    Ok(current_state(&app, &shared))
+    Ok(current_state(&shared))
 }
 
 /// Shows the folder this backup sends to, if it sends to a folder.
@@ -145,21 +128,8 @@ pub fn open_destination<R: Runtime>(app: AppHandle<R>, shared: State<'_, Shared>
 }
 
 #[tauri::command]
-pub fn app_state<R: Runtime>(app: AppHandle<R>, shared: State<'_, Shared>) -> AppState {
-    current_state(&app, &shared)
-}
-
-/// Sets where the library lives, creating it if it is new.
-#[tauri::command]
-pub fn use_library<R: Runtime>(app: AppHandle<R>, shared: State<'_, Shared>, path: String) -> Said<AppState> {
-    // Kept for the first-run screen of older builds: the folder becomes a
-    // backup of its own.
-    shared
-        .keevoro
-        .backups()
-        .adopt_library(std::path::Path::new(&path))
-        .map_err(say)?;
-    Ok(current_state(&app, &shared))
+pub fn app_state(shared: State<'_, Shared>) -> AppState {
+    current_state(&shared)
 }
 
 #[tauri::command]
@@ -265,10 +235,9 @@ async fn picture<R: Runtime>(
 }
 
 /// Reads, in the background, the files a quick search only sampled, so
-/// that true duplicates are known and gathering has less to do. Does
-/// nothing if a pass is already running. It gives way to a search, a backup
-/// or a gather; the API starts it again after a search or a backup, and
-/// gathering starts it again here.
+/// that true duplicates are known and a backup has less to do. Does
+/// nothing if a pass is already running. It gives way to a search or a
+/// backup, and the API starts it again after each.
 fn check_in_background(shared: &Shared) {
     if let Ok(open) = open_backup(shared) {
         shared.keevoro.keep_checking(&open);
@@ -412,63 +381,7 @@ pub fn scan_place(shared: State<'_, Shared>, path: String) -> Said<()> {
     Ok(())
 }
 
-/// Starts gathering everything the user is keeping. Returns at once;
-/// progress and the result arrive as `gather` events.
-#[tauri::command]
-pub fn gather<R: Runtime>(app: AppHandle<R>, shared: State<'_, Shared>) -> Said<()> {
-    let library = library(&shared)?;
-    if shared.gathering.swap(true, Ordering::SeqCst) {
-        return Err("Keevoro is already gathering your photos.".into());
-    }
-    // The check for duplicates gives way while gathering, as it does to a
-    // search or a backup.
-    let give_way = shared.keevoro.give_way();
-    std::thread::spawn(move || {
-        let state = app.state::<Shared>();
-        state.keevoro.log().say("Gathering started");
-        let mut stage = "";
-        let tools = VideoTools::find();
-        let result = Catalog::open_in_library(&library)
-            .map_err(anyhow::Error::from)
-            .and_then(|catalog| {
-                // Converting old videos is opt-in and not offered in the
-                // app yet, so it stays off here.
-                keevoro_engine::gather_everything(&library, &catalog, false, tools.as_ref(), &mut |step| {
-                    let now = match step {
-                        keevoro_engine::GatherStep::Checking { .. } => "checking files before copying",
-                        keevoro_engine::GatherStep::Copying { .. } => "copying",
-                        keevoro_engine::GatherStep::MakingPreviews { .. } => "making previews",
-                        keevoro_engine::GatherStep::WorkingOnVideos { .. } => "working on videos",
-                    };
-                    if now != stage {
-                        stage = now;
-                        state.keevoro.log().say(&format!("Gathering: {now}"));
-                    }
-                    let _ = app.emit(GATHER, GatherEvent::from(step));
-                })
-            });
-        state.gathering.store(false, Ordering::SeqCst);
-        drop(give_way);
-        match &result {
-            Ok(Some(outcome)) => state
-                .keevoro
-                .log()
-                .say(&format!("Gathering finished: {}", outcome.sentences().join(" "))),
-            Ok(None) => state.keevoro.log().say("Gathering: there was nothing to gather"),
-            Err(e) => state.keevoro.log().say(&format!("Gathering failed: {e:#}")),
-        }
-        let last = match result {
-            Ok(Some(outcome)) => GatherEvent::finished(outcome.sentences(), None),
-            Ok(None) => GatherEvent::finished(vec!["There was nothing to gather.".to_string()], None),
-            Err(e) => GatherEvent::finished(Vec::new(), Some(say(e))),
-        };
-        let _ = app.emit(GATHER, last);
-        check_in_background(&state);
-    });
-    Ok(())
-}
-
-/// Where this library is backed up to, in words, or `None` if nowhere yet.
+/// Where this backup goes, in words, or `None` if nowhere yet.
 /// Quick: the places are named without counting what has reached them.
 #[tauri::command]
 pub fn destination(shared: State<'_, Shared>) -> Said<Option<String>> {
@@ -701,21 +614,6 @@ pub async fn install_update<R: Runtime>(app: AppHandle<R>) -> Said<()> {
         app.exit(0);
     }
     Ok(())
-}
-
-/// Shows the library folder in the system's file manager, so the user can
-/// see their photos are really there.
-#[tauri::command]
-pub fn open_library<R: Runtime>(app: AppHandle<R>, shared: State<'_, Shared>) -> Said<()> {
-    use tauri_plugin_opener::OpenerExt;
-    let library = library(&shared)?;
-    // The originals are what people want to see; fall back to the library
-    // itself before anything has been gathered.
-    let originals = library.join("originals");
-    let show = if originals.is_dir() { originals } else { library };
-    app.opener()
-        .open_path(show.display().to_string(), None::<&str>)
-        .map_err(say)
 }
 
 #[cfg(test)]

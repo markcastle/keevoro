@@ -38,7 +38,7 @@ impl<'a> GiveWayWhen<'a> {
     }
 
     fn now(&self) -> bool {
-        self.ctx.jobs.should_give_way() || self.elsewhere()
+        self.ctx.jobs.busy_here() || self.elsewhere()
     }
 
     fn elsewhere(&self) -> bool {
