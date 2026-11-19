@@ -19,6 +19,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **A file is never left out as a duplicate on a guess.** When two large files look alike and one of them cannot be read in full to tell them apart (because its drive is unplugged, say), neither is backed up until it can be, and Keevoro says so, instead of backing up only one of them.
 - **A file already in a backup folder only counts as there if it matches exactly,** including a large file Keevoro had not yet read in full. Before, a file of the same name and size was believed.
 
+- **The progress bar of a long backup no longer slips backwards now and then.** The amount done only ever goes up.
+
 ### Removed
 
 - **The command line's old "library" commands are gone:** `keevoro gather`, `publish`, `connect`, `disconnect`, `scan` and every command that took `--library`. They copied your photos into a library folder of Keevoro's own before backing up. Keevoro no longer does that: photos go straight from your sources to where you back them up, as the app already does. Making MP4 copies of old videos (`--convert-videos`) and changing a backup's private link (`--new-link`) went with them.
