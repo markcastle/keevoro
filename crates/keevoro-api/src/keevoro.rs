@@ -12,6 +12,7 @@ use crate::backup::Backup;
 use crate::backups::{Backups, Named};
 use crate::destinations::{AddDestinationRequest, DestinationAdded};
 use crate::error::{Error, Result};
+use crate::jobs::across::Across;
 use crate::jobs::{FrontEnd, Jobs};
 use crate::log::Log;
 use crate::picture::PictureSize;
@@ -154,13 +155,23 @@ impl Keevoro {
     /// computer's own keychain for storage keys, and GitHub for updates.
     /// The saved choice about picture codecs takes effect at once.
     pub fn open(folders: &Folders) -> Self {
+        let log = Arc::new(Log::open(&folders.logs));
+        let jobs = Arc::<Jobs>::default();
+        // Jobs are shared with Keevoro's other programs through a folder for
+        // each backup in Keevoro's own data, never in a source or a
+        // destination.
+        let computer = Arc::new(crate::jobs::across::lock::ThisComputer);
+        jobs.share(
+            Across::new(folders.data.join("jobs"), log.clone(), computer.clone(), computer),
+            log.clone(),
+        );
         let keevoro = Self {
             backups: Backups::load(&folders.config, &folders.data),
             cache: folders.cache.clone(),
-            log: Arc::new(Log::open(&folders.logs)),
+            log,
             secrets: Arc::new(Keychain),
             web: Box::new(GitHub::from_env()),
-            jobs: Arc::default(),
+            jobs,
         };
         keevoro.apply_saved_choices();
         keevoro

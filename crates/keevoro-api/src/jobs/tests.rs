@@ -14,6 +14,7 @@ use crate::{call, Kind};
 use keevoro_catalog::Catalog;
 use serde_json::{json, Value};
 use std::path::PathBuf;
+use std::time::Instant;
 
 /// Pausing is one switch for the whole program, and stopping a search
 /// lifts it, so tests that run jobs take turns.
@@ -647,4 +648,176 @@ fn jobs_are_reached_by_name_with_json() {
     let again = call(k, Op::SourcesLookAgain, None, json!({})).unwrap();
     assert_eq!(again["op"], "sources.look_again");
     keevoro.wait_for_jobs();
+}
+
+/// Waits for something another program does in its own time, for a
+/// generous while, looking every so often.
+fn eventually<T>(what: &str, found: impl Fn() -> Option<T>) -> T {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Some(it) = found() {
+            return it;
+        }
+        assert!(Instant::now() < deadline, "{what} never happened");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// A second Keevoro in the same folder is a second program, as far as
+/// sharing jobs goes: the command line, beside the app. It reads the
+/// settings as it opens, so it is opened once the backups are started. (Pausing is one switch for the
+/// whole process, so passing it on is tested with real programs, in
+/// `tests/across_programs.rs`.)
+fn command_line(dir: &Path) -> Keevoro {
+    keevoro(dir).as_front_end(FrontEnd::CommandLine)
+}
+
+#[test]
+fn a_job_in_another_program_is_seen_refused_followed_waited_for_and_stopped() {
+    let _turn = one_at_a_time();
+    let _after = CarryOnAfter;
+    let dir = tempfile::tempdir().unwrap();
+    let app = keevoro(dir.path());
+    let named = app.start_backup("Card photos").unwrap();
+    let card = card_in(dir.path());
+    let command_line = command_line(dir.path());
+
+    // The app looks through the card, held before its first file.
+    app.pause();
+    let job = app.look(&named, &card, None).unwrap();
+    assert!(command_line.busy(), "busy, in another program");
+    assert!(!command_line.busy_here());
+    assert!(app.busy_here());
+
+    // The command line sees it, as the app last shared it.
+    let seen = eventually("the app's job seen", || command_line.jobs(Some(&named.id)).pop());
+    assert_eq!(seen.handle, job);
+    assert!(seen.elsewhere && seen.paused && !seen.stopping);
+    assert_eq!(seen.step, "Looking through Card");
+    assert!(command_line.jobs(Some("another backup")).is_empty());
+    assert!(!app.jobs(None)[0].elsewhere, "the app's own job is not elsewhere to it");
+    let json = call(&command_line, Op::JobsStatus, Some("Card photos"), json!({})).unwrap();
+    assert_eq!(json[0]["elsewhere"], true);
+    assert_eq!(json[0]["startedBy"], "app");
+
+    // Starting work of its own on that backup is refused, saying what and
+    // where; another backup is free.
+    for refused in [
+        command_line.run_backup(&named, None).unwrap_err(),
+        command_line.look(&named, &card, None).unwrap_err(),
+        command_line.check_backup(&named, None).unwrap_err(),
+    ] {
+        assert_eq!(
+            (refused.kind, refused.message.as_str()),
+            (
+                Kind::Refused,
+                "Keevoro is already looking through a source for \"Card photos\" in the Keevoro app. Let that finish, or stop it, first."
+            )
+        );
+    }
+    assert!(
+        command_line.keep_checking(&named).is_none(),
+        "the check for duplicates leaves it to the app"
+    );
+
+    // It follows the job, and stops it from outside.
+    let heard = Heard::default();
+    assert!(command_line.follow(job.id, heard.listener().unwrap()));
+    assert!(!command_line.follow(JobId(1), heard.listener().unwrap()), "no such job");
+    assert_eq!(command_line.stop(Which::OnBackup(&named.id)), [job.id]);
+    let Some(Said::Scan(last)) = command_line.wait(job.id) else {
+        panic!("waiting from outside hears how it ended")
+    };
+    assert!(last.finished && last.stopped, "{last:?}");
+    eventually("the follower told the end", || {
+        heard.said().contains(&Said::Scan(last.clone())).then_some(())
+    });
+    assert!(lock(&heard.0).iter().all(|e| e.job == job.id && e.event == "scan"));
+    app.wait_for_jobs();
+    assert!(
+        app.log_tail(20).contains("Asked to stop the search"),
+        "the app says why it stopped"
+    );
+
+    // Once the app has finished, the command line may go ahead.
+    assert!(!command_line.busy());
+    assert_eq!(command_line.wait(JobId(1)), None, "a job never heard of");
+    command_line.pause();
+    let own = command_line.look(&named, &card, None).unwrap();
+    assert_eq!(own.started_by, FrontEnd::CommandLine);
+    assert_ne!(own.id, job.id);
+    let seen = eventually("the command line's job seen by the app", || {
+        app.jobs(None).into_iter().find(|s| s.handle.id == own.id)
+    });
+    assert!(seen.elsewhere);
+    app.carry_on();
+    // Waiting for it from the app hears how it ended.
+    assert!(matches!(app.wait(own.id), Some(Said::Scan(e)) if e.finished && !e.stopped));
+    command_line.wait_for_jobs();
+    assert!(!app.busy());
+}
+
+#[test]
+fn stopping_by_kind_on_one_backup_leaves_the_rest_running() {
+    let _turn = one_at_a_time();
+    let _after = CarryOnAfter;
+    let dir = tempfile::tempdir().unwrap();
+    let app = keevoro(dir.path());
+    let card_photos = app.start_backup("Card photos").unwrap();
+    let drone = app.start_backup("Drone").unwrap();
+    let card = card_in(dir.path());
+    let command_line = command_line(dir.path());
+
+    app.pause();
+    let mine = app.look(&card_photos, &card, None).unwrap();
+    let theirs = command_line.look(&drone, &card, None).unwrap();
+    eventually("the command line's job seen", || {
+        app.jobs(Some(&drone.id)).into_iter().find(|s| s.elsewhere)
+    });
+    // Stopping searches on one backup asks only the program running that
+    // one. (Stopping lifts the pause, so the app's own search then goes
+    // on to the end.)
+    assert_eq!(app.stop(Which::KindsOn(&[JobKind::Look], &drone.id)), [theirs.id]);
+    assert!(matches!(app.wait(theirs.id), Some(Said::Scan(e)) if e.stopped));
+    assert!(matches!(app.wait(mine.id), Some(Said::Scan(e)) if !e.stopped));
+    app.wait_for_jobs();
+    command_line.wait_for_jobs();
+}
+
+#[test]
+fn reset_waits_while_another_program_is_working() {
+    let _turn = one_at_a_time();
+    let _after = CarryOnAfter;
+    let dir = tempfile::tempdir().unwrap();
+    let app = keevoro(dir.path());
+    let named = app.start_backup("Card photos").unwrap();
+    let card = card_in(dir.path());
+    let command_line = command_line(dir.path());
+    command_line.pause();
+    let job = command_line.look(&named, &card, None).unwrap();
+    assert_eq!(app.reset().unwrap_err().kind, Kind::Refused);
+    command_line.stop(Which::Job(job.id));
+    command_line.wait_for_jobs();
+    app.reset().unwrap();
+}
+
+#[test]
+fn work_can_start_again_the_moment_the_last_job_on_a_backup_is_heard_to_end() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro(dir.path());
+    let named = keevoro.start_backup("Card photos").unwrap();
+    let card = card_in(dir.path());
+    // Waiting for a job used to answer before it had let go of its
+    // backup, so starting another straight after could be refused as if
+    // another program had it.
+    for _ in 0..10 {
+        let job = keevoro.look(&named, &card, None).unwrap();
+        keevoro.wait(job.id);
+        let again = keevoro.look_again(&named, None, None).unwrap();
+        keevoro.wait(again.id);
+    }
+    keevoro.wait_for_jobs();
+    let jobs = dir.path().join("data").join("jobs").join(&named.id);
+    assert!(!jobs.join("holder.json").exists(), "the lock is let go");
 }

@@ -11,19 +11,61 @@ use super::{spawn, CheckEvent, Context, Every, JobHandle, JobKind, Said};
 use crate::backups::Named;
 use keevoro_catalog::Catalog;
 use keevoro_engine::friendly_path;
-use std::time::Instant;
+use std::cell::Cell;
+use std::time::{Duration, Instant};
+
+/// How often the check looks to see whether another program has started
+/// working on its backup. Between looks it trusts the last answer, so a
+/// file is not read from disk between every two photos.
+const LOOK_ELSEWHERE_EVERY: Duration = Duration::from_millis(500);
+
+/// Whether the check should give way: asked between every two files. Work
+/// in this program is asked about every time, which costs nothing; another
+/// program, every so often.
+struct GiveWayWhen<'a> {
+    ctx: &'a Context,
+    backup: &'a str,
+    looked: Cell<Option<(Instant, bool)>>,
+}
+
+impl<'a> GiveWayWhen<'a> {
+    fn new(ctx: &'a Context, backup: &'a str) -> Self {
+        Self {
+            ctx,
+            backup,
+            looked: Cell::new(None),
+        }
+    }
+
+    fn now(&self) -> bool {
+        self.ctx.jobs.should_give_way() || self.elsewhere()
+    }
+
+    fn elsewhere(&self) -> bool {
+        match self.looked.get() {
+            Some((at, answer)) if at.elapsed() < LOOK_ELSEWHERE_EVERY => answer,
+            _ => {
+                let answer = self.ctx.jobs.held_elsewhere(self.backup);
+                self.looked.set(Some((Instant::now(), answer)));
+                answer
+            }
+        }
+    }
+}
 
 /// Starts the check on this backup, unless one is running already.
 pub(crate) fn start(ctx: &Context, backup: &Named) -> Option<JobHandle> {
     let job = ctx.jobs.begin_only_one(JobKind::Duplicates, backup)?;
     let handle = job.handle.clone();
     let home = backup.home.clone();
+    let backup_id = backup.id.clone();
     job.note_line("Checking for duplicates");
     spawn(ctx, &job, move |ctx, job, ending| {
         let log = &ctx.log;
         let started = Instant::now();
         let mut every = Every::now(ctx.jobs.progress_every());
         let mut total = 0;
+        let give_way = GiveWayWhen::new(ctx, &backup_id);
         let result = Catalog::open_in_library(&home)
             .map_err(anyhow::Error::from)
             .and_then(|catalog| {
@@ -53,7 +95,7 @@ pub(crate) fn start(ctx: &Context, backup: &Named) -> Option<JobHandle> {
                             tell,
                         );
                     },
-                    &|| !job.stopped() && !ctx.jobs.should_give_way(),
+                    &|| !job.stopped() && !give_way.now(),
                 )
             });
         // Another check may start from here, while this one says how it went.

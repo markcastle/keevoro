@@ -101,7 +101,8 @@ pub fn start_backup<R: Runtime>(app: AppHandle<R>, shared: State<'_, Shared>, na
 /// Opens another backup. Whatever was open is left exactly as it was.
 #[tauri::command]
 pub fn switch_backup<R: Runtime>(app: AppHandle<R>, shared: State<'_, Shared>, id: String) -> Said<AppState> {
-    if shared.keevoro.busy() {
+    // Only this window's own work holds it to the backup it has open.
+    if shared.keevoro.busy_here() {
         return Err("Keevoro is in the middle of something in this backup. Let that finish first.".into());
     }
     if !shared.keevoro.switch_to(&id).map_err(say)? {
@@ -329,14 +330,16 @@ pub struct SendProgress {
     line: String,
 }
 
-/// The running backup or check, as `jobs.status` tells it.
+/// The running backup or check, as `jobs.status` tells it. Only this
+/// app's own: the screens hear what its jobs say as they say it, and have
+/// no way yet to follow one another program is running.
 #[tauri::command]
 pub fn send_progress(shared: State<'_, Shared>) -> SendProgress {
     shared
         .keevoro
         .jobs(None)
         .into_iter()
-        .find(|job| matches!(job.handle.job, JobKind::BackUp | JobKind::Check))
+        .find(|job| !job.elsewhere && matches!(job.handle.job, JobKind::BackUp | JobKind::Check))
         .map(|job| SendProgress {
             bytes_done: job.bytes_done,
             bytes_total: job.bytes_total,
@@ -366,7 +369,11 @@ pub fn pause_work(shared: State<'_, Shared>, paused: bool) {
 /// look as if it were not there.
 #[tauri::command]
 pub fn stop_scanning(shared: State<'_, Shared>) {
-    shared.keevoro.stop(Which::Kinds(&[JobKind::Look, JobKind::LookAgain]));
+    if let Ok(open) = open_backup(&shared) {
+        shared
+            .keevoro
+            .stop(Which::KindsOn(&[JobKind::Look, JobKind::LookAgain], &open.id));
+    }
 }
 
 /// Finds which folders under `path` hold photos and videos, by reading
@@ -610,7 +617,9 @@ pub fn send(shared: State<'_, Shared>) -> Said<()> {
 /// nothing is left half-sent; everything already sent stays where it is.
 #[tauri::command]
 pub fn stop_sending(shared: State<'_, Shared>) {
-    shared.keevoro.stop(Which::Kinds(&[JobKind::BackUp]));
+    if let Ok(open) = open_backup(&shared) {
+        shared.keevoro.stop(Which::KindsOn(&[JobKind::BackUp], &open.id));
+    }
 }
 
 /// Starts checking what is at each destination. Returns at once; progress
