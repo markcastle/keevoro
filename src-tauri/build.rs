@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     // On Windows the app needs a manifest asking for the modern common
     // controls, or it will not start. Tauri normally adds one to the app
     // only, which leaves the test program without it, and a test that opens
@@ -9,15 +9,15 @@ fn main() {
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
     if target_os == "windows" && target_env == "msvc" {
-        let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("windows-app-manifest.xml");
+        let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")?).join("windows-app-manifest.xml");
         println!("cargo:rerun-if-changed={}", manifest.display());
         println!("cargo:rustc-link-arg=/MANIFEST:EMBED");
         println!("cargo:rustc-link-arg=/MANIFESTINPUT:{}", manifest.display());
         println!("cargo:rustc-link-arg=/WX");
         let windows = tauri_build::WindowsAttributes::new_without_app_manifest();
-        tauri_build::try_build(tauri_build::Attributes::new().windows_attributes(windows))
-            .expect("the app's build script should run");
+        tauri_build::try_build(tauri_build::Attributes::new().windows_attributes(windows))?;
     } else {
         tauri_build::build();
     }
+    Ok(())
 }
