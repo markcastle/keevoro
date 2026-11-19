@@ -233,9 +233,28 @@ fn place_for(item: &FoundItem, agreed: Option<&str>) -> (Vec<String>, String) {
 /// fingerprint, so that it can be fingerprinted as it is sent instead of
 /// being read once beforehand. The caller must only pass such files when
 /// no other file shares their quick fingerprint: a place is one file's.
-pub fn agree_places(catalog: &Catalog, items: &[&FoundItem], sampled_too: bool) -> Result<usize, CatalogError> {
+pub fn agree_places(
+    catalog: &Catalog,
+    items: &[&FoundItem],
+    sampled_too: bool,
+    on_progress: &mut dyn FnMut(usize, usize),
+) -> Result<usize, CatalogError> {
+    // One change to the catalog, not one per file: with thousands of files
+    // the difference is seconds against minutes.
+    catalog.in_one_go(|| agree_each(catalog, items, sampled_too, on_progress))
+}
+
+fn agree_each(
+    catalog: &Catalog,
+    items: &[&FoundItem],
+    sampled_too: bool,
+    on_progress: &mut dyn FnMut(usize, usize),
+) -> Result<usize, CatalogError> {
     let mut placed = 0;
-    for item in items {
+    for (done, item) in items.iter().enumerate() {
+        if done % 250 == 0 {
+            on_progress(done, items.len());
+        }
         let Some(hash) = item.blake3.as_deref() else { continue };
         if !item.hashed && !sampled_too {
             continue;

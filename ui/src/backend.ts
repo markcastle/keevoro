@@ -231,6 +231,8 @@ export type SendProgress = {
   running: boolean
   /** True once it has been asked to stop and is finishing the file in hand. */
   stopping: boolean
+  /** What it last said it was doing; empty when nothing is running. */
+  line: string
   bytesDone: number
   bytesTotal: number
   /** Bytes a second, steadied over the last few seconds. */
@@ -245,6 +247,8 @@ export type Activity = {
   paused: boolean
   /** What it is doing in one line, for a glance; null when idle. */
   doing: string | null
+  /** The step a running backup is on, in its own words; null when none is running. */
+  backupStep: string | null
   jobs: { what: string; why: string }[]
   /** One a second, oldest first, for the last two minutes at most. */
   samples: Sample[]

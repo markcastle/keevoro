@@ -458,9 +458,16 @@ try {
   await page.getByRole('button', { name: 'Stop', exact: true }).waitFor()
   assert.equal(await page.getByRole('button', { name: 'Back up now' }).count(), 0, 'no second start is offered')
   await page.locator('.speed').waitFor()
+  // The screen says what step the backup is on straight away, in its own
+  // words, and the activity page says the same.
+  await page.getByText('Working out where each file goes: 2,500 of 11,245').waitFor()
+  assert.equal(await page.locator('.send .done').count(), 0, 'nothing an earlier backup said is left showing')
   // There is always a bar while a backup runs, whatever step it is on.
   await page.locator('.send .speed progress').first().waitFor()
   await shot('9m-came-back-to-a-running-backup')
+  await page.getByRole('button', { name: /^What Keevoro is doing/ }).click()
+  await page.getByText(/^Right now: Working out where each file goes: 2,500 of 11,245$/).waitFor()
+  await page.getByRole('button', { name: '‹ Back' }).click()
 
   // --- Pictures that have not arrived yet show a shimmering placeholder.
   await page.goto(`${base}/?slowpictures`)

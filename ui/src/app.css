@@ -3006,3 +3006,14 @@ main > section > :nth-last-child(2) {
   font-size: 13px;
   margin: 0;
 }
+
+/* The step a backup is on, said under its entry on the activity page. */
+.activity .jobs .step-now {
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--pine-soft);
+  color: var(--ink);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}

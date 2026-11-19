@@ -339,11 +339,20 @@ export function demoBackend(): Backend {
       return {
         paused: pausedNow,
         doing: 'Checking for duplicates and making thumbnails',
+        backupStep: new URLSearchParams(window.location.search).has('sending') ? 'Working out where each file goes: 2,500 of 11,245' : null,
         jobs: [
           {
             what: 'Making thumbnails',
             why: 'Making the small pictures for the screen you are looking at. Each is made once and kept, so the same screen is quick the next time.',
           },
+          ...(new URLSearchParams(window.location.search).has('sending')
+            ? [
+                {
+                  what: 'Backing up your files',
+                  why: 'Reading each photo and video you are keeping and copying it to where you chose. This uses the disk steadily, and the network if you are backing up to cloud storage.',
+                },
+              ]
+            : []),
           {
             what: 'Checking for duplicates',
             why: 'Reading every file from start to finish, so that true copies can be told from photos that merely look alike. This is the heaviest thing Keevoro does to the disk. It is done once per file and remembered.',
@@ -364,6 +373,7 @@ export function demoBackend(): Backend {
       // `?sending` pretends a backup was already running when the screen opened.
       running: new URLSearchParams(window.location.search).has('sending'),
       stopping: false,
+      line: new URLSearchParams(window.location.search).has('sending') ? 'Working out where each file goes: 2,500 of 11,245' : '',
     }),
     sendHistory: async () => [...sends],
     lastBackupSaid: async () => lastSaid,
