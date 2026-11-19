@@ -976,6 +976,42 @@ impl Jobs {
         true
     }
 
+    /// Asks every job running in this program to stop, and waits for them
+    /// all to end, for at most `at_most`. A job that starts meanwhile, such
+    /// as the check for duplicates that follows a search, is asked too.
+    /// True if they all ended in time.
+    fn stop_here_and_wait(&self, at_most: Duration, log: &Log) -> bool {
+        let until = Instant::now() + at_most;
+        let mut registry = lock(&self.registry);
+        loop {
+            let asked: Vec<Arc<Job>> = registry.running.iter().filter(|job| !job.stopped()).cloned().collect();
+            if !asked.is_empty() {
+                drop(registry);
+                for job in &asked {
+                    job.stop.store(true, Ordering::SeqCst);
+                    if let Some(line) = job.kind().asked_to_stop() {
+                        log.say(line);
+                    }
+                }
+                // A paused job must wake to see it has been asked to stop.
+                keevoro_core::pause::set_paused(false);
+                registry = lock(&self.registry);
+                continue;
+            }
+            if registry.running.is_empty() {
+                return true;
+            }
+            let Some(left) = until.checked_duration_since(Instant::now()) else {
+                return false;
+            };
+            registry = self
+                .changed
+                .wait_timeout(registry, left)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+    }
+
     fn wait_until_idle(&self) {
         let mut registry = lock(&self.registry);
         while !registry.running.is_empty() {
@@ -1258,6 +1294,16 @@ impl Keevoro {
     /// background check that a search or a backup starts when it ends.
     pub fn wait_for_jobs(&self) {
         self.jobs.wait_until_idle();
+    }
+
+    /// For a front end that is closing: asks every job running in this
+    /// program to stop once the file in hand is done, and waits for them,
+    /// for at most `at_most`. Jobs in Keevoro's other programs are left
+    /// alone. Nothing is lost: a stopped search keeps nothing of its own, a
+    /// stopped backup keeps what it sent, and each carries on next time.
+    /// True if they all ended in time.
+    pub fn stop_here_and_wait(&self, at_most: Duration) -> bool {
+        self.jobs.stop_here_and_wait(at_most, self.log())
     }
 
     /// True while a search, a backup or a check is running, in this

@@ -959,3 +959,30 @@ fn status_can_wait_a_while_and_says_how_a_job_ended_wherever_it_ran() {
         json!([])
     );
 }
+
+#[test]
+fn a_program_that_is_closing_stops_its_own_jobs_and_leaves_the_rest() {
+    let _turn = one_at_a_time();
+    let _after = CarryOnAfter;
+    let dir = tempfile::tempdir().unwrap();
+    let agent = keevoro(dir.path()).as_front_end(FrontEnd::Agent);
+    let named = agent.start_backup("Card photos").unwrap();
+    let other = agent.start_backup("Other").unwrap();
+    let card = card_in(dir.path());
+    let command_line = command_line(dir.path());
+
+    command_line.pause();
+    let theirs = command_line.look(&other, &card, None).unwrap();
+    let mine = agent.look(&named, &card, None).unwrap();
+    assert!(agent.stop_here_and_wait(Duration::from_secs(30)));
+    assert!(!agent.busy_here());
+    assert!(matches!(agent.wait(mine.id), Some(Said::Scan(e)) if e.stopped));
+    let still = command_line.jobs(None);
+    assert_eq!(still.len(), 1, "the other program's job runs on: {still:?}");
+    assert_eq!(still[0].handle.id, theirs.id);
+    assert!(!still[0].stopping);
+    command_line.stop(Which::All);
+    command_line.wait_for_jobs();
+    // With nothing running, it answers at once.
+    assert!(agent.stop_here_and_wait(Duration::ZERO));
+}

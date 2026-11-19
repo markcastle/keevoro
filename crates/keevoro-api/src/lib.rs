@@ -31,6 +31,7 @@ pub mod backup;
 pub mod backups;
 pub mod destinations;
 pub mod error;
+pub mod for_agents;
 pub mod jobs;
 pub mod keevoro;
 pub mod log;
@@ -48,11 +49,12 @@ pub use destinations::{
     RoomAtAGlance, WaitingAt,
 };
 pub use error::{Error, Kind, Result};
+pub use for_agents::call_for_agent;
 pub use jobs::{Event, FrontEnd, JobHandle, JobId, JobKind, JobStatus, Listener, Outcome, Said, Which, PROGRESS_EVERY};
 pub use keevoro::{BackupListing, Codecs, Folders, Keevoro, Offer, SettingsView};
 pub use keevoro_engine::connect::SecretStore;
 pub use picture::{Picture, PictureRequest, PictureSize};
-pub use register::{entries, Agents, Changes, Entry, Op};
+pub use register::{entries, Agents, Changes, Entry, Op, Tool};
 
 use keevoro::{ForgetBackupRequest, LogRequest, RenameBackupRequest, SettingsRequest, StartBackupRequest};
 use serde::de::DeserializeOwned;
