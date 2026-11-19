@@ -28,7 +28,10 @@ pub(super) fn start(
     let path = place.display().to_string();
     ctx.log.say(&format!("Finding where the photos are in {path}"));
     job.note_line(&format!("Finding where the photos are in {path}"));
-    let root = place.to_path_buf();
+    // The same full form a source is remembered in, so that a folder which
+    // is a source already is recognised however the place was typed (a
+    // short Windows name, a mapped drive letter).
+    let root = std::fs::canonicalize(place).unwrap_or_else(|_| place.to_path_buf());
     spawn(ctx, &job, move |ctx, job, ending| {
         let started = Instant::now();
         let stop = job.stop_switch();
