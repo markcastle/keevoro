@@ -29,6 +29,7 @@ import type {
   SurveyProgress,
   Duplicate,
   Activity,
+  AgentAccess,
   AppState,
   Backend,
   SendEvent,
@@ -1541,6 +1542,8 @@ function SettingsScreen(props: {
         )}
       </div>
 
+      <AgentsSetting api={api} onProblem={onProblem} />
+
       <div className="setting">
         <h3>Updates</h3>
         <p>
@@ -1641,6 +1644,89 @@ function SettingsScreen(props: {
         )}
       </div>
     </section>
+  )
+}
+
+/**
+ * What an AI agent may do through `keevoro mcp`. Nothing until the person
+ * says: no folders, and looking only. An agent can never change this itself.
+ */
+function AgentsSetting(props: { api: Backend; onProblem: (error: unknown) => void }) {
+  const { api, onProblem } = props
+  const [access, setAccess] = useState<AgentAccess | null>(null)
+  useEffect(() => {
+    api.agentAccess().then(setAccess).catch(onProblem)
+  }, [api, onProblem])
+  const change = (part: Partial<AgentAccess>) => api.setAgentAccess(part).then(setAccess).catch(onProblem)
+  const add = (list: 'lookIn' | 'backUpTo') =>
+    api
+      .chooseAgentFolder()
+      .then((folder) => {
+        if (folder && access && !access[list].includes(folder)) change({ [list]: [...access[list], folder] })
+      })
+      .catch(onProblem)
+
+  const folders = (list: 'lookIn' | 'backUpTo', title: string, none: string) =>
+    access && (
+      <div className="agent-folders">
+        <h4>{title}</h4>
+        {access[list].length === 0 ? (
+          <p className="quiet small">{none}</p>
+        ) : (
+          <ul aria-label={title}>
+            {access[list].map((folder) => (
+              <li key={folder}>
+                <span className="where">{folder}</span>
+                <button
+                  className="link"
+                  aria-label={`Stop allowing ${folder}`}
+                  onClick={() => change({ [list]: access[list].filter((f) => f !== folder) })}
+                >
+                  Remove
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="choices">
+          <button onClick={() => add(list)}>Add a folder…</button>
+        </p>
+      </div>
+    )
+
+  return (
+    <div className="setting">
+      <h3>AI agents</h3>
+      <p className="quiet">
+        An AI app, such as Claude, can use Keevoro for you once it is set up to start <code>keevoro mcp</code>. It can
+        never change anything on your sources. Here you choose what else it may do. Everything it does is written in
+        the log.
+      </p>
+      {access && (
+        <>
+          <label className="switch-row">
+            <button
+              className={access.mayChange ? 'kv-switch on' : 'kv-switch'}
+              role="switch"
+              aria-checked={access.mayChange}
+              aria-label="Let AI agents make changes"
+              onClick={() => change({ mayChange: !access.mayChange })}
+            >
+              <span className="knob" />
+            </button>
+            <span>
+              <b>Let AI agents make changes</b>
+              <span className="quiet small">
+                Off, an agent can only look at your backups and say what it sees. On, it can also start backups, choose
+                what to keep and back up, but only to the folders below. It can never delete a photo.
+              </span>
+            </span>
+          </label>
+          {folders('lookIn', 'Folders an agent may look through', 'None yet, so it cannot look for photos anywhere.')}
+          {folders('backUpTo', 'Folders an agent may back up to', 'None yet, so it cannot back up to a folder.')}
+        </>
+      )}
+    </div>
   )
 }
 

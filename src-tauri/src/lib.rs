@@ -101,6 +101,8 @@ fn app<R: Runtime>(
             commands::duplicates,
             commands::acceleration,
             commands::set_acceleration,
+            commands::agent_access,
+            commands::set_agent_access,
             commands::send_progress,
             commands::send_history,
             commands::last_backup_said,

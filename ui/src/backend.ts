@@ -258,6 +258,12 @@ export type Activity = {
  */
 export type Acceleration = { on: boolean; available: boolean; ways: string[]; cores: number }
 
+/**
+ * What an AI agent may do, as the person has allowed: the folders it may look
+ * through and back up to, and whether it may make changes. Nothing until they say.
+ */
+export type AgentAccess = { lookIn: string[]; backUpTo: string[]; mayChange: boolean }
+
 /** A newer version of Keevoro that is ready to install. */
 export type Update = { version: string; page: string }
 
@@ -286,6 +292,12 @@ export interface Backend {
   acceleration(): Promise<Acceleration>
   /** Switches the use of the computer's own codecs on or off, and remembers. */
   setAcceleration(on: boolean): Promise<Acceleration>
+  /** What an AI agent may do, as the person has allowed. */
+  agentAccess(): Promise<AgentAccess>
+  /** Changes what an AI agent may do. Each part given replaces what was there. */
+  setAgentAccess(change: Partial<AgentAccess>): Promise<AgentAccess>
+  /** Asks for a folder an AI agent may use. Null if they cancel. */
+  chooseAgentFolder(): Promise<string | null>
   /** Asks a running search to stop. Nothing from it is kept. */
   stopScanning(): Promise<void>
   /** Asks a running send to stop after the file in hand. */
@@ -392,6 +404,9 @@ async function tauriBackend(): Promise<Backend> {
     setPreviewsWanted: (wanted) => invoke('set_previews_wanted', { wanted }),
     acceleration: () => invoke('acceleration'),
     setAcceleration: (on) => invoke('set_acceleration', { on }),
+    agentAccess: () => invoke('agent_access'),
+    setAgentAccess: (change) => invoke('set_agent_access', { change }),
+    chooseAgentFolder: () => pickFolder('Choose a folder an AI agent may use'),
     activity: () => invoke('activity'),
     sendProgress: () => invoke('send_progress'),
     sendHistory: () => invoke('send_history'),

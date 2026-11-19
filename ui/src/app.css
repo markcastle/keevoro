@@ -2321,6 +2321,33 @@ main > section > :nth-last-child(2) {
   font-weight: 500;
 }
 
+/* A switch straight after a sentence about it needs a breath between. */
+.setting > p + .switch-row {
+  margin-top: var(--space-3);
+}
+
+/* The folders an AI agent may use, each with a way to stop allowing it. */
+.agent-folders {
+  margin-top: var(--space-4);
+}
+
+.agent-folders h4 {
+  margin: 0 0 var(--space-1);
+}
+
+.agent-folders ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.agent-folders li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-1) 0;
+}
+
 /* A switch with its name and what it does beside it. */
 .switch-row {
   display: flex;
