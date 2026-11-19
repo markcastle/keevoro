@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.30.0] - 2026-11-19
+
 ### Changed
 
 - **The `keevoro` command line has been rebuilt to work on the same named backups as the app.** A backup started in the app is there on the command line, and the other way round. Everything the app can do, the command line can do too: `keevoro backups`, `keevoro look`, `keevoro collections`, `keevoro destinations add`, `keevoro run`, `keevoro check` and the rest. Name a backup with `-b "Family photos"`, or leave it out to use the one the app has open. A backup shows how it is getting on as it runs; `--detach` starts one and comes back at once, and `keevoro status`, `follow`, `pause`, `carry-on` and `stop` work on it from anywhere, even one the app started. Every command takes `--json` for scripts, and the exit code says what happened. The walk-through is in docs/command-line.md.
@@ -494,7 +498,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.29.3...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.30.0...HEAD
+[0.30.0]: https://github.com/markcastle/keevoro/compare/v0.29.3...v0.30.0
 [0.29.3]: https://github.com/markcastle/keevoro/compare/v0.29.2...v0.29.3
 [0.29.2]: https://github.com/markcastle/keevoro/compare/v0.29.1...v0.29.2
 [0.29.1]: https://github.com/markcastle/keevoro/compare/v0.29.0...v0.29.1
