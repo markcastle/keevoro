@@ -84,6 +84,7 @@ A Rust workspace of small crates. The core has no I/O, and storage sits behind n
 | `keevoro-index` | Built | v2 index writer, its JSON Schema (`schemars`), and v1 gallery.json export. |
 | `keevoro-platform` | Planned | Drive events, volume ids, keychain, per-OS differences. |
 | `keevoro-engine` | Built | What Keevoro does as plain function calls: scan into a library, the Discover view, keep or skip, gather, previews. The command line and the app both sit on it. |
+| `keevoro-api` | Part built | Every operation Keevoro offers, listed once in a register, for the app, the command line and an AI agent to share. Moving the app's shell logic into it is under way; the app's parity test lists what is left. |
 | `keevoro-app` (`src-tauri`) | Part built | Tauri 2 desktop shell: a thin layer of commands over the engine. Screens are in `ui/` (React, Vite, TypeScript). No installer or updater yet. |
 
 ### Storage plug-ins

@@ -10,6 +10,7 @@ license = "FSL-1.1-MIT"
 repository = "https://github.com/markcastle/keevoro"
 
 [workspace.dependencies]
+keevoro-api = { path = "crates/keevoro-api" }
 keevoro-catalog = { path = "crates/keevoro-catalog" }
 keevoro-collect = { path = "crates/keevoro-collect" }
 keevoro-core = { path = "crates/keevoro-core" }

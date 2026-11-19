@@ -208,6 +208,7 @@ npm run ui:dev
 | `keevoro-storage-s3` | Stores it in Cloudflare R2, Amazon S3 or anything else that speaks S3. |
 | `keevoro-update` | Finds, checks and installs a newer version. |
 | `keevoro-engine` | What Keevoro does, as plain function calls. The command line and the app are both thin layers over this. |
+| `keevoro-api` | Everything Keevoro can do, listed once, so the app, the command line and an AI agent can all do the same things. |
 | `keevoro-cli` | The `keevoro` command. |
 | `src-tauri` and `ui` | The desktop app: a Tauri shell and its screens. |
 | `xtask` | The project's own tooling: the changelog and cutting a release. |

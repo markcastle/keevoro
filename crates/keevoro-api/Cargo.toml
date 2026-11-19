@@ -1,0 +1,22 @@
+[package]
+name = "keevoro-api"
+description = "Everything Keevoro can do, said once: the one layer the app, the command line and an AI agent's tools all call."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+keevoro-catalog.workspace = true
+keevoro-engine.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+image.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true
