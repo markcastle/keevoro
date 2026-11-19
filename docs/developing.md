@@ -64,6 +64,8 @@ The app updates itself through `src-tauri/src/updates.rs`, which leans on `keevo
 
 Searching is split in two. The search itself (`keevoro-scan` with `quick: true`) only samples large files and marks them `hashed: false`. `keevoro-engine/src/deep.rs` then reads those files whole, in the background in the app, and always before gathering. The rule that must never be broken: nothing is copied, and nothing is dropped as a duplicate, on the strength of a quick fingerprint. `gather_one` refuses an item that is not `hashed`.
 
+A backup that goes straight to a destination does not read everything first, because that would read each file twice: once to fingerprint it and once to copy it. Before sending, it reads in full only the files whose quick fingerprint is shared with another file, since those have to be told apart (a true copy is left out, a lookalike is not). Every other sampled file is given its place under its quick fingerprint and marked `learn_fingerprint` on its `Upload`. The store or the uploader then works out the whole fingerprint in the same pass that sends it, the answer comes back in `PublishReport::learned`, and `Catalog::set_whole_hash` moves the file, its keep choice and its place over to the real fingerprint. The rule still holds: nothing is dropped as a duplicate on a sample, and a folder copy is still read back and compared before it counts.
+
 Video stills come from `keevoro-frame`, the one crate allowed `unsafe`, because it calls the operating system's decoder directly. Its Windows and macOS halves cannot be built on Linux, but they can be type-checked from anywhere:
 
 ```sh

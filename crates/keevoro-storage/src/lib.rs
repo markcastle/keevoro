@@ -72,6 +72,11 @@ pub struct PutOptions {
     /// copy exact, and fails with [`StorageError::NotTheSame`] if it is
     /// not. A store that cannot ignores it.
     pub expect_blake3: Option<String>,
+    /// Asks a store that can to fingerprint the file as it is written and
+    /// give the answer back in the receipt, for a file whose fingerprint is
+    /// not known yet. Such a store also proves what it wrote reads back the
+    /// same as what it read. A store that cannot leaves the receipt empty.
+    pub learn_blake3: bool,
     pub content_type: Option<String>,
     /// Stored when [`Capabilities::custom_metadata`] is true, for example the
     /// BLAKE3 hash and capture date.
@@ -90,6 +95,9 @@ pub struct PutReceipt {
     pub key: ObjectKey,
     pub bytes: u64,
     pub etag: Option<String>,
+    /// The BLAKE3 fingerprint of what was written, when the store worked
+    /// it out and proved the stored copy matches it.
+    pub blake3: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

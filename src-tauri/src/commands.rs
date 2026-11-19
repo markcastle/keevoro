@@ -412,7 +412,14 @@ fn check_in_background(app: &AppHandle) {
                             );
                         }
                     },
-                    &|| !state.scanning.load(Ordering::SeqCst) && !state.gathering.load(Ordering::SeqCst),
+                    // It gives way to a search and to a backup. A backup
+                    // reads the same files, and fingerprints them as it goes,
+                    // so checking alongside it would read them twice over.
+                    &|| {
+                        !state.scanning.load(Ordering::SeqCst)
+                            && !state.gathering.load(Ordering::SeqCst)
+                            && !state.sending.load(Ordering::SeqCst)
+                    },
                 )
             });
         state.checking.store(false, Ordering::SeqCst);
@@ -1199,6 +1206,8 @@ fn send_job(
             }
         }
         let _ = app.emit(SEND, last);
+        // Whatever the backup did not fingerprint is picked up again now.
+        check_in_background(&app);
     });
     Ok(())
 }

@@ -6,7 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **A backup starts copying straight away.** Before sending anything, Keevoro used to read every large file from start to finish to fingerprint it ("Reading each file in full first"), and then read it all over again to copy it. On a big backup that meant hours before the first file moved. Each file is now fingerprinted while it is being copied, in the same pass. Only files that look like another file are read beforehand, because those have to be told apart first: a true copy is left out and a lookalike is not. That step now reads "Telling apart files that look alike".
+- **The background check for duplicates waits while a backup runs,** so the two are not reading the same files at once, and carries on afterwards with whatever the backup did not cover.
+- **Large files sent to cloud storage before their fingerprint was known** carry no fingerprint label on the stored object. The fingerprint is still worked out and kept in Keevoro's own record.
 
 ## [0.29.1] - 2026-11-18
 

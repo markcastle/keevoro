@@ -275,13 +275,27 @@ fn make_ready(
         );
     }
 
-    // A quick search only sampled the large files. Before anything is
-    // copied, every file being kept is read in full, so that true copies
-    // are told from lookalikes and each copy can be proved exact.
+    // A quick search only sampled the large files, so two of them can look
+    // alike without being the same. What has to be read in full before
+    // anything moves depends on where it is going:
+    //
+    // - Into this library (`copy_here`): every file being kept, because
+    //   the copy is proved against the whole fingerprint.
+    // - Straight to a destination: only files that look like another file.
+    //   Those must be told apart first, since a true copy is left out and
+    //   a lookalike is not. Every other file is fingerprinted as it is
+    //   sent, in the same pass over it, so nothing is read twice.
+    let mut looks_like = std::collections::HashMap::<&str, usize>::new();
+    for item in reports.iter().flat_map(|r| &r.items) {
+        if let (false, Some(quick)) = (item.hashed, &item.blake3) {
+            *looks_like.entry(quick.as_str()).or_default() += 1;
+        }
+    }
     let mut to_check = std::collections::HashSet::new();
     for item in reports.iter().flat_map(|r| &r.items) {
         if let (false, Some(quick)) = (item.hashed, &item.blake3) {
-            if wanted(catalog, item)? {
+            let alike = looks_like.get(quick.as_str()).copied().unwrap_or(0) > 1;
+            if (copy_here || alike) && wanted(catalog, item)? {
                 to_check.insert(quick.clone());
             }
         }
@@ -315,7 +329,8 @@ fn make_ready(
     }
 
     let copied = if !copy_here {
-        keevoro_collect::agree_places(catalog, &chosen)?;
+        // Files still only sampled are, by now, ones nothing else looks like.
+        keevoro_collect::agree_places(catalog, &chosen, true)?;
         GatherReport::default()
     } else {
         match gather(library, catalog, &chosen, free_space(library), &mut |p| {

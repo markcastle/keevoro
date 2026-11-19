@@ -143,7 +143,7 @@ fn step_line(step: crate::GatherStep) -> String {
     let n = summary::thousands;
     match step {
         crate::GatherStep::Checking { done, total } => {
-            format!("Reading each file in full first: {} of {}", n(done), n(total))
+            format!("Telling apart files that look alike: {} of {}", n(done), n(total))
         }
         crate::GatherStep::Copying { done, total } => format!("Getting ready: {} of {}", n(done), n(total)),
         crate::GatherStep::MakingPreviews { done, total } => {
@@ -394,20 +394,10 @@ pub fn run(
     )
 }
 
-/// As [`run`], with a switch that stops it between files.
-#[allow(clippy::too_many_arguments)]
-pub fn run_until(
-    out: &mut dyn Write,
-    catalog: &Catalog,
-    library: &Path,
-    destination: Destination,
-    base_url: Option<&str>,
-    new_link: bool,
-    stop: Option<&Stop>,
-    on_progress: &mut dyn FnMut(&str),
-) -> Result<()> {
-    let reports = catalog.load_reports()?;
-    let (unique, _) = summary::unique_items(&reports);
+/// Everything being kept that has a place agreed for it, as the catalog
+/// stands at this moment.
+fn kept_now<'a>(catalog: &Catalog, reports: &'a [keevoro_scan::ScanReport]) -> Result<Vec<Kept<'a>>> {
+    let (unique, _) = summary::unique_items(reports);
     let mut kept = Vec::new();
     for item in unique {
         let Some(hash) = item.blake3.as_deref() else { continue };
@@ -426,6 +416,23 @@ pub fn run_until(
             });
         }
     }
+    Ok(kept)
+}
+
+/// As [`run`], with a switch that stops it between files.
+#[allow(clippy::too_many_arguments)]
+pub fn run_until(
+    out: &mut dyn Write,
+    catalog: &Catalog,
+    library: &Path,
+    destination: Destination,
+    base_url: Option<&str>,
+    new_link: bool,
+    stop: Option<&Stop>,
+    on_progress: &mut dyn FnMut(&str),
+) -> Result<()> {
+    let reports = catalog.load_reports()?;
+    let kept = kept_now(catalog, &reports)?;
     if kept.is_empty() {
         writeln!(
             out,
@@ -466,6 +473,20 @@ pub fn run_until(
             p.latest
         ));
     }))?;
+
+    // Files sent before their whole fingerprint was known now have one,
+    // worked out as they went. Each is recorded, and from here on the file
+    // goes by it: in the index below, and for its previews.
+    if !report.learned.is_empty() {
+        let by_place: std::collections::HashMap<&str, &Kept<'_>> = kept.iter().map(|k| (k.path.as_str(), k)).collect();
+        for (place, whole) in &report.learned {
+            if let Some(k) = by_place.get(place.as_str()) {
+                catalog.set_whole_hash(&k.item.path, k.hash, whole)?;
+            }
+        }
+    }
+    let reports = catalog.load_reports()?;
+    let kept = kept_now(catalog, &reports)?;
 
     // The index lists only what is confirmed to be in the storage.
     let mut stored = Vec::new();
@@ -686,7 +707,15 @@ fn uploads_for(library: &Path, catalog: &Catalog, kept: &[Kept<'_>]) -> Result<V
             bytes: k.item.bytes,
             write_once: true,
             content_type: Some(k.item.mime.clone()),
-            metadata: BTreeMap::from([("blake3".to_string(), k.hash.to_string())]),
+            // A file a search only sampled goes by a quick fingerprint,
+            // which is not the file's own. Its real one is worked out as
+            // it is sent, and it is labelled with nothing until then.
+            metadata: if k.item.hashed {
+                BTreeMap::from([("blake3".to_string(), k.hash.to_string())])
+            } else {
+                BTreeMap::new()
+            },
+            learn_fingerprint: !k.item.hashed,
         });
     }
     for k in kept {
@@ -710,6 +739,7 @@ fn uploads_for(library: &Path, catalog: &Catalog, kept: &[Kept<'_>]) -> Result<V
                     .to_string(),
                 ),
                 metadata: BTreeMap::new(),
+                learn_fingerprint: false,
             });
         }
     }
@@ -1025,6 +1055,107 @@ mod tests {
         assert!(good.join("originals/Flights/IMG_20240601_100000.jpg").is_file());
         // And it is not called safe: one of its two places has nothing.
         assert!(crate::discover(&home, &catalog).unwrap().waiting_to_gather > 0);
+    }
+
+    #[test]
+    fn large_files_are_fingerprinted_as_they_are_sent_not_read_twice() {
+        // A JPEG header then a long run of bytes that depends on `seed`.
+        let big = |seed: u8| {
+            let mut bytes = crate::discover::tests::real_jpeg(seed);
+            let mut next = seed;
+            bytes.resize_with(bytes.len() + 2_000_000, || {
+                next = next.wrapping_mul(31).wrapping_add(7);
+                next
+            });
+            bytes
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let card = dir.path().join("Card");
+        let original = big(1);
+        // Differs only between the places a quick search samples.
+        let mut lookalike = original.clone();
+        lookalike[700_000] ^= 1;
+        let alone = big(2);
+        for (rel, bytes) in [
+            ("Trip/IMG_20100101_100000.jpg", &original),
+            ("Trip/IMG_20100101_100001.jpg", &lookalike),
+            ("Backup/IMG_20100101_100000.jpg", &original),
+            ("Trip/IMG_20100103_120000.jpg", &alone),
+        ] {
+            let p = card.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, bytes).unwrap();
+        }
+        let home = dir.path().join("home");
+        let mut catalog = Catalog::open_in_library(&home).unwrap();
+        let quick = keevoro_scan::ScanOptions {
+            quick: true,
+            ..Default::default()
+        };
+        crate::scan_into_with(&mut catalog, &card, Some("Card"), &quick, &mut |_| {}, &mut || {}).unwrap();
+        assert_eq!(catalog.unhashed().unwrap().len(), 4, "a quick search sampled all four");
+
+        let to = dir.path().join("usb");
+        let mut lines = Vec::new();
+        originals_first(
+            &mut Vec::new(),
+            &catalog,
+            &home,
+            Destination::Folder(to.clone()),
+            None,
+            None,
+            &Stop::default(),
+            &mut |line| lines.push(line.to_string()),
+        )
+        .unwrap();
+
+        // Only the three that look like one another were read beforehand.
+        // The one nothing resembles went straight to being sent.
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.starts_with("Telling apart files that look alike: 2 of 3")),
+            "{lines:?}"
+        );
+        assert!(!lines
+            .iter()
+            .any(|l| l.contains("of 4") && l.starts_with("Telling apart")));
+
+        // Every file now has its whole fingerprint, the right one.
+        assert!(catalog.unhashed().unwrap().is_empty());
+        // The true copy was left out; the lookalike was not.
+        let there = |rel: &str| std::fs::read(to.join("originals").join(rel)).ok();
+        assert!(there("Trip/IMG_20100101_100000.jpg").as_deref() == Some(&original[..]));
+        assert!(there("Trip/IMG_20100101_100001.jpg").as_deref() == Some(&lookalike[..]));
+        assert!(there("Trip/IMG_20100103_120000.jpg").as_deref() == Some(&alone[..]));
+        assert!(
+            there("Backup/IMG_20100101_100000.jpg").is_none(),
+            "the duplicate is kept once"
+        );
+        // And all of it counts as safe, under the fingerprints it has now.
+        let found = crate::discover(&home, &catalog).unwrap();
+        assert_eq!(found.waiting_to_gather, 0);
+
+        // Backing up again sends nothing: each is known to be there.
+        let mut said = Vec::new();
+        originals_first(
+            &mut said,
+            &catalog,
+            &home,
+            Destination::Folder(to.clone()),
+            None,
+            None,
+            &Stop::default(),
+            &mut |_| {},
+        )
+        .unwrap();
+        let said = String::from_utf8(said).unwrap();
+        assert!(
+            !said.contains("Safely backed up 3") && !said.contains("Safely backed up 1 "),
+            "{said}"
+        );
+        // The sources were only read.
+        assert!(std::fs::read(card.join("Trip/IMG_20100103_120000.jpg")).unwrap() == alone);
     }
 
     #[test]

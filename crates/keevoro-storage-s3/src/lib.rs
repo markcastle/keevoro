@@ -412,6 +412,7 @@ impl ObjectStore for S3Store {
             key: key.clone(),
             bytes,
             etag: done.e_tag().map(str::to_string),
+            blake3: None,
         })
     }
 
@@ -531,6 +532,7 @@ impl MultipartStore for S3Store {
             key: ObjectKey::new(packed.key)?,
             bytes: parts.iter().map(|p| p.bytes).sum(),
             etag: done.e_tag().map(str::to_string),
+            blake3: None,
         })
     }
 
