@@ -25,7 +25,7 @@ cargo test --workspace
 ```
 
 ```sh
-cargo run -p keevoro-cli -- scan <a folder of photos>
+cargo run -p keevoro-cli -- survey <a folder of photos>
 ```
 
 CI runs the same on Windows, macOS and Linux, and fails if fewer than 90% of lines are covered by tests.
@@ -39,7 +39,7 @@ The app is four layers, and almost all the thinking is in the bottom two:
 | Screens | `ui/src` | React and TypeScript. They show what they are given and send one request per button. |
 | Shell | `src-tauri/src` | A Tauri window and a handful of commands. Each command finds the open backup, calls the API, and turns an error into a sentence. Long jobs are the API's; what they say reaches the window through one listener set up in `lib.rs`. |
 | API | `crates/keevoro-api` | Every operation Keevoro offers, listed once in a register. What the app, the command line and an AI agent all call. See [The API](#the-api) below. |
-| Engine | `crates/keevoro-engine` | Everything Keevoro actually does: the Discover view, choosing, gathering, previews, backing up and connecting storage. Shared with the command line, and tested without a window. |
+| Engine | `crates/keevoro-engine` | Everything Keevoro actually does: the Discover view, choosing, previews, backing up and connecting storage. Tested without a window. |
 
 If you are about to write a rule about photos in the shell or the screens, it belongs in the API or the engine instead.
 
@@ -59,13 +59,15 @@ The screens can also run alone in a browser, which is the quickest way to work o
 npm run ui:dev
 ```
 
-There they talk to a stand-in for the engine (`ui/src/demo.ts`) with drawn pictures, so no drive or library is needed. Add `?demo=new` to the address to see the first-run screen, or `?demo=empty` for a library with nothing found yet.
+There they talk to a stand-in for the engine (`ui/src/demo.ts`) with drawn pictures, so no drive or backup is needed. Add `?demo=new` to the address to see the first-run screen, or `?demo=empty` for a backup with nothing found yet.
 
 The app updates itself through `src-tauri/src/updates.rs`, which leans on `keevoro-update`: the same "find the latest release, download, compare with SHA256SUMS" rules the command line uses, applied to the installer. To see the offer in a browser, add `?update` to the address.
 
-Searching is split in two. The search itself (`keevoro-scan` with `quick: true`) only samples large files and marks them `hashed: false`. `keevoro-engine/src/deep.rs` then reads those files whole, in the background in the app, and always before gathering. The rule that must never be broken: nothing is copied, and nothing is dropped as a duplicate, on the strength of a quick fingerprint. `gather_one` refuses an item that is not `hashed`.
+Searching is split in two. The search itself (`keevoro-scan` with `quick: true`) only samples large files and marks them `hashed: false`. `keevoro-engine/src/deep.rs` then reads those files whole, in the background. The rule that must never be broken: nothing is dropped as a duplicate on the strength of a quick fingerprint, and no copy counts until it is proved exact against the whole file.
 
-A backup that goes straight to a destination does not read everything first, because that would read each file twice: once to fingerprint it and once to copy it. Before sending, it reads in full only the files whose quick fingerprint is shared with another file, since those have to be told apart (a true copy is left out, a lookalike is not). Every other sampled file is given its place under its quick fingerprint and marked `learn_fingerprint` on its `Upload`. The store or the uploader then works out the whole fingerprint in the same pass that sends it, the answer comes back in `PublishReport::learned`, and `Catalog::set_whole_hash` moves the file, its keep choice and its place over to the real fingerprint. The rule still holds: nothing is dropped as a duplicate on a sample, and a folder copy is still read back and compared before it counts.
+A backup that goes straight to a destination does not read everything first, because that would read each file twice: once to fingerprint it and once to copy it. Before sending, it reads in full only the files whose quick fingerprint is shared with another file, since those have to be told apart (a true copy is left out, a lookalike is not). Every other sampled file is given its place under its quick fingerprint and marked `learn_fingerprint` on its `Upload`. The store or the uploader then works out the whole fingerprint in the same pass that sends it, the answer comes back in `PublishReport::learned`, and `Catalog::set_whole_hash` moves the file, its keep choice and its place over to the real fingerprint. A file that looks like another but cannot be read in full is given no place at all (`check_and_place` in `keevoro-engine/src/lib.rs`), so it is neither sent nor left out until it can be told apart.
+
+A copy to a folder is proved in `copy_file` in `keevoro-storage-folder`: the source is fingerprinted as it is read, the copy goes to a hidden file, is flushed to the disk, read back and fingerprinted again, and only takes its real name, without ever replacing a file, if both match. It keeps the original's modified time. A file already there under the same name counts only if it is the same size and, for a store that can read its own files, the same fingerprint (`same_or_refuse` in `keevoro-publish`).
 
 Video stills come from `keevoro-frame`, the one crate allowed `unsafe`, because it calls the operating system's decoder directly. Its Windows and macOS halves cannot be built on Linux, but they can be type-checked from anywhere:
 
@@ -152,13 +154,13 @@ The look comes from the Keevoro design system. Its tokens are kept in `design/to
 
 ### The API
 
-Over time a good deal of what the app does was written in its shell, where the command line cannot reach it. `crates/keevoro-api` is where that logic is moving, so that the app, the `keevoro` command and, later, an AI agent's tools can all do the same things with the same words. The work is planned in steps. The first put the crate and its register in place; the second moved everything else the app's shell did, first what is quick (named backups, destinations, room, the rehearsal, pictures, settings, the log, activity, reset, the update check and what agents may do) and then the jobs. Nothing a person would notice changed. Every operation in the register is now done by the API. The third step shared jobs between programs, so a backup the app started can be watched or stopped from the command line (see [Jobs across programs](#jobs-across-programs)). The command line itself is next.
+Over time a good deal of what the app does was written in its shell, where the command line cannot reach it. `crates/keevoro-api` is where that logic is moving, so that the app, the `keevoro` command and, later, an AI agent's tools can all do the same things with the same words. The work is planned in steps. The first put the crate and its register in place; the second moved everything else the app's shell did, first what is quick (named backups, destinations, room, the rehearsal, pictures, settings, the log, activity, reset, the update check and what agents may do) and then the jobs. Nothing a person would notice changed. Every operation in the register is now done by the API. The third step shared jobs between programs, so a backup the app started can be watched or stopped from the command line (see [Jobs across programs](#jobs-across-programs)). The fourth rebuilt the command line on the API (see [The command line](#the-command-line)). An AI agent's tools are next.
 
 It has six parts:
 
 - **The register** (`src/register.rs`). One line for every operation, such as `sources.list` or `backup.run`: what it does in a plain sentence, whether it changes anything, whether it is a long-running job, whether the command line and agents get it, and whether the API does it yet. The command line's help and an agent's list of tools will be made from it, so write each description as carefully as a button.
 - **Keevoro as a whole** (`Keevoro` in `src/keevoro.rs`). Made once from its `Folders` (config, data, cache, logs), it holds the named backups, the log and the keychain, with a method for each operation that is not about one backup. Everything is reached through `&self`, and nothing slow happens while the settings are held, so the app can keep one and ask it things from any thread.
-- **Named backups** (`Backups` in `src/backups.rs`). It owns the settings file in the config folder, in exactly the format earlier versions wrote, and hands out a `Backup` by name or id. Which backup is "open" is the app's idea; every operation also takes a backup's name, because the command line has no open backup.
+- **Named backups** (`Backups` in `src/backups.rs`). It owns the settings file in the config folder and hands out a `Backup` by name or id. The app and the command line may both have it open, so every question is answered from the file as it is now, and every change is made under a lock (`settings.lock`, held with the operating system's file locking, so a program that stops lets go) to the file as it is at that moment, then written beside it and moved into place. One program's change never undoes another's. Which backup is "open" is the app's idea; every operation also takes a backup's name, because the command line has no open backup. `Folders::for_this_computer` says where all of this lives, the same place for every Keevoro program; a test in the app checks it is where Tauri would put an app's things.
 - **A backup** (`Backup` in `src/backup.rs`, with its destinations in `src/destinations.rs`). One backup, opened by its home folder, with a method for each operation on it. Each takes and gives plain types that can be written as JSON, reusing the engine's own views where they are right.
 - **Jobs** (`src/jobs/`). The long operations: looking through a source, looking again, surveying, backing up and checking, and the background check for duplicates that Keevoro starts itself after a search or a backup. Starting one returns at once with a `JobHandle` (its id, what it is, which backup, when and by whom it was started), and the job runs on its own thread, with no Tauri or Tokio needed by the caller. What it says as it goes is a `Said`, in exactly the shapes the app's screens have always received (`src/jobs/said.rs`, mirrored in `ui/src/backend.ts`). A listener can be given when a job starts, `Keevoro::listen` hears every job, and `Keevoro::follow` joins one already running; `Keevoro::jobs` (`jobs.status`) says what each running job is doing for anyone who was not listening. `stop`, `pause` and `carry_on` act between one file and the next. The rules about what may run together are here, so every front end is held to them: one search and one backup or check at a time on a backup, refused in a plain sentence, and the check for duplicates giving way to both. All of this works the same whichever program runs the job, as the next section explains.
 - **`call`** (`src/lib.rs`). The same operations reached by name, with JSON in and JSON out, which is how the command line and an agent will use them: `call(&keevoro, op, Some("Drone footage"), request)`.
@@ -181,7 +183,7 @@ The parity test (`src-tauri/src/parity.rs`) is what stops the app drifting ahead
 
 - `BACKED`: it only translates between the screens and register operations the API does.
 - `WINDOW_ONLY`: it is about being a window, such as showing a folder or opening a web page.
-- `NOT_YET`: its logic still lives in the shell. This is the honest to-do list. It must only get shorter, and it is empty when the work is done.
+- `NOT_YET`: its logic still lives in the shell. The work of moving it all to the API is done, so this is empty; it is for a command that is honestly waiting for the API.
 
 A new button with no API operation behind it turns the build red until it is given one, or deliberately listed.
 
@@ -206,6 +208,19 @@ What a developer needs to know:
 - **Last words outlive their program for a minute.** The command line closes the moment its job ends, so the status it leaves is kept, unheld, for anyone still waiting on it. Any Keevoro program sweeps away unheld statuses more than a minute old as it lets go of a backup or closes, and removes the backup's folder once it is empty. The lock and requests are always removed when the work ends.
 
 The timing is all in `across/lock.rs` and `across/mod.rs` as named constants: the heartbeat (`BEAT`, two seconds), when a heartbeat is doubted (`STALE_AFTER`, a minute), how long it is watched (`WATCH`, five seconds), how often the holder looks for requests (`TICK`, a quarter of a second) and how long last words are kept (`SWEEP_AFTER`, a minute). The clock and the computer's processes are behind two small traits, `Clock` and `Processes`, so the stale rules are tested with a clock the test moves and processes the test says are alive (`across/tests.rs`). Two Keevoros in one temporary folder behave as two programs, which is how most of the behaviour is tested (`jobs/tests.rs`). What only real separate processes have (their own process number, their own pause switch, and being ended without warning) is tested in `crates/keevoro-api/tests/across_programs.rs`, which runs its own test program a second time as the other program.
+
+### The command line
+
+`crates/keevoro-cli` is the `keevoro` command, and it is translation only: every command turns what was typed into one operation in the register, calls it through `keevoro_api::call`, and says the answer in plain English, or prints it exactly as the API gave it with `--json`. It works on the same named backups as the app because it opens Keevoro in the same folders (`Folders::for_this_computer`), or under `KEEVORO_HOME` when that is set.
+
+- `src/commands.rs` has one row for each command as it is typed (`keevoro backups start`): its words, the operations it can call, its arguments, how it makes the request and how it shows the answer. Its help is the register's own sentence, and a command for a job gets `--detach` because the register says it is one. `every_operation_the_register_offers_the_command_line_has_a_command` in `src/tests.rs` fails if an operation marked for the command line has no row, the command line's own parity test.
+- `src/show.rs` says each answer, from the API's JSON.
+- `src/jobs.rs` runs a job and follows it to its end, with progress on one rewritten line when a person is watching and a plain line for each new step otherwise. `follow` hears a job in any program. `--detach` starts the same command again as a program of its own (`KEEVORO_DETACHED_JOB` tells it so), which says on its first line how the job started and then runs it with nobody listening.
+- `src/keys.rs` takes storage keys from standard input, the environment, the command or the keyboard, straight into the request. `a_key_given_is_never_shown_logged_or_written_down` gives a marker key every way and searches everything the program said and wrote for it; `tests/the_program.rs` does the same through the real program.
+
+The exit codes are in `Code` in `src/main.rs`, made from the API's error `Kind` and, for a backup or a check, from the `outcome` of its last word, so a script need never read a sentence. They are listed for people in [docs/command-line.md](command-line.md#for-scripts).
+
+To add an operation for the command line, add its row; the test above tells you if you forget. The tests in `src/tests.rs` run commands in the test program itself, with a keychain in memory and no network (`At::keevoro`); those that run jobs take their turn with `one_at_a_time()`, because pausing is one switch for the whole program. What only a real separate program shows (its exit code, `--detach`) is in `tests/the_program.rs`.
 
 ### Tests that need a server
 

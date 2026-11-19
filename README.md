@@ -129,17 +129,25 @@ irm https://raw.githubusercontent.com/markcastle/keevoro/main/install.ps1 | iex
 curl -fsSL https://raw.githubusercontent.com/markcastle/keevoro/main/install.sh | sh
 ```
 
-Then a first look at a drive, which changes nothing:
+It works on the same named backups as the app, so a backup started in one is there in the other. A first backup:
 
 ```sh
-keevoro survey "D:\"
+keevoro backups start "Family photos"
 ```
 
 ```sh
-keevoro scan "D:\Pictures"
+keevoro look "D:\Pictures"
 ```
 
-The full walk-through, from a first scan to a checked backup in a bucket, is in [docs/command-line.md](docs/command-line.md). `keevoro update` moves to the newest version.
+```sh
+keevoro destinations add --folder "E:\Family Backup"
+```
+
+```sh
+keevoro run
+```
+
+The full walk-through, from a first look at a drive to a checked backup in a bucket, with every command, is in [docs/command-line.md](docs/command-line.md). Every command answers in JSON with `--json`, for scripts. `keevoro update` moves to the newest version.
 
 ## 📦 What a backup looks like
 
@@ -197,19 +205,19 @@ npm run ui:dev
 | --- | --- |
 | `keevoro-core` | The rules: what counts as a photo, how dates and album names are worked out, what to skip, what looks like junk, how collections are formed. No file access. |
 | `keevoro-scan` | Looks through a drive or folder, and surveys a disk for where the photos are. Read-only. |
-| `keevoro-collect` | Copies what you kept into the library and proves each copy is exact. |
+| `keevoro-collect` | Gives each file you kept its place in a backup, and makes the previews a gallery shows. |
 | `keevoro-media` | Makes the thumbnails and viewing copies. |
 | `keevoro-frame` | Asks the computer's own decoders for a photo or a video still. The one crate allowed `unsafe`. |
-| `keevoro-publish` | Sends the library to storage: resumable, and never replaces an original. |
+| `keevoro-publish` | Sends a backup to storage: resumable, and never replaces an original. |
 | `keevoro-index` | Writes the index that describes a backup, and the JSON Schema other tools can check it against. |
-| `keevoro-catalog` | Remembers what was found on each drive and what you chose to keep, in a small SQLite file inside the library. |
+| `keevoro-catalog` | Remembers what was found on each drive and what you chose to keep, in a small SQLite file in the backup's own folder. |
 | `keevoro-storage` | The plug-in interface every storage provider implements, and the tests they must all pass. |
-| `keevoro-storage-folder` | Stores the library on a local disk, external drive or NAS. |
+| `keevoro-storage-folder` | Stores a backup on a local disk, external drive or NAS, reading each copy back to prove it exact. |
 | `keevoro-storage-s3` | Stores it in Cloudflare R2, Amazon S3 or anything else that speaks S3. |
 | `keevoro-update` | Finds, checks and installs a newer version. |
-| `keevoro-engine` | What Keevoro does, as plain function calls. The command line and the app are both thin layers over this. |
+| `keevoro-engine` | What Keevoro does, as plain function calls. |
 | `keevoro-api` | Everything Keevoro can do, listed once, so the app, the command line and an AI agent can all do the same things. |
-| `keevoro-cli` | The `keevoro` command. |
+| `keevoro-cli` | The `keevoro` command: every operation in the API, on the same named backups as the app. |
 | `src-tauri` and `ui` | The desktop app: a Tauri shell and its screens. |
 | `xtask` | The project's own tooling: the changelog and cutting a release. |
 

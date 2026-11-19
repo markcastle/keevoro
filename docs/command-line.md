@@ -1,12 +1,31 @@
 # Keevoro on the command line
 
-Everything the app does, the `keevoro` command does too, and a few things more. This page walks through it from a first look at a drive to a checked backup. For installing the command, see the [README](../README.md#-the-command-line).
+The `keevoro` command does everything the Keevoro app does, on the same backups. A backup you start in the app is there when you type `keevoro backups`, and one you start here shows up in the app. Use whichever suits you at the moment, or both at once.
 
-If you are working from source, replace `keevoro` with `cargo run --release -p keevoro-cli --` in the examples.
+The first half of this page walks through a first backup from start to finish. The second half is a reference to every command. For installing the command, see the [README](../README.md#-the-command-line). If you are working from source, replace `keevoro` with `cargo run -p keevoro-cli --` in the examples.
 
-## Finding where the photos are
+## A first backup, from start to finish
 
-Not sure which folder on a big disk holds the photos? A survey answers that in seconds. It reads folder listings only and never opens a file:
+### Start a backup
+
+A **backup** is one job you come back to, with a name: "Family photos", say, or "Drone footage". Each has its own sources, its own choices and its own places to back up to.
+
+```sh
+keevoro backups start "Drone footage"
+```
+
+```text
+Started the backup "Drone footage".
+Next, look through a source for it: keevoro look <a drive or folder> -b "Drone footage"
+```
+
+Most commands work on one backup. Name it with `-b`. Leave `-b` out and the backup the app has open is used, which is simply your backup when you only have one, so the rest of this walk-through leaves it out.
+
+### Find where the photos are
+
+A **source** is anywhere Keevoro looks for photos: a drive, a USB stick, a memory card, a folder. Your sources are only ever read. Nothing on them is changed, moved or deleted.
+
+`keevoro places` lists the drives plugged in. On a big disk, a survey finds the folders that hold photos in seconds. It reads folder listings only and never opens a file:
 
 ```sh
 keevoro survey "D:\"
@@ -19,186 +38,277 @@ Looked at 481,907 files in 36,412 folders in 6.2 seconds, without opening any of
    9.0 MB  1,840 photos and 0 videos  D:\Games\Launcher\assets  (small pictures, probably not photos)
 ```
 
-It goes by file names, so it is a good guess and not a promise. Point `scan` at the folders it suggests.
+It goes by file names, so it is a good guess and not a promise.
 
-## Looking through a source
-
-A **source** is anywhere Keevoro looks for photos: a drive, a USB stick, a memory card, a folder.
+### Look through a source
 
 ```sh
-keevoro scan "D:\" "E:\Old Laptop Backup"
-```
-
-Example output:
-
-```text
-Found 12 photos and 1 video (242.7 KB).
-1 duplicate (21.8 KB) will be kept once.
-
-Collections
-  March 2012      3 photos
-  Christmas 2011  December 2011 · 3 photos
-  Cornwall        August 2008 · 5 photos · 1 video  (Holidays)
-  Stuff           1 photo
-
-Dates: 8 from camera data, 3 from file names, 2 guessed from file times.
-Skipped 2 folders (system, app and hidden).
-```
-
-Add `--json` for the full details, or `--no-hash` for a quicker first look without duplicate checking.
-
-Pictures that are clearly not memories (app icons, game artwork, web page leftovers, anything under 300 px) are listed separately with the reason, and left out of the collections. Nothing is ever hidden without saying so.
-
-## Remembering a drive
-
-A scan of a big old disk can take a while, so you can ask Keevoro to remember it. Give it a library folder and a friendly name:
-
-```sh
-keevoro scan "E:\" --library "D:\Keevoro Library" --name "Dad's old Dell"
-```
-
-After that the drive can go back in the drawer. These work without it plugged in:
-
-```sh
-keevoro collections --library "D:\Keevoro Library"
-```
-
-```sh
-keevoro sources --library "D:\Keevoro Library"
-```
-
-Scan a second drive into the same library and `collections` shows everything together, with copies that exist on both drives counted once. Scanning the same drive again replaces what was known about it rather than adding to it.
-
-## Choosing and gathering
-
-Everything found is kept unless you say otherwise. To leave a collection out, and to change your mind:
-
-```sh
-keevoro skip --library "D:\Keevoro Library" "Stuff"
-```
-
-```sh
-keevoro keep --library "D:\Keevoro Library" "Stuff"
-```
-
-To choose photo by photo, list a collection. Each line starts with a short code:
-
-```sh
-keevoro photos --library "D:\Keevoro Library" "Cornwall"
+keevoro look "D:\Users\Mark\Videos\Drone"
 ```
 
 ```text
-Cornwall (August 2008 · 83 photos · 6 videos)
-  9f2c4be1  IMG_1234.jpg  2008-08-12T10:15:00
-  41aa09cd  IMG_1235.jpg  2008-08-12T10:16:41
+Looked through Drone: found 333 photos and 26 videos.
 ```
 
-Give a code to `skip --photo` or `keep --photo` to leave one out or put it back. `photos --junk` lists the pictures Keevoro set aside as junk, with the reason; `keep --photo` on one of those brings it back into its album. A tiny scan of an old print is small, but it may be the only copy there is.
+While it looks, a line underneath says how far it has got. The source is now part of the backup. `keevoro sources` lists them, and `keevoro look --again` looks through them all again later for anything new.
 
-Then, with the source plugged in, gather the keepers into the library:
+### Choose what to keep
+
+Everything found is kept, except pictures that are clearly not photos (app icons, game artwork, anything tiny), which are set aside with the reason. Nothing is hidden without saying so.
 
 ```sh
-keevoro gather --library "D:\Keevoro Library"
+keevoro found
 ```
 
 ```text
-Safely copied 9,870 files (41.0 GB) into your library.
+Found 333 photos and 26 videos (94.0 GB).
+12 duplicates left out, saving 1.1 GB.
+40 pictures set aside as probably not photos. `keevoro set-aside` lists them.
+359 files not yet safely backed up (92.9 GB).
 ```
 
-Gathering copies each file, reads the copy back and compares it with the original before counting it. Your folders are kept (`originals/Holidays/Cornwall/...`); photos with no useful folder go under `originals/By date/2008/2008-08/`, and ones with no believable date under `originals/Undated/`. Nothing in the library is ever overwritten: two different photos called `IMG_0001.jpg` become `IMG_0001.jpg` and `IMG_0001 (2).jpg`.
-
-It is safe to stop halfway, unplug the drive or run it twice. It carries on where it left off and never copies a file it already has. If a file can't be read, the rest still go through and the problem is listed at the end. It checks there is enough room before it starts.
-
-Gathering also makes a thumbnail and a larger viewing copy of each photo, stored under `renditions/`. These are what a gallery shows, so pages load quickly. They are built from the picture alone: the location and camera details inside your originals are never copied into them. Camera RAW files are previewed from the finished picture the camera stores inside them. On Windows, photos are opened by the system's own codecs, so HEIC photos from newer iPhones get a preview where the computer has the codec for them. Any that cannot be previewed are counted and said, and the originals are kept all the same. After an update, `gather --retry-previews` has another go at any that were missed.
-
-## Videos
-
-Each video gets a poster, a still picture for a gallery to show. Old camcorder and phone videos often will not play on a modern phone or in a browser, so you can also ask for an MP4 copy of those:
+Files are grouped into collections: your own folders, and moments by date for the rest.
 
 ```sh
-keevoro gather --library "D:\Keevoro Library" --convert-videos
+keevoro collections
 ```
 
 ```text
-Made posters for 140 videos.
-Made MP4 copies of 96 videos (31 of them repackaged without re-encoding). The originals are kept.
+Drone / Coast  June 2024 · 120 photos · 12 videos
+Drone / Test flights  May 2024 · 213 photos · 14 videos
 ```
 
-Only videos that need it are converted; a modern MP4 is left exactly as it is. Where the video inside is already a modern kind in an old wrapper, it is repackaged rather than re-encoded, which takes seconds and loses nothing. Every MP4 is checked against its original (same length, plays through without errors) before it is kept, and the original always stays in the library.
-
-Posters come from the computer's own video decoder on Windows and macOS, so nothing extra is needed for them. Making MP4 copies needs [ffmpeg](https://ffmpeg.org/download.html) to be installed. Without it, videos are still found, gathered and backed up; Keevoro says that conversion was skipped.
-
-## Backing up
-
-To copy the library to an external drive or a network share:
+To leave a collection out, and to change your mind:
 
 ```sh
-keevoro publish --library "D:\Keevoro Library" --to-folder "F:\Family Backup"
+keevoro skip "Test flights"
+```
+
+```sh
+keevoro keep "Test flights"
+```
+
+Leaving something out only means it is not backed up. Nothing is ever deleted. To choose photo by photo, list a collection; each line starts with a short code:
+
+```sh
+keevoro photos "Coast"
 ```
 
 ```text
-Safely backed up 29,610 files (43.2 GB).
-Index written for 9,870 files in 212 albums.
+9f2c4be1a7d03e55  DJI_0001.JPG  2024-06-12T10:15:00
+41aa09cd22e1f0b7  DJI_0002.JPG  2024-06-12T10:16:41
+```
+
+Give a code to `keevoro skip --photo` or `keevoro keep --photo`. The same works for a picture that was set aside: a tiny scan of an old print may be the only copy there is. `keevoro duplicates` lists every file found more than once, with the copy kept and the copies left out. A copy is only left out when it matches byte for byte. To look at one, `keevoro picture 9f2c4be1a7d03e55 --large --to look.webp` saves a picture of it.
+
+### Choose where to back up to
+
+A **destination** is where a backup goes: an external drive, a network share, or cloud storage. A backup can have several, and is only called safe once it is at every one.
+
+```sh
+keevoro destinations add --folder "Y:\Drone footage"
+```
+
+```text
+Keevoro checked the folder Y:\Drone footage works, and will back up there.
+```
+
+Keevoro checks every place works before adding it. For cloud storage, see [Cloud storage and keys](#cloud-storage-and-keys) below.
+
+### Back up
+
+See what backing up would do first, if you like. It changes nothing:
+
+```sh
+keevoro rehearse
+```
+
+Then back up:
+
+```sh
+keevoro run
+```
+
+```text
+Safely backed up 359 files (92.9 GB).
+Previews added: 1,413 files (310.2 MB).
+Index written for 359 files in 2 albums.
 Your private index: index/q7Zp4xKm2Tf9LwR3bN8vYc.kvx
+That took about 36 minutes: 93.2 GB at an average of 43.1 MB a second.
 ```
 
-The backup has the same folders as the library, so what you see on one is what is on the other. An original that is already in the backup is never replaced, large videos are sent in pieces so an interruption only costs the piece in flight, and running it again sends only what is new.
+The originals go first, straight from your sources, each one proved exact: it is fingerprinted as it is read, and the copy is read back and compared before it counts. Previews for a gallery come after. An original already in the backup is never replaced, and running it again sends only what is new. If you would rather send the originals alone, `keevoro previews off`.
 
-The last thing written is the index: one JSON file listing every album and photo, with sizes, dates and where each thumbnail lives. Its name is long and random, so it can't be guessed. A second file, `index/gallery.json`, is the older format the current gallery site reads. If the backup will be served from a web address, add `--base-url https://photos.example.com` so the links inside the index point there. If you have shared the index's address and want it to stop working, add `--new-link`: the index is written under a new name and the old one is removed.
+While it runs, a line underneath says the step it is on. It is safe to stop at any time: press Ctrl-C, or type `keevoro stop` in another window, and it carries on from there next time.
 
-## Checking nothing has gone wrong
+### Check it all arrived
 
-Disks fail quietly, and a photo that copied perfectly years ago can have rotted since. To be sure:
+Disks fail quietly. To be sure everything is where it should be:
 
 ```sh
-keevoro check --library "D:\Keevoro Library" --backup
+keevoro check
 ```
 
 ```text
-Your library: all 9,870 files are intact.
-Your backup: all 9,870 originals are there.
+Your backup: all 359 originals are there.
 ```
 
-Every original in the library is read again and compared with how it was when it was gathered. With `--backup`, each one is also looked up in the backup. Adding `--read-back` downloads each original and compares it exactly, which is the only way to be certain and takes as long as downloading the whole backup. Nothing is changed; if something is wrong, Keevoro lists the files and says how to put them right.
+`keevoro history` lists how earlier backups went, and `keevoro last-backup` repeats what the last one said.
 
-## Backing up to Cloudflare R2 or Amazon S3
+## Running in the background
 
-The same command backs up to a bucket. First make a key that can read and write **that one bucket and nothing else** (in Cloudflare: R2, Manage API tokens, Object Read & Write, limited to the bucket). Put it where Keevoro will find it; keys are deliberately not accepted on the command line, where they would end up in your shell history:
+A long backup does not have to keep a window open. `--detach` starts it as a program of its own and comes back at once:
 
 ```sh
-export KEEVORO_ACCESS_KEY_ID="..."
+keevoro run --detach
 ```
+
+```text
+Backing up "Drone footage", in the background (job 4123000001). See how it is getting on with: keevoro follow
+```
+
+Then, from any window:
+
+- `keevoro status` says what is running, the step it is on, its speed and roughly how long is left, and who started it.
+- `keevoro follow` shows it as it goes, until it ends.
+- `keevoro pause` makes it wait once the file in hand is done, and `keevoro carry-on` lets it go on.
+- `keevoro stop` stops it once the file in hand is done. Everything done so far is kept.
+
+These work whichever program is running the job: the app, the command line, or another window. Only one program at a time works on a backup, so if the app is already backing it up, `keevoro run` says so and does nothing more.
+
+## Cloud storage and keys
+
+The same command adds cloud storage. First make a key that can read and write **that one bucket and nothing else** (in Cloudflare: R2, Manage API tokens, Object Read & Write, limited to the bucket). Then give the place and the bucket:
 
 ```sh
-export KEEVORO_SECRET_ACCESS_KEY="..."
+keevoro destinations add --r2 0123456789abcdef0123456789abcdef --bucket family-photos
 ```
 
-Then, for R2, give your Cloudflare account ID and the bucket name:
+For Amazon S3 use `--s3 eu-west-2`, and for MinIO or a NAS that speaks S3 use `--endpoint https://nas.local:9000`.
 
-```sh
-keevoro publish --library "D:\Keevoro Library" --to-r2 0123456789abcdef0123456789abcdef --bucket family-photos
-```
+Keevoro needs the two keys once. It checks they work, keeps them in your computer's own keychain (Credential Manager on Windows, Keychain on a Mac), and never shows them, writes them down or puts them in its log or its `--json` answers. It takes them, in this order:
 
-For Amazon S3 use `--to-s3 eu-west-2` instead, and for MinIO or a NAS that speaks S3 use `--to-endpoint https://nas.local:9000`.
+- **From standard input,** with `--keys-from-stdin`: the access key ID on one line and the secret on the next. Nothing ends up in your shell's history.
+- **From the environment,** as `KEEVORO_ACCESS_KEY_ID` and `KEEVORO_SECRET_ACCESS_KEY`. These also win over the keychain when backing up, which suits scripts.
+- **On the command,** as `--access-key-id` and `--secret-access-key`. These end up in your shell's history, so use them only on a computer that is yours alone.
+- **At the keyboard,** asked for when none of the above is given. The secret is not shown as you paste it.
 
-Typing all that each time gets old, so do it once with `connect` instead. It checks the storage works, saves the keys in your computer's own keychain (Credential Manager on Windows, Keychain on a Mac) and remembers the destination in the library:
+Keevoro warns you if strangers are able to list the bucket's contents. The bucket itself is told never to replace an original.
 
-```sh
-keevoro connect --library "D:\Keevoro Library" --to-r2 0123456789abcdef0123456789abcdef --bucket family-photos
-```
+## For scripts
 
-If the two keys are not set as above, `connect` asks you to paste them; the secret is not shown as you paste. From then on a backup is just:
+Every command takes `--json` and then answers with exactly what Keevoro's API answers, the same the app receives. A job (`look`, `survey`, `run`, `check`) prints a line saying how it started, then one line for each thing it says as it goes, the same events the app hears, the last one last. Progress and problems go to standard error, and what was asked for to standard output.
 
-```sh
-keevoro publish --library "D:\Keevoro Library"
-```
+When nobody is watching, as when the output goes to a file, progress is a plain line for each new step instead of one line rewritten in place.
 
-`connect` works for a folder too (`--to-folder`), and `disconnect` forgets the destination and removes the keys without touching anything already backed up.
+The exit code says what happened, without reading the words:
 
-Keevoro checks the keys work before sending anything, and warns you if strangers are able to list the bucket's contents. The bucket itself is told never to replace an original, so even two computers backing up at once cannot overwrite one another. On a bucket the index's links are relative until you add `--base-url` with the address the bucket is served from.
+| Code | Meaning |
+| --- | --- |
+| 0 | It worked. A backup that was stopped also ends with 0, and says "Stopped". |
+| 1 | It ran, but some files could not be backed up or need attention, or something else went wrong. |
+| 2 | A destination could not be reached: a drive unplugged, a connection down, keys that do not work. |
+| 3 | No such backup, source, collection, photo or job, or no backup chosen yet. |
+| 4 | Something is already being done to that backup, here or in another program. |
+| 5 | Refused, such as a destination without the room, or nowhere to back up to yet. |
+| 64 | The command was not understood. |
 
-This has been tested against MinIO, a stand-in that speaks the same language as R2 and S3. It has not yet been run against a real R2 or S3 bucket, so try it on a spare bucket first.
+To try Keevoro out without touching your real backups, set `KEEVORO_HOME` to an empty folder. Keevoro then keeps its settings, its notes about each backup and its log under that folder instead.
 
-When the same photo turns up in several places, the copy that was filed most carefully (the deepest named folder, then the best date) decides where it goes.
+## Every command
 
-What Keevoro remembers lives in one file, `.keevoro/catalog.sqlite`, inside the library folder. It is only working notes: it is safe to delete, and scanning again rebuilds it. Your sources are never written to.
+The words each command shows in `keevoro --help` come from the same list the app and the API use, so they always say the same thing.
+
+### Backups
+
+| Command | What it does |
+| --- | --- |
+| `keevoro backups` | Every backup, with its sources, destinations, and how many files are safe and waiting. |
+| `keevoro backups start NAME` | Starts a new, empty backup. |
+| `keevoro backups rename NAME NEW` | Gives a backup a new name. |
+| `keevoro backups forget NAME` | Takes a backup off Keevoro's list. Nothing at any source or destination is touched. |
+
+### Finding
+
+| Command | What it does |
+| --- | --- |
+| `keevoro places` | The drives plugged into this computer. |
+| `keevoro survey PLACE` | Finds the folders in a drive or folder that hold photos and videos, reading listings only. |
+| `keevoro look PLACE` | Looks through a drive or folder and adds it as a source. |
+| `keevoro look --again [SOURCE]` | Looks through one source, or all of them, for what is new. |
+| `keevoro sources` | The backup's sources, each with its number. |
+| `keevoro sources forget SOURCE` | Takes a source off the backup. Nothing on it is touched. |
+| `keevoro sources types SOURCE` | The kinds of file on a source, and which are included. |
+| `keevoro sources types SOURCE --leave-out png` | Leaves out one kind of file; `--include png` brings it back. |
+
+A source is named by its number, its place or its name, as `keevoro sources` lists them.
+
+### Choosing
+
+| Command | What it does |
+| --- | --- |
+| `keevoro found` | What the backup holds: counts, size, duplicates left out and room saved, set aside. |
+| `keevoro collections` | The collections, newest first, each kept or not. |
+| `keevoro photos COLLECTION` | The files in one collection, each with its code, kept or not. |
+| `keevoro keep COLLECTION` | Keeps a whole collection. |
+| `keevoro skip COLLECTION` | Leaves out a whole collection. Nothing is deleted. |
+| `keevoro keep --photo CODE` | Keeps one photo or video; `skip --photo CODE` leaves one out. |
+| `keevoro set-aside` | Pictures set aside as probably not photos, each with the reason. |
+| `keevoro duplicates` | Files found more than once: the copy kept, and the copies left out. |
+| `keevoro picture CODE --to FILE` | Saves a small picture of one file; `--large` for a screen-sized one. |
+
+A collection is named by its whole name, such as "Holidays / Cornwall", or by its last part, "Cornwall", when only one has it.
+
+### Destinations
+
+| Command | What it does |
+| --- | --- |
+| `keevoro destinations` | Where the backup goes, numbered, and what has reached each place. |
+| `keevoro destinations add --folder FOLDER` | Checks a folder works, then adds it. |
+| `keevoro destinations add --r2 ACCOUNT --bucket NAME` | The same for cloud storage, with `--s3 REGION` or `--endpoint URL` for others. |
+| `keevoro destinations remove DESTINATION` | Stops backing up there, by its number, folder or name; `--all` for every one. Nothing stored there is touched. |
+| `keevoro room` | What is waiting for each place, and whether it has the room. |
+
+### Backing up
+
+| Command | What it does |
+| --- | --- |
+| `keevoro rehearse` | What backing up now would do: how many files, how much, to where. Changes nothing. |
+| `keevoro run` | Backs up to every destination, originals first. |
+| `keevoro check` | Confirms what is at each destination. |
+| `keevoro history` | How earlier backups went: when, where, how much, how long. |
+| `keevoro last-backup` | What the last backup said when it ended. |
+| `keevoro previews [on or off]` | Whether the backup also makes previews for a gallery, or sends the originals alone. |
+
+`look`, `survey`, `run` and `check` each take `--detach`.
+
+### Jobs
+
+| Command | What it does |
+| --- | --- |
+| `keevoro status [JOB]` | What is running: the step, counts, speed, time left, who started it. |
+| `keevoro follow [JOB]` | Each thing a running job says, as it says it, until it ends. |
+| `keevoro pause` | Makes the work in hand wait after the file it is on. |
+| `keevoro carry-on` | Lets paused work go on from where it was. |
+| `keevoro stop [JOB]` | Stops a job after the file in hand. Nothing is lost. |
+
+Without `-b`, `status`, `follow` and `stop` cover every backup; with it, only that one.
+
+### Keevoro itself
+
+| Command | What it does |
+| --- | --- |
+| `keevoro about` | Keevoro's version, what it promises, and its licence. |
+| `keevoro activity` | What Keevoro is doing now and how hard it is working. |
+| `keevoro log [--lines N]` | The record of what Keevoro did. |
+| `keevoro settings` | Keevoro's settings. |
+| `keevoro settings set own-codecs off` | Stops using this computer's own picture codecs; `on` to use them again. |
+| `keevoro update` | Puts the newest command line in place of this one, checked against its release; `--check` only says whether there is a newer Keevoro. |
+| `keevoro reset` | Puts Keevoro back as it was when first installed. Asks first, or give `--yes`. Nothing on a source or at a destination is touched. |
+| `keevoro agents` | Which folders an AI agent may look through and back up to, and whether it may make changes. |
+| `keevoro agents allow --look FOLDER --back-up-to FOLDER` | Says which folders an agent may use. Give either more than once for several; `--none` for none. |
+| `keevoro agents allow-changes on` | Lets an agent make changes; `off` lets it only look. |
+
+## Where Keevoro keeps its things
+
+Each backup has a folder of Keevoro's own, in Keevoro's data folder on this computer, holding its notes (`.keevoro/catalog.sqlite`) and the previews it makes until they are sent. It is working space, never a copy of your photos. Your photos are only ever in their sources and at the destinations you chose. What a backup looks like at a destination is explained in the note "What is in this backup.txt" that Keevoro writes into each one.
