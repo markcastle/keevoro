@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.34.0] - 2026-11-20
+
 ### Added
 
 - **A backup can be for photos only, or videos only, and so can one source.** In Settings, under This backup, Advanced, choose photos and videos, photos only or videos only; beside a source, under File types, a source can follow its backup or have its own choice. It counts at once on what was already found, with no need to look again, and every count follows it. Anything already backed up stays backed up; it is just no longer kept in what the backup chooses. The File types list says why a kind is left out ("left out: this backup is for photos only"). From the command line: `keevoro backups start "Drone" --videos-only`, `keevoro photos-or-videos photos` and `keevoro sources photos-or-videos 1 both`.
@@ -556,7 +560,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.33.0...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.34.0...HEAD
+[0.34.0]: https://github.com/markcastle/keevoro/compare/v0.33.0...v0.34.0
 [0.33.0]: https://github.com/markcastle/keevoro/compare/v0.32.0...v0.33.0
 [0.32.0]: https://github.com/markcastle/keevoro/compare/v0.31.0...v0.32.0
 [0.31.0]: https://github.com/markcastle/keevoro/compare/v0.30.1...v0.31.0

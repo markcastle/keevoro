@@ -38,15 +38,21 @@ Two views for the step where you decide what to look through, asked for by the o
 - [ ] A look inside a folder: a grid of thumbnails of the photos and video stills in it, before it is added
 - [ ] A map of where the space goes: boxes sized by how much each folder and file takes, coloured by kind, in the style of WinDirStat
 
-### 4. Scheduled and repeat backups
+### 4. Other kinds of file, carried along
+
+Keevoro stays a photo and video tool, but can take your other files with it: music, documents, project files. Asked for by the owner. It comes after the map, which is where a person sees what else a folder holds. See "Other kinds of file".
+
+- [ ] A third kind in the kinds list, "other": found, backed up exactly and listed by folder, with no previews and no clever grouping
+
+### 5. Scheduled and repeat backups
 
 The next thing a person would notice, and the reason the jobs work came first: a scheduled run is just another program asking the API to run a backup, taking its turn with the app. Start with the single command a system scheduler can call, then the schedule in the app, then running with the window closed. See "Scheduled and repeat backups".
 
-### 5. The catalog travels with the backup
+### 6. The catalog travels with the backup
 
 A copy of Keevoro's record inside each destination, so a backup can be opened on a new computer or after the record here is lost. This matters more once backups run unattended. See "The catalog".
 
-### 6. Cloud storage as sure as a folder
+### 7. Cloud storage as sure as a folder
 
 A folder backup is fingerprinted as it is sent and read back afterwards. Cloud storage is not yet held to the same standard.
 
@@ -57,6 +63,7 @@ A folder backup is fingerprinted as it is sent and read back afterwards. Cloud s
 
 ### Later
 
+- [ ] Music done properly: artist and album from the file's tags, cover art as the picture, lengths (see "Other kinds of file"). Only if carrying music along as "other" proves to be used
 - [ ] Agents on other machines: reaching Keevoro over a network, with sign-in and encryption
 - [ ] The website: what Keevoro is, how to get it, that it is in beta, and where to send feedback (the spec is written; the domain and 16 questions are open)
 - [ ] Windows code signing and Apple notarisation, when certificates exist
@@ -403,6 +410,31 @@ Decided
 
 - [ ] Whether the map shows everything on the drive or only folders that hold photos and videos (the first is more useful for finding things; the second is closer to what Keevoro is for)
 - [x] Whether these views are also offered from the command line and to AI agents (the figures yes, as lists; the pictures only through `picture`, as now): yes, `keevoro folders`, `keevoro files`, `keevoro picture --file`, and the agent tools folders_inside and files_in_folder
+
+### Other kinds of file
+
+The backup itself does not mind what a file is: finding, fingerprinting, leaving out exact copies, copying, proving the copy and the history all work on any file. What is particular to photos and videos is everything around that: the grouping into collections, the previews, and the words on nearly every screen. So this comes in two steps, and the first is deliberately small.
+
+Step 1: "other" files, carried along
+
+- [ ] A third kind beside photo and video in the kinds list: "other". Any ending can be added as it, including the ones refused today (music, documents, archives); the guard becomes a choice, with a plain line about what to expect
+- [ ] Nothing is added by default: Keevoro finds photos and videos unless a person adds something
+- [ ] Other files are found, fingerprinted, told apart from their exact copies, backed up and proved exactly like any other file
+- [ ] Listed by the folders they came from, kept as the person arranged them, not grouped by date
+- [ ] No previews are attempted: a plain tile with the file's name and kind
+- [ ] "Photos only" and "videos only" gain their natural partners, so a backup or a source can be for other files only, or for everything
+- [ ] Counts and wording stay true: "238 photos, 11 videos and 40 other files", and screens that say "photos and videos" are checked one by one
+- [ ] The survey and the map count a wanted "other" kind as wanted, not as "everything else"
+- [ ] The backup's layout at the destination says where other files go, and the guide note explains it
+- [ ] On the command line and in the API; readable by an AI agent, which cannot change the list
+
+Step 2: music done properly (later, and only if step 1 is used for music)
+
+- [ ] Read artist, album, title, track and year from the file's tags, without changing the file
+- [ ] Group by artist and album, falling back to folders when there are no tags
+- [ ] Cover art from inside the file as the picture, and the length on the tile
+- [ ] The same exact-copy rule as everything else: two files are duplicates only when they match byte for byte, never because their tags agree
+- [ ] Decide what Keevoro is before building this: a full music mode starts to change it from a tool for keeping photos and videos into a tool for backing up anything
 
 ### Scheduled and repeat backups
 
