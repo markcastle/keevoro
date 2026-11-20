@@ -586,6 +586,13 @@ pub fn room(shared: State<'_, Shared>) -> Said<keevoro_api::RoomAtAGlance> {
     Ok(backup(&shared)?.room().map_err(say)?.at_a_glance)
 }
 
+/// Forgets every remembered survey, and so every map of where the space
+/// goes. Nothing on any drive is touched.
+#[tauri::command]
+pub fn forget_maps(shared: State<'_, Shared>) -> Said<keevoro_api::space::Forgotten> {
+    Ok(shared.keevoro.forget_maps())
+}
+
 /// Clears Keevoro's unfinished copies from a folder, or with `dry_run`
 /// only says what it would clear. Any folder the person chooses: one no
 /// backup goes to any more is the case it is for.
@@ -602,38 +609,21 @@ pub async fn tidy_folder<R: Runtime>(
 }
 
 /// Shows a folder Keevoro has mentioned in the computer's file manager.
-/// Only folders it knows about are opened: a source, where this backup
-/// sends to, or the backup's own folder. Anything else is refused, so a
-/// screen can never be used to open an arbitrary place.
+/// Only folders it knows about are opened: one on a remembered map, a
+/// source or a folder in one, where this backup sends to, or the backup's
+/// own folder. Anything else is refused (`Keevoro::folder_to_show` decides),
+/// so a screen can never be used to open an arbitrary place.
 #[tauri::command]
 pub fn open_place<R: Runtime>(app: AppHandle<R>, shared: State<'_, Shared>, path: String) -> Said<()> {
     use tauri_plugin_opener::OpenerExt;
-    let library = library(&shared)?;
-    let catalog = Catalog::open_in_library(&library).map_err(say)?;
-    let mut known = vec![library.display().to_string(), keevoro_engine::friendly_path(&library)];
-    // A folder inside a source is known too, so a copy can be looked at.
-    let mut inside_a_source = false;
-    for source in catalog.sources().map_err(say)? {
-        let shown = keevoro_engine::friendly_path(&source.root);
-        inside_a_source |= std::path::Path::new(&path).starts_with(&shown)
-            && !std::path::Path::new(&path)
-                .components()
-                .any(|c| c == std::path::Component::ParentDir);
-        known.push(shown);
-        known.push(source.root.display().to_string());
-    }
-    for saved in connect::destinations(&catalog).map_err(say)? {
-        if saved.kind == "folder" {
-            known.push(saved.place);
-        }
-    }
-    if !known.contains(&path) && !inside_a_source {
-        return Err("Keevoro doesn't know that folder.".to_string());
-    }
-    if !std::path::Path::new(&path).is_dir() {
-        return Err(format!("{path} isn't there right now. Is the drive plugged in?"));
-    }
-    app.opener().open_path(path, None::<&str>).map_err(say)
+    let backup = shared.keevoro.backups().current();
+    let folder = shared
+        .keevoro
+        .folder_to_show(std::path::Path::new(&path), backup.as_ref())
+        .map_err(say)?;
+    app.opener()
+        .open_path(folder.display().to_string(), None::<&str>)
+        .map_err(say)
 }
 
 /// What the "connect" form sends. The keys are held only for the length of

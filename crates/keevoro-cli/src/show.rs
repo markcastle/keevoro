@@ -412,6 +412,19 @@ fn map_lines(io: &mut Io<'_>, node: &Value, whole: u64, depth: usize, above: Opt
         Some(why) if !yes(node, "madeByKeevoro") => notes.push(format!("not backed up: {why}")),
         _ => {}
     }
+    if yes(node, "source") {
+        notes.push("a source of this backup".to_string());
+    }
+    if let Some(kept) = node.get("backedUp") {
+        let (safe, of) = (n(kept, "files"), n(kept, "of"));
+        if of > 0 {
+            notes.push(format!(
+                "backed up: {} of {}",
+                keevoro_api::words::thousands(safe),
+                keevoro_api::words::thousands(of)
+            ));
+        }
+    }
     if b(node, "onlineOnlyBytes") > 0 {
         notes.push(format!("{} only online", bytes(b(node, "onlineOnlyBytes"))));
     }
@@ -514,8 +527,23 @@ pub fn space_map(io: &mut Io<'_>, m: &ArgMatches, view: &Value) -> Said_ {
             bytes(b(top, "wouldBackUp"))
         )?,
     }
+    if view.get("refresh").is_some() {
+        let why = if yes(view, "searchedSince") {
+            "a source in it has been looked through since"
+        } else {
+            "it may have changed since"
+        };
+        writeln!(
+            io.out,
+            "This was mapped {} and {why}; keevoro survey maps it again.",
+            keevoro_api::words::ago(when, now)
+        )?;
+    }
     if !yes(view, "complete") {
-        writeln!(io.out, "The survey was stopped part-way, so there may be more.")?;
+        writeln!(
+            io.out,
+            "Partly mapped: the survey was stopped part-way, so there may be more."
+        )?;
     } else if !yes(view, "sizedAll") {
         writeln!(
             io.out,
@@ -954,6 +982,18 @@ pub fn kind_changed(io: &mut Io<'_>, _: &ArgMatches, kind: &Value) -> Said_ {
         )?;
     }
     writeln!(io.out, "This counts from the next time a source is looked through.")?;
+    Ok(Code::Worked)
+}
+
+pub fn maps_forgotten(io: &mut Io<'_>, _: &ArgMatches, forgot: &Value) -> Said_ {
+    match n(forgot, "forgotten") {
+        0 => writeln!(io.out, "Keevoro remembered no maps.")?,
+        many => writeln!(
+            io.out,
+            "Forgot {}. Nothing on any drive was touched; a place is surveyed again when next asked about.",
+            count(many, "remembered map")
+        )?,
+    }
     Ok(Code::Worked)
 }
 

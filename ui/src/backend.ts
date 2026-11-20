@@ -85,7 +85,31 @@ export type LeftOut = { folder: string; what: 'keevoroBackup' | 'keevoroOwn' | '
 /** What leaving a folder out, or putting it back, did, in words that say nothing backed up is touched. */
 export type LeftOutFolder = { folder: string; leftOut: boolean; files: number; stillInside?: string; said: string }
 
-export type SurveyProgress = { folders: number; files: number; photos: number; videos: number; sizing?: boolean }
+export type SurveyProgress = {
+  folders: number
+  files: number
+  photos: number
+  videos: number
+  sizing?: boolean
+  /** The top of the map as it grows: at most twice a second, the biggest first. */
+  top?: TopBox[]
+}
+
+/** One box at the top of the map while a survey walks, named as a box of the map is. */
+export type TopBox = {
+  name: string
+  /** A folder, the files directly in the place (`files`), or the smaller folders together. */
+  node: 'folder' | 'files' | 'smaller'
+  bytes: number
+  photos: number
+  videos: number
+  others: number
+  photoBytes: number
+  videoBytes: number
+  otherBytes: number
+  /** For the smaller folders together, how many. */
+  folders?: number
+}
 
 /** A drive plugged into this computer, offered as somewhere to look. */
 export type Place = {
@@ -554,6 +578,12 @@ export type MapNode = {
   leftOutFolder?: string
   /** Of its photos and videos, the bytes this backup would take. */
   wouldBackUp: number
+  /** It is a source of this backup. */
+  source?: boolean
+  /** It is inside a source of this backup. */
+  inSource?: boolean
+  /** Of the files this backup keeps from it, everything inside counted in, how many are safely everywhere it goes. */
+  backedUp?: BackedUp
   unreadable?: boolean
   /** Something in it was not measured: the survey was stopped first. */
   notSized?: boolean
@@ -561,8 +591,13 @@ export type MapNode = {
   moreFolders?: number
   /** There is more inside than the depth asked for shows. */
   deeper?: boolean
+  /** The endings of the files it holds, as places in the answer's `kinds`. */
+  endings?: number[]
   children?: MapNode[]
 }
+
+/** How much of what this backup keeps from a folder is safely everywhere it goes: "Backed up: 1,180 of 1,204". */
+export type BackedUp = { files: number; of: number }
 
 /** One step of the trail from the place to the folder shown. */
 export type TrailStep = { name: string; folder: string }
@@ -596,6 +631,10 @@ export type MapView = {
   smallest: number
   /** The backup whose choices are said. */
   backup?: string
+  /** Out of date (over an hour old, or a source in it looked through since): mapped again by itself on a disk, or asked first across a network. */
+  refresh?: 'byItself' | 'askFirst'
+  /** A source in it has been looked through since it was mapped. */
+  searchedSince?: boolean
 }
 
 /** A newer version of Keevoro that is ready to install. */
@@ -731,6 +770,8 @@ export interface Backend {
    * `null` when no survey covers it yet. Nothing is opened or changed.
    */
   spaceMap(request: MapRequest): Promise<MapView | null>
+  /** Forgets every remembered survey and map; says how many. */
+  forgetMaps(): Promise<{ forgotten: number }>
   /** An address for a small picture of any photo or video, by its path. Only Keevoro's cache is written. */
   filePicture(path: string): Promise<string>
   /** A screen-sized picture of any photo or video, by its path. Fetched afresh each time. */
@@ -846,6 +887,7 @@ async function tauriBackend(): Promise<Backend> {
     foldersInside: (place) => invoke('folders_inside', { place }),
     folderFiles: (request) => invoke('folder_files', { request }),
     spaceMap: (request) => invoke('space_map', { request }),
+    forgetMaps: () => invoke('forget_maps'),
     filePicture: (path) =>
       pictures.want(fileKey(path), () => invoke<ArrayBuffer>('file_picture', { path, large: false }).then(webp)),
     closerLookAtFile: (path) => invoke<ArrayBuffer>('file_picture', { path, large: true }).then(webp),

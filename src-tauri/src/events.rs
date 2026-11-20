@@ -30,7 +30,7 @@ pub fn to_window<R: Runtime>(app: &AppHandle<R>, said: &Said) {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use keevoro_api::jobs::{CheckEvent, HintView, Outcome, ScanEvent, SendEvent, SurveyEvent, SurveyView};
+    use keevoro_api::jobs::{CheckEvent, HintView, Outcome, ScanEvent, SendEvent, SurveyEvent, SurveyView, TopView};
     use serde::Serialize;
     use std::collections::BTreeSet;
 
@@ -121,12 +121,26 @@ pub(crate) mod tests {
             finished: false,
         };
         assert_eq!(keys(&check), fields_of("CheckEvent"));
+        let top = TopView {
+            name: "Camera Roll".into(),
+            node: "smaller".into(),
+            bytes: 9,
+            photos: 2,
+            videos: 0,
+            others: 1,
+            photo_bytes: 8,
+            video_bytes: 0,
+            other_bytes: 1,
+            folders: 3,
+        };
+        assert_eq!(keys(&top), fields_of("TopBox"));
         let survey = SurveyEvent {
             folders: 1,
             files: 2,
             photos: 3,
             videos: 4,
             sizing: true,
+            top: vec![top],
         };
         assert_eq!(keys(&survey), fields_of("SurveyProgress"));
         let hint = HintView {

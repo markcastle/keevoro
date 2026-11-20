@@ -42,6 +42,14 @@
   --primary-hover: #0b5254;
   --on-primary: #fffcf7;
   --pine: #275a50;
+  /* How a step stands, as traffic lights in Keevoro's own palette: done,
+     under way, to come, and gone wrong. Never the only sign; each has its
+     own shape as well. */
+  --status-done: #2f8a57;
+  --status-doing: #e07b12;
+  --status-waiting: #b9b3a6;
+  --status-problem: #b42318;
+  --on-status: #fffcf7;
   --pine-soft: #e8f0eb;
   --sun: #fc932c;
   --on-sun: #043c3e;
@@ -87,6 +95,11 @@
   --primary-hover: #f7c7a2;
   --on-primary: #0b2b2c;
   --pine: #86b8ab;
+  --status-done: #6fcf97;
+  --status-doing: #f5a34d;
+  --status-waiting: #5d6f6b;
+  --status-problem: #f0907f;
+  --on-status: #0b2b2c;
   --pine-soft: #1b3a36;
   --sun: #f5953a;
   --on-sun: #0b2b2c;
@@ -120,6 +133,11 @@
     --primary-hover: #f7c7a2;
     --on-primary: #0b2b2c;
     --pine: #86b8ab;
+    --status-done: #6fcf97;
+    --status-doing: #f5a34d;
+    --status-waiting: #5d6f6b;
+    --status-problem: #f0907f;
+    --on-status: #0b2b2c;
     --pine-soft: #1b3a36;
     --sun: #f5953a;
     --on-sun: #0b2b2c;

@@ -33,7 +33,7 @@ pub use discover::{
     collection_photos, discover, set_aside, set_collection_kept, set_photo_kept, CollectionView, Discover, PhotoChoice,
     PhotoView, SourceView,
 };
-pub use discover::{duplicates, forget_source, friendly_path, CopyView, DuplicateGroup};
+pub use discover::{duplicates, forget_source, friendly_path, safe_by_folder, CopyView, DuplicateGroup};
 pub use preview::{preview, preview_at, Look};
 
 use anyhow::{bail, Result};

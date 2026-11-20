@@ -1184,6 +1184,21 @@ mod tests {
     }
 
     #[test]
+    fn what_is_safely_backed_up_is_counted_by_folder_by_the_same_rule_as_what_waits() {
+        let (dir, card, home, catalog) = one_backup();
+        let flights = std::fs::canonicalize(card.join("Flights")).unwrap();
+        // Kept, and nowhere yet.
+        let before = crate::safe_by_folder(&catalog).unwrap();
+        assert_eq!(before.get(&flights), Some(&(0, 2)), "{before:?}");
+        // Backed up: safe, exactly as what is waiting says.
+        send(&catalog, &home, &dir.path().join("usb"));
+        assert_eq!(crate::safe_by_folder(&catalog).unwrap()[&flights], (2, 2));
+        assert_eq!(crate::discover(&home, &catalog).unwrap().waiting_to_gather, 0);
+        // Nothing in the source was touched by counting.
+        assert_eq!(std::fs::read_dir(card.join("Flights")).unwrap().count(), 2);
+    }
+
+    #[test]
     fn a_backup_explains_itself_and_leaves_no_folder_unexplained() {
         let (dir, _card, home, catalog) = one_backup();
         let to = dir.path().join("usb");

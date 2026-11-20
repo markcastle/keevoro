@@ -6,7 +6,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Watch the map take shape while Keevoro looks.** While "Find where the photos are" walks a drive or folder, the biggest folders appear as boxes that grow as it goes, so you see what fills the place straight away rather than a spinner. If you have asked your computer for less motion, each new picture simply appears.
+- **Where the space goes by kind of file.** Beside **By folder**, **By kind of file** lists the photos, videos and everything else in the folder shown, each opening to its endings (jpg, mp4, zip and so on) with how many files and how much room. Choose one and every box on the map without it fades, so you can see at a glance where the zip files or the screen recordings are.
+- **See what is already a source, and what is already backed up, on the map.** A folder that is a source of this backup has a firm outline, and a folder whose files are all safely backed up has a tick in its corner; the list says it in words, such as "A source of this backup" and "Backed up: 1,180 of 1,204", and the key explains both. It is worked out when you open the map, so it is always as things are now. `keevoro map` says the same.
+- **Show in File Explorer from the map.** Choose a folder on the map and **Show in File Explorer** (Show in Finder on a Mac, Show in Files on Linux) opens it in your computer's own file manager. Only folders on a map, or ones Keevoro already knows, can be opened this way.
+- **Remembered maps stay honest, and can be forgotten.** A map over an hour old is mapped again by itself as you open it, if the drive is in this computer; across a network Keevoro asks first ("This was mapped 3 days ago. Map it again? It may take a while over the network."). Looking through a source marks the maps of where it is as out of date, so they are mapped again next time, and a survey you stopped is labelled "Partly mapped". Keevoro remembers at most eight maps, taking at most 200 MB, the oldest forgotten first. Since a map lists folder names across a whole drive, Settings, Advanced has **Forget remembered maps** (`keevoro forget-maps`); Reset forgets them too. Nothing on any drive is touched.
+
+### Changed
+
+- **The steps of a backup are marked like traffic lights.** A green disc with a tick when a step is done, an amber dot while it is under way, and a grey ring for one still to come, so you can see at a glance how far along it is. Previews that are all made now show as done straight away, instead of looking unfinished until the whole backup ends.
+- **A survey of a whole drive takes less of your computer's memory.** It now keeps up to 100,000 folders one by one, rather than half a million, so mapping a very large drive holds under 40 MB instead of over 100 MB. Every size and count is still exact; past that, deeper folders (on a system disk, nearly always inside system and app folders) are counted into the folder above them, which says how many more it holds.
+
+### Fixed
+
+- **What a backup would take, on the map, no longer counts a Mac's hidden companion files.** Files like `._IMG_1.jpg`, which no search ever takes, were counted in "This backup would take", and so were photos inside a folder Keevoro made when a very large drive was mapped. Now the figure is only what a backup would really take.
 
 ## [0.36.1] - 2026-11-20
 

@@ -51,6 +51,7 @@ const BACKED: &[(&str, &[Op])] = &[
     ("file_picture", &[Op::PhotosPicture]),
     // Where the space goes in a surveyed place.
     ("space_map", &[Op::PlacesMap]),
+    ("forget_maps", &[Op::PlacesForgetMaps]),
     // The one-line summary names the places without counting what has
     // reached each, which the API does quickly.
     ("destination", &[Op::DestinationsList]),

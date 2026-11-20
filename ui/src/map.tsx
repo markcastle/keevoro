@@ -18,7 +18,9 @@ import { ago, photosAndVideos, share, size } from './format'
 import { nameOf } from './inside'
 import { LeaveOutButton, LeftOutSaid } from './leaveOut'
 import { MapCanvas, MapKey } from './mapCanvas'
-import { called, find, holds, keysOf, notesOn } from './mapWords'
+import { called, FILE_MANAGER, find, holds, keysOf, notesOn } from './mapWords'
+import type { Picked } from './mapWords'
+import { KindsList } from './mapKinds'
 import { SurveyingPanel, useAfterSurvey } from './surveyFirst'
 
 /** How many levels of folders are asked for at once. */
@@ -54,6 +56,9 @@ export function SpaceScreen(props: {
   // In a very narrow window the map is a strip of the biggest boxes until asked for.
   const narrow = useNarrow()
   const [wholeMap, setWholeMap] = useState(false)
+  // The list by folder, or by kind of file with what was picked there.
+  const [byKind, setByKind] = useState(false)
+  const [picked, setPicked] = useState<Picked | null>(null)
   const answers = useRef(new Map<string, MapView>())
 
   const ask = useCallback(async () => {
@@ -68,6 +73,20 @@ export function SpaceScreen(props: {
   }, [api, place, folder])
   const { answer: view, surveying, stop, mapAgain } = useAfterSurvey(api, place, ask, `${folder} ${version}`, onProblem)
   const keys = useMemo(() => (view ? keysOf(view.top) : new Map<MapNode, string>()), [view])
+  // A map out of date is mapped again once as it opens: by itself on a disk
+  // of this computer, after asking across a network.
+  const refreshed = useRef(false)
+  const [answered, setAnswered] = useState(false)
+  const again = useCallback(() => {
+    refreshed.current = true
+    setAnswered(true)
+    answers.current.clear()
+    mapAgain()
+  }, [mapAgain])
+  useEffect(() => {
+    if (view?.refresh === 'byItself' && !refreshed.current && !surveying) again()
+  }, [view, surveying, again])
+  const asking = view?.refresh === 'askFirst' && !answered && !surveying
 
   // Asked afresh after a change, with nothing kept from before it.
   const afresh = () => {
@@ -84,6 +103,8 @@ export function SpaceScreen(props: {
     setSaid(null)
     setListPoint(null)
     setMapPoint(null)
+    // An ending is a place in this folder's list of kinds, so it goes with it.
+    setPicked(null)
     setFolder(to)
     props.onAt?.(to)
   }
@@ -131,16 +152,15 @@ export function SpaceScreen(props: {
           back them up. Nothing here is opened or changed. Mapped {ago(view.surveyedAt)}.{' '}
           <button
             className="link"
-            onClick={() => {
-              answers.current.clear()
-              mapAgain()
-            }}
+            onClick={again}
           >
             Map again
           </button>
         </p>
         {!view.complete && (
-          <p className="quiet small">The survey was stopped part-way, so there may be more here than is shown.</p>
+          <p className="quiet small">
+            <b>Partly mapped.</b> The survey was stopped part-way, so there may be more here than is shown.
+          </p>
         )}
         {view.complete && !view.sizedAll && (
           <p className="quiet small">
@@ -149,6 +169,28 @@ export function SpaceScreen(props: {
         )}
       </header>
       {surveying && <SurveyingPanel name={name} surveying={surveying} onStop={stop} />}
+      {asking && (
+        <div className="panel asking map-again" role="region" aria-label="Map it again?">
+          <p>
+            This was mapped {ago(view.surveyedAt)}
+            {view.searchedSince ? ', and a source in it has been looked through since' : ''}. Map it again? It may take a
+            while over the network.
+          </p>
+          <p className="choices">
+            <button className="primary" onClick={again}>
+              Map it again
+            </button>
+            <button
+              onClick={() => {
+                refreshed.current = true
+                setAnswered(true)
+              }}
+            >
+              Use this map
+            </button>
+          </p>
+        </div>
+      )}
       <Trail view={view} onGo={go} />
       <p className="visually-hidden" aria-live="polite">
         In {top.name}: {size(top.bytes)}
@@ -170,20 +212,37 @@ export function SpaceScreen(props: {
             onChoose={setChosen}
             onGo={go}
             onPoint={setMapPoint}
+            picked={byKind ? picked : null}
           />
           <MapKey />
         </div>
-        <SpaceList
-          top={top}
-          rows={rows}
-          keys={keys}
-          chosen={chosenRow}
-          lit={mapPoint}
-          onChoose={setChosen}
-          onPoint={setListPoint}
-          onGo={go}
-          onUp={up ? () => go(up) : undefined}
-        />
+        <div className="space-side">
+          <div className="segmented list-tabs" role="tablist" aria-label="Show the list">
+            <button role="tab" id="by-folder" aria-selected={!byKind} aria-controls="space-list-panel" onClick={() => setByKind(false)}>
+              By folder
+            </button>
+            <button role="tab" id="by-kind" aria-selected={byKind} aria-controls="space-list-panel" onClick={() => setByKind(true)}>
+              By kind of file
+            </button>
+          </div>
+          <div id="space-list-panel" role="tabpanel" aria-labelledby={byKind ? 'by-kind' : 'by-folder'}>
+            {byKind ? (
+              <KindsList view={view} picked={picked} onPick={setPicked} />
+            ) : (
+              <SpaceList
+                top={top}
+                rows={rows}
+                keys={keys}
+                chosen={chosenRow}
+                lit={mapPoint}
+                onChoose={setChosen}
+                onPoint={setListPoint}
+                onGo={go}
+                onUp={up ? () => go(up) : undefined}
+              />
+            )}
+          </div>
+        </div>
       </div>
       {/* Below the list, held at the foot of the window, so choosing a row never moves the rows. */}
       <Chosen
@@ -273,6 +332,13 @@ function Chosen(props: {
               Look through it
             </button>
           )}
+          <button
+            className="button small"
+            onClick={() => props.api.openPlace(path).catch(props.onProblem)}
+            aria-label={`Show ${node.name} in ${FILE_MANAGER}`}
+          >
+            Show in {FILE_MANAGER}
+          </button>
           {!node.skipped && (
             <LeaveOutButton
               api={props.api}

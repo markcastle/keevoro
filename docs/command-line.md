@@ -65,7 +65,7 @@ By kind: photos 13.8 GB (31%), videos 12.4 GB (28%), everything else 17.7 GB (40
 Of it, 17.1 GB is photos and videos Keevoro would back up.
 ```
 
-`--folder` shows one folder inside the place, `--depth` how many levels of folders (1 to 6, 3 when left out), and `--kinds` lists the kinds of file by ending instead (`zip`, `mp4`, `jpg` and so on). Each line says what Keevoro would make of it for the backup in hand: a folder it made or never looks through, a folder you left out, or photos or videos the backup does not want, and why. It is answered from the survey, so nothing is walked or opened again; survey again for a fresh one.
+`--folder` shows one folder inside the place, `--depth` how many levels of folders (1 to 6, 3 when left out), and `--kinds` lists the kinds of file by ending instead (`zip`, `mp4`, `jpg` and so on). Each line says what Keevoro would make of it for the backup in hand: a folder it made or never looks through, a folder you left out, or photos or videos the backup does not want, and why; which folder is a source of the backup; and how much of what it keeps from each folder is safely backed up ("backed up: 1,180 of 1,204"). It is answered from the survey, so nothing is walked or opened again; survey again for a fresh one. A map over an hour old, or one with a source in it looked through since, says so. Keevoro remembers at most eight maps, taking at most 200 MB between them, the oldest forgotten first; `keevoro forget-maps` forgets them all, touching nothing on any drive.
 
 ### Look through a source
 
@@ -264,6 +264,7 @@ The words each command shows in `keevoro --help` come from the same list the app
 | `keevoro folders PLACE` | The folders inside a surveyed place that hold photos or videos, with how many each holds. |
 | `keevoro files FOLDER [--from N] [--count N] [--sort name\|newest\|oldest] [--photos\|--videos]` | The photos and videos directly in one folder, a page at a time, by name or by the file's date, with each video's length. Nothing is added. |
 | `keevoro map PLACE [--folder FOLDER] [--depth N] [--kinds]` | Where the space goes in a surveyed place: every folder and the biggest files, photos or not, by size, or with `--kinds` by ending. Nothing is opened or changed. |
+| `keevoro forget-maps` | Forgets every survey Keevoro remembers, and so every map. Nothing on any drive is touched. |
 | `keevoro look PLACE` | Looks through a drive or folder and adds it as a source. |
 | `keevoro look --again [SOURCE]` | Looks through one source, or all of them, for what is new. |
 | `keevoro sources` | The backup's sources, each with its number. |

@@ -405,6 +405,16 @@ pub static ROWS: &[Row] = &[
         show: show::space_map,
     },
     Row {
+        words: &["forget-maps"],
+        ops: &[Op::PlacesForgetMaps],
+        about: Some(
+            "Forgets every survey Keevoro remembers, and so every map of where the space goes, since a map lists folder names across a whole drive. Nothing on any drive is touched; a place is simply surveyed again when next asked about.",
+        ),
+        args: none,
+        ask: |c, m, io| nothing(c, m, io, Op::PlacesForgetMaps),
+        show: show::maps_forgotten,
+    },
+    Row {
         words: &["sources"],
         ops: &[Op::SourcesList],
         about: None,

@@ -1080,6 +1080,15 @@ try {
   await chosen.getByRole('button', { name: 'Look inside Camera Roll' }).waitFor()
   assert.ok(await chosen.getByRole('button', { name: 'Look through Camera Roll' }).isVisible())
   assert.match(await chosen.innerText(), /307\.2 MB in OneDrive only, not on this computer/)
+  // What is already a source, and how much of it is safely backed up, in
+  // words beside the outline and tick on the map, and in the key.
+  assert.match(await chosen.innerText(), /A source of this backup/)
+  assert.match(await chosen.innerText(), /Backed up: 1,180 of 1,241/)
+  assert.match(await page.locator('.space-list tbody tr', { hasText: '2019' }).innerText(), /A source of this backup\s+Backed up: all 124/)
+  assert.match(await text('.space .key'), /A source of this backup\s+✓\s*All backed up/)
+  // And it can be shown in the computer's own file manager.
+  await chosen.getByRole('button', { name: /^Show Camera Roll in (File Explorer|Finder|Files)$/ }).click()
+  await shot('9t8-space-sources-backed-up')
   await chosen.getByRole('button', { name: 'Leave out Camera Roll' }).click()
   await chosen.getByRole('button', { name: 'Put back Camera Roll' }).waitFor()
   assert.match(await text('.space .left-out-said'), /nothing already backed up is touched/)
@@ -1104,6 +1113,31 @@ try {
   await page.locator('.space-list tbody tr').first().focus()
   await page.keyboard.press('Backspace')
   await page.getByRole('grid', { name: 'What is in Pictures, the biggest first' }).waitFor()
+  // By kind of file: photos, videos and everything else, each opening to
+  // its endings; picking one fades every box on the map without it.
+  await page.getByRole('tab', { name: 'By kind of file' }).click()
+  const byKindTable = page.getByRole('table', { name: 'What is in Pictures, by kind of file' })
+  await byKindTable.waitFor()
+  assert.deepEqual(await byKindTable.locator('tr.kind-group button[aria-pressed]').allInnerTexts(), ['Photos', 'Videos', 'Everything else'])
+  assert.equal(await map.getAttribute('data-picked'), '', 'nothing picked, nothing faded')
+  await byKindTable.getByRole('button', { name: 'Everything else', exact: true }).click()
+  await page.waitForFunction(() => document.querySelector('.map-canvas')?.dataset.picked === 'other')
+  assert.ok(Number(await map.getAttribute('data-faded')) > 0, 'boxes with no other files fade')
+  await byKindTable.getByRole('button', { name: 'Show the endings of everything else' }).click()
+  await byKindTable.getByRole('button', { name: 'zip', exact: true }).click()
+  await page.waitForFunction(() => /^other:\d+$/.test(document.querySelector('.map-canvas')?.dataset.picked ?? ''))
+  const fadedForZip = Number(await map.getAttribute('data-faded'))
+  assert.ok(fadedForZip > 0, 'boxes without a zip file fade')
+  assert.match(await text('.kinds-list .picked'), /Only the boxes with zip files are bright on the map\./)
+  await shot('9t7-space-by-kind')
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await shot('9t7-space-by-kind-dark')
+  await page.emulateMedia({ colorScheme: 'light' })
+  await fitsNarrow('Where the space goes, by kind of file')
+  await page.locator('.kinds-list').getByRole('button', { name: 'Show everything' }).click()
+  await page.waitForFunction(() => document.querySelector('.map-canvas')?.dataset.picked === '')
+  await page.getByRole('tab', { name: 'By folder' }).click()
+  await page.getByRole('grid', { name: 'What is in Pictures, the biggest first' }).waitFor()
   await fitsNarrow('Where the space goes')
   await page.setViewportSize({ width: 400, height: 800 })
   await shot('9s3-space-list-400')
@@ -1118,12 +1152,31 @@ try {
   assert.equal(await page.locator('.kept li.source').count(), 0, 'nothing was added')
   // While a survey measures what it never looks through, the folders found
   // can be shown at once.
-  await page.goto(`${base}/?demo=empty&slow`)
-  await page.getByRole('button', { name: /Windows \(C:\)/ }).click()
-  await page.getByRole('button', { name: 'Find the folders with photos' }).click()
-  await page.getByRole('button', { name: 'Show the folders now' }).waitFor({ timeout: 15000 })
-  assert.match(await text('.searching'), /Now measuring the rest/)
+  // The map grows while it walks, the top boxes coming with its progress,
+  // easing from one picture to the next unless motion is unwelcome.
+  const surveyGrowing = async () => {
+    await page.goto(`${base}/?demo=empty&slow`)
+    await page.evaluate(() => {
+      window.keevoroEased = false
+      new MutationObserver(() => {
+        if (document.querySelector('.live-map[data-easing]')) window.keevoroEased = true
+      }).observe(document.body, { attributes: true, subtree: true, attributeFilter: ['data-easing'] })
+    })
+    await page.getByRole('button', { name: /Windows \(C:\)/ }).click()
+    await page.getByRole('button', { name: 'Find the folders with photos' }).click()
+    await page.getByRole('button', { name: 'Show the folders now' }).waitFor({ timeout: 15000 })
+    assert.match(await text('.searching'), /Now measuring the rest/)
+    const growing = page.locator('.searching .live-map')
+    await growing.waitFor()
+    assert.ok(Number(await growing.getAttribute('data-boxes')) > 1, 'boxes, not a spinner alone')
+    assert.match(await growing.locator('canvas').getAttribute('aria-label'), /^Map of Windows \(C:\) so far: /)
+    return page.evaluate(() => window.keevoroEased)
+  }
+  assert.equal(await surveyGrowing(), true, 'the boxes grow')
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  assert.equal(await surveyGrowing(), false, 'with reduced motion each picture simply appears')
   await shot('9s6-survey-measuring')
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
   // From a source's card, surveyed first when Keevoro has not seen inside it.
   await page.goto(`${base}/?slow`)
   await page.locator('.steps button').nth(0).click()
@@ -1132,6 +1185,38 @@ try {
   await page.getByRole('grid', { name: /^What is in / }).waitFor({ timeout: 15000 })
   assert.ok(await page.getByRole('heading', { name: 'Where the space goes on Family hard drive', level: 1 }).isVisible())
   await shot('9s5-space-of-a-source')
+  // A map out of date is mapped again as it opens: by itself on a disk of
+  // this computer, and after asking across a network.
+  await page.goto(`${base}/?old=disk&slow`)
+  await page.locator('.steps button').nth(0).click()
+  await page.getByRole('button', { name: 'Where the space goes on Family hard drive' }).click()
+  await page.getByRole('heading', { name: 'Finding what is in Family hard drive…' }).waitFor({ timeout: 15000 })
+  assert.equal(await page.getByRole('region', { name: 'Map it again?' }).count(), 0, 'on a disk it is not asked')
+  await page.getByRole('heading', { name: 'Finding what is in Family hard drive…' }).waitFor({ state: 'detached', timeout: 15000 })
+  assert.match(await text('.space header'), /Mapped 2 minutes ago/)
+  await page.goto(`${base}/?old=network&fast`)
+  await page.locator('.steps button').nth(0).click()
+  await page.getByRole('button', { name: 'Where the space goes on Family hard drive' }).click()
+  const askAgain = page.getByRole('region', { name: 'Map it again?' })
+  await askAgain.waitFor()
+  assert.match(await askAgain.innerText(), /^This was mapped 3 days ago\. Map it again\? It may take a while over the network\./)
+  await shot('9t9-space-map-again-asked')
+  await fitsNarrow('Where the space goes, asking to map again')
+  await askAgain.getByRole('button', { name: 'Use this map' }).click()
+  await askAgain.waitFor({ state: 'detached' })
+  assert.match(await text('.space header'), /Mapped 3 days ago/)
+  await page.getByRole('button', { name: 'Map again' }).click()
+  await page.getByRole('grid', { name: /^What is in / }).waitFor()
+  await page.waitForFunction(() => /Mapped 2 minutes ago/.test(document.querySelector('.space header')?.textContent ?? ''))
+  // A map lists folder names across a whole drive, so it can be forgotten.
+  await page.getByRole('button', { name: '‹ Back' }).click()
+  await page.getByRole('button', { name: 'Settings' }).click()
+  await page.getByRole('heading', { name: 'Settings', level: 1 }).waitFor()
+  await page.locator('details.advanced').last().getByText('Advanced', { exact: true }).click()
+  await page.getByRole('button', { name: 'Forget remembered maps' }).click()
+  assert.equal(await page.getByRole('status').filter({ hasText: 'remembered map' }).innerText(), 'Forgot 1 remembered map.')
+  await page.locator('.setting', { hasText: 'Remembered maps' }).scrollIntoViewIfNeeded()
+  await shot('9u-settings-forget-maps')
 
   // --- Every main screen fits a narrow window: the page never scrolls
   // sideways, and wide tables scroll inside their own box.

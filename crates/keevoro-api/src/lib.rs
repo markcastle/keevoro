@@ -384,6 +384,10 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
             let r: space::MapRequest = read(request)?;
             answer(keevoro.space_map(&r, any_backup()?.as_ref())?)
         }
+        Op::PlacesForgetMaps => {
+            read::<Nothing>(request)?;
+            answer(keevoro.forget_maps())
+        }
         Op::DestinationsList => {
             read::<Nothing>(request)?;
             answer(open()?.destinations()?)

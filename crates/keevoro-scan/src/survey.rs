@@ -100,7 +100,7 @@ pub struct Survey {
 }
 
 /// How far a survey has got.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SurveyProgress {
     pub folders_seen: usize,
     pub files_seen: usize,
@@ -109,7 +109,14 @@ pub struct SurveyProgress {
     /// Every suggestion is final, and the folders Keevoro never looks
     /// through are being sized for the map.
     pub sizing: bool,
+    /// The top of the map so far, so it can be shown growing: given at
+    /// most every [`TOP_EVERY`], and empty in between.
+    pub top: Vec<crate::map::TopBox>,
 }
+
+/// How often the top of the map is given with the progress: twice a
+/// second, often enough to see it grow, and no more.
+pub const TOP_EVERY: std::time::Duration = std::time::Duration::from_millis(500);
 
 /// Below this average size, with no videos beside them, pictures are more
 /// likely icons than photographs.
@@ -583,13 +590,19 @@ impl Walk<'_> {
         self.more.notify_all();
     }
 
-    fn progress(&self) -> SurveyProgress {
+    /// How far it has got, with the top of the map when `with_top`.
+    fn progress(&self, with_top: bool) -> SurveyProgress {
         SurveyProgress {
             folders_seen: self.folders.load(Ordering::Relaxed),
             files_seen: self.files.load(Ordering::Relaxed),
             photos: self.photos.load(Ordering::Relaxed),
             videos: self.videos.load(Ordering::Relaxed),
             sizing: self.sizing.load(Ordering::Relaxed),
+            top: if with_top {
+                self.builder().top(crate::map::MOST_TOP_BOXES)
+            } else {
+                Vec::new()
+            },
         }
     }
 }
@@ -661,13 +674,18 @@ pub fn survey(
             });
         }
         drop(done);
+        let mut top_given: Option<std::time::Instant> = None;
         while let Err(std::sync::mpsc::RecvTimeoutError::Timeout) =
             finished.recv_timeout(std::time::Duration::from_millis(100))
         {
-            on_progress(&walk.progress());
+            let with_top = top_given.is_none_or(|at| at.elapsed() >= TOP_EVERY);
+            if with_top {
+                top_given = Some(std::time::Instant::now());
+            }
+            on_progress(&walk.progress(with_top));
         }
     });
-    let last = walk.progress();
+    let last = walk.progress(true);
     on_progress(&last);
     let asked_to_stop = walk.stopped();
     let undone_now = walk.now_in_hand.load(Ordering::SeqCst) > 0;
@@ -844,7 +862,7 @@ mod tests {
             &crate::ByAttributes,
             crate::map::Limits::default(),
             None,
-            &mut |p| seen = *p,
+            &mut |p| seen = p.clone(),
         );
         assert_eq!(found.hints.len(), 1);
         let hint = &found.hints[0];
@@ -866,6 +884,10 @@ mod tests {
         assert_eq!(found.files_seen, 44, "every file, the system ones too");
         assert!(!found.stopped && found.sized_all);
         assert!(seen.sizing);
+        // The last progress carries the top of the map, as it grew.
+        let top: Vec<(&str, u64)> = seen.top.iter().map(|t| (&*t.name, t.bytes())).collect();
+        assert_eq!(top[0], ("Pictures", 30 * 200_000 + 900_000 + 10));
+        assert_eq!(top.len(), 4, "Pictures, Work, node_modules and .hidden: {top:?}");
         let totals = found.map.totals();
         let developer = found.map.find(&root.join("node_modules")).unwrap();
         assert_eq!(

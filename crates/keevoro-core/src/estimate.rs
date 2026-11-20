@@ -861,7 +861,11 @@ impl Estimator {
             // A stage that had nothing to do is not worth a line.
             .filter(|s| s.work > 0 || s.done > 0 || s.running())
             .map(|s| {
-                let state = if s.finished() {
+                // Work made alongside (previews) has no moment it is told it
+                // is over until the sending ends, but once every one is made
+                // it is done, and should say so.
+                let all_made = s.kind.alongside() && s.running() && s.work > 0 && s.left() == 0;
+                let state = if s.finished() || all_made {
                     State::Done
                 } else if s.running() && s.kind.alongside() && sending {
                     State::Alongside
@@ -1498,6 +1502,24 @@ mod tests {
         e.progress(Kind::SendingOriginals, Some("the folder N:"), 121 * 10 * MB, 1001.0);
         let after = e.estimate(1001.0);
         assert!(after.seconds_left.unwrap() + 2 >= before - 1);
+    }
+
+    #[test]
+    fn previews_all_made_while_the_originals_are_still_going_are_shown_as_done() {
+        let mut e = one_backup(GB, 1000);
+        e.finish(Kind::Placing, None, 0.0);
+        e.progress(Kind::SendingOriginals, Some("the folder N:"), GB / 10, 10.0);
+        e.progress(Kind::MakingPreviews, None, 500, 10.0);
+        let half = e.estimate(11.0);
+        let previews = |est: &Estimate| {
+            est.stages
+                .iter()
+                .find(|s| s.kind == Kind::MakingPreviews)
+                .map(|s| s.state)
+        };
+        assert_eq!(previews(&half), Some(State::Alongside));
+        e.progress(Kind::MakingPreviews, None, 1000, 20.0);
+        assert_eq!(previews(&e.estimate(21.0)), Some(State::Done), "every preview is made");
     }
 
     #[test]

@@ -83,6 +83,10 @@ pub(super) fn start(
         let mut last = None;
         for (n, place) in places.iter().enumerate() {
             let said = look_through(ctx, job, &backup.home, place, &kinds, &skip);
+            // A remembered map of anywhere this search covers may now be
+            // out of date, so it is surveyed again the next time it opens.
+            let real = std::fs::canonicalize(place).unwrap_or_else(|_| place.clone());
+            keevoro_engine::surveys::mark_out_of_date(&ctx.cache, &real);
             // A search that was stopped stops the rest too.
             let more = n + 1 < places.len() && !said.stopped && !job.stopped();
             if !more {

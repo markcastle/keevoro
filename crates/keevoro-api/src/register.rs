@@ -126,6 +126,9 @@ register! {
     PlacesMap = "places.map",
         "Where the space goes in a surveyed place: its folders and files by size and kind",
         changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
+    PlacesForgetMaps = "places.forget_maps",
+        "Forgets every remembered survey and map of where the space goes. Nothing on any drive is touched",
+        changes: Always, job: false, command_line: true, agents: Agents::No, implemented: true;
     SourcesList = "sources.list",
         "A backup's sources: name, place, how many photos and videos, size",
         changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
@@ -314,6 +317,7 @@ impl Op {
                 | Op::BackupsRename
                 | Op::BackupsForget
                 | Op::PlacesList
+                | Op::PlacesForgetMaps
                 | Op::JobsPause
                 | Op::JobsCarryOn
                 | Op::KeevoroAbout
@@ -430,7 +434,8 @@ impl Op {
             | Op::KeevoroUpdate
             | Op::KeevoroReset
             | Op::FileKindsList
-            | Op::FileKindsReset => schema::<Nothing>(),
+            | Op::FileKindsReset
+            | Op::PlacesForgetMaps => schema::<Nothing>(),
         }
     }
 
@@ -704,7 +709,8 @@ impl Op {
             | Op::FileKindsAdd
             | Op::FileKindsChange
             | Op::FileKindsRemove
-            | Op::FileKindsReset => return None,
+            | Op::FileKindsReset
+            | Op::PlacesForgetMaps => return None,
         };
         Some(Tool { name, tells })
     }
@@ -756,7 +762,7 @@ mod tests {
 
     #[test]
     fn the_register_has_every_operation_in_the_plan() {
-        assert_eq!(Op::ALL.len(), 54);
+        assert_eq!(Op::ALL.len(), 55);
         // Each entry is the one for its own operation.
         for op in Op::ALL {
             assert_eq!(op.entry().op, *op);
@@ -812,8 +818,10 @@ mod tests {
             .collect();
         // Forgetting a backup, changing settings (the kinds of file looked
         // for among them), installing an update, resetting, changing an
-        // agent's own permissions, and clearing working files from a folder.
+        // agent's own permissions, clearing working files from a folder, and
+        // forgetting the remembered maps.
         let plan: HashSet<Op> = [
+            Op::PlacesForgetMaps,
             Op::BackupsForget,
             Op::KeevoroSettings,
             Op::KeevoroUpdate,

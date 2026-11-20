@@ -132,12 +132,12 @@ pub struct Limits {
 impl Default for Limits {
     fn default() -> Self {
         Limits {
-            folders: 500_000,
-            named_files: 200_000,
+            folders: 100_000,
+            named_files: 50_000,
             named_per_folder: 64,
             named_at_least: 1024 * 1024,
             endings: 2_000,
-            ending_pairs: 2_000_000,
+            ending_pairs: 500_000,
         }
     }
 }
@@ -420,6 +420,34 @@ impl PartialOrd for BySize {
     }
 }
 
+/// What one box at the top of a map holds so far: a folder in the place
+/// surveyed, the files directly in it, or the smaller folders together.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TopBox {
+    pub name: Box<str>,
+    pub item: TopItem,
+    pub kinds: [KindSum; 3],
+}
+
+/// What a [`TopBox`] is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TopItem {
+    Folder,
+    /// The files directly in the place surveyed.
+    FilesHere,
+    /// This many smaller folders, together.
+    Smaller(u32),
+}
+
+impl TopBox {
+    pub fn bytes(&self) -> u64 {
+        all_of(&self.kinds).bytes
+    }
+}
+
+/// The most boxes [`Builder::top`] gives while a survey walks.
+pub const MOST_TOP_BOXES: usize = 48;
+
 /// Fills a [`Map`] as the walk goes, within its [`Limits`].
 pub struct Builder {
     limits: Limits,
@@ -427,6 +455,10 @@ pub struct Builder {
     ids: HashMap<Box<str>, u16>,
     named: BinaryHeap<Reverse<BySize>>,
     pairs: usize,
+    /// What each folder in the place surveyed holds so far, everything
+    /// inside it counted in, by its place among the place's subfolders;
+    /// kept as the walk goes so the map can be shown growing.
+    top: Vec<[KindSum; 3]>,
 }
 
 impl Builder {
@@ -448,6 +480,7 @@ impl Builder {
             ids: HashMap::new(),
             named: BinaryHeap::new(),
             pairs: 0,
+            top: Vec::new(),
         };
         builder.intern("", Kind::Other);
         builder.intern(OTHER_ENDINGS, Kind::Other);
@@ -503,7 +536,89 @@ impl Builder {
             at.first_child = first;
             at.children = u32::try_from(found.len()).unwrap_or(0);
         }
+        if parent == 0 {
+            self.top = vec![[KindSum::default(); 3]; found.len()];
+        }
         Some(first)
+    }
+
+    /// Which of the place's subfolders `node` is, or is inside: its place
+    /// among them. `None` for the place itself.
+    fn top_of(&self, node: u32) -> Option<usize> {
+        let mut at = node;
+        loop {
+            let parent = self.map.nodes.get(at as usize)?.parent;
+            if parent == NO_PARENT {
+                return None;
+            }
+            if parent == 0 {
+                return at.checked_sub(self.map.nodes[0].first_child).map(|i| i as usize);
+            }
+            at = parent;
+        }
+    }
+
+    /// Adds what was found in `node` to the box at the top it is in.
+    fn add_to_top(&mut self, node: u32, sums: &[KindSum; 3], bytes_only: bool) {
+        let Some(at) = self.top_of(node).and_then(|i| self.top.get_mut(i)) else {
+            return;
+        };
+        for (kept, more) in at.iter_mut().zip(sums) {
+            if bytes_only {
+                kept.bytes += more.bytes;
+            } else {
+                kept.add(*more);
+            }
+        }
+    }
+
+    /// The boxes at the top of the map so far, the biggest first, for
+    /// showing it grow while the walk goes on: each of the place's
+    /// subfolders with everything inside it, the files directly in it, and
+    /// past `most` boxes, the smallest folders together. Folders with nothing
+    /// found in them yet are left out.
+    pub fn top(&self, most: usize) -> Vec<TopBox> {
+        let root = &self.map.nodes[0];
+        let mut boxes: Vec<TopBox> = self
+            .top
+            .iter()
+            .enumerate()
+            .filter(|(_, kinds)| all_of(kinds).files > 0)
+            .filter_map(|(i, kinds)| {
+                let node = self.map.nodes.get(root.first_child as usize + i)?;
+                Some(TopBox {
+                    name: node.name.clone(),
+                    item: TopItem::Folder,
+                    kinds: *kinds,
+                })
+            })
+            .collect();
+        if all_of(&root.direct).files > 0 {
+            boxes.push(TopBox {
+                name: root.name.clone(),
+                item: TopItem::FilesHere,
+                kinds: root.direct,
+            });
+        }
+        boxes.sort_by(|a, b| b.bytes().cmp(&a.bytes()).then_with(|| a.name.cmp(&b.name)));
+        let most = most.max(2);
+        if boxes.len() > most {
+            let mut smaller = TopBox {
+                name: "Smaller folders".into(),
+                item: TopItem::Smaller(0),
+                kinds: [KindSum::default(); 3],
+            };
+            for gone in boxes.split_off(most - 1) {
+                for (kept, more) in smaller.kinds.iter_mut().zip(gone.kinds) {
+                    kept.add(more);
+                }
+                if let TopItem::Smaller(n) = &mut smaller.item {
+                    *n += u32::from(gone.item == TopItem::Folder);
+                }
+            }
+            boxes.push(smaller);
+        }
+        boxes
     }
 
     /// Marks a folder as one Keevoro never looks through, found by what is
@@ -551,6 +666,7 @@ impl Builder {
         if let CountedIn::Own(_) = into {
             self.keep_named(into.node(), listing.big);
         }
+        self.add_to_top(into.node(), &listing.sums, false);
         let limit = self.limits.ending_pairs;
         let at = &mut self.map.nodes[node];
         if let CountedIn::Own(_) = into {
@@ -627,6 +743,7 @@ impl Builder {
             endings.push((id, sum.bytes));
         }
         self.keep_named(node, sizes.big);
+        self.add_to_top(node, &sizes.sums, true);
         let at = &mut self.map.nodes[node as usize];
         at.flags &= !flag::REST_UNSIZED;
         for kind in Kind::ALL {
@@ -950,6 +1067,17 @@ impl Map {
                         offer.judge(ending.kind, e.bytes, offered(&path, ending.kind, &ending.name));
                     }
                 }
+                // Endings are kept for every file, but a search never takes a
+                // system file such as a Mac's `._IMG_1.jpg`, nor anything
+                // counted in from a folder Keevoro passes by: never more than
+                // what is left once those are taken away.
+                if let Some(u) = node.uncounted.as_deref() {
+                    for kind in [Kind::Photo, Kind::Video] {
+                        let i = kind.index();
+                        let most = node.direct[i].bytes.saturating_sub(u.unseen[i].bytes);
+                        offer.bytes[i] = offer.bytes[i].min(most);
+                    }
+                }
             }
             by_folder.insert(*at, offer);
             if node.children > 0 {
@@ -1045,6 +1173,10 @@ pub struct ViewNode {
     pub children: Vec<ViewNode>,
     /// A folder with more inside it than the depth asked for shows.
     pub deeper: bool,
+    /// The endings of the files it holds, everything inside it counted in,
+    /// by their place in [`Map::endings`], in order. Folders whose endings
+    /// were not kept add none.
+    pub endings: Vec<u16>,
 }
 
 impl ViewNode {
@@ -1086,10 +1218,122 @@ pub fn view(map: &Map, totals: &[Totals], folder: u32, depth: u8, smallest: u64,
         let top = open(map, totals, folder, depth, smallest);
         let boxes = top.count();
         if boxes <= most.max(1) || smallest >= totals.get(folder as usize).map_or(0, Totals::bytes) {
+            let mut top = top;
+            fill_endings(map, folder, &mut top);
             return View { top, smallest, boxes };
         }
         smallest = smallest.saturating_mul(2);
     }
+}
+
+/// Says on each box of a view which endings it holds, so a screen can
+/// light the boxes that hold one kind of file. Every folder beneath `top`
+/// is given to the box it is shown in: its own, its parent's merged smaller
+/// folders, or the folder at the depth where the view stops.
+fn fill_endings(map: &Map, top: u32, view: &mut ViewNode) {
+    use std::collections::BTreeSet;
+    // The boxes in order, each with its parent, and for a folder whose
+    // contents are shown, its merged smaller folders.
+    struct Seen {
+        item: Item,
+        parent: Option<usize>,
+        opened: bool,
+        smaller: Option<usize>,
+    }
+    let mut seen: Vec<Seen> = Vec::new();
+    fn list(node: &ViewNode, parent: Option<usize>, seen: &mut Vec<Seen>) {
+        let me = seen.len();
+        seen.push(Seen {
+            item: node.item,
+            parent,
+            opened: !node.children.is_empty(),
+            smaller: None,
+        });
+        for child in &node.children {
+            if child.item == Item::Smaller {
+                seen[me].smaller = Some(seen.len());
+            }
+            list(child, Some(me), seen);
+        }
+    }
+    list(view, None, &mut seen);
+    let mut folder_box: HashMap<u32, usize> = HashMap::new();
+    for (i, s) in seen.iter().enumerate() {
+        if let Item::Folder(f) = s.item {
+            folder_box.insert(f, i);
+        }
+    }
+    let files_box: HashMap<(usize, Kind), usize> = seen
+        .iter()
+        .enumerate()
+        .filter_map(|(i, s)| match s.item {
+            Item::Files(kind) => Some(((s.parent?, kind), i)),
+            _ => None,
+        })
+        .collect();
+    let mut sets: Vec<BTreeSet<u16>> = vec![BTreeSet::new(); seen.len()];
+    let mut box_of: HashMap<u32, usize> = HashMap::new();
+    for at in map.beneath(top) {
+        let node = &map.nodes[at as usize];
+        let shown_in = match folder_box.get(&at) {
+            Some(own) => *own,
+            None => {
+                let Some(up) = box_of.get(&node.parent).copied() else {
+                    continue;
+                };
+                match seen[up] {
+                    Seen {
+                        item: Item::Folder(_),
+                        opened: true,
+                        smaller: Some(smaller),
+                        ..
+                    } => smaller,
+                    _ => up,
+                }
+            }
+        };
+        box_of.insert(at, shown_in);
+        let own = matches!(seen[shown_in].item, Item::Folder(f) if f == at);
+        for e in node.endings.iter() {
+            sets[shown_in].insert(e.ending);
+            // A folder's own files are in its boxes of files by kind.
+            if own {
+                let kind = map.endings.get(e.ending as usize).map_or(Kind::Other, |x| x.kind);
+                if let Some(files) = files_box.get(&(shown_in, kind)) {
+                    sets[*files].insert(e.ending);
+                }
+            }
+        }
+    }
+    let ids: HashMap<&str, u16> = map
+        .endings
+        .iter()
+        .enumerate()
+        .filter_map(|(i, e)| Some((&*e.name, u16::try_from(i).ok()?)))
+        .collect();
+    for (i, s) in seen.iter().enumerate() {
+        if let Item::File(f) = s.item {
+            if let Some(id) = map.named.get(f).and_then(|f| ids.get(ending_of(&f.name).as_str())) {
+                sets[i].insert(*id);
+            }
+        }
+    }
+    // From the bottom up, each box holds what the boxes inside it hold.
+    for i in (1..seen.len()).rev() {
+        if let Some(parent) = seen[i].parent {
+            let inner = std::mem::take(&mut sets[i]);
+            sets[parent].extend(inner.iter().copied());
+            sets[i] = inner;
+        }
+    }
+    let mut sets = sets.into_iter();
+    fn give(node: &mut ViewNode, sets: &mut std::vec::IntoIter<BTreeSet<u16>>) {
+        node.endings = sets.next().unwrap_or_default().into_iter().collect();
+        for child in &mut node.children {
+            give(child, sets);
+        }
+    }
+    give(view, &mut sets);
 }
 
 fn open(map: &Map, totals: &[Totals], folder: u32, depth: u8, smallest: u64) -> ViewNode {
@@ -1102,6 +1346,7 @@ fn open(map: &Map, totals: &[Totals], folder: u32, depth: u8, smallest: u64) -> 
         folders: total.folders,
         children: Vec::new(),
         deeper: false,
+        endings: Vec::new(),
     };
     if depth == 0 {
         shown.deeper = node.children > 0 || all_of(&node.direct).files > 0;
@@ -1114,6 +1359,7 @@ fn open(map: &Map, totals: &[Totals], folder: u32, depth: u8, smallest: u64) -> 
         folders: 0,
         children: Vec::new(),
         deeper: false,
+        endings: Vec::new(),
     };
     for child in node.subfolders() {
         let t = totals.get(child as usize).copied().unwrap_or_default();
@@ -1147,6 +1393,7 @@ fn open(map: &Map, totals: &[Totals], folder: u32, depth: u8, smallest: u64) -> 
             folders: 0,
             children: Vec::new(),
             deeper: false,
+            endings: Vec::new(),
         });
     }
     for kind in Kind::ALL {
@@ -1164,6 +1411,7 @@ fn open(map: &Map, totals: &[Totals], folder: u32, depth: u8, smallest: u64) -> 
             folders: 0,
             children: Vec::new(),
             deeper: false,
+            endings: Vec::new(),
         });
     }
     shown.children.sort_by_key(|c| Reverse(c.bytes()));
@@ -1492,6 +1740,87 @@ mod tests {
     }
 
     #[test]
+    fn the_top_of_the_map_is_kept_as_it_grows_and_the_smallest_are_put_together() {
+        let limits = Limits::default();
+        let mut b = Builder::new(Path::new("/Pictures"), limits);
+        assert!(b.top(MOST_TOP_BOXES).is_empty(), "nothing yet");
+        b.record(CountedIn::Own(0), listing(&[("loose.jpg", 3_000)], &limits));
+        let first = b
+            .subfolders(
+                CountedIn::Own(0),
+                &[
+                    ("Camera Roll", None),
+                    ("Captures", None),
+                    ("Empty", None),
+                    ("Notes", None),
+                ],
+            )
+            .unwrap();
+        b.record(CountedIn::Own(first), listing(&[("a.jpg", 4_000_000)], &limits));
+        let inside = b.subfolders(CountedIn::Own(first + 1), &[("2019", None)]).unwrap();
+        b.record(CountedIn::Own(first + 1), Listing::default());
+        b.record(CountedIn::Own(inside), listing(&[("one.mp4", 9_000_000)], &limits));
+        let mut notes = Listing::default();
+        notes.file_unsized(&seen("list.txt", 0));
+        b.record(CountedIn::Own(first + 3), notes);
+        let top = b.top(MOST_TOP_BOXES);
+        let said: Vec<(&str, TopItem, u64)> = top.iter().map(|t| (&*t.name, t.item, t.bytes())).collect();
+        assert_eq!(
+            said,
+            [
+                ("Captures", TopItem::Folder, 9_000_000),
+                ("Camera Roll", TopItem::Folder, 4_000_000),
+                ("Pictures", TopItem::FilesHere, 3_000),
+                ("Notes", TopItem::Folder, 0),
+            ],
+            "everything inside a folder counted in, and nothing for a folder with nothing found yet"
+        );
+        // Sized later, its bytes come in.
+        let mut sizes = Listing::default();
+        sizes.file(&seen("list.txt", 70), &limits);
+        b.sized(first + 3, sizes);
+        assert_eq!(b.top(MOST_TOP_BOXES)[3].bytes(), 70);
+        let few = b.top(2);
+        assert_eq!(few.len(), 2);
+        assert_eq!(few[1].item, TopItem::Smaller(2), "Camera Roll and Notes");
+        assert_eq!(
+            few.iter().map(TopBox::bytes).sum::<u64>(),
+            b.finish().totals()[0].bytes(),
+            "nothing lost by putting them together"
+        );
+    }
+
+    #[test]
+    fn each_box_of_a_view_says_which_endings_it_holds() {
+        let map = pictures(Limits::default());
+        let totals = map.totals();
+        let shown = view(&map, &totals, 0, 2, 10_000_000, MOST_BOXES);
+        let named = |node: &ViewNode| -> Vec<&str> {
+            let mut names: Vec<&str> = node.endings.iter().map(|e| &*map.endings[*e as usize].name).collect();
+            names.sort_unstable();
+            names
+        };
+        assert_eq!(
+            named(&shown.top),
+            ["db", "ini", "jpg", "mp4", "png", "txt", "zip"],
+            "everything"
+        );
+        let find = |item: Item| shown.top.children.iter().find(|c| c.item == item).unwrap();
+        let packs = find(Item::Folder(at(&map, "Texture packs")));
+        assert_eq!(named(packs), ["txt", "zip"]);
+        let rocks = packs
+            .children
+            .iter()
+            .find(|c| matches!(c.item, Item::File(i) if &*map.named[i].name == "rocks.zip"))
+            .unwrap();
+        assert_eq!(named(rocks), ["zip"]);
+        assert_eq!(named(find(Item::Folder(at(&map, "Captures")))), ["mp4"]);
+        // Camera Roll, the library and what is inside it are merged, and
+        // so are their endings.
+        assert_eq!(named(find(Item::Smaller)), ["db", "jpg", "png"]);
+    }
+
+    #[test]
     fn a_view_never_holds_more_boxes_than_allowed() {
         let limits = Limits::default();
         let mut b = Builder::new(Path::new("/d"), limits);
@@ -1547,6 +1876,34 @@ mod tests {
     }
 
     #[test]
+    fn a_backup_is_never_said_to_take_what_no_search_would() {
+        let limits = Limits::default();
+        let mut b = Builder::new(Path::new("/d"), limits);
+        let mut here = listing(&[("a.jpg", 10)], &limits);
+        // A Mac's companion file: a photo by its ending, never taken.
+        here.file(
+            &FileSeen {
+                system: true,
+                ..seen("._a.jpg", 4_096)
+            },
+            &limits,
+        );
+        b.record(CountedIn::Own(0), here);
+        // Past the folder bound, a folder Keevoro passes by counted in.
+        b.record(
+            CountedIn::Above {
+                node: 0,
+                passed_by: true,
+            },
+            listing(&[("copy.jpg", 7_000)], &limits),
+        );
+        let map = b.finish();
+        assert_eq!(map.totals()[0].kinds[0].bytes, 10 + 4_096 + 7_000, "all of it is shown");
+        let offered = map.offered(0, |_: &Path, _, _: &str| Ok::<(), ()>(()));
+        assert_eq!(offered.bytes, 10, "but only the photo a search would take is offered");
+    }
+
+    #[test]
     fn a_folder_passed_by_only_because_it_was_left_out_is_judged_as_it_is_now() {
         let limits = Limits::default();
         let mut b = Builder::new(Path::new("/d"), limits);
@@ -1575,18 +1932,30 @@ mod tests {
         while folders < 100_000 {
             let mut deeper = Vec::new();
             for parent in next {
-                if let Some(first) = b.subfolders(CountedIn::Own(parent), &found) {
-                    for c in 0..10 {
-                        let mut files = Listing::default();
-                        for n in 0..10u64 {
-                            let name = format!("IMG_{n}.{}", ["jpg", "mp4", "zip"][(n % 3) as usize]);
-                            files.file(&seen(&name, 2_000_000 + n), &limits);
-                        }
-                        b.record(CountedIn::Own(first + c), files);
-                        deeper.push(first + c);
+                // Past the folder bound, counted into the folder above, as
+                // the walk does.
+                let first = b.subfolders(CountedIn::Own(parent), &found);
+                for c in 0..10 {
+                    let mut files = Listing::default();
+                    for n in 0..10u64 {
+                        let name = format!("IMG_{n}.{}", ["jpg", "mp4", "zip"][(n % 3) as usize]);
+                        files.file(&seen(&name, 2_000_000 + n), &limits);
                     }
-                    folders += 10;
+                    match first {
+                        Some(first) => {
+                            b.record(CountedIn::Own(first + c), files);
+                            deeper.push(first + c);
+                        }
+                        None => b.record(
+                            CountedIn::Above {
+                                node: parent,
+                                passed_by: false,
+                            },
+                            files,
+                        ),
+                    }
                 }
+                folders += 10;
                 if folders >= 100_000 {
                     break;
                 }
@@ -1602,6 +1971,59 @@ mod tests {
             map.nodes.len(),
             bytes as f64 / 1024.0 / 1024.0
         );
+    }
+
+    /// What a map at the folder bound really takes, allocator and all, from
+    /// what the process holds before and after building one. Linux only, as
+    /// it reads `/proc`; run by hand:
+    /// `cargo test -p keevoro-scan how_much -- --ignored --nocapture`.
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[ignore = "a measurement, run by hand"]
+    fn how_much_a_map_at_the_folder_bound_holds() {
+        fn resident() -> usize {
+            let statm = std::fs::read_to_string("/proc/self/statm").unwrap();
+            let pages: usize = statm.split_whitespace().nth(1).unwrap().parse().unwrap();
+            pages * 4096
+        }
+        let limits = Limits::default();
+        let before = resident();
+        let mut b = Builder::new(Path::new("/d"), limits);
+        b.record(CountedIn::Own(0), Listing::default());
+        // Folders ten wide, with names of a usual length, each holding a few
+        // files of two or three endings, until the bound stops it.
+        let names: Vec<String> = (0..10).map(|n| format!("Holiday folder {n}")).collect();
+        let found: Vec<(&str, Option<SkipReason>)> = names.iter().map(|n| (n.as_str(), None)).collect();
+        let mut next = vec![0u32];
+        while !next.is_empty() {
+            let mut deeper = Vec::new();
+            for parent in next {
+                let Some(first) = b.subfolders(CountedIn::Own(parent), &found) else {
+                    continue;
+                };
+                for c in 0..10 {
+                    let mut files = Listing::default();
+                    // Five endings, and one file big enough to be named.
+                    for n in 0..6u64 {
+                        let name = format!("IMG_{n}.{}", ["jpg", "mp4", "txt", "png", "zip", "jpg"][n as usize]);
+                        files.file(&seen(&name, if n == 1 { 2_000_000 } else { 300_000 + n }), &limits);
+                    }
+                    b.record(CountedIn::Own(first + c), files);
+                    deeper.push(first + c);
+                }
+            }
+            next = deeper;
+        }
+        let map = b.finish();
+        let after = resident();
+        eprintln!(
+            "{} folders: {:.1} MB held by the process, {:.1} MB counted by the map, {} bytes a folder node",
+            map.nodes.len(),
+            (after.saturating_sub(before)) as f64 / 1024.0 / 1024.0,
+            held(&map) as f64 / 1024.0 / 1024.0,
+            std::mem::size_of::<FolderNode>()
+        );
+        assert_eq!(map.nodes.len(), limits.folders.min(map.nodes.len()));
     }
 
     /// Roughly what a map holds in memory: its parts and what they point to.

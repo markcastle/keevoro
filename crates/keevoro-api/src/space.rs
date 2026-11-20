@@ -151,6 +151,16 @@ pub struct MapNode {
     /// Of its photos and videos, the bytes the backup in hand would take
     /// (all of them with no backup in hand).
     pub would_back_up: u64,
+    /// It is a source of the backup in hand.
+    #[serde(skip_serializing_if = "not")]
+    pub source: bool,
+    /// It is inside a source of the backup in hand.
+    #[serde(skip_serializing_if = "not")]
+    pub in_source: bool,
+    /// Of the files the backup in hand keeps from it, everything inside it
+    /// counted in, how many are safely at every place it goes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backed_up: Option<BackedUp>,
     /// Its listing could not be read.
     #[serde(skip_serializing_if = "not")]
     pub unreadable: bool,
@@ -163,9 +173,25 @@ pub struct MapNode {
     /// There is more inside than the depth asked for shows.
     #[serde(skip_serializing_if = "not")]
     pub deeper: bool,
+    /// The endings of the files it holds, everything inside it counted in,
+    /// as places in the answer's `kinds`: what lights it when a screen
+    /// picks out one kind of file.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub endings: Vec<usize>,
     /// What is inside it, the biggest first.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<MapNode>,
+}
+
+/// How much of what a backup keeps from a folder is safely backed up:
+/// "Backed up: 1,180 of 1,204".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackedUp {
+    /// Safely at every place the backup goes.
+    pub files: usize,
+    /// Kept by the backup.
+    pub of: usize,
 }
 
 /// One step of the trail from the place to the folder shown.
@@ -220,6 +246,25 @@ pub struct MapView {
     /// The backup whose choices are said, if any.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backup: Option<String>,
+    /// The map is out of date (over an hour old, or a source in it has been
+    /// looked through since), and how to map it again: by itself on a disk
+    /// of this computer, or after asking across a network. Absent when it
+    /// is fresh.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refresh: Option<Refresh>,
+    /// A source in it has been looked through since it was mapped.
+    #[serde(skip_serializing_if = "not")]
+    pub searched_since: bool,
+}
+
+/// How an out of date map is mapped again when it is opened.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Refresh {
+    /// On a disk of this computer: surveyed again by itself.
+    ByItself,
+    /// Across a network, where it may take a while: asked first.
+    AskFirst,
 }
 
 /// When `smallest` is not given, what is too small to see on a map of
@@ -270,14 +315,23 @@ impl Keevoro {
         let smallest = ask.smallest.unwrap_or(total / BOXES_WHEN_NOT_SAID);
         let shown = map::view(map, &loaded.totals, top, ask.depth, smallest, map::MOST_BOXES);
         let offered = map.offered(top, |path, kind, ending| judge.offered(path, kind, ending));
+        let (endings, kinds_short) = map.endings_beneath(top);
+        let endings: Vec<(u16, map::KindSum)> = endings
+            .into_iter()
+            .filter(|(id, _)| map.endings.get(*id as usize).is_some())
+            .collect();
+        let in_kinds: std::collections::HashMap<u16, usize> =
+            endings.iter().enumerate().map(|(i, (id, _))| (*id, i)).collect();
+        let backed_up = backed_up_beneath(map, top, backup)?;
         let said = Said {
             map,
             totals: &loaded.totals,
             judge: &judge,
             offered: &offered,
+            in_kinds: &in_kinds,
+            backed_up: &backed_up,
         };
         let above = said.passed_by_above(top);
-        let (endings, kinds_short) = map.endings_beneath(top);
         let folder_path = map.path_of(top);
         let kinds_seen = endings
             .into_iter()
@@ -314,6 +368,20 @@ impl Keevoro {
             at = map.nodes[at as usize].parent;
         }
         trail.reverse();
+        let searched_since = keevoro_engine::surveys::searched_since(&self.cache_folder(), &map.root);
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(0));
+        let refresh = match keevoro_engine::surveys::freshness(
+            loaded.survey.surveyed_at,
+            now,
+            searched_since,
+            keevoro_engine::reach::is_across_a_network(&place),
+        ) {
+            keevoro_engine::surveys::Freshness::Fresh => None,
+            keevoro_engine::surveys::Freshness::Again => Some(Refresh::ByItself),
+            keevoro_engine::surveys::Freshness::AskFirst => Some(Refresh::AskFirst),
+        };
         Ok(Some(MapView {
             place: friendly_path(&place),
             folder: friendly_path(&folder),
@@ -326,7 +394,69 @@ impl Keevoro {
             kinds_short,
             smallest: shown.smallest,
             backup: backup.map(|b| b.name.clone()),
+            refresh,
+            searched_since,
         }))
+    }
+}
+
+impl Keevoro {
+    /// The folder a screen may show in the computer's file manager ("Show
+    /// in File Explorer"), in its full form: one inside a remembered survey
+    /// (so any folder on a map), or one the backup in hand knows (its own
+    /// folder, a source or a folder inside one, a folder it is sent to).
+    /// Anything else is refused, so a screen can never be made to open any
+    /// place it likes. It only decides; the window does the showing.
+    pub fn folder_to_show(&self, folder: &Path, backup: Option<&Named>) -> Result<std::path::PathBuf> {
+        let real = existing_folder(folder)?;
+        let mapped = keevoro_engine::surveys::covering(&self.cache_folder(), &real)
+            .is_some_and(|loaded| loaded.survey.map.find(&real).is_some());
+        if mapped {
+            return Ok(real);
+        }
+        if let Some(backup) = backup.and_then(|b| crate::backup::Backup::open_existing(&b.home)) {
+            let full = |p: &Path| std::fs::canonicalize(p).ok();
+            let catalog = backup.catalog();
+            let in_a_source = catalog
+                .sources()
+                .map_err(Error::from)?
+                .iter()
+                .any(|s| full(&s.root).is_some_and(|root| keevoro_core::places::within(&real, &root)));
+            let sent_to = keevoro_engine::connect::destinations(catalog)
+                .map_err(Error::from)?
+                .iter()
+                .filter(|d| d.kind == "folder")
+                .filter_map(|d| full(Path::new(&d.place)))
+                .any(|place| keevoro_core::places::same_place(&real, &place));
+            let home = full(backup.home()).is_some_and(|home| keevoro_core::places::same_place(&real, &home));
+            if in_a_source || sent_to || home {
+                return Ok(real);
+            }
+        }
+        Err(Error::refused("Keevoro doesn't know that folder."))
+    }
+}
+
+/// What `places.forget_maps` answers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Forgotten {
+    /// How many places' surveys were forgotten.
+    pub forgotten: usize,
+}
+
+impl Keevoro {
+    /// `places.forget_maps`: forgets every remembered survey, since a map
+    /// lists folder names across a whole drive. Only Keevoro's own cache is
+    /// touched; a place is simply surveyed again when next asked about.
+    pub fn forget_maps(&self) -> Forgotten {
+        let forgotten = keevoro_engine::surveys::forget_all(&self.cache_folder());
+        self.log().say(&format!(
+            "Forgot {} remembered {}",
+            forgotten,
+            if forgotten == 1 { "map" } else { "maps" }
+        ));
+        Forgotten { forgotten }
     }
 }
 
@@ -386,6 +516,49 @@ struct Said<'a> {
     totals: &'a [map::Totals],
     judge: &'a Judge<'a>,
     offered: &'a map::Offered<LeftOutBy>,
+    /// Each ending's place in the answer's `kinds`.
+    in_kinds: &'a std::collections::HashMap<u16, usize>,
+    /// What the backup keeps and has safely backed up, by folder, everything
+    /// inside each counted in.
+    backed_up: &'a std::collections::HashMap<u32, BackedUp>,
+}
+
+/// What the backup in hand keeps from each folder at or inside `top`, and
+/// how much of it is safely backed up, everything inside each folder
+/// counted in. Worked out now from the backup's own record, by the rule for
+/// what is waiting at each destination (`keevoro_engine::safe_by_folder`),
+/// never kept in the survey. A file in a folder the map does not hold on its
+/// own (past its bounds, or made since) counts in the nearest folder it does.
+fn backed_up_beneath(map: &Map, top: u32, backup: Option<&Named>) -> Result<std::collections::HashMap<u32, BackedUp>> {
+    let mut rolled: std::collections::HashMap<u32, BackedUp> = std::collections::HashMap::new();
+    let Some(backup) = backup.and_then(|b| crate::backup::Backup::open_existing(&b.home)) else {
+        return Ok(rolled);
+    };
+    let by_folder = keevoro_engine::safe_by_folder(backup.catalog()).map_err(Error::from)?;
+    for (folder, (safe, kept)) in by_folder {
+        let mut at = folder.as_path();
+        let node = loop {
+            if let Some(node) = map.find(at) {
+                break Some(node);
+            }
+            match at.parent() {
+                Some(up) if up.starts_with(&map.root) => at = up,
+                _ => break None,
+            }
+        };
+        let Some(node) = node.filter(|n| map.within(*n, top)) else {
+            continue;
+        };
+        for folder in std::iter::once(node).chain(map.ancestors(node)) {
+            let sum = rolled.entry(folder).or_insert(BackedUp { files: 0, of: 0 });
+            sum.files += safe;
+            sum.of += kept;
+            if folder == top {
+                break;
+            }
+        }
+    }
+    Ok(rolled)
 }
 
 impl Said<'_> {
@@ -425,10 +598,18 @@ impl Said<'_> {
             left_out: None,
             left_out_folder: None,
             would_back_up: 0,
+            source: false,
+            in_source: false,
+            backed_up: None,
             unreadable: false,
             not_sized: false,
             more_folders: 0,
             deeper: shown.deeper,
+            endings: shown
+                .endings
+                .iter()
+                .filter_map(|e| self.in_kinds.get(e).copied())
+                .collect(),
             children: Vec::new(),
         };
         let mut passed = above;
@@ -446,6 +627,14 @@ impl Said<'_> {
                 node.not_sized = self.totals.get(at as usize).is_some_and(|t| t.not_sized);
                 node.more_folders = u64::from(n.more_folders);
                 node.would_back_up = self.offered.beneath.get(&at).copied().unwrap_or(0);
+                node.backed_up = self.backed_up.get(&at).copied();
+                for source in &self.judge.choices.sources {
+                    if keevoro_core::places::same_place(&path, &source.root) {
+                        node.source = true;
+                    } else if keevoro_core::places::within(&path, &source.root) {
+                        node.in_source = true;
+                    }
+                }
                 if passed.is_none() {
                     node.left_out_folder = self.judge.choices.left_out_folder(&path).map(friendly_path);
                     node.left_out = node
@@ -626,6 +815,15 @@ mod tests {
             .find(|k| k["ending"] == "zip")
             .unwrap();
         assert_eq!((zip["files"].as_u64(), zip["kind"].as_str()), (Some(2), Some("other")));
+        // Each box says which of those endings it holds, to light by kind.
+        let zip_at = map["kinds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .position(|k| k["ending"] == "zip");
+        let holds_zip = |node: &Value| node["endings"].as_array().unwrap().contains(&json!(zip_at.unwrap()));
+        assert!(holds_zip(packs) && holds_zip(top));
+        assert!(!holds_zip(child(top, "Captures")));
 
         // Into a folder, with the trail back.
         let inside = call(
@@ -667,6 +865,14 @@ mod tests {
         let backup = crate::Backup::open(&named.home).unwrap();
         k.set_backup_wants(&backup, keevoro_core::Wants::Photos).unwrap();
         let place = pictures(dir.path());
+        // A Mac's hidden companion file, which no search ever takes, and a
+        // backup Keevoro made inside the place.
+        std::fs::write(place.join("Camera Roll").join("._IMG_0.jpg"), vec![0u8; 4_096]).unwrap();
+        let made = place.join("Backup drive");
+        std::fs::create_dir_all(made.join("originals")).unwrap();
+        std::fs::write(made.join("originals").join("IMG_9.jpg"), vec![0u8; 50_000]).unwrap();
+        std::fs::write(made.join(keevoro_core::BACKUP_GUIDE), "guide").unwrap();
+        std::fs::create_dir_all(made.join("index")).unwrap();
         surveyed(&k, &place);
         backup.leave_out(&place.join("Screenshots"), true).unwrap();
         let mut ask = MapRequest::of(&place);
@@ -689,7 +895,147 @@ mod tests {
         let mp4 = map.kinds.iter().find(|k| k.ending == "mp4").unwrap();
         assert_eq!(mp4.left_out.as_deref(), Some("this backup is for photos only"));
         assert_eq!(map.backup.as_deref(), Some("Stills"));
+        // The summary line's figure: this backup takes Camera Roll's photos
+        // and nothing else. Not the videos (photos only), not Screenshots
+        // (left out), not the old library or the backup inside (Keevoro made
+        // them), and not the hidden companion file.
+        assert_eq!(map.top.would_back_up, 12 * 30_000);
+        assert!(find("Backup drive").made_by_keevoro, "{:?}", find("Backup drive"));
         k.wait_for_jobs();
+    }
+
+    #[test]
+    fn the_map_says_what_is_a_source_and_how_much_of_it_is_backed_up_worked_out_when_asked() {
+        let _turn = one_at_a_time();
+        let dir = tempfile::tempdir().unwrap();
+        let k = keevoro(dir.path());
+        let named = k.start_backup("Card photos").unwrap();
+        let card = crate::backup::tests::card_looked_through_into(dir.path(), &named.home);
+        let before: Vec<(PathBuf, Vec<u8>)> = walk_files(&card);
+        surveyed(&k, dir.path());
+        let mut ask = MapRequest::of(dir.path());
+        ask.smallest = Some(1);
+        ask.depth = 3;
+        let map = k.space_map(&ask, Some(&named)).unwrap();
+        let at = |node: &MapNode, name: &str| node.children.iter().find(|c| c.name == name).cloned().unwrap();
+        let on_card = at(&map.top, "Card");
+        assert!(on_card.source && !on_card.in_source, "the source itself");
+        let holidays = at(&on_card, "Holidays");
+        assert!(holidays.in_source && !holidays.source, "and everything inside it");
+        let cornwall = at(&holidays, "Cornwall");
+        assert_eq!(
+            cornwall.backed_up,
+            Some(BackedUp { files: 0, of: 2 }),
+            "kept, and not backed up yet"
+        );
+        let kept: usize = on_card.children.iter().filter_map(|c| c.backed_up.map(|b| b.of)).sum();
+        assert_eq!(on_card.backed_up.map(|b| b.of), Some(kept), "rolled up the map");
+        assert_eq!(map.top.backed_up.map(|b| b.of), Some(kept));
+        assert!(!map.top.source && !map.top.in_source);
+        // Without a backup in hand, nothing is said of sources or backing up.
+        let plain = k.space_map(&ask, None).unwrap();
+        let said = serde_json::to_string(&plain).unwrap();
+        assert!(!said.contains("backedUp") && !said.contains("\"source\"") && !said.contains("inSource"));
+        // Working it out only read the source.
+        assert_eq!(walk_files(&card), before);
+        k.wait_for_jobs();
+    }
+
+    #[test]
+    fn only_a_folder_on_a_map_or_one_keevoro_knows_may_be_shown() {
+        let _turn = one_at_a_time();
+        let dir = tempfile::tempdir().unwrap();
+        let k = keevoro(dir.path());
+        let named = k.start_backup("Card photos").unwrap();
+        let place = pictures(dir.path());
+        let elsewhere = dir.path().join("Elsewhere");
+        std::fs::create_dir_all(elsewhere.join("Private")).unwrap();
+        // Nothing mapped and nothing known: refused.
+        let e = k.folder_to_show(&place, Some(&named)).unwrap_err();
+        assert_eq!(e.kind, crate::Kind::Refused);
+        surveyed(&k, &place);
+        let roll = place.join("Camera Roll");
+        assert_eq!(
+            k.folder_to_show(&roll, None).unwrap(),
+            std::fs::canonicalize(&roll).unwrap()
+        );
+        // Climbing out of the map by "..", or a folder outside it, is not.
+        for outside in [
+            place.join("Camera Roll").join("..").join("..").join("Elsewhere"),
+            elsewhere.join("Private"),
+            dir.path().to_path_buf(),
+        ] {
+            let e = k.folder_to_show(&outside, Some(&named)).unwrap_err();
+            assert_eq!(e.kind, crate::Kind::Refused, "{}", outside.display());
+        }
+        let e = k.folder_to_show(&dir.path().join("Not there"), None).unwrap_err();
+        assert_eq!(e.kind, crate::Kind::NotFound);
+        // A source, and a folder inside it, are known.
+        let card = crate::backup::tests::card_looked_through_into(dir.path(), &named.home);
+        assert!(k.folder_to_show(&card.join("Holidays"), Some(&named)).is_ok());
+        assert!(
+            k.folder_to_show(&named.home, Some(&named)).is_ok(),
+            "the backup's own folder"
+        );
+        k.wait_for_jobs();
+    }
+
+    #[test]
+    fn a_map_is_fresh_until_a_source_in_it_is_looked_through_and_can_be_forgotten_by_the_person_only() {
+        let _turn = one_at_a_time();
+        let dir = tempfile::tempdir().unwrap();
+        let k = keevoro(dir.path());
+        k.start_backup("Card photos").unwrap();
+        let card = crate::backup::tests::card_in(dir.path());
+        surveyed(&k, &card);
+        let mut ask = MapRequest::of(&card);
+        ask.smallest = Some(1);
+        let fresh = k.space_map(&ask, None).unwrap();
+        assert_eq!((fresh.refresh, fresh.searched_since), (None, false), "just mapped");
+        let looked = call(
+            &k,
+            Op::SourcesLook,
+            None,
+            json!({ "place": card.join("Holidays").display().to_string() }),
+        )
+        .unwrap();
+        k.wait(serde_json::from_value(looked["id"].clone()).unwrap());
+        k.wait_for_jobs();
+        let after = k.space_map(&ask, None).unwrap();
+        assert!(after.searched_since, "a source inside it was looked through since");
+        assert_eq!(
+            after.refresh,
+            Some(Refresh::ByItself),
+            "on a disk, mapped again by itself"
+        );
+        assert_eq!(serde_json::to_value(&after).unwrap()["refresh"], "byItself");
+        // An agent may not forget the person's maps.
+        let agent = keevoro(dir.path()).as_front_end(crate::FrontEnd::Agent);
+        let e = call_for_agent(&agent, Op::PlacesForgetMaps, None, json!({})).unwrap_err();
+        assert_eq!(e.kind, crate::Kind::Refused);
+        assert!(k.space_map(&ask, None).is_ok(), "still remembered");
+        // The person can.
+        let forgot = call(&k, Op::PlacesForgetMaps, None, json!({})).unwrap();
+        assert_eq!(forgot["forgotten"], 1);
+        assert!(
+            k.space_map_if_surveyed(&ask, None).unwrap().is_none(),
+            "surveyed afresh when next asked"
+        );
+        k.wait_for_jobs();
+    }
+
+    /// Every file under `dir` with what is in it, in order.
+    fn walk_files(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+        let mut out = Vec::new();
+        for entry in std::fs::read_dir(dir).unwrap().flatten() {
+            if entry.path().is_dir() {
+                out.extend(walk_files(&entry.path()));
+            } else {
+                out.push((entry.path(), std::fs::read(entry.path()).unwrap()));
+            }
+        }
+        out.sort();
+        out
     }
 
     #[test]
@@ -698,6 +1044,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let person = keevoro(dir.path());
         let place = pictures(dir.path());
+        // The person's backup has a source outside the folder allowed, so
+        // the map has sources and backed-up figures to say.
+        let named = person.start_backup("Card photos").unwrap();
+        crate::backup::tests::card_looked_through_into(dir.path(), &named.home);
         // The person surveyed the whole drive, Documents and all.
         surveyed(&person, dir.path());
         let agent = keevoro(dir.path()).as_front_end(crate::FrontEnd::Agent);
@@ -728,6 +1078,10 @@ mod tests {
         .unwrap();
         let said = allowed.to_string();
         assert!(!said.contains("Documents") && !said.contains("tax.pdf") && !said.contains("secret plans"));
+        assert!(
+            !said.contains("Holidays") && !said.contains("100CANON") && !said.contains("\"source\""),
+            "nothing of a source outside the folder allowed: {said}"
+        );
         assert_eq!(
             allowed["trail"].as_array().unwrap().len(),
             1,
