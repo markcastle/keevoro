@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.36.0] - 2026-11-20
+
 ### Added
 
 - **See where the space goes.** After "Find where the photos are", **See where the space goes** shows everything on the drive or folder, photos or not, as a map of boxes in the style of WinDirStat, each sized by the room it takes: photos in orange, videos striped green, everything else grey, so you can see at a glance what is filling it. Point at a box to see what it is, click it to choose it, and click again to go inside; the trail above goes back up. Beside the map, a list of the same folders and files, biggest first, with how much room each takes, how many photos, videos and other files it holds, and its share as a bar; pointing at either lights the other, and the list works with the keyboard alone. It is how to find the zip files, screen recordings or an old Keevoro library filling a Pictures folder. Folders Keevoro never looks through (system and app folders, hidden ones, a backup or library it made) are listed too and say so, and anything this backup would not take says why: a folder you left out, or videos in a backup for photos only. Choose a folder to look inside it, look through it, or leave it out. Each source has it too, beside Look inside. It comes from what the survey saw, so nothing is opened or changed; **Map again** surveys afresh. From the command line: `keevoro map PLACE`, and an AI app can ask in folders you have allowed it.
@@ -574,7 +578,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.35.0...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.36.0...HEAD
+[0.36.0]: https://github.com/markcastle/keevoro/compare/v0.35.0...v0.36.0
 [0.35.0]: https://github.com/markcastle/keevoro/compare/v0.34.0...v0.35.0
 [0.34.0]: https://github.com/markcastle/keevoro/compare/v0.33.0...v0.34.0
 [0.33.0]: https://github.com/markcastle/keevoro/compare/v0.32.0...v0.33.0
