@@ -301,6 +301,33 @@ pub const CHANGE: f64 = 1.5;
 /// A stage is measured once it has run this long and moved.
 const MEASURED_AFTER: f64 = 20.0;
 
+/// A speed counts as sustained once it has held for this long: the
+/// slowest and fastest a stage records are over at least a minute.
+const SUSTAINED_AFTER: f64 = 60.0;
+
+/// What one stage of a backup did, for the backup's history: how long it
+/// took (time paused left out), how much it did, and how fast.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StageRecord {
+    pub kind: Kind,
+    /// The destination, for a stage done at one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<String>,
+    pub unit: Unit,
+    /// Files or bytes, as `unit` says.
+    pub done: u64,
+    pub seconds: u64,
+    /// False for a stage the backup did not get to the end of.
+    pub finished: bool,
+    /// The average over the whole stage, per second.
+    pub per_second: Option<f64>,
+    /// The slowest and fastest held for a minute or more; none for a stage
+    /// shorter than that.
+    pub slowest: Option<f64>,
+    pub fastest: Option<f64>,
+}
+
 /// The work to do changing by this share counts as material.
 const WORK_CHANGE: f64 = 0.05;
 
@@ -319,6 +346,10 @@ struct Stage {
     since: Option<(f64, u64)>,
     /// When the short and long rates began to disagree.
     diverged: Option<f64>,
+    /// The slowest and fastest rates held for a whole long window, once it
+    /// has run a minute: what a person would call its sustained speeds.
+    slowest: Option<f64>,
+    fastest: Option<f64>,
 }
 
 impl Stage {
@@ -333,6 +364,8 @@ impl Stage {
             samples: VecDeque::new(),
             since: None,
             diverged: None,
+            slowest: None,
+            fastest: None,
         }
     }
 
@@ -409,6 +442,28 @@ impl Stage {
         let keep_from = now - window - spacing;
         while self.samples.len() > 2 && self.samples.get(1).is_some_and(|&(at, _)| at < keep_from) {
             self.samples.pop_front();
+        }
+        if self.running_for(now) >= SUSTAINED_AFTER {
+            if let Some(rate) = self.rate_over(now, window) {
+                self.slowest = Some(self.slowest.map_or(rate, |r| r.min(rate)));
+                self.fastest = Some(self.fastest.map_or(rate, |r| r.max(rate)));
+            }
+        }
+    }
+
+    /// What it did, for the backup's history.
+    fn record(&self, now: f64) -> StageRecord {
+        let seconds = self.running_for(now);
+        StageRecord {
+            kind: self.kind,
+            to: self.to.clone(),
+            unit: self.kind.unit(),
+            done: self.done,
+            seconds: seconds.round() as u64,
+            finished: self.finished(),
+            per_second: (seconds >= 1.0 && self.done > 0).then(|| self.done as f64 / seconds),
+            slowest: self.slowest,
+            fastest: self.fastest,
         }
     }
 
@@ -582,6 +637,21 @@ impl Estimator {
             }
             _ => {}
         }
+    }
+
+    /// Every stage that began, as it stands now, for the backup's history.
+    pub fn record(&self, now: f64) -> Vec<StageRecord> {
+        let t = self.active(now);
+        self.stages
+            .iter()
+            .filter(|s| s.began.is_some())
+            .map(|s| s.record(t))
+            .collect()
+    }
+
+    /// Seconds spent paused so far.
+    pub fn paused_seconds(&self, now: f64) -> u64 {
+        (self.paused + self.paused_since.map_or(0.0, |since| now - since)).round() as u64
     }
 
     /// Rates measured in this backup, for remembering.
@@ -1113,6 +1183,24 @@ impl Tracker {
         })
     }
 
+    /// Every stage that began, as it stands now, for the backup's history.
+    pub fn record(&self) -> Vec<StageRecord> {
+        self.with(|t, now| {
+            Self::read_meter(t, now);
+            t.estimator.record(now)
+        })
+    }
+
+    /// Seconds since it began, by the clock, paused time included.
+    pub fn running_seconds(&self) -> u64 {
+        self.now().round() as u64
+    }
+
+    /// Seconds spent paused so far.
+    pub fn paused_seconds(&self) -> u64 {
+        self.with(|t, now| t.estimator.paused_seconds(now))
+    }
+
     /// What this backup measured, for remembering.
     pub fn measured(&self) -> Remembered {
         self.with(|t, now| Remembered {
@@ -1166,6 +1254,53 @@ mod tests {
             e.progress(Kind::SendingOriginals, Some("the folder N:"), done, from + s as f64);
         }
         done
+    }
+
+    #[test]
+    fn each_stage_is_recorded_with_its_time_work_and_sustained_speeds() {
+        let mut e = one_backup(10 * GB, 100);
+        e.progress(Kind::Placing, None, 0, 0.0);
+        e.progress(Kind::Placing, None, 1000, 2.0);
+        e.finish(Kind::Placing, None, 2.0);
+        // Ten minutes at 10 MB a second, then a pause of five minutes, then
+        // ten minutes at 30 MB a second.
+        let to = Some("the folder N:");
+        let mut done = 0;
+        for s in 0..=600u64 {
+            done = s * 10 * MB;
+            e.progress(Kind::SendingOriginals, to, done, 2.0 + s as f64);
+        }
+        e.set_paused(true, 602.0);
+        e.set_paused(false, 902.0);
+        for s in 1..=600u64 {
+            e.progress(Kind::SendingOriginals, to, done + s * 30 * MB, 902.0 + s as f64);
+        }
+        e.finish(Kind::SendingOriginals, to, 1502.0);
+        // Previews barely begun, and never finished.
+        e.progress(Kind::MakingPreviews, None, 3, 1502.0);
+
+        let record = e.record(1502.0);
+        let kinds: Vec<Kind> = record.iter().map(|r| r.kind).collect();
+        assert_eq!(
+            kinds,
+            [Kind::Placing, Kind::SendingOriginals, Kind::MakingPreviews],
+            "only stages that began, in the plan's order"
+        );
+        assert_eq!(
+            (record[0].done, record[0].seconds, record[0].unit),
+            (1000, 2, Unit::Files)
+        );
+        let sending = &record[1];
+        assert_eq!(sending.to.as_deref(), to);
+        assert_eq!(sending.seconds, 1200, "the five minutes paused are left out");
+        assert_eq!(sending.done, 24_000 * MB);
+        assert!((sending.per_second.unwrap() - 20.0 * MB as f64).abs() < MB as f64);
+        let (slowest, fastest) = (sending.slowest.unwrap(), sending.fastest.unwrap());
+        assert!((slowest - 10.0 * MB as f64).abs() < 0.5 * MB as f64, "{slowest}");
+        assert!((fastest - 30.0 * MB as f64).abs() < 0.5 * MB as f64, "{fastest}");
+        assert!(sending.finished && !record[2].finished);
+        assert_eq!(record[2].slowest, None, "nothing sustained in under a minute");
+        assert_eq!(e.paused_seconds(1502.0), 300);
     }
 
     #[test]

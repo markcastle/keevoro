@@ -59,6 +59,7 @@ pub use keevoro::{BackupListing, Codecs, Folders, Keevoro, Offer, SettingsView};
 pub use keevoro_core::estimate;
 pub use keevoro_core::{FileKind, KindChange, MediaKind};
 pub use keevoro_engine::connect::SecretStore;
+pub use keevoro_engine::history;
 pub use picture::{Picture, PictureRequest, PictureSize};
 pub use register::{entries, Agents, Changes, Entry, Op, Tool};
 
@@ -121,6 +122,16 @@ pub struct IncludeTypeRequest {
     pub ending: String,
     /// True to include files with this ending, false to leave them out.
     pub included: bool,
+}
+
+/// `backup.history`
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HistoryRequest {
+    /// One backup only, counting from 1 for the newest. Every one kept
+    /// when left out.
+    #[serde(default)]
+    pub run: Option<usize>,
 }
 
 /// `collections.photos`
@@ -367,8 +378,19 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
             answer(open()?.rehearse()?)
         }
         Op::BackupHistory => {
-            read::<Nothing>(request)?;
-            answer(open()?.history()?)
+            let r: HistoryRequest = read(request)?;
+            let all = open()?.history()?;
+            match r.run {
+                None => answer(all),
+                Some(n) => match n.checked_sub(1).and_then(|at| all.get(at)) {
+                    Some(one) => answer([one]),
+                    None => Err(Error::not_found(format!(
+                        "There is no backup number {n} in this backup's history. It keeps the last {}; {} so far.",
+                        keevoro_engine::history::KEPT,
+                        all.len()
+                    ))),
+                },
+            }
         }
         Op::BackupLastSummary => {
             read::<Nothing>(request)?;

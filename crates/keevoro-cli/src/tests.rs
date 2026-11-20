@@ -308,7 +308,23 @@ fn a_first_backup_from_start_to_finish() {
     assert!(usb.join("originals").is_dir());
 
     let ran = at.keevoro(&["history"]);
-    assert!(ran.out.contains("to the folder"), "{}", ran.out);
+    assert!(
+        ran.out.starts_with("1. ") && ran.out.contains("to the folder"),
+        "{}",
+        ran.out
+    );
+    let ran = at.keevoro(&["history", "1"]);
+    for said in [
+        "Stages, with time paused left out:",
+        "Originals:",
+        "2 files sent",
+        "What it said at the end:",
+    ] {
+        assert!(ran.out.contains(said), "{said}: {}", ran.out);
+    }
+    let ran = at.keevoro(&["history", "1", "--json"]);
+    assert_eq!(ran.json()[0]["detail"]["destinations"][0]["originals"]["sent"], 2);
+    assert_eq!(at.keevoro(&["history", "9"]).code, Code::NotFound);
     let ran = at.keevoro(&["last-backup"]);
     assert!(ran.out.contains("Safely backed up 2 files"), "{}", ran.out);
     let ran = at.keevoro(&["check"]);
@@ -366,7 +382,7 @@ fn json_is_exactly_what_the_api_answers() {
         (vec!["destinations"], Op::DestinationsList, Value::Null),
         (vec!["room"], Op::DestinationsRoom, json!({})),
         (vec!["rehearse"], Op::BackupRehearse, json!({})),
-        (vec!["history"], Op::BackupHistory, Value::Null),
+        (vec!["history"], Op::BackupHistory, json!({})),
         (vec!["previews"], Op::BackupPreviews, json!({})),
         (vec!["about"], Op::KeevoroAbout, Value::Null),
         (vec!["settings"], Op::KeevoroSettings, json!({})),

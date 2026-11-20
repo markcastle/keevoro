@@ -218,7 +218,73 @@ export type Sent = {
   /** Where it went, in words. */
   to: string
   stopped: boolean
+  /** Everything else measured; missing for a backup recorded before it was kept. */
+  detail?: RunDetail
 }
+
+/** Everything measured about one backup. Mirrors `RunDetail` in keevoro-engine's history. */
+export type RunDetail = {
+  startedAt: number
+  pausedSeconds: number
+  ended: 'finished' | 'stopped' | 'problem'
+  problem?: string
+  /** "the app", "the command line" or "an AI agent". */
+  startedBy: string
+  version: string
+  destinations: DestinationRecord[]
+  stages: StageRecord[]
+  duplicates: number
+  duplicateBytes: number
+  /** Missing when the backup sends the originals alone. */
+  previews?: PreviewsMade
+  /** What it said at the end, exactly as it was shown. */
+  summary: string[]
+}
+
+export type StageKind =
+  | 'tellingApart'
+  | 'placing'
+  | 'sendingOriginals'
+  | 'makingPreviews'
+  | 'makingVideoPreviews'
+  | 'sendingPreviews'
+  | 'writingIndex'
+
+/** One stage: its time with pauses left out, how much it did and how fast. */
+export type StageRecord = {
+  kind: StageKind
+  to?: string
+  unit: 'bytes' | 'files'
+  done: number
+  seconds: number
+  finished: boolean
+  perSecond: number | null
+  /** Held for a minute or more; null for a shorter stage. */
+  slowest: number | null
+  fastest: number | null
+}
+
+export type DestinationRecord = {
+  to: string
+  overNetwork: boolean
+  reached: boolean
+  problem?: string
+  seconds: number
+  bytes: number
+  originals: Sending
+  previews?: Sending
+  indexed?: number
+}
+
+export type Sending = {
+  sent: number
+  sentBytes: number
+  alreadyThere: number
+  notSent: { file: string; reason: string }[]
+  notSentMore: number
+}
+
+export type PreviewsMade = { photos: number; videos: number; photosWithout: number; videosWithout: number }
 
 /** How a send is getting on. */
 export type SendProgress = {

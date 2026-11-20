@@ -31,6 +31,8 @@ import type {
   Activity,
   AgentAccess,
   FileKind,
+  StageRecord,
+  Sending,
   AppState,
   Backend,
   SendEvent,
@@ -2741,43 +2743,265 @@ function SendPanel(props: {
               ordinary files.
             </p>
           </details>
-        {history.length > 0 && !running && (
-            <details className="sends">
-              <summary>How earlier backups went</summary>
-              <table>
-                <thead>
-                  <tr>
-                    <th>When</th>
-                    <th>Where</th>
-                    <th>Backed up</th>
-                    <th>Took</th>
-                    <th>Average speed</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {history.slice(0, 8).map((sent) => (
-                    <tr key={sent.finishedAt}>
-                      <td>
-                        {new Date(sent.finishedAt * 1000).toLocaleString('en-GB', {
-                          day: 'numeric',
-                          month: 'short',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </td>
-                      <td className="where">{sent.to.replace(/^the /, '')}</td>
-                      <td>
-                        {size(sent.bytes)}
-                        {sent.stopped && ' (stopped)'}
-                      </td>
-                      <td>{about(sent.seconds).replace('less than a minute', 'under a minute')}</td>
-                      <td>{size(sent.bytes / Math.max(sent.seconds, 1))}/s</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </details>
+        {history.length > 0 && !running && <History history={history} />}
+        </>
+      )}
+    </div>
+  )
+}
+
+/** A moment, in seconds since 1970, as "18 Nov, 08:51". */
+const when = (seconds: number) =>
+  new Date(seconds * 1000).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+
+/** A length of time, as the rest of the app says it, with "under a minute" for the shortest. */
+const took = (seconds: number) => about(seconds).replace('less than a minute', 'under a minute')
+
+/** A speed, per second for bytes; files a second, a minute or an hour. */
+function rate(perSecond: number, unit: 'bytes' | 'files') {
+  if (unit === 'bytes') return `${size(perSecond)} a second`
+  if (perSecond >= 1) return `${count(Math.round(perSecond), 'file')} a second`
+  if (perSecond * 60 >= 1) return `${count(Math.round(perSecond * 60), 'file')} a minute`
+  return `${count(Math.round(perSecond * 3600), 'file')} an hour`
+}
+
+const STAGE_NAMES: Record<StageRecord['kind'], string> = {
+  tellingApart: 'Telling apart files that look alike',
+  placing: 'Working out where each file goes',
+  sendingOriginals: 'Backing up your files',
+  makingPreviews: 'Making previews',
+  makingVideoPreviews: 'Making video previews',
+  sendingPreviews: 'Backing up the previews',
+  writingIndex: 'Writing the list of what is there',
+}
+
+/**
+ * How earlier backups went: one row each, newest first, and every row
+ * opens in place to everything Keevoro recorded about that backup.
+ */
+function History(props: { history: Sent[] }) {
+  const [open, setOpen] = useState<number | null>(null)
+  return (
+    <details className="sends">
+      <summary>How earlier backups went</summary>
+      <div className="sends-scroll" tabIndex={0} aria-label="How earlier backups went, scrolls sideways when narrow">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">When</th>
+              <th scope="col">Where</th>
+              <th scope="col">Backed up</th>
+              <th scope="col">Took</th>
+              <th scope="col">Average speed</th>
+              <th scope="col">
+                <span className="visually-hidden">Details</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {props.history.map((sent, at) => (
+              <HistoryRow
+                key={`${sent.finishedAt}-${at}`}
+                sent={sent}
+                id={`backup-run-${at}`}
+                open={open === at}
+                onToggle={() => setOpen(open === at ? null : at)}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  )
+}
+
+function HistoryRow(props: { sent: Sent; id: string; open: boolean; onToggle: () => void }) {
+  const { sent } = props
+  return (
+    <>
+      <tr className={props.open ? 'open' : undefined}>
+        <td>{when(sent.finishedAt)}</td>
+        <td className="where">{sent.to.replace(/^the /, '')}</td>
+        <td>
+          {size(sent.bytes)}
+          {sent.stopped && ' (stopped)'}
+        </td>
+        <td>{took(sent.seconds)}</td>
+        <td>{size(sent.bytes / Math.max(sent.seconds, 1))}/s</td>
+        <td>
+          <button
+            className="link"
+            aria-expanded={props.open}
+            aria-controls={props.id}
+            aria-label={`${props.open ? 'Hide' : 'Show'} everything about the backup on ${when(sent.finishedAt)}`}
+            onClick={props.onToggle}
+          >
+            {props.open ? 'Hide' : 'Details'}
+          </button>
+        </td>
+      </tr>
+      {props.open && (
+        <tr className="run">
+          <td colSpan={6} id={props.id}>
+            <RunDetailPanel sent={sent} />
+          </td>
+        </tr>
+      )}
+    </>
+  )
+}
+
+/** One pass of sending, in a sentence. */
+function sending(what: string, s: Sending) {
+  const notSent = s.notSent.length + s.notSentMore
+  return [
+    `${count(s.sent, what)} sent (${size(s.sentBytes)})`,
+    s.alreadyThere > 0 && `${thousands(s.alreadyThere)} already there`,
+    notSent > 0 && `${thousands(notSent)} could not be sent`,
+  ]
+    .filter(Boolean)
+    .join(', ')
+}
+
+/** Everything recorded about one backup, from the headline down. */
+function RunDetailPanel(props: { sent: Sent }) {
+  const { sent } = props
+  const d = sent.detail
+  const headline = `${size(sent.bytes)} to ${sent.to.replace(/^the /, 'the ')} in ${took(sent.seconds)}, at an average of ${size(
+    sent.bytes / Math.max(sent.seconds, 1),
+  )} a second.`
+  if (!d) {
+    return (
+      <div className="run-detail">
+        <p className="headline">{headline}</p>
+        <p className="quiet small">
+          Only these figures were kept for this backup. Fuller detail is kept for every backup from now on.
+        </p>
+      </div>
+    )
+  }
+  const ended =
+    d.ended === 'finished'
+      ? 'It finished.'
+      : d.ended === 'stopped'
+        ? 'It was stopped.'
+        : `It ended with a problem${d.problem ? `: ${d.problem}` : '.'}`
+  return (
+    <div className="run-detail">
+      <p className="headline">{headline}</p>
+      <p className="quiet small">
+        Started {when(d.startedAt)} from {d.startedBy}, with Keevoro {d.version}. {ended}
+        {d.pausedSeconds >= 60 && ` It was paused for ${took(d.pausedSeconds)}, which is not counted in the stages.`}
+      </p>
+
+      <h4>Stages</h4>
+      <div className="stages-scroll">
+        <table className="stages">
+          <thead>
+            <tr>
+              <th scope="col">Stage</th>
+              <th scope="col">How long</th>
+              <th scope="col">How much</th>
+              <th scope="col">Speed</th>
+            </tr>
+          </thead>
+          <tbody>
+            {d.stages.map((stage, at) => (
+              <tr key={at}>
+                <td>
+                  {STAGE_NAMES[stage.kind]}
+                  {stage.to && d.destinations.length > 1 && <span className="quiet"> to {stage.to.replace(/^the /, '')}</span>}
+                  {!stage.finished && <span className="quiet"> (not finished)</span>}
+                </td>
+                <td>{took(stage.seconds)}</td>
+                <td>{stage.unit === 'bytes' ? size(stage.done) : count(stage.done, 'file')}</td>
+                <td>
+                  {stage.perSecond !== null ? rate(stage.perSecond, stage.unit) : ''}
+                  {stage.slowest !== null && stage.fastest !== null && (
+                    <span className="quiet small range">
+                      {' '}
+                      slowest {rate(stage.slowest, stage.unit)}, fastest {rate(stage.fastest, stage.unit)}
+                    </span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="quiet small">Slowest and fastest are speeds held for a minute or more.</p>
+
+      <h4>Your files</h4>
+      <ul>
+        {d.destinations.map((to) => (
+          <li key={to.to}>
+            {d.destinations.length > 1 && <>To {to.to.replace(/^the /, 'the ')}: </>}
+            {sending('file', to.originals)}.
+            {to.originals.notSent.length > 0 && (
+              <ul className="not-sent">
+                {to.originals.notSent.map((n) => (
+                  <li key={n.file}>
+                    <span className="where">{n.file}</span>: {n.reason.replace(/\.$/, '')}.
+                  </li>
+                ))}
+                {to.originals.notSentMore > 0 && <li>and {thousands(to.originals.notSentMore)} more.</li>}
+              </ul>
+            )}
+          </li>
+        ))}
+        {d.duplicates > 0 && (
+          <li>
+            {count(d.duplicates, 'duplicate')} left out, saving {size(d.duplicateBytes)}.
+          </li>
+        )}
+      </ul>
+
+      <h4>Previews</h4>
+      {d.previews ? (
+        <ul>
+          <li>
+            Made {count(d.previews.photos, 'photo preview')} and {count(d.previews.videos, 'video still')}.
+          </li>
+          {d.previews.photosWithout + d.previews.videosWithout > 0 && (
+            <li>
+              Without a preview, because Keevoro couldn’t open them: {count(d.previews.photosWithout, 'photo')} and{' '}
+              {count(d.previews.videosWithout, 'video')}.
+            </li>
           )}
+          {d.destinations
+            .filter((to) => to.previews)
+            .map((to) => (
+              <li key={to.to}>
+                {d.destinations.length > 1 && <>To {to.to.replace(/^the /, 'the ')}: </>}
+                {sending('preview file', to.previews!)}.
+              </li>
+            ))}
+        </ul>
+      ) : (
+        <p>None: this backup sends the originals alone.</p>
+      )}
+
+      <h4>Where it went</h4>
+      <ul>
+        {d.destinations.map((to) => (
+          <li key={to.to}>
+            <span className="where">{to.to.replace(/^the /, '')}</span>
+            {to.overNetwork && ', across a network'}
+            {to.reached
+              ? `: ${size(to.bytes)} in ${took(to.seconds)}${to.indexed !== undefined ? `, its index lists ${count(to.indexed, 'file')}` : ''}.`
+              : `: couldn’t be backed up to. ${to.problem ?? ''}`}
+          </li>
+        ))}
+      </ul>
+
+      {d.summary.length > 0 && (
+        <>
+          <h4>What it said at the end</h4>
+          <div className="summary-lines">
+            {d.summary.map((line, at) => (
+              <p key={at}>{line}</p>
+            ))}
+          </div>
         </>
       )}
     </div>

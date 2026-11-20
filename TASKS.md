@@ -343,6 +343,11 @@ Before building
 - [x] In the register, on the command line (`keevoro kinds`) and readable by an AI agent, which cannot change it
 - [x] Settings, Advanced, in the app
 
+### How earlier backups went, in full
+
+- [x] Each backup's entry in the history keeps everything measured: stages with time and speed, what each destination was sent and could not be, previews, how it ended, who started it, and what it said
+- [x] Each row opens in place in the app; `keevoro history N` and the API give the same, and an agent can read it
+
 ### Scheduled and repeat backups
 
 Today a backup runs when someone presses "Back up now". These make it run by itself, which is what turns a one-off rescue into something that keeps photos safe as new ones are taken.

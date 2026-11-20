@@ -185,9 +185,70 @@ export function demoBackend(): Backend {
     ],
     cores: 4,
   })
-  // One earlier send, so there is something to compare a new one with.
+  // Earlier backups, so there is something to compare a new one with: the
+  // owner's real long one to a network folder, with everything recorded,
+  // and an older one from before the detail was kept.
+  const GB = 1024 ** 3
+  const MB = 1024 ** 2
+  const nas = 'the folder \\\\NAS\\Photos'
   const sends: Sent[] = [
-    { finishedAt: Date.UTC(2026, 10, 9, 14, 2) / 1000, seconds: 41 * 60, bytes: 30.1 * 1024 ** 3, to: 'the folder F:\\Family Backup', stopped: false },
+    {
+      finishedAt: Date.UTC(2026, 10, 19, 7, 41) / 1000,
+      seconds: 82_200,
+      bytes: 720.6 * GB,
+      to: nas,
+      stopped: false,
+      detail: {
+        startedAt: Date.UTC(2026, 10, 18, 8, 51) / 1000,
+        pausedSeconds: 600,
+        ended: 'finished',
+        startedBy: 'the app',
+        version: '0.32.0',
+        stages: [
+          { kind: 'tellingApart', unit: 'files', done: 214, seconds: 480, finished: true, perSecond: 214 / 480, slowest: 0.31, fastest: 0.62 },
+          { kind: 'placing', unit: 'files', done: 11_245, seconds: 40, finished: true, perSecond: 11_245 / 40, slowest: null, fastest: null },
+          { kind: 'sendingOriginals', to: nas, unit: 'bytes', done: 716.8 * GB, seconds: 75_600, finished: true, perSecond: (716.8 * GB) / 75_600, slowest: 3.2 * MB, fastest: 14.6 * MB },
+          { kind: 'makingPreviews', unit: 'files', done: 10_896, seconds: 21_600, finished: true, perSecond: 10_896 / 21_600, slowest: 0.21, fastest: 1.9 },
+          { kind: 'makingVideoPreviews', unit: 'files', done: 349, seconds: 2_400, finished: true, perSecond: 349 / 2_400, slowest: 0.09, fastest: 0.2 },
+          { kind: 'sendingPreviews', to: nas, unit: 'bytes', done: 3.8 * GB, seconds: 4_800, finished: true, perSecond: (3.8 * GB) / 4_800, slowest: 0.6 * MB, fastest: 1.1 * MB },
+          { kind: 'writingIndex', to: nas, unit: 'files', done: 1, seconds: 12, finished: true, perSecond: 1 / 12, slowest: null, fastest: null },
+        ],
+        destinations: [
+          {
+            to: nas,
+            overNetwork: true,
+            reached: true,
+            seconds: 82_200,
+            bytes: 720.6 * GB,
+            originals: {
+              sent: 11_243,
+              sentBytes: 716.8 * GB,
+              alreadyThere: 0,
+              notSent: [
+                { file: 'originals/2011/Summer/IMG_4410.JPG', reason: 'The source couldn’t be read: it may have been unplugged' },
+                { file: 'originals/2011/Summer/IMG_4411.JPG', reason: 'The source couldn’t be read: it may have been unplugged' },
+              ],
+              notSentMore: 0,
+            },
+            previews: { sent: 21_792, sentBytes: 3.8 * GB, alreadyThere: 0, notSent: [], notSentMore: 0 },
+            indexed: 11_243,
+          },
+        ],
+        duplicates: 1_406,
+        duplicateBytes: 38.2 * GB,
+        previews: { photos: 10_896, videos: 349, photosWithout: 12, videosWithout: 0 },
+        summary: [
+          'Safely backed up 11,243 files (716.8 GB).',
+          'Couldn’t back up 2 files:',
+          '  originals/2011/Summer/IMG_4410.JPG: The source couldn’t be read: it may have been unplugged.',
+          '  originals/2011/Summer/IMG_4411.JPG: The source couldn’t be read: it may have been unplugged.',
+          'Back up again to try them once more.',
+          'Previews added: 21,792 files (3.8 GB).',
+          'That took about 22 hours 50 minutes: 720.6 GB at an average of 9.0 MB a second.',
+        ],
+      },
+    },
+    { finishedAt: Date.UTC(2026, 10, 9, 14, 2) / 1000, seconds: 41 * 60, bytes: 30.1 * GB, to: 'the folder F:\\Family Backup', stopped: false },
   ]
   let pausedNow = false
   let tick = 0
@@ -720,7 +781,41 @@ export function demoBackend(): Backend {
         }
         const fresh = total - sentSoFar
         sendStarted = null
-        sends.unshift({ finishedAt: Date.now() / 1000, seconds: 96, bytes: 1.2 * 1024 ** 3, to: sendingTo ?? '', stopped: false })
+        const now = Date.now() / 1000
+        const to = sendingTo ?? ''
+        sends.unshift({
+          finishedAt: now,
+          seconds: 96,
+          bytes: 1.2 * GB,
+          to,
+          stopped: false,
+          detail: {
+            startedAt: now - 96,
+            pausedSeconds: 0,
+            ended: 'finished',
+            startedBy: 'the app',
+            version: '0.32.0',
+            stages: [
+              { kind: 'placing', unit: 'files', done: fresh, seconds: 1, finished: true, perSecond: fresh, slowest: null, fastest: null },
+              { kind: 'sendingOriginals', to, unit: 'bytes', done: 1.1 * GB, seconds: 80, finished: true, perSecond: (1.1 * GB) / 80, slowest: 13 * MB, fastest: 15 * MB },
+              { kind: 'sendingPreviews', to, unit: 'bytes', done: 0.1 * GB, seconds: 14, finished: true, perSecond: (0.1 * GB) / 14, slowest: null, fastest: null },
+            ],
+            destinations: [
+              {
+                to,
+                overNetwork: false,
+                reached: true,
+                seconds: 96,
+                bytes: 1.2 * GB,
+                originals: { sent: fresh, sentBytes: 1.1 * GB, alreadyThere: sentSoFar, notSent: [], notSentMore: 0 },
+                indexed: total,
+              },
+            ],
+            duplicates: 0,
+            duplicateBytes: 0,
+            summary: [`Safely backed up ${fresh.toLocaleString('en-GB')} files (1.1 GB).`],
+          },
+        })
         sentSoFar = total
         dests.forEach((d) => (d.there = total))
         // Sent means safe: nothing is waiting any more.

@@ -124,10 +124,28 @@ pub fn summary(op: Op, answer: &Value) -> String {
         },
         Op::AgentsAccess => access(answer),
         Op::FileKindsList => file_kinds(answer),
+        Op::BackupHistory => history(answer),
         _ => match answer {
             Value::Array(all) => format!("{}.", count(all.len(), "item")),
             _ => "Done.".to_string(),
         },
+    }
+}
+
+/// One backup in full when one was asked for; otherwise how many, and the
+/// newest in a line. The JSON beside it has everything.
+fn history(answer: &Value) -> String {
+    let all: Vec<keevoro_api::history::Sent> = each(answer)
+        .filter_map(|sent| serde_json::from_value(sent.clone()).ok())
+        .collect();
+    match all.as_slice() {
+        [] => "This backup hasn't been run yet.".to_string(),
+        [one] => keevoro_api::words::run_in_full(one).join("\n"),
+        [newest, ..] => format!(
+            "{} backups are recorded, newest first. The newest: {} Ask with run for one in full.",
+            all.len(),
+            keevoro_api::words::run_in_full(newest)[0]
+        ),
     }
 }
 

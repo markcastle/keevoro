@@ -529,9 +529,21 @@ pub static ROWS: &[Row] = &[
     Row {
         words: &["history"],
         ops: &[Op::BackupHistory],
-        about: None,
-        args: none,
-        ask: |_, _, _| Ok((Op::BackupHistory, Value::Null)),
+        about: Some(
+            "How earlier backups went, newest first. Give a backup's number, as the list shows it, for everything recorded about it: each stage with its time and speed, what each destination was sent and what could not be, the previews, and what it said at the end.",
+        ),
+        args: |c| {
+            c.arg(
+                arg("run", "One backup, by its number in the list (1 is the newest)")
+                    .value_parser(clap::value_parser!(usize)),
+            )
+        },
+        ask: |_, m, _| {
+            Ok((
+                Op::BackupHistory,
+                json!({ "run": m.get_one::<usize>("run").copied() }),
+            ))
+        },
         show: show::history,
     },
     Row {

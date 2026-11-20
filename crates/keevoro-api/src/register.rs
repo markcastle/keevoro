@@ -187,7 +187,7 @@ register! {
         "Confirms what is at each destination",
         changes: Never, job: true, command_line: true, agents: Agents::Yes, implemented: true;
     BackupHistory = "backup.history",
-        "How earlier backups went: when, where, how much, how long, how fast",
+        "How earlier backups went, each in full: stages, speeds, files sent and not, previews",
         changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     BackupLastSummary = "backup.last_summary",
         "What the last backup said when it ended",
@@ -352,7 +352,7 @@ impl Op {
         };
         use crate::picture::PictureRequest;
         use crate::{
-            CollectionRequest, IncludeTypeRequest, JobRequest, KeepCollectionRequest, KeepPhotoRequest,
+            CollectionRequest, HistoryRequest, IncludeTypeRequest, JobRequest, KeepCollectionRequest, KeepPhotoRequest,
             LookAgainRequest, Nothing, PlaceRequest, PreviewsRequest, SourceRequest, StatusRequest,
         };
         match self {
@@ -375,6 +375,7 @@ impl Op {
             Op::KeevoroLog => schema::<LogRequest>(),
             Op::KeevoroSettings => schema::<SettingsRequest>(),
             Op::AgentsAccess => schema::<Agents>(),
+            Op::BackupHistory => schema::<HistoryRequest>(),
             Op::FileKindsAdd => schema::<AddFileKindRequest>(),
             Op::FileKindsChange => schema::<ChangeFileKindRequest>(),
             Op::FileKindsRemove => schema::<FileKindRequest>(),
@@ -390,7 +391,6 @@ impl Op {
             | Op::BackupRehearse
             | Op::BackupRun
             | Op::BackupCheck
-            | Op::BackupHistory
             | Op::BackupLastSummary
             | Op::JobsPause
             | Op::JobsCarryOn
@@ -549,8 +549,11 @@ impl Op {
             ),
             Op::BackupHistory => (
                 "backup_history",
-                "Lists how earlier backups went, newest first: when, to where, how many files and how much, how long \
-                 and how fast. Changes nothing.",
+                "Lists how earlier backups went, newest first: when, to where, how much, how long and how fast, and, \
+                 for backups since this was recorded, everything measured: how it ended and who started it, each \
+                 stage with its time and speed, what each destination was sent, already had or could not be sent \
+                 and why, the previews made, and the summary the person saw. Give run (1 for the newest) for one \
+                 backup. Changes nothing.",
             ),
             Op::BackupLastSummary => (
                 "last_summary",

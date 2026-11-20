@@ -405,21 +405,36 @@ pub fn rehearsal(io: &mut Io<'_>, _: &ArgMatches, rehearsal: &Value) -> Said_ {
     Ok(Code::Worked)
 }
 
-pub fn history(io: &mut Io<'_>, _: &ArgMatches, list: &Value) -> Said_ {
+pub fn history(io: &mut Io<'_>, m: &ArgMatches, list: &Value) -> Said_ {
+    if m.get_one::<usize>("run").is_some() {
+        // One backup, in full.
+        for sent in each(list) {
+            let sent: keevoro_api::history::Sent =
+                serde_json::from_value(sent.clone()).map_err(std::io::Error::other)?;
+            for line in keevoro_api::words::run_in_full(&sent) {
+                writeln!(io.out, "{line}")?;
+            }
+        }
+        return Ok(Code::Worked);
+    }
     if each(list).next().is_none() {
         writeln!(io.out, "This backup hasn't been run yet.")?;
     }
-    for sent in each(list) {
+    for (n, sent) in each(list).enumerate() {
         let finished = sent.get("finishedAt").and_then(Value::as_i64).unwrap_or_default();
         writeln!(
             io.out,
-            "{}  to {}: {} in {}{}",
+            "{}. {}  to {}: {} in {}{}",
+            n + 1,
             date_and_time(finished),
             s(sent, "to"),
             bytes(b(sent, "bytes")),
             duration(b(sent, "seconds")),
             if yes(sent, "stopped") { ", stopped part-way" } else { "" }
         )?;
+    }
+    if each(list).next().is_some() {
+        writeln!(io.out, "For everything recorded about one: keevoro history 1")?;
     }
     Ok(Code::Worked)
 }

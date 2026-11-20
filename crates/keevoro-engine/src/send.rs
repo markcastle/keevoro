@@ -167,6 +167,8 @@ pub struct Going<'a> {
     pub to: String,
     /// Made once, from the first destination's turn, for all of them.
     pub previews: &'a mut Option<Previews>,
+    /// What this destination's turn did, for the backup's history.
+    pub record: &'a mut crate::history::DestinationRecord,
 }
 
 /// One pass of sending: which kind of work it is, for the estimate, and
@@ -294,6 +296,7 @@ fn originals_first(
             last: !wanted,
         },
         tracker,
+        going.record,
     )?;
     if !keep_going() {
         files_sent(out, &files)?;
@@ -343,6 +346,7 @@ fn originals_first(
             last: true,
         },
         tracker,
+        going.record,
     )?;
 
     // Said once, in the order it happened: the files and any that could
@@ -391,6 +395,10 @@ pub struct Went {
     pub stopped: bool,
     /// Why, when no destination could be backed up to at all.
     pub refused: Option<anyhow::Error>,
+    /// What each destination's turn did, in order, for the history.
+    pub destinations: Vec<crate::history::DestinationRecord>,
+    /// The previews made, when this backup makes them.
+    pub previews: Option<crate::history::PreviewsMade>,
 }
 
 /// Backs up to every destination of this backup, one after another, the
@@ -432,6 +440,7 @@ pub fn everywhere(
         }
         let started = std::time::Instant::now();
         let before = keevoro_core::meter::totals().0;
+        let mut record = crate::history::DestinationRecord::new(&name);
         let turn = (|| {
             let destination = to.open(world)?;
             if to.target.is_none() {
@@ -452,6 +461,7 @@ pub fn everywhere(
                     tracker,
                     to: name.clone(),
                     previews: &mut previews,
+                    record: &mut record,
                 },
                 &mut |line| {
                     if several {
@@ -463,6 +473,11 @@ pub fn everywhere(
             )
         })();
         let stopped = stop.load(Ordering::SeqCst);
+        record.seconds = started.elapsed().as_secs();
+        record.bytes = keevoro_core::meter::totals().0.saturating_sub(before);
+        record.reached = turn.is_ok();
+        record.problem = turn.as_ref().err().map(|e| format!("{e:#}"));
+        went.destinations.push(record);
         match turn {
             Ok(failed) => {
                 went.reached += 1;
@@ -492,6 +507,16 @@ pub fn everywhere(
     }
     if went.reached > 0 {
         went.refused = None;
+    }
+    if let Some(made) = previews.as_ref() {
+        let (photos, videos) = made.made();
+        let (photos_without, videos_without) = crate::background::without_previews(catalog)?;
+        went.previews = Some(crate::history::PreviewsMade {
+            photos,
+            videos,
+            photos_without,
+            videos_without,
+        });
     }
     Ok(went)
 }
@@ -596,6 +621,7 @@ fn run_until(
     on_progress: &mut dyn FnMut(&str),
     pass: Pass<'_>,
     tracker: &Tracker,
+    record: &mut crate::history::DestinationRecord,
 ) -> Result<usize> {
     let reports = catalog.load_reports()?;
     let kept = kept_now(catalog, &reports)?;
@@ -615,6 +641,7 @@ fn run_until(
         }
         Destination::Folder(_) => (false, 1),
     };
+    record.over_network = over_network;
     let (store, target, default_url) = open(out, &runtime, destination)?;
     let store = store.as_ref();
     let base_url = base_url.map_or(default_url, str::to_string);
@@ -736,6 +763,26 @@ fn run_until(
         tracker.progress(Kind::WritingIndex, Some(pass.to), 1);
         tracker.finish(Kind::WritingIndex, Some(pass.to));
     }
+
+    let sending = if pass.sending == Kind::SendingPreviews {
+        record.previews.get_or_insert_with(Default::default)
+    } else {
+        &mut record.originals
+    };
+    sending.sent += report.uploaded;
+    sending.sent_bytes += report.uploaded_bytes;
+    sending.already_there += report.already_there;
+    for f in &report.failed {
+        if sending.not_sent.len() < crate::history::NOT_SENT_KEPT {
+            sending.not_sent.push(crate::history::NotSent {
+                file: f.key.to_string(),
+                reason: f.reason.to_string(),
+            });
+        } else {
+            sending.not_sent_more += 1;
+        }
+    }
+    record.indexed = Some(index.items.len());
 
     if report.uploaded > 0 {
         writeln!(
@@ -982,6 +1029,7 @@ mod tests {
     ) -> Result<usize> {
         let tracker = Tracker::new(keevoro_core::estimate::Remembered::default());
         let mut previews = None;
+        let mut record = crate::history::DestinationRecord::new("the folder");
         originals_first(
             out,
             catalog,
@@ -994,6 +1042,7 @@ mod tests {
                 tracker: &tracker,
                 to: "the folder".into(),
                 previews: &mut previews,
+                record: &mut record,
             },
             on_progress,
         )

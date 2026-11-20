@@ -338,6 +338,53 @@ fn a_backup_goes_to_a_folder_saying_each_step_and_records_how_it_went() {
     assert_eq!(history.len(), 1);
     assert!(!history[0].stopped && history[0].bytes > 0);
     assert_eq!(history[0].to, format!("the folder {}", usb.display()));
+    // Everything measured is kept beside it, for a person to look back on.
+    let detail = history[0].detail.as_ref().expect("the whole of it is recorded");
+    assert_eq!(detail.ended, keevoro_engine::history::Ended::Finished);
+    assert_eq!(
+        (detail.started_by.as_str(), detail.version.as_str()),
+        ("the app", env!("CARGO_PKG_VERSION"))
+    );
+    assert!(detail.started_at <= history[0].finished_at);
+    assert_eq!(detail.summary, last.summary, "the summary exactly as it was said");
+    assert_eq!(detail.destinations.len(), 1);
+    let at = &detail.destinations[0];
+    assert!(at.reached && !at.over_network && at.problem.is_none());
+    assert_eq!((at.originals.sent, at.originals.already_there), (3, 0));
+    assert!(at.originals.sent_bytes > 0 && at.originals.not_sent.is_empty());
+    assert_eq!(
+        at.previews.as_ref().map(|p| p.sent),
+        Some(6),
+        "a thumb and a display copy each"
+    );
+    assert_eq!(at.indexed, Some(3));
+    assert_eq!(
+        detail.previews.as_ref().map(|p| (p.photos, p.photos_without)),
+        Some((3, 0))
+    );
+    let stages: Vec<_> = detail.stages.iter().map(|s| s.kind).collect();
+    use keevoro_core::estimate::Kind as Stage;
+    for stage in [
+        Stage::Placing,
+        Stage::SendingOriginals,
+        Stage::MakingPreviews,
+        Stage::SendingPreviews,
+        Stage::WritingIndex,
+    ] {
+        assert!(stages.contains(&stage), "{stage:?} in {stages:?}");
+    }
+    let sending = detail
+        .stages
+        .iter()
+        .find(|s| s.kind == Stage::SendingOriginals)
+        .unwrap();
+    assert_eq!(sending.done, at.originals.sent_bytes);
+    assert!(sending.finished);
+    // One of them, by its number, newest first.
+    let one = call(&keevoro, Op::BackupHistory, Some("Card photos"), json!({ "run": 1 })).unwrap();
+    assert_eq!(one[0]["detail"]["destinations"][0]["originals"]["sent"], 3);
+    let e = call(&keevoro, Op::BackupHistory, Some("Card photos"), json!({ "run": 2 })).unwrap_err();
+    assert_eq!(e.kind, Kind::NotFound);
     assert_eq!(
         backup.last_summary().unwrap(),
         Some(serde_json::to_value(&last).unwrap()),
@@ -396,7 +443,12 @@ fn a_backup_stopped_part_way_keeps_what_it_sent_and_carries_on_when_run_again() 
     assert!(last.summary.iter().any(|l| l.starts_with("Stopped.")), "{last:?}");
     assert_eq!(there(&named), 1, "what was sent is kept");
     let backup = Backup::open(&named.home).unwrap();
-    assert!(backup.history().unwrap()[0].stopped);
+    let stopped = &backup.history().unwrap()[0];
+    assert!(stopped.stopped);
+    let detail = stopped.detail.as_ref().unwrap();
+    assert_eq!(detail.ended, keevoro_engine::history::Ended::Stopped);
+    assert_eq!(detail.destinations[0].originals.sent, 1);
+    assert_eq!(detail.previews, None, "this backup sends the originals alone");
     assert!(keevoro
         .log_tail(10)
         .contains("Asked to stop sending after the file in hand"));

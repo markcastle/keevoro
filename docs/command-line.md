@@ -153,7 +153,7 @@ keevoro check
 Your backup: all 359 originals are there.
 ```
 
-`keevoro history` lists how earlier backups went, and `keevoro last-backup` repeats what the last one said.
+`keevoro history` lists how earlier backups went, numbered from the newest, and `keevoro history 1` shows everything recorded about one of them: each stage with how long it took and how fast it went, what each destination was sent, already had or could not be sent and why, the previews, and what it said at the end. `keevoro last-backup` repeats what the last one said.
 
 ## Running in the background
 
@@ -291,7 +291,8 @@ A collection is named by its whole name, such as "Holidays / Cornwall", or by it
 | `keevoro rehearse` | What backing up now would do: how many files, how much, to where. Changes nothing. |
 | `keevoro run` | Backs up to every destination, originals first. |
 | `keevoro check` | Confirms what is at each destination. |
-| `keevoro history` | How earlier backups went: when, where, how much, how long. |
+| `keevoro history` | How earlier backups went: when, where, how much, how long, numbered from the newest. |
+| `keevoro history N` | Everything recorded about one of them, by its number. |
 | `keevoro last-backup` | What the last backup said when it ended. |
 | `keevoro previews [on or off]` | Whether the backup also makes previews for a gallery, or sends the originals alone. |
 
