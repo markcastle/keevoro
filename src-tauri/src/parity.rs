@@ -61,6 +61,12 @@ const BACKED: &[(&str, &[Op])] = &[
     // What an AI agent may do: for the person, never the agent.
     ("agent_access", &[Op::AgentsAccess]),
     ("set_agent_access", &[Op::AgentsAccess]),
+    // The kinds of file looked for: one list for the whole of Keevoro.
+    ("file_kinds", &[Op::FileKindsList]),
+    ("add_file_kind", &[Op::FileKindsAdd]),
+    ("change_file_kind", &[Op::FileKindsChange]),
+    ("remove_file_kind", &[Op::FileKindsRemove]),
+    ("reset_file_kinds", &[Op::FileKindsReset]),
     ("check_update", &[Op::KeevoroUpdate]),
     ("reset_everything", &[Op::KeevoroReset]),
     // Jobs. Each command starts, asks after or stops one in the API, and

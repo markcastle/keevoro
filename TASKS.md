@@ -327,11 +327,21 @@ Decided
 - [x] An agent is allowed no folders until a person names them
 - [x] The server starts in look-only mode
 - [x] This work comes before scheduled backups and the catalog work
-- [x] The register (42 operations), the commands as typed, the tool list and the design for sharing a backup between programs are written out in the plan
+- [x] The register (42 operations at first; 47 with the kinds of file looked for), the commands as typed, the tool list and the design for sharing a backup between programs are written out in the plan
 
 Before building
 
 - [x] The owner's go-ahead
+
+### The kinds of file Keevoro looks for
+
+- [x] One list for the whole of Keevoro, kept in its settings: each ending a photo or a video, built in or added, on or off
+- [x] Add, edit and remove kinds; built-in ones can be switched off but not removed; a way to put the built-in list back
+- [x] A kind that is added is found, told apart from its copies and backed up exactly, even when Keevoro cannot open it
+- [x] Changes count from the next look through a source and never take away anything already found or backed up
+- [x] The list is read once per search or survey, never per file
+- [x] In the register, on the command line (`keevoro kinds`) and readable by an AI agent, which cannot change it
+- [x] Settings, Advanced, in the app
 
 ### Scheduled and repeat backups
 

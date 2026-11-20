@@ -293,6 +293,22 @@ export type Acceleration = { on: boolean; available: boolean; ways: string[]; co
  */
 export type AgentAccess = { lookIn: string[]; backUpTo: string[]; mayChange: boolean }
 
+/**
+ * One kind of file Keevoro looks for, by the ending of its name (`jpg`,
+ * lower case, without the dot). Mirrors `FileKind` in keevoro-core.
+ */
+export type FileKind = {
+  ending: string
+  kind: 'photo' | 'video'
+  /** Looked for. One switched off is passed over. */
+  on: boolean
+  /** Comes with Keevoro: it can be switched off, not removed or renamed. */
+  builtIn: boolean
+}
+
+/** A change to one kind of file. Anything left out stays as it is. */
+export type FileKindChange = { kind?: 'photo' | 'video'; on?: boolean; to?: string }
+
 /** A newer version of Keevoro that is ready to install. */
 export type Update = { version: string; page: string }
 
@@ -325,6 +341,16 @@ export interface Backend {
   agentAccess(): Promise<AgentAccess>
   /** Changes what an AI agent may do. Each part given replaces what was there. */
   setAgentAccess(change: Partial<AgentAccess>): Promise<AgentAccess>
+  /** The kinds of file Keevoro looks for, the built-in ones first. */
+  fileKinds(): Promise<FileKind[]>
+  /** Adds an ending to look for, as photos or videos. */
+  addFileKind(ending: string, kind: 'photo' | 'video'): Promise<FileKind>
+  /** Changes one kind: photo or video, on or off, or a new ending for one you added. */
+  changeFileKind(ending: string, change: FileKindChange): Promise<FileKind>
+  /** Takes an ending you added off the list. */
+  removeFileKind(ending: string): Promise<FileKind>
+  /** Puts back the kinds Keevoro comes with, all on. Your own stay. */
+  resetFileKinds(): Promise<FileKind[]>
   /** Asks for a folder an AI agent may use. Null if they cancel. */
   chooseAgentFolder(): Promise<string | null>
   /** Asks a running search to stop. Nothing from it is kept. */
@@ -435,6 +461,17 @@ async function tauriBackend(): Promise<Backend> {
     setAcceleration: (on) => invoke('set_acceleration', { on }),
     agentAccess: () => invoke('agent_access'),
     setAgentAccess: (change) => invoke('set_agent_access', { change }),
+    fileKinds: () => invoke('file_kinds'),
+    addFileKind: (ending, kind) => invoke('add_file_kind', { ending, kind }),
+    changeFileKind: (ending, change) =>
+      invoke('change_file_kind', {
+        ending,
+        kind: change.kind ?? null,
+        on: change.on ?? null,
+        to: change.to ?? null,
+      }),
+    removeFileKind: (ending) => invoke('remove_file_kind', { ending }),
+    resetFileKinds: () => invoke('reset_file_kinds'),
     chooseAgentFolder: () => pickFolder('Choose a folder an AI agent may use'),
     activity: () => invoke('activity'),
     sendProgress: () => invoke('send_progress'),

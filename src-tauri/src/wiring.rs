@@ -207,6 +207,35 @@ fn the_app_keeps_its_things_where_tauri_would_and_the_command_line_looks() {
 }
 
 #[test]
+fn the_kinds_of_file_looked_for_are_changed_by_the_names_and_shapes_the_screens_use() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, window, _heard) = the_app(dir.path());
+    let list = invoke(&window, "file_kinds", json!({})).unwrap();
+    for kind in list.as_array().unwrap() {
+        fits(kind, "FileKind");
+    }
+    let added = invoke(&window, "add_file_kind", json!({ "ending": "heix", "kind": "photo" })).unwrap();
+    fits(&added, "FileKind");
+    // As `changeFileKind` sends it: every part, with null for those left alone.
+    let off = json!({ "ending": "heix", "kind": null, "on": false, "to": null });
+    assert_eq!(invoke(&window, "change_file_kind", off).unwrap()["on"], false);
+    let renamed = json!({ "ending": "heix", "kind": "video", "on": null, "to": "heiz" });
+    let renamed = invoke(&window, "change_file_kind", renamed).unwrap();
+    assert_eq!(
+        (renamed["ending"].as_str(), renamed["kind"].as_str()),
+        (Some("heiz"), Some("video"))
+    );
+    let refused = invoke(&window, "remove_file_kind", json!({ "ending": "jpg" })).unwrap_err();
+    assert!(refused.as_str().unwrap().contains("can be switched off"), "{refused}");
+    fits(
+        &invoke(&window, "remove_file_kind", json!({ "ending": "heiz" })).unwrap(),
+        "FileKind",
+    );
+    let reset = invoke(&window, "reset_file_kinds", json!({})).unwrap();
+    assert_eq!(reset.as_array().unwrap().len(), list.as_array().unwrap().len());
+}
+
+#[test]
 fn the_screens_commands_start_the_apis_jobs_and_their_events_reach_the_window() {
     let dir = tempfile::tempdir().unwrap();
     let card = dir.path().join("Card");

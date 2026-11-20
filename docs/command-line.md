@@ -243,6 +243,21 @@ The words each command shows in `keevoro --help` come from the same list the app
 
 A source is named by its number, its place or its name, as `keevoro sources` lists them.
 
+### The kinds of file Keevoro looks for
+
+One list for the whole of Keevoro, the same as Settings, Advanced, in the app. A change counts from the next time a source is looked through (`keevoro look --again`) or a place surveyed, and never takes away anything already found or backed up.
+
+| Command | What it does |
+| --- | --- |
+| `keevoro kinds` | Every kind on the list: its ending, photo or video, built in or yours, and whether it is looked for. |
+| `keevoro kinds add heif --photo` | Adds an ending to look for, as photos; `--video` for videos. |
+| `keevoro kinds off avi` | Stops looking for a kind; `keevoro kinds on avi` looks for it again. |
+| `keevoro kinds change xyz --video` | Makes a kind videos (or `--photo`), or gives one you added a new ending with `--to xyz2`. |
+| `keevoro kinds remove xyz` | Takes an ending you added off the list. A built-in one can only be switched off. |
+| `keevoro kinds reset` | Puts back the kinds Keevoro comes with, all on. Kinds you added stay. |
+
+An ending is typed with or without its dot, in any case: `.HEIF` and `heif` are the same. It is letters and numbers only, and cannot be one for programs, documents, music or archives (such as `exe`, `pdf`, `mp3` or `zip`), which Keevoro never looks inside. A kind you add is found by its ending alone, so Keevoro backs it up exactly even when it cannot open it, with no preview.
+
 ### Choosing
 
 | Command | What it does |

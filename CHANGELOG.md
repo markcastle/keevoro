@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Added
+
+- **You can choose the kinds of file Keevoro looks for.** In Settings, under the new Advanced section, a table lists every ending Keevoro looks for (.jpg, .mov, .cr2 and so on), whether each is a photo or a video, whether it came with Keevoro or you added it, and a switch to look for it or not. Add an ending your camera uses that Keevoro does not know, such as .insp, and its files are found and backed up like any other. If Keevoro cannot open them, they are still copied and checked exactly, and simply show "No preview". The kinds Keevoro comes with can be switched off, or made photos or videos, and "Put back the built-in list" brings them all back. Changes count from the next time a source is looked through, and switching a kind off never takes away anything already found or backed up. The same is there from the command line as `keevoro kinds`, and an AI app can see the list but not change it.
+
 ### Fixed
 
 - **Pause, Carry on and Stop now always reach a backup another Keevoro program is running, on Windows too.** Pausing from the command line while the app was backing up, say, could on rare occasions go unheard, because Windows sometimes holds a just-written file for a moment (while a virus checker looks at it) and Keevoro gave up on it instead of trying again.

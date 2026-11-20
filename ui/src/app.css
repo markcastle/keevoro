@@ -3102,3 +3102,109 @@ main > section > :nth-last-child(2) {
   font-size: 14px;
   font-variant-numeric: tabular-nums;
 }
+
+/* Advanced: behind a door of its own, below everything a person needs day to day. */
+.settings .advanced {
+  margin: var(--space-4) 0;
+  max-width: 860px;
+}
+
+.settings .advanced > summary {
+  cursor: pointer;
+  color: var(--ink-muted);
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 14px;
+}
+
+/* The kinds of file looked for: a compact table that scrolls inside itself when narrow. */
+.kinds-table {
+  margin-top: var(--space-3);
+  max-height: 420px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+
+.kinds-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.kinds-table th,
+.kinds-table td {
+  text-align: left;
+  padding: var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.kinds-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface-raised);
+  color: var(--ink-muted);
+  font-weight: 500;
+}
+
+.kinds-table .ending {
+  font-family: ui-monospace, 'Cascadia Mono', Menlo, monospace;
+}
+
+.kinds-table tr.off td:not(:nth-child(4)) {
+  color: var(--ink-muted);
+}
+
+.kinds-table .actions button + button {
+  margin-left: var(--space-3);
+}
+
+.kinds-table .removing td {
+  white-space: normal;
+}
+
+.kinds-table .removing td,
+.kinds-table .editing td {
+  padding: var(--space-3);
+}
+
+.kinds-table .removing .choices {
+  display: inline-flex;
+  gap: var(--space-2);
+  margin-left: var(--space-3);
+}
+
+.kind-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  white-space: normal;
+}
+
+.kind-form label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.kind-form input {
+  width: 9em;
+}
+
+.kind-form .choices {
+  display: inline-flex;
+  gap: var(--space-2);
+}
+
+.kind-form .refusal {
+  flex-basis: 100%;
+  color: var(--danger);
+  font-size: 13px;
+}

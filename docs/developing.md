@@ -90,7 +90,22 @@ It is in two halves, kept apart on purpose:
 
 The rules in `suggest` aim for the folder a person would have picked themselves. A folder that is mostly photos and videos, everything beneath it counted, is offered whole (`Pictures`, not each of its two hundred subfolders). A folder with photos loose in it is offered too, so they are not lost. Anything else is only a container and its subfolders are considered one by one. A whole drive is offered only when nine files in ten on it are photos, which is a memory card and not a system disk. No suggestion is ever inside another.
 
-A survey guesses from file endings (`keevoro_core::kind_by_ending`), so it is a hint and nothing more. Nothing it finds is remembered. The person ticks folders and each becomes an ordinary source, searched properly. Try it from the command line with `keevoro survey D:\`.
+A survey guesses from file endings (the list of kinds below), so it is a hint and nothing more. Nothing it finds is remembered. The person ticks folders and each becomes an ordinary source, searched properly. Try it from the command line with `keevoro survey D:\`.
+
+### The kinds of file Keevoro looks for
+
+Which endings count as photos and videos is a list the person can change, in Settings, Advanced, or with `keevoro kinds`. It is one list for the whole of Keevoro, not one per backup, and it is separate from leaving out a kind of file on one source (`sources.include_type`), which works on what was found.
+
+How it flows from a click to a search:
+
+1. **Kept as changes.** `keevoro_core::kinds` holds the built-in list (`BUILT_IN`) and the rules. The settings file keeps only what the person changed (`file_kinds` in `settings.json`): endings they added, and built-in ones they switched off or made the other kind. So the list always starts as the built-in one, a built-in kind added in a later version simply appears, and a settings file nobody changed is written exactly as before. It is changed under the settings lock like everything else there (`Backups::change`), so two programs never undo each other.
+2. **Read once per job.** When a search (`sources.look`, `sources.look_again`) or a survey starts, `Keevoro::kinds_to_look_for` reads the settings once and makes a `Kinds`, a small lookup by ending. It goes into `ScanOptions::kinds` or `survey`'s `kinds` argument. Nothing consults the disk per file, and the pure functions take the list as an argument, so they are tested with lists made up in the test. A change made while a search runs counts from the next one.
+3. **Asked about each file.** The survey counts a file when `Kinds::looked_for` knows its ending. The search passes over, unopened, a file whose ending is switched off, and plainly-not-media endings as before. For a built-in kind Keevoro recognises from inside (a JPEG, an MP4) what is inside still decides: a `.jpg` that is really text is not a photo. For a kind known only by its name (most camera raw and camcorder kinds, and every kind a person adds) `Kinds::by_name` gives the answer when the inside does not say it is a photo or a video, so such a file is found even though nothing can open it. A file whose ending is not on the list at all is still opened and judged by what is inside, so a photo called `IMG_0001.dat` is not missed.
+4. **Nothing found is taken away.** `keep_found_before` in `keevoro-engine/src/lib.rs` keeps, when a source is looked through again, any file found there before whose kind is no longer looked for, as long as it is still there at the same size. Switching a kind off changes what is looked for from now on; it never drops a file from the list, from the next backup's index, or from anywhere it was backed up.
+
+A kind Keevoro cannot open goes through everything else like any other file: it is fingerprinted, told apart from its copies, placed in its collection, and copied and proved exact. With no pixel size it is never set aside as tiny. Making its preview fails quietly: the catalog remembers `NoPreview` so it is not tried again, nothing is logged, the index lists it without previews, and the screens show their "No preview" square. `a_kind_added_that_keevoro_cannot_open_is_found_and_backed_up_exactly_with_no_preview_and_no_fuss` in `keevoro-api/src/jobs/tests.rs` walks that whole path.
+
+The guard on what may be added is small: an ending is letters and numbers only (no spaces, dots or path characters, at most ten), compared without case or the leading dot, never twice, and never one of the endings Keevoro passes over as programs, documents, music or archives (`never_media_extension`), which would make no sense to look inside. An AI agent may read the list (`list_file_kinds`) but not change it, like Keevoro's other settings.
 
 ### What a backup looks like on disk
 

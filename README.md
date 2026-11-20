@@ -82,7 +82,7 @@ These are rules the code is built around and automated tests guard, not hopes.
 
 - 📂 **Sources:** drives, USB sticks, memory cards, folders, network shares. Several per backup, with duplicates across all of them counted once.
 - ⚡ **Quick survey:** find the folders with photos on a whole disk in seconds, opening no file.
-- 🖼️ **Formats:** JPEG, PNG, HEIC, TIFF, WebP, camera raw (DNG, CR2, CR3, NEF, ARW and more), and MP4, MOV, AVI, MTS and other video.
+- 🖼️ **Formats:** JPEG, PNG, HEIC, TIFF, WebP, camera raw (DNG, CR2, CR3, NEF, ARW and more), and MP4, MOV, AVI, MTS and other video. Add any other ending your camera uses, or switch one off, in Settings, Advanced (or `keevoro kinds`); a kind Keevoro cannot open is still backed up exactly.
 - 🧹 **Tidying:** app icons, tiny images and leftovers are set aside with a reason. Per source, you can include or leave out whole kinds of file.
 - 🗂️ **Collections:** named after your own folders, or by date, with dates read from the camera data, the file name or the folder.
 - 👯 **Duplicates:** found by full-content fingerprint, with a screen showing which copy is kept and which are left out.

@@ -10,6 +10,7 @@
 
 import type {
   AppState,
+  FileKind,
   SendEvent,
   Backend,
   CheckEvent,
@@ -150,6 +151,30 @@ export function demoBackend(): Backend {
   let systemCodecs = true
   let agents = { lookIn: [] as string[], backUpTo: [] as string[], mayChange: false }
   let previews = true
+  // The kinds of file looked for, as Keevoro comes with them, and one added.
+  const builtInKinds = (): FileKind[] => [
+    ...'jpg jpeg jpe png heic heif tif tiff webp bmp avif jxl dng cr2 cr3 crw nef nrw arw srf sr2 orf rw2 raf pef srw x3f 3fr erf kdc mrw raw iiq dcr mef mos rwl'
+      .split(' ')
+      .map((ending) => ({ ending, kind: 'photo' as const, on: true, builtIn: true })),
+    ...'mp4 mov m4v avi mkv wmv mpg mpeg webm insv asf flv mts m2ts 3gp 3g2 mod tod vob dv'
+      .split(' ')
+      .map((ending) => ({ ending, kind: 'video' as const, on: true, builtIn: true })),
+  ]
+  let lookedFor: FileKind[] = [...builtInKinds(), { ending: 'insp', kind: 'photo', on: true, builtIn: false }]
+  const plainEnding = (typed: string) => {
+    const ending = typed.trim().replace(/^\./, '').toLowerCase()
+    if (!ending) throw new Error('Type the ending of the files, such as heif.')
+    if (!/^[\p{L}\p{N}]+$/u.test(ending))
+      throw new Error(`"${typed.trim()}" can’t be the ending of a file name. Use letters and numbers only, with no spaces or dots, such as heif.`)
+    if (['exe', 'pdf', 'mp3', 'zip', 'txt', 'docx'].includes(ending))
+      throw new Error(`Files ending .${ending} are programs, documents, music or archives, never photos or videos, so Keevoro doesn’t look inside them.`)
+    return ending
+  }
+  const kindNamed = (typed: string) => {
+    const found = lookedFor.find((k) => k.ending === typed.trim().replace(/^\./, '').toLowerCase())
+    if (!found) throw new Error(`Keevoro doesn’t have .${typed} files on its list.`)
+    return found
+  }
   const speed = () => ({
     on: systemCodecs,
     available: true,
@@ -448,6 +473,37 @@ export function demoBackend(): Backend {
     setAgentAccess: async (change) => {
       agents = { ...agents, ...change }
       return { ...agents }
+    },
+    fileKinds: async () => lookedFor.map((k) => ({ ...k })),
+    addFileKind: async (typed, kind) => {
+      const ending = plainEnding(typed)
+      if (lookedFor.some((k) => k.ending === ending)) throw new Error(`Keevoro already looks for .${ending} files.`)
+      const added = { ending, kind, on: true, builtIn: false }
+      lookedFor = [...lookedFor, added]
+      return { ...added }
+    },
+    changeFileKind: async (typed, change) => {
+      const now = kindNamed(typed)
+      const ending = change.to === undefined ? now.ending : plainEnding(change.to)
+      if (ending !== now.ending) {
+        if (now.builtIn)
+          throw new Error(`.${now.ending} is one of the lookedFor Keevoro comes with. It can be switched off, but not removed or renamed.`)
+        if (lookedFor.some((k) => k.ending === ending)) throw new Error(`Keevoro already looks for .${ending} files.`)
+      }
+      const changed = { ...now, ending, kind: change.kind ?? now.kind, on: change.on ?? now.on }
+      lookedFor = lookedFor.map((k) => (k === now ? changed : k))
+      return { ...changed }
+    },
+    removeFileKind: async (typed) => {
+      const gone = kindNamed(typed)
+      if (gone.builtIn)
+        throw new Error(`.${gone.ending} is one of the lookedFor Keevoro comes with. It can be switched off, but not removed or renamed.`)
+      lookedFor = lookedFor.filter((k) => k !== gone)
+      return { ...gone }
+    },
+    resetFileKinds: async () => {
+      lookedFor = [...builtInKinds(), ...lookedFor.filter((k) => !k.builtIn)]
+      return lookedFor.map((k) => ({ ...k }))
     },
     chooseAgentFolder: async () => (agents.lookIn.includes('D:\\Photos') ? 'F:\\Family Backup' : 'D:\\Photos'),
     setAcceleration: async (on) => {
