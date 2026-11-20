@@ -124,6 +124,9 @@ struct Shared {
     /// Done and to do, for saying so while the sender waits.
     done: AtomicU64,
     total: AtomicU64,
+    /// Previews and video previews made, for the backup's history.
+    photos_made: AtomicU64,
+    videos_made: AtomicU64,
 }
 
 /// Where the background learns the conditions: given whether the
@@ -165,6 +168,8 @@ impl Previews {
             allowed: AtomicU64::new(1),
             done: AtomicU64::new(0),
             total: AtomicU64::new(0),
+            photos_made: AtomicU64::new(0),
+            videos_made: AtomicU64::new(0),
         });
         let home = home.to_path_buf();
         let thread = {
@@ -181,6 +186,14 @@ impl Previews {
     /// Previews are the backup's work now, and go at the foreground's pace.
     pub fn originals_sent(&self) {
         self.shared.sending_originals.store(false, Ordering::SeqCst);
+    }
+
+    /// How many previews of photos, and of videos, have been made so far.
+    pub fn made(&self) -> (u64, u64) {
+        (
+            self.shared.photos_made.load(Ordering::SeqCst),
+            self.shared.videos_made.load(Ordering::SeqCst),
+        )
     }
 
     /// Waits for every preview to be made, saying how far it has got.
@@ -274,6 +287,33 @@ pub fn still_to_make(catalog: &Catalog) -> Result<(u64, u64)> {
     Ok((photos, videos))
 }
 
+/// How many photos and videos being kept have no preview because Keevoro
+/// could not make one, in this backup or an earlier one.
+pub fn without_previews(catalog: &Catalog) -> Result<(u64, u64)> {
+    let reports = catalog.load_reports()?;
+    let (unique, _) = crate::summary::unique_items(&reports);
+    let (mut photos, mut videos) = (0, 0);
+    for item in unique {
+        let Some(hash) = item.blake3.as_deref() else { continue };
+        if !crate::wanted(catalog, item)? {
+            continue;
+        }
+        match item.kind {
+            MediaKind::Photo => {
+                if matches!(catalog.rendition(hash)?, Some(RenditionState::NoPreview { .. })) {
+                    photos += 1;
+                }
+            }
+            MediaKind::Video => {
+                if matches!(catalog.video(hash)?, Some(VideoState::Unreadable { .. })) {
+                    videos += 1;
+                }
+            }
+        }
+    }
+    Ok((photos, videos))
+}
+
 /// The background's work: a pass while the originals go, over the files
 /// whose fingerprints are known, then, once they are sent, a pass over
 /// everything that is left.
@@ -323,7 +363,7 @@ fn make(
         shared.total.store(before + photos, Ordering::SeqCst);
         tracker.set_work(Kind::MakingPreviews, None, before + photos);
         tracker.progress(Kind::MakingPreviews, None, before);
-        keevoro_collect::make_previews_paced(
+        let report = keevoro_collect::make_previews_paced(
             home,
             &catalog,
             &refs,
@@ -335,6 +375,7 @@ fn make(
             &keep_going,
             pace,
         )?;
+        shared.photos_made.fetch_add(report.made as u64, Ordering::SeqCst);
         if keep_going()
             && refs.iter().any(|i| i.kind == MediaKind::Video)
             && keevoro_media::video::can_make_posters(video_tools)
@@ -345,7 +386,7 @@ fn make(
             if videos > 0 {
                 tracker.progress(Kind::MakingVideoPreviews, None, before);
             }
-            keevoro_collect::make_video_previews_paced(
+            let report = keevoro_collect::make_video_previews_paced(
                 home,
                 &catalog,
                 &refs,
@@ -358,6 +399,7 @@ fn make(
                 &keep_going,
                 pace,
             )?;
+            shared.videos_made.fetch_add(report.posters as u64, Ordering::SeqCst);
         }
         Ok(())
     };

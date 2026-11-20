@@ -166,6 +166,26 @@ pub struct LogRequest {
     pub lines: Option<usize>,
 }
 
+/// `destinations.tidy`
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TidyRequest {
+    /// A backup folder, whether or not a backup still goes there.
+    pub place: String,
+}
+
+/// What `destinations.tidy` cleared.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Tidied {
+    pub folder: String,
+    /// Abandoned working files removed, and their size.
+    pub files: u64,
+    pub bytes: u64,
+    /// Left in the working folder: in use in the last hour, or not Keevoro's.
+    pub left: u64,
+}
+
 /// A newer Keevoro that this computer can install.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -213,6 +233,12 @@ impl Keevoro {
             jobs,
         };
         keevoro.apply_saved_choices();
+        // Pictures kept for quick showing are kept within bounds, quietly,
+        // off the thread that opened Keevoro.
+        let cache = keevoro.cache.clone();
+        let _ = std::thread::Builder::new()
+            .name("keevoro cache".into())
+            .spawn(move || crate::picture::trim_cache(&cache, crate::picture::CACHE_LIMIT));
         keevoro
     }
 
@@ -346,16 +372,68 @@ impl Keevoro {
     }
 
     /// `destinations.remove`: one by its place in the list, or every one.
+    /// A folder taken off has Keevoro's own abandoned working files cleared
+    /// from it, as a backup there would have; nothing backed up is touched.
     pub fn remove_destination(&self, backup: &Backup, at: Option<usize>) -> Result<Vec<String>> {
+        let folders: Vec<(String, String)> = backup
+            .destinations()?
+            .into_iter()
+            .filter_map(|d| d.folder.map(|folder| (d.name, folder)))
+            .collect();
         let gone = backup.remove_destination(at, self.secrets())?;
         if at.is_some() {
             for name in &gone {
                 self.log.say(&format!(
-                    "No longer backing up to {name}. Nothing stored there was changed"
+                    "No longer backing up to {name}. Nothing that was backed up there was changed"
                 ));
             }
         }
+        // Not there (a drive unplugged) or not tidied: no reason not to take it off.
+        for (_, folder) in folders.iter().filter(|(name, _)| gone.contains(name)) {
+            if Path::new(folder).is_dir() {
+                let _ = self.tidy_folder(Path::new(folder));
+            }
+        }
         Ok(gone)
+    }
+
+    /// `destinations.tidy`: clears Keevoro's own abandoned working files
+    /// (`.keevoro-uploads`) from a backup folder, whether or not any backup
+    /// still goes there. Only that working folder is ever touched; what was
+    /// backed up, and anything else in the folder, stays as it is.
+    pub fn tidy_folder(&self, folder: &Path) -> Result<Tidied> {
+        if !folder.is_dir() {
+            return Err(Error::not_found(format!(
+                "There is no folder at {}.",
+                keevoro_engine::friendly_path(folder)
+            )));
+        }
+        let swept = keevoro_engine::sweep_working_files(folder, keevoro_engine::ABANDONED_AFTER).map_err(|e| {
+            Error::failed(format!(
+                "Keevoro couldn't clear its unfinished copies in {}: {e}.",
+                keevoro_engine::friendly_path(folder)
+            ))
+        })?;
+        let place = keevoro_engine::friendly_path(folder);
+        if swept.bytes > 0 {
+            self.log.say(&format!(
+                "In {place}: {} Nothing that was backed up was touched",
+                keevoro_engine::send::cleared_words(swept.bytes)
+            ));
+        }
+        if swept.left > 0 {
+            self.log.say(&format!(
+                "In {place}: left {} in Keevoro's working folder, as {} in use in the last hour or not recognised as Keevoro's",
+                keevoro_engine::summary::count(usize::try_from(swept.left).unwrap_or(usize::MAX), "thing"),
+                if swept.left == 1 { "it was" } else { "they were" }
+            ));
+        }
+        Ok(Tidied {
+            folder: place,
+            files: swept.files,
+            bytes: swept.bytes,
+            left: swept.left,
+        })
     }
 
     /// `photos.picture`, as WebP bytes.
@@ -554,6 +632,104 @@ pub(crate) mod tests {
         Keevoro::open(&folders(dir))
             .with_secrets(SharedSecrets::default())
             .with_web(FakeGitHub(None))
+    }
+
+    /// Makes a file `age` old, as an earlier backup would have left it.
+    fn left_behind(path: &Path, bytes: usize, age: std::time::Duration) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, vec![1u8; bytes]).unwrap();
+        let file = std::fs::File::options().write(true).open(path).unwrap();
+        file.set_modified(std::time::SystemTime::now() - age).unwrap();
+    }
+
+    #[test]
+    fn unfinished_copies_are_cleared_from_a_folder_taken_off_a_backup_or_any_folder_asked() {
+        use crate::{call, call_for_agent, Op};
+        use serde_json::json;
+        let dir = tempfile::tempdir().unwrap();
+        let k = keevoro(dir.path());
+        let named = k.start_backup("Card").unwrap();
+        let backup = Backup::open(&named.home).unwrap();
+        let usb = dir.path().join("USB");
+        k.add_destination(
+            &backup,
+            &AddDestinationRequest {
+                kind: crate::destinations::DestinationKind::Folder,
+                place: usb.display().to_string(),
+                bucket: None,
+                access_key_id: None,
+                secret_access_key: None,
+            },
+        )
+        .unwrap();
+        let day = std::time::Duration::from_secs(86_400);
+        left_behind(&usb.join("originals/IMG_1.jpg"), 10, day);
+        left_behind(&usb.join(".keevoro-uploads/tmp-abc"), 5000, day);
+        k.remove_destination(&backup, Some(0)).unwrap();
+        assert!(!usb.join(".keevoro-uploads").exists(), "cleared when taken off");
+        assert!(
+            usb.join("originals/IMG_1.jpg").is_file(),
+            "nothing backed up is touched"
+        );
+        let log = k.log_tail(10);
+        assert!(
+            log.contains("Cleared 4.9 KB of unfinished copies left by an earlier backup that was stopped."),
+            "{log}"
+        );
+        assert!(log.contains("Nothing that was backed up there was changed"), "{log}");
+        // One whose drive is unplugged is still taken off.
+        k.add_destination(
+            &backup,
+            &AddDestinationRequest {
+                kind: crate::destinations::DestinationKind::Folder,
+                place: usb.display().to_string(),
+                bucket: None,
+                access_key_id: None,
+                secret_access_key: None,
+            },
+        )
+        .unwrap();
+        let unplugged = dir.path().join("USB unplugged");
+        std::fs::rename(&usb, &unplugged).unwrap();
+        assert_eq!(k.remove_destination(&backup, Some(0)).unwrap().len(), 1);
+        std::fs::rename(&unplugged, &usb).unwrap();
+
+        // The same for a folder no backup goes to any more, by name.
+        left_behind(&usb.join(".keevoro-uploads/18e8/part-00531"), 7000, day);
+        left_behind(&usb.join(".keevoro-uploads/tmp-live"), 10, std::time::Duration::ZERO);
+        let tidied = call(
+            &k,
+            Op::DestinationsTidy,
+            None,
+            json!({ "place": usb.display().to_string() }),
+        )
+        .unwrap();
+        assert_eq!(
+            (
+                tidied["files"].as_u64(),
+                tidied["bytes"].as_u64(),
+                tidied["left"].as_u64()
+            ),
+            (Some(1), Some(7000), Some(1))
+        );
+        assert!(usb.join(".keevoro-uploads/tmp-live").is_file());
+        let e = call(
+            &k,
+            Op::DestinationsTidy,
+            None,
+            json!({ "place": dir.path().join("nowhere").display().to_string() }),
+        )
+        .unwrap_err();
+        assert_eq!(e.kind, crate::Kind::NotFound);
+        // An AI agent cannot.
+        let e = call_for_agent(
+            &k,
+            Op::DestinationsTidy,
+            None,
+            json!({ "place": usb.display().to_string() }),
+        )
+        .unwrap_err();
+        assert_eq!(e.kind, crate::Kind::Refused);
     }
 
     #[test]

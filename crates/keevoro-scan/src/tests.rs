@@ -92,6 +92,78 @@ fn falls_back_to_extension_for_formats_without_magic_bytes() {
     assert_eq!(item(&r, "00001.MTS").kind, MediaKind::Video);
 }
 
+fn scan_with(t: &Tree, kinds: &keevoro_core::FileKinds) -> ScanReport {
+    let opts = ScanOptions {
+        kinds: kinds.lookup(),
+        ..ScanOptions::default()
+    };
+    scan(t.root(), &opts, &mut |_| {})
+}
+
+#[test]
+fn a_kind_a_person_added_is_found_by_its_name_even_when_nothing_inside_says_what_it_is() {
+    let t = Tree::new();
+    // Nothing Keevoro recognises inside either of them.
+    t.add("Holiday/pano.xyz", &[7u8; 300]);
+    t.add("Holiday/clip.qqq", b"PK\x03\x04 an archive inside");
+    t.add("Holiday/other.abc", &[7u8; 300]);
+    let mut kinds = keevoro_core::FileKinds::default();
+    kinds.add("XYZ", MediaKind::Photo).unwrap();
+    kinds.add("qqq", MediaKind::Video).unwrap();
+
+    assert!(t.scan().items.is_empty(), "not looked for until added");
+    let r = scan_with(&t, &kinds);
+    assert_eq!(r.items.len(), 2, "{:?}", r.items);
+    let pano = item(&r, "pano.xyz");
+    assert_eq!((pano.kind, pano.mime.as_str()), (MediaKind::Photo, "application/x-xyz"));
+    assert_eq!(
+        pano.blake3.as_deref(),
+        Some(blake3::hash(&[7u8; 300]).to_hex().as_str())
+    );
+    assert!(pano.hashed);
+    assert_eq!((pano.width, pano.height), (None, None));
+    assert_eq!(pano.junk, None, "not set aside for being impossible to open");
+    assert_eq!(item(&r, "clip.qqq").kind, MediaKind::Video);
+    assert_eq!(r.other_files, 1);
+}
+
+#[test]
+fn what_is_inside_still_decides_whether_a_kind_it_knows_is_a_photo_or_a_video() {
+    let t = Tree::new();
+    t.add("really.xyz", &plain_jpeg(1));
+    let mut kinds = keevoro_core::FileKinds::default();
+    kinds.add("xyz", MediaKind::Video).unwrap();
+    let r = scan_with(&t, &kinds);
+    assert_eq!(
+        (item(&r, "really.xyz").kind, item(&r, "really.xyz").mime.as_str()),
+        (MediaKind::Photo, "image/jpeg")
+    );
+}
+
+#[test]
+fn a_kind_switched_off_is_passed_over_without_being_opened() {
+    let t = Tree::new();
+    t.add("a.jpg", &plain_jpeg(1));
+    t.add("b.JPG", &plain_jpeg(2));
+    t.add("00001.MTS", &[0x47, 1, 2, 3]);
+    t.add("renamed.dat", &plain_jpeg(3));
+    let mut kinds = keevoro_core::FileKinds::default();
+    let off = keevoro_core::KindChange {
+        on: Some(false),
+        ..Default::default()
+    };
+    kinds.change("jpg", &off).unwrap();
+    kinds.change("mts", &off).unwrap();
+    let r = scan_with(&t, &kinds);
+    let names: Vec<_> = r.items.iter().map(|i| i.path.file_name().unwrap().to_owned()).collect();
+    assert_eq!(
+        names,
+        ["renamed.dat"],
+        "a photo with an odd name is still found by what is inside"
+    );
+    assert_eq!(r.other_files, 3);
+}
+
 #[test]
 fn camera_date_beats_file_name_and_modified_time() {
     let t = Tree::new();

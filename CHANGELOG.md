@@ -6,7 +6,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **You can choose the kinds of file Keevoro looks for.** In Settings, under the new Advanced section, a table lists every ending Keevoro looks for (.jpg, .mov, .cr2 and so on), whether each is a photo or a video, whether it came with Keevoro or you added it, and a switch to look for it or not. Add an ending your camera uses that Keevoro does not know, such as .insp, and its files are found and backed up like any other. If Keevoro cannot open them, they are still copied and checked exactly, and simply show "No preview". The kinds Keevoro comes with can be switched off, or made photos or videos, and "Put back the built-in list" brings them all back. Changes count from the next time a source is looked through, and switching a kind off never takes away anything already found or backed up. The same is there from the command line as `keevoro kinds`, and an AI app can see the list but not change it.
+
+- **Each earlier backup now opens to show everything Keevoro recorded about it.** Under "How earlier backups went", press Details on a row to see when it started and finished, how long it was paused, how it ended and whether it was started from the app, the command line or an AI app; every stage with how long it took, how much it did and its speed, including the slowest and fastest it held for a minute or more; how many of your files were sent, were already there or could not be sent, with the reasons; the duplicates left out and the room saved; the previews made and sent; where it went and whether that was across a network; and what it said at the end. The same is there from the command line with `keevoro history 1`, and an AI app can read it. Backups from before this version show what was kept for them.
+
+### Fixed
+
+- **Keevoro no longer leaves unfinished copies lying about in your backup folders.** A backup that was stopped, or lost its drive part-way, could leave Keevoro's half-made copies in a hidden working folder called `.keevoro-uploads`, sometimes many gigabytes, and nothing ever cleared them. Now each backup to that folder clears them away as it starts and ends, and says so ("Cleared 15.0 GB of unfinished copies left by an earlier backup that was stopped"). They were Keevoro's working files, never part of your backup: nothing that was backed up is touched, and anything written to in the last hour is left alone in case another backup is using it. Taking a folder off a backup clears it too, and for a folder no backup goes to any more, `keevoro tidy "D:\Backups"` does it.
+- **Cloud storage is no longer left holding unfinished uploads** for files a backup has stopped sending, which took room and could cost money.
+- **The pictures Keevoro keeps for showing photos quickly now take at most 1 GB** on your computer, the oldest cleared first; they are made again when needed.
+- **Pause, Carry on and Stop now always reach a backup another Keevoro program is running, on Windows too.** Pausing from the command line while the app was backing up, say, could on rare occasions go unheard, because Windows sometimes holds a just-written file for a moment (while a virus checker looks at it) and Keevoro gave up on it instead of trying again.
 
 ## [0.32.0] - 2026-11-20
 

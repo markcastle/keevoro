@@ -377,7 +377,7 @@ pub fn disconnect(out: &mut dyn Write, catalog: &Catalog, world: &World<'_>) -> 
     remember(catalog, &[])?;
     writeln!(
         out,
-        "Disconnected from {}. Nothing stored there was changed.",
+        "Disconnected from {}. Nothing that was backed up there was changed.",
         saved.describe()
     )?;
     Ok(())

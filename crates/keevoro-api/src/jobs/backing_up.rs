@@ -14,7 +14,7 @@ use crate::error::Result;
 use keevoro_catalog::Catalog;
 use keevoro_core::estimate::Tracker;
 use keevoro_engine::connect::{self, World};
-use keevoro_engine::history::Sent;
+use keevoro_engine::history::{Ended, RunDetail, Sent};
 use keevoro_engine::send::Went;
 use keevoro_media::VideoTools;
 use std::path::Path;
@@ -89,8 +89,8 @@ pub(super) fn start(ctx: &Context, backup: &Named, kind: JobKind, listener: Opti
                     .say(&format!("Couldn't remember how fast this backup went: {e}"));
             }
         }
-        // How it went, said to the person and written into the backup's
-        // record, so "was that slow?" has an answer afterwards.
+        // How it went, said to the person, so "was that slow?" has an
+        // answer at once.
         if record && result.as_ref().is_ok_and(|went| went.refused.is_none()) {
             let several = turns.len() > 1;
             for sent in &turns {
@@ -103,14 +103,11 @@ pub(super) fn start(ctx: &Context, backup: &Named, kind: JobKind, listener: Opti
                     };
                     said.extend_from_slice(line.as_bytes());
                     said.push(b'\n');
-                    if let Ok(catalog) = Catalog::open_in_library(&home) {
-                        let _ = keevoro_engine::history::record(&catalog, sent);
-                    }
                 }
             }
         }
-        let (problem, outcome) = match result {
-            Ok(went) => (went.refused.as_ref().map(|e| format!("{e:#}")), outcome(&went)),
+        let (problem, outcome) = match &result {
+            Ok(went) => (went.refused.as_ref().map(|e| format!("{e:#}")), outcome(went)),
             // Nowhere to back up to, or Keevoro's own record could not be read.
             Err(e) => (Some(format!("{e:#}")), Outcome::Refused),
         };
@@ -122,6 +119,19 @@ pub(super) fn start(ctx: &Context, backup: &Named, kind: JobKind, listener: Opti
             Some(e) => ctx.log.say(&format!("Backup job failed: {e}")),
         }
         let last = SendEvent::finished(&said, problem, outcome);
+        // Written into the backup's record, with everything measured, so a
+        // person can look back at it in full.
+        if let (true, Ok(went)) = (record, &result) {
+            let entry = entry(&home, &job.handle, &tracker, went, &last, outcome);
+            if entry.bytes > 0 || outcome != Outcome::Worked {
+                let recorded = Catalog::open_in_library(&home)
+                    .map_err(anyhow::Error::from)
+                    .and_then(|c| keevoro_engine::history::record(&c, &entry));
+                if let Err(e) = recorded {
+                    ctx.log.say(&format!("Couldn't write down how this backup went: {e:#}"));
+                }
+            }
+        }
         // What a backup said when it ended is kept with the backup, so it
         // is still there after looking at another screen or closing
         // Keevoro, until the next backup replaces it.
@@ -135,6 +145,39 @@ pub(super) fn start(ctx: &Context, backup: &Named, kind: JobKind, listener: Opti
         ending.with(Some(last));
     })?;
     Ok(handle)
+}
+
+/// One backup, for its history: the line in the list, and everything
+/// measured beside it.
+fn entry(home: &Path, handle: &JobHandle, tracker: &Tracker, went: &Went, last: &SendEvent, outcome: Outcome) -> Sent {
+    let found = Backup::open(home).and_then(|b| b.found()).ok();
+    let ended = match outcome {
+        Outcome::Worked | Outcome::SomeFiles => Ended::Finished,
+        Outcome::Stopped => Ended::Stopped,
+        Outcome::Unreachable | Outcome::Refused => Ended::Problem,
+    };
+    let to: Vec<&str> = went.destinations.iter().map(|d| d.to.as_str()).collect();
+    Sent {
+        finished_at: seconds_now(),
+        seconds: tracker.running_seconds(),
+        bytes: went.destinations.iter().map(|d| d.bytes).sum(),
+        to: to.join(" and "),
+        stopped: went.stopped,
+        detail: Some(Box::new(RunDetail {
+            started_at: handle.started_at,
+            paused_seconds: tracker.paused_seconds(),
+            ended,
+            problem: last.problem.clone(),
+            started_by: handle.started_by.name().replace("the Keevoro app", "the app"),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            destinations: went.destinations.clone(),
+            stages: tracker.record(),
+            duplicates: found.as_ref().map_or(0, |f| f.duplicates),
+            duplicate_bytes: found.as_ref().map_or(0, |f| f.duplicate_bytes),
+            previews: went.previews.clone(),
+            summary: last.summary.clone(),
+        })),
+    }
 }
 
 /// How it went, in a word. A destination out of reach matters most, as it
@@ -183,6 +226,7 @@ fn run(
                 bytes: turn.bytes,
                 to: turn.to.describe(),
                 stopped: turn.stopped,
+                detail: None,
             });
         },
     )

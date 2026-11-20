@@ -459,6 +459,7 @@ pub(crate) mod tests {
                 bytes,
                 to: "the folder Z:\\Backups".into(),
                 stopped: false,
+                detail: None,
             };
             keevoro_engine::history::record(&catalog, &sent).unwrap();
         }

@@ -1209,7 +1209,7 @@ impl Keevoro {
     /// which of them are already its sources; nothing is changed.
     pub fn survey(&self, place: &Path, backup: Option<&Named>, listener: Option<Listener>) -> Result<JobHandle> {
         must_be_there(place)?;
-        surveying::start(&self.context(), place, backup, listener)
+        surveying::start(&self.context(), place, backup, self.kinds_to_look_for(), listener)
     }
 
     /// `sources.look`: looks through a drive or folder quickly and adds it
@@ -1221,6 +1221,7 @@ impl Keevoro {
             backup,
             vec![place.to_path_buf()],
             JobKind::Look,
+            self.kinds_to_look_for(),
             listener,
         )
     }
@@ -1229,7 +1230,14 @@ impl Keevoro {
     /// turn, for what is new.
     pub fn look_again(&self, backup: &Named, source: Option<i64>, listener: Option<Listener>) -> Result<JobHandle> {
         let places = looking::sources_to_look_again(backup, source)?;
-        looking::start(&self.context(), backup, places, JobKind::LookAgain, listener)
+        looking::start(
+            &self.context(),
+            backup,
+            places,
+            JobKind::LookAgain,
+            self.kinds_to_look_for(),
+            listener,
+        )
     }
 
     /// `backup.run`: backs up to every destination, originals first, and

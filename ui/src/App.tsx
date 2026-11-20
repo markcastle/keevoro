@@ -30,6 +30,9 @@ import type {
   Duplicate,
   Activity,
   AgentAccess,
+  FileKind,
+  StageRecord,
+  Sending,
   AppState,
   Backend,
   SendEvent,
@@ -369,6 +372,10 @@ export function App() {
             onSend={() => {
               setOverlay(null)
               setStep('send')
+            }}
+            onSources={() => {
+              setOverlay(null)
+              setStep('find')
             }}
             onReset={(s) => {
               setOverlay(null)
@@ -1427,6 +1434,8 @@ function SettingsScreen(props: {
   /** Called after a reset, with the app as it is when first installed. */
   onReset: (state: AppState) => void
   onSend: () => void
+  /** Goes to the sources, where they can be looked through again. */
+  onSources: () => void
   onBack: () => void
   onProblem: (error: unknown) => void
 }) {
@@ -1595,6 +1604,11 @@ function SettingsScreen(props: {
         )}
       </div>
 
+      <details className="advanced">
+        <summary>Advanced</summary>
+        <FileKindsSetting api={api} onSources={props.onSources} onProblem={onProblem} />
+      </details>
+
       <div className="setting">
         <h3>Start again</h3>
         <p className="quiet">
@@ -1726,6 +1740,246 @@ function AgentsSetting(props: { api: Backend; onProblem: (error: unknown) => voi
           {folders('backUpTo', 'Folders an agent may back up to', 'None yet, so it cannot back up to a folder.')}
         </>
       )}
+    </div>
+  )
+}
+
+/** What a refusal from Keevoro says, as a sentence. */
+function sentence(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+/** An ending as it is shown: with its dot. */
+const dotted = (ending: string) => `.${ending}`
+
+/**
+ * The kinds of file Keevoro looks for, for the whole of Keevoro. A built-in
+ * kind can be switched off and made a photo or a video; one of your own can
+ * also be renamed and removed. A change counts from the next time a source is
+ * looked through, and never takes away anything already found or backed up.
+ */
+function FileKindsSetting(props: { api: Backend; onSources: () => void; onProblem: (error: unknown) => void }) {
+  const { api, onProblem } = props
+  const [kinds, setKinds] = useState<FileKind[] | null>(null)
+  // Which line is being edited ('' for a new one), with what is typed.
+  const [editing, setEditing] = useState<{ was: string; ending: string; kind: 'photo' | 'video' } | null>(null)
+  const [refusal, setRefusal] = useState<string | null>(null)
+  const [removing, setRemoving] = useState<string | null>(null)
+  const [changed, setChanged] = useState(false)
+  const load = useCallback(() => api.fileKinds().then(setKinds).catch(onProblem), [api, onProblem])
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const done = () => {
+    setChanged(true)
+    setEditing(null)
+    setRefusal(null)
+    setRemoving(null)
+    return load()
+  }
+  const save = () => {
+    if (!editing) return
+    const asked =
+      editing.was === ''
+        ? api.addFileKind(editing.ending, editing.kind)
+        : api.changeFileKind(editing.was, { kind: editing.kind, to: editing.ending })
+    asked.then(done).catch((e) => setRefusal(sentence(e)))
+  }
+  const switchOn = (kind: FileKind) =>
+    api
+      .changeFileKind(kind.ending, { on: !kind.on })
+      .then(done)
+      .catch(onProblem)
+
+  const form = (title: string) =>
+    editing && (
+      <form
+        className="kind-form"
+        aria-label={title}
+        onSubmit={(e) => {
+          e.preventDefault()
+          save()
+        }}
+      >
+        <label>
+          Ending
+          <input
+            value={editing.ending}
+            disabled={editing.was !== '' && kinds?.find((k) => k.ending === editing.was)?.builtIn}
+            placeholder="Such as heif"
+            autoFocus
+            spellCheck={false}
+            onChange={(e) => setEditing({ ...editing, ending: e.target.value })}
+          />
+        </label>
+        <label>
+          They are
+          <select
+            value={editing.kind}
+            onChange={(e) => setEditing({ ...editing, kind: e.target.value as 'photo' | 'video' })}
+          >
+            <option value="photo">Photos</option>
+            <option value="video">Videos</option>
+          </select>
+        </label>
+        <span className="choices">
+          <button type="submit" className="primary">
+            {editing.was === '' ? 'Add' : 'Save'}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setEditing(null)
+              setRefusal(null)
+            }}
+          >
+            Cancel
+          </button>
+        </span>
+        {refusal && (
+          <p className="refusal" role="alert">
+            {refusal}
+          </p>
+        )}
+      </form>
+    )
+
+  return (
+    <div className="setting kinds">
+      <h3>Kinds of file Keevoro looks for</h3>
+      <p className="quiet">
+        Keevoro finds photos and videos by the ending of their names, such as .jpg, and for the kinds it knows, by
+        looking inside too. Add a kind your camera makes that is missing here. Keevoro backs up a kind it cannot open
+        just the same, exactly as it is, and shows “No preview” where its picture would be. One list serves every backup.
+      </p>
+      <p className="quiet small">
+        Changes count from the next time a source is looked through. Switching a kind off or removing it never takes
+        away anything already found or backed up.
+      </p>
+      {changed && (
+        <p className="choices again" role="status">
+          <span className="quiet small">Changed. Look through your sources again to find files of the new kinds.</span>
+          <button className="button small" onClick={props.onSources}>
+            Go to your sources
+          </button>
+        </p>
+      )}
+      {kinds && (
+        <div className="kinds-table" tabIndex={0} aria-label="Kinds of file, scrolls sideways when narrow">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Ending</th>
+                <th scope="col">Kind</th>
+                <th scope="col">From</th>
+                <th scope="col">Looked for</th>
+                <th scope="col">
+                  <span className="visually-hidden">Change</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {kinds.map((kind) =>
+                removing === kind.ending ? (
+                  <tr key={kind.ending} className="removing">
+                    <td colSpan={5} role="alertdialog" aria-label={`Remove ${dotted(kind.ending)}?`}>
+                      <span>
+                        Take <b>{dotted(kind.ending)}</b> off the list? Files of this kind already found or backed up
+                        stay where they are.
+                      </span>
+                      <span className="choices">
+                        <button
+                          className="danger"
+                          onClick={() =>
+                            api
+                              .removeFileKind(kind.ending)
+                              .then(done)
+                              .catch(onProblem)
+                          }
+                        >
+                          Yes, take it off
+                        </button>
+                        <button onClick={() => setRemoving(null)}>Cancel</button>
+                      </span>
+                    </td>
+                  </tr>
+                ) : editing?.was === kind.ending ? (
+                  <tr key={kind.ending} className="editing">
+                    <td colSpan={5}>{form(`Change ${dotted(kind.ending)}`)}</td>
+                  </tr>
+                ) : (
+                  <tr key={kind.ending} className={kind.on ? undefined : 'off'}>
+                    <td className="ending">{dotted(kind.ending)}</td>
+                    <td>{kind.kind === 'photo' ? 'Photo' : 'Video'}</td>
+                    <td>{kind.builtIn ? 'Built in' : 'Yours'}</td>
+                    <td>
+                      <button
+                        className={kind.on ? 'kv-switch on' : 'kv-switch'}
+                        role="switch"
+                        aria-checked={kind.on}
+                        aria-label={`Look for ${dotted(kind.ending)} files`}
+                        onClick={() => switchOn(kind)}
+                      >
+                        <span className="knob" />
+                      </button>
+                    </td>
+                    <td className="actions">
+                      <button
+                        className="link"
+                        aria-label={`Change ${dotted(kind.ending)}`}
+                        onClick={() => {
+                          setRemoving(null)
+                          setRefusal(null)
+                          setEditing({ was: kind.ending, ending: kind.ending, kind: kind.kind })
+                        }}
+                      >
+                        Edit
+                      </button>
+                      {!kind.builtIn && (
+                        <button
+                          className="link"
+                          aria-label={`Remove ${dotted(kind.ending)}`}
+                          onClick={() => {
+                            setEditing(null)
+                            setRemoving(kind.ending)
+                          }}
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ),
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {editing?.was === '' && form('Add a kind of file')}
+      <p className="choices">
+        {editing?.was !== '' && (
+          <button
+            onClick={() => {
+              setRemoving(null)
+              setRefusal(null)
+              setEditing({ was: '', ending: '', kind: 'photo' })
+            }}
+          >
+            Add a kind of file…
+          </button>
+        )}
+        <button
+          onClick={() =>
+            api
+              .resetFileKinds()
+              .then(done)
+              .catch(onProblem)
+          }
+        >
+          Put back the built-in list
+        </button>
+      </p>
     </div>
   )
 }
@@ -2262,7 +2516,7 @@ function SendPanel(props: {
                       className="button small"
                       onClick={() => remove(at)}
                       aria-label={`Stop backing up to ${to.name}`}
-                      title="Takes it off this backup. Nothing stored there is deleted."
+                      title="Takes it off this backup. Nothing backed up there is deleted."
                     >
                       Remove
                     </button>
@@ -2417,7 +2671,7 @@ function SendPanel(props: {
                 <button
                   className="button"
                   onClick={() => remove()}
-                  title="Stops backing up here, so you can choose somewhere else. Nothing stored there is deleted."
+                  title="Stops backing up here, so you can choose somewhere else. Nothing backed up there is deleted."
                 >
                   Back up somewhere else
                 </button>
@@ -2489,43 +2743,272 @@ function SendPanel(props: {
               ordinary files.
             </p>
           </details>
-        {history.length > 0 && !running && (
-            <details className="sends">
-              <summary>How earlier backups went</summary>
-              <table>
-                <thead>
-                  <tr>
-                    <th>When</th>
-                    <th>Where</th>
-                    <th>Backed up</th>
-                    <th>Took</th>
-                    <th>Average speed</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {history.slice(0, 8).map((sent) => (
-                    <tr key={sent.finishedAt}>
-                      <td>
-                        {new Date(sent.finishedAt * 1000).toLocaleString('en-GB', {
-                          day: 'numeric',
-                          month: 'short',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </td>
-                      <td className="where">{sent.to.replace(/^the /, '')}</td>
-                      <td>
-                        {size(sent.bytes)}
-                        {sent.stopped && ' (stopped)'}
-                      </td>
-                      <td>{about(sent.seconds).replace('less than a minute', 'under a minute')}</td>
-                      <td>{size(sent.bytes / Math.max(sent.seconds, 1))}/s</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </details>
+        {history.length > 0 && !running && <History history={history} />}
+        </>
+      )}
+    </div>
+  )
+}
+
+/** A moment, in seconds since 1970, as "18 Nov, 08:51". */
+const when = (seconds: number) =>
+  new Date(seconds * 1000).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+
+/** A length of time, as the rest of the app says it, with "under a minute" for the shortest. */
+const took = (seconds: number) => about(seconds).replace('less than a minute', 'under a minute')
+
+/** A speed, per second for bytes; files a second, a minute or an hour. */
+function rate(perSecond: number, unit: 'bytes' | 'files') {
+  if (unit === 'bytes') return `${size(perSecond)} a second`
+  if (perSecond >= 1) return `${count(Math.round(perSecond), 'file')} a second`
+  if (perSecond * 60 >= 1) return `${count(Math.round(perSecond * 60), 'file')} a minute`
+  return `${count(Math.round(perSecond * 3600), 'file')} an hour`
+}
+
+const STAGE_NAMES: Record<StageRecord['kind'], string> = {
+  tellingApart: 'Telling apart files that look alike',
+  placing: 'Working out where each file goes',
+  sendingOriginals: 'Backing up your files',
+  makingPreviews: 'Making previews',
+  makingVideoPreviews: 'Making video previews',
+  sendingPreviews: 'Backing up the previews',
+  writingIndex: 'Writing the list of what is there',
+}
+
+/**
+ * How earlier backups went: one row each, newest first, and every row
+ * opens in place to everything Keevoro recorded about that backup.
+ */
+function History(props: { history: Sent[] }) {
+  const [open, setOpen] = useState<number | null>(null)
+  return (
+    <details className="sends">
+      <summary>How earlier backups went</summary>
+      <div className="sends-scroll" tabIndex={0} aria-label="How earlier backups went, scrolls sideways when narrow">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">When</th>
+              <th scope="col">Where</th>
+              <th scope="col">Backed up</th>
+              <th scope="col">Took</th>
+              <th scope="col">Average speed</th>
+              <th scope="col">
+                <span className="visually-hidden">Details</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {props.history.map((sent, at) => (
+              <HistoryRow
+                key={`${sent.finishedAt}-${at}`}
+                sent={sent}
+                id={`backup-run-${at}`}
+                open={open === at}
+                onToggle={() => setOpen(open === at ? null : at)}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  )
+}
+
+function HistoryRow(props: { sent: Sent; id: string; open: boolean; onToggle: () => void }) {
+  const { sent } = props
+  return (
+    <>
+      <tr className={props.open ? 'open' : undefined}>
+        <td>{when(sent.finishedAt)}</td>
+        <td className="where">{sent.to.replace(/^the /, '')}</td>
+        <td>
+          {size(sent.bytes)}
+          {sent.stopped && ' (stopped)'}
+        </td>
+        <td>{took(sent.seconds)}</td>
+        <td>{size(sent.bytes / Math.max(sent.seconds, 1))}/s</td>
+        <td>
+          <button
+            className="link"
+            aria-expanded={props.open}
+            aria-controls={props.id}
+            aria-label={`${props.open ? 'Hide' : 'Show'} everything about the backup on ${when(sent.finishedAt)}`}
+            onClick={props.onToggle}
+          >
+            {props.open ? 'Hide' : 'Details'}
+          </button>
+        </td>
+      </tr>
+      {props.open && (
+        <tr className="run">
+          <td colSpan={6} id={props.id}>
+            <RunDetailPanel sent={sent} />
+          </td>
+        </tr>
+      )}
+    </>
+  )
+}
+
+/** One pass of sending, in a sentence. */
+function sending(what: string, s: Sending) {
+  const notSent = s.notSent.length + s.notSentMore
+  return [
+    `${count(s.sent, what)} sent (${size(s.sentBytes)})`,
+    s.alreadyThere > 0 && `${thousands(s.alreadyThere)} already there`,
+    notSent > 0 && `${thousands(notSent)} could not be sent`,
+  ]
+    .filter(Boolean)
+    .join(', ')
+}
+
+/** Everything recorded about one backup, from the headline down. */
+function RunDetailPanel(props: { sent: Sent }) {
+  const { sent } = props
+  const d = sent.detail
+  const headline = `${size(sent.bytes)} to ${sent.to.replace(/^the /, 'the ')} in ${took(sent.seconds)}, at an average of ${size(
+    sent.bytes / Math.max(sent.seconds, 1),
+  )} a second.`
+  if (!d) {
+    return (
+      <div className="run-detail">
+        <p className="headline">{headline}</p>
+        <p className="quiet small">
+          Only these figures were kept for this backup. Fuller detail is kept for every backup from now on.
+        </p>
+      </div>
+    )
+  }
+  const ended =
+    d.ended === 'finished'
+      ? 'It finished.'
+      : d.ended === 'stopped'
+        ? 'It was stopped.'
+        : `It ended with a problem${d.problem ? `: ${d.problem}` : '.'}`
+  return (
+    <div className="run-detail">
+      <p className="headline">{headline}</p>
+      <p className="quiet small">
+        Started {when(d.startedAt)} from {d.startedBy}, with Keevoro {d.version}. {ended}
+        {d.pausedSeconds >= 60 && ` It was paused for ${took(d.pausedSeconds)}, which is not counted in the stages.`}
+      </p>
+
+      <h4>Stages</h4>
+      <div className="stages-scroll">
+        <table className="stages">
+          <thead>
+            <tr>
+              <th scope="col">Stage</th>
+              <th scope="col">How long</th>
+              <th scope="col">How much</th>
+              <th scope="col">Speed</th>
+            </tr>
+          </thead>
+          <tbody>
+            {d.stages.map((stage, at) => (
+              <tr key={at}>
+                <td>
+                  {STAGE_NAMES[stage.kind]}
+                  {stage.to && d.destinations.length > 1 && <span className="quiet"> to {stage.to.replace(/^the /, '')}</span>}
+                  {!stage.finished && <span className="quiet"> (not finished)</span>}
+                </td>
+                <td>{took(stage.seconds)}</td>
+                <td>{stage.unit === 'bytes' ? size(stage.done) : count(stage.done, 'file')}</td>
+                <td>
+                  {stage.perSecond !== null ? rate(stage.perSecond, stage.unit) : ''}
+                  {stage.slowest !== null && stage.fastest !== null && (
+                    <span className="quiet small range">
+                      {' '}
+                      slowest {rate(stage.slowest, stage.unit)}, fastest {rate(stage.fastest, stage.unit)}
+                    </span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="quiet small">Slowest and fastest are speeds held for a minute or more.</p>
+
+      <h4>Your files</h4>
+      <ul>
+        {d.destinations.map((to) => (
+          <li key={to.to}>
+            {d.destinations.length > 1 && <>To {to.to.replace(/^the /, 'the ')}: </>}
+            {sending('file', to.originals)}.
+            {to.originals.notSent.length > 0 && (
+              <ul className="not-sent">
+                {to.originals.notSent.map((n) => (
+                  <li key={n.file}>
+                    <span className="where">{n.file}</span>: {n.reason.replace(/\.$/, '')}.
+                  </li>
+                ))}
+                {to.originals.notSentMore > 0 && <li>and {thousands(to.originals.notSentMore)} more.</li>}
+              </ul>
+            )}
+          </li>
+        ))}
+        {d.duplicates > 0 && (
+          <li>
+            {count(d.duplicates, 'duplicate')} left out, saving {size(d.duplicateBytes)}.
+          </li>
+        )}
+      </ul>
+
+      <h4>Previews</h4>
+      {d.previews ? (
+        <ul>
+          <li>
+            Made {count(d.previews.photos, 'photo preview')} and {count(d.previews.videos, 'video still')}.
+          </li>
+          {d.previews.photosWithout + d.previews.videosWithout > 0 && (
+            <li>
+              Without a preview, because Keevoro couldn’t open them: {count(d.previews.photosWithout, 'photo')} and{' '}
+              {count(d.previews.videosWithout, 'video')}.
+            </li>
           )}
+          {d.destinations
+            .filter((to) => to.previews)
+            .map((to) => (
+              <li key={to.to}>
+                {d.destinations.length > 1 && <>To {to.to.replace(/^the /, 'the ')}: </>}
+                {sending('preview file', to.previews!)}.
+              </li>
+            ))}
+        </ul>
+      ) : (
+        <p>None: this backup sends the originals alone.</p>
+      )}
+
+      <h4>Where it went</h4>
+      <ul>
+        {d.destinations.map((to) => (
+          <li key={to.to}>
+            <span className="where">{to.to.replace(/^the /, '')}</span>
+            {to.overNetwork && ', across a network'}
+            {to.reached
+              ? `: ${size(to.bytes)} in ${took(to.seconds)}${to.indexed !== undefined ? `, its index lists ${count(to.indexed, 'file')}` : ''}.`
+              : `: couldn’t be backed up to. ${to.problem ?? ''}`}
+            {!!to.clearedBytes && (
+              <>
+                {' '}
+                Cleared {size(to.clearedBytes)} of unfinished copies left by an earlier backup that was stopped. They were
+                Keevoro’s working files, not part of your backup.
+              </>
+            )}
+          </li>
+        ))}
+      </ul>
+
+      {d.summary.length > 0 && (
+        <>
+          <h4>What it said at the end</h4>
+          <div className="summary-lines">
+            {d.summary.map((line, at) => (
+              <p key={at}>{line}</p>
+            ))}
+          </div>
         </>
       )}
     </div>

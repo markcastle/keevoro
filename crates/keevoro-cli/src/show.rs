@@ -364,7 +364,7 @@ pub fn removed(io: &mut Io<'_>, _: &ArgMatches, gone: &Value) -> Said_ {
     for name in each(gone).filter_map(Value::as_str) {
         writeln!(
             io.out,
-            "No longer backing up to {name}. Nothing stored there was changed."
+            "No longer backing up to {name}. Nothing that was backed up there was changed."
         )?;
     }
     Ok(Code::Worked)
@@ -405,21 +405,36 @@ pub fn rehearsal(io: &mut Io<'_>, _: &ArgMatches, rehearsal: &Value) -> Said_ {
     Ok(Code::Worked)
 }
 
-pub fn history(io: &mut Io<'_>, _: &ArgMatches, list: &Value) -> Said_ {
+pub fn history(io: &mut Io<'_>, m: &ArgMatches, list: &Value) -> Said_ {
+    if m.get_one::<usize>("run").is_some() {
+        // One backup, in full.
+        for sent in each(list) {
+            let sent: keevoro_api::history::Sent =
+                serde_json::from_value(sent.clone()).map_err(std::io::Error::other)?;
+            for line in keevoro_api::words::run_in_full(&sent) {
+                writeln!(io.out, "{line}")?;
+            }
+        }
+        return Ok(Code::Worked);
+    }
     if each(list).next().is_none() {
         writeln!(io.out, "This backup hasn't been run yet.")?;
     }
-    for sent in each(list) {
+    for (n, sent) in each(list).enumerate() {
         let finished = sent.get("finishedAt").and_then(Value::as_i64).unwrap_or_default();
         writeln!(
             io.out,
-            "{}  to {}: {} in {}{}",
+            "{}. {}  to {}: {} in {}{}",
+            n + 1,
             date_and_time(finished),
             s(sent, "to"),
             bytes(b(sent, "bytes")),
             duration(b(sent, "seconds")),
             if yes(sent, "stopped") { ", stopped part-way" } else { "" }
         )?;
+    }
+    if each(list).next().is_some() {
+        writeln!(io.out, "For everything recorded about one: keevoro history 1")?;
     }
     Ok(Code::Worked)
 }
@@ -661,6 +676,79 @@ pub fn reset(io: &mut Io<'_>, _: &ArgMatches, done: &Value) -> Said_ {
     )?;
     for folder in each(done.get("leftAlone").unwrap_or(&Value::Null)).filter_map(Value::as_str) {
         writeln!(io.out, "Left alone, because it is not Keevoro's own: {folder}")?;
+    }
+    Ok(Code::Worked)
+}
+
+/// One line of the list of kinds, as `keevoro kinds` shows it.
+fn kind_line(kind: &Value) -> String {
+    format!(
+        ".{:<10} {:<6} {:<9} {}",
+        s(kind, "ending"),
+        s(kind, "kind"),
+        if yes(kind, "builtIn") { "built in" } else { "yours" },
+        if yes(kind, "on") { "on" } else { "off" }
+    )
+}
+
+pub fn kinds(io: &mut Io<'_>, _: &ArgMatches, list: &Value) -> Said_ {
+    writeln!(io.out, "{:<11} {:<6} {:<9} looked for", "ending", "kind", "from")?;
+    for kind in each(list) {
+        writeln!(io.out, "{}", kind_line(kind))?;
+    }
+    writeln!(
+        io.out,
+        "Changes count from the next time a source is looked through (keevoro look --again)."
+    )?;
+    Ok(Code::Worked)
+}
+
+pub fn kind_changed(io: &mut Io<'_>, _: &ArgMatches, kind: &Value) -> Said_ {
+    let ending = s(kind, "ending");
+    let what = if s(kind, "kind") == "video" { "videos" } else { "photos" };
+    if yes(kind, "on") {
+        writeln!(io.out, "Keevoro looks for .{ending} files, as {what}.")?;
+    } else {
+        writeln!(
+            io.out,
+            "Keevoro no longer looks for .{ending} files. Nothing already found or backed up is taken away."
+        )?;
+    }
+    writeln!(io.out, "This counts from the next time a source is looked through.")?;
+    Ok(Code::Worked)
+}
+
+pub fn kind_removed(io: &mut Io<'_>, _: &ArgMatches, kind: &Value) -> Said_ {
+    writeln!(
+        io.out,
+        "Took .{} off the list. Nothing already found or backed up is taken away.",
+        s(kind, "ending")
+    )?;
+    Ok(Code::Worked)
+}
+
+pub fn tidied(io: &mut Io<'_>, _: &ArgMatches, tidied: &Value) -> Said_ {
+    let freed = b(tidied, "bytes");
+    if freed > 0 {
+        writeln!(
+            io.out,
+            "Cleared {} of unfinished copies from {}. They were Keevoro's working files; nothing that was backed up was touched.",
+            bytes(freed),
+            s(tidied, "folder")
+        )?;
+    } else {
+        writeln!(
+            io.out,
+            "There were no unfinished copies to clear in {}.",
+            s(tidied, "folder")
+        )?;
+    }
+    if n(tidied, "left") > 0 {
+        writeln!(
+            io.out,
+            "Left {} in its working folder: written to in the last hour, so perhaps still in use, or not Keevoro's. Try again later.",
+            count(n(tidied, "left"), "thing")
+        )?;
     }
     Ok(Code::Worked)
 }

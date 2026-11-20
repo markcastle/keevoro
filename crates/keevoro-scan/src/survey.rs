@@ -19,8 +19,7 @@
 //! - [`suggest`] is pure arithmetic on those counts: it decides which
 //!   folders to offer ([`Hint`]). It never touches the disk.
 
-use keevoro_core::media::kind_by_ending;
-use keevoro_core::{MediaKind, SkipRules};
+use keevoro_core::{Kinds, MediaKind, SkipRules};
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -208,6 +207,7 @@ pub fn suggest(root: &Path, tallies: &[Tally]) -> Vec<Hint> {
 /// What the walking threads share.
 struct Walk<'a> {
     rules: &'a SkipRules,
+    kinds: &'a Kinds,
     stop: Option<&'a AtomicBool>,
     queue: Mutex<VecDeque<PathBuf>>,
     more: Condvar,
@@ -250,7 +250,9 @@ impl Walk<'_> {
                 if self.rules.skip_file(&name).is_some() {
                     continue;
                 }
-                let guess = name.rsplit_once('.').and_then(|(_, ending)| kind_by_ending(ending));
+                let guess = name
+                    .rsplit_once('.')
+                    .and_then(|(_, ending)| self.kinds.looked_for(ending));
                 match guess {
                     Some(found) => {
                         // The size comes with the listing on Windows, and
@@ -324,16 +326,19 @@ impl Walk<'_> {
 
 /// Surveys everything under `root` and suggests the folders worth looking
 /// through. Reads folder listings only, on several threads, and opens no
-/// file. `on_progress` is called a few times a second from the calling
-/// thread. Setting `stop` ends it early with what it has so far.
+/// file, so it goes by the endings of names: those `kinds` looks for.
+/// `on_progress` is called a few times a second from the calling thread.
+/// Setting `stop` ends it early with what it has so far.
 pub fn survey(
     root: &Path,
     rules: &SkipRules,
+    kinds: &Kinds,
     stop: Option<&AtomicBool>,
     on_progress: &mut dyn FnMut(&SurveyProgress),
 ) -> Survey {
     let walk = Walk {
         rules,
+        kinds,
         stop,
         queue: Mutex::new(VecDeque::from([root.to_path_buf()])),
         more: Condvar::new(),
@@ -507,7 +512,7 @@ mod tests {
         put("Pictures/._IMG_1.JPG", 10);
 
         let mut seen = SurveyProgress::default();
-        let found = survey(root, &SkipRules::default(), None, &mut |p| seen = *p);
+        let found = survey(root, &SkipRules::default(), &Kinds::default(), None, &mut |p| seen = *p);
         assert_eq!(found.hints.len(), 1);
         let hint = &found.hints[0];
         assert_eq!(hint.folder, root.join("Pictures"));
@@ -521,11 +526,49 @@ mod tests {
     }
 
     #[test]
+    fn a_survey_counts_the_kinds_a_person_added_and_not_those_switched_off() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        for n in 0..20 {
+            let file = root.join(format!("Panoramas/P{n}.xyz"));
+            fs::create_dir_all(file.parent().unwrap()).unwrap();
+            fs::write(file, [0u8; 50]).unwrap();
+        }
+        fs::create_dir_all(root.join("Clips")).unwrap();
+        fs::write(root.join("Clips/a.avi"), [0u8; 50]).unwrap();
+        // Enough else that the whole place is not one big album.
+        fs::create_dir_all(root.join("Work")).unwrap();
+        for n in 0..10 {
+            fs::write(root.join(format!("Work/{n}.docx")), [0u8; 5]).unwrap();
+        }
+        let built_in = survey(root, &SkipRules::default(), &Kinds::default(), None, &mut |_| {});
+        assert_eq!(built_in.hints.len(), 1, "only the clips");
+
+        let mut kinds = keevoro_core::FileKinds::default();
+        kinds.add("xyz", MediaKind::Photo).unwrap();
+        let off = keevoro_core::KindChange {
+            on: Some(false),
+            ..Default::default()
+        };
+        kinds.change("avi", &off).unwrap();
+        let found = survey(root, &SkipRules::default(), &kinds.lookup(), None, &mut |_| {});
+        assert_eq!(found.hints.len(), 1, "{:?}", found.hints);
+        assert_eq!(found.hints[0].folder, root.join("Panoramas"));
+        assert_eq!((found.hints[0].photos, found.hints[0].videos), (20, 0));
+    }
+
+    #[test]
     fn a_survey_can_be_stopped() {
         let dir = tempfile::tempdir().unwrap();
         fs::create_dir_all(dir.path().join("a/b/c")).unwrap();
         let stop = AtomicBool::new(true);
-        let found = survey(dir.path(), &SkipRules::default(), Some(&stop), &mut |_| {});
+        let found = survey(
+            dir.path(),
+            &SkipRules::default(),
+            &Kinds::default(),
+            Some(&stop),
+            &mut |_| {},
+        );
         assert!(found.stopped);
     }
 }

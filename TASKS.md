@@ -334,11 +334,34 @@ Decided
 - [x] An agent is allowed no folders until a person names them
 - [x] The server starts in look-only mode
 - [x] This work comes before scheduled backups and the catalog work
-- [x] The register (42 operations), the commands as typed, the tool list and the design for sharing a backup between programs are written out in the plan
+- [x] The register (42 operations at first; 47 with the kinds of file looked for), the commands as typed, the tool list and the design for sharing a backup between programs are written out in the plan
 
 Before building
 
 - [x] The owner's go-ahead
+
+### The kinds of file Keevoro looks for
+
+- [x] One list for the whole of Keevoro, kept in its settings: each ending a photo or a video, built in or added, on or off
+- [x] Add, edit and remove kinds; built-in ones can be switched off but not removed; a way to put the built-in list back
+- [x] A kind that is added is found, told apart from its copies and backed up exactly, even when Keevoro cannot open it
+- [x] Changes count from the next look through a source and never take away anything already found or backed up
+- [x] The list is read once per search or survey, never per file
+- [x] In the register, on the command line (`keevoro kinds`) and readable by an AI agent, which cannot change it
+- [x] Settings, Advanced, in the app
+
+### How earlier backups went, in full
+
+- [x] Each backup's entry in the history keeps everything measured: stages with time and speed, what each destination was sent and could not be, previews, how it ended, who started it, and what it said
+- [x] Each row opens in place in the app; `keevoro history N` and the API give the same, and an agent can read it
+
+### A good guest on people's computers
+
+- [x] Clear the unfinished copies a stopped backup leaves in a backup folder, at the start and end of each backup, when a folder is taken off a backup, and on request (`keevoro tidy`)
+- [x] Abort uploads in parts at cloud storage for files a backup no longer sends
+- [x] Keep the pictures cache within 1 GB, and clear settings files half-written by a program that stopped
+- [ ] When cloud storage is taken off a backup, abort the unfinished uploads in parts this backup started there. Not done yet: taking it off forgets its keys at once, so the storage cannot be asked; doing it needs the removal to open the storage first, which may be offline. Until then they are aborted only while the destination is still part of the backup
+- [ ] List and clear uploads in parts at cloud storage that this backup started but its record no longer knows (ListMultipartUploads under its own keys). Its record saves each upload before any part is sent, so this only matters for a record that was lost or reset
 
 ### Seeing inside a source
 

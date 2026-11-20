@@ -77,7 +77,7 @@ pub fn summary(op: Op, answer: &Value) -> String {
         Op::DestinationsRemove => {
             let gone: Vec<&str> = each(answer).filter_map(Value::as_str).collect();
             format!(
-                "No longer backing up to {}. Nothing stored there was changed.",
+                "No longer backing up to {}. Nothing that was backed up there was changed.",
                 gone.join(" or ")
             )
         }
@@ -123,11 +123,52 @@ pub fn summary(op: Op, answer: &Value) -> String {
             None => "This is the newest Keevoro.".to_string(),
         },
         Op::AgentsAccess => access(answer),
+        Op::FileKindsList => file_kinds(answer),
+        Op::BackupHistory => history(answer),
         _ => match answer {
             Value::Array(all) => format!("{}.", count(all.len(), "item")),
             _ => "Done.".to_string(),
         },
     }
+}
+
+/// One backup in full when one was asked for; otherwise how many, and the
+/// newest in a line. The JSON beside it has everything.
+fn history(answer: &Value) -> String {
+    let all: Vec<keevoro_api::history::Sent> = each(answer)
+        .filter_map(|sent| serde_json::from_value(sent.clone()).ok())
+        .collect();
+    match all.as_slice() {
+        [] => "This backup hasn't been run yet.".to_string(),
+        [one] => keevoro_api::words::run_in_full(one).join("\n"),
+        [newest, ..] => format!(
+            "{} backups are recorded, newest first. The newest: {} Ask with run for one in full.",
+            all.len(),
+            keevoro_api::words::run_in_full(newest)[0]
+        ),
+    }
+}
+
+/// The endings looked for, photos then videos, and those switched off.
+fn file_kinds(answer: &Value) -> String {
+    let endings = |pick: &dyn Fn(&Value) -> bool| -> String {
+        let all: Vec<String> = each(answer)
+            .filter(|k| pick(k))
+            .map(|k| format!(".{}", s(k, "ending")))
+            .collect();
+        if all.is_empty() {
+            "none".to_string()
+        } else {
+            all.join(", ")
+        }
+    };
+    let on = |k: &Value| k.get("on").and_then(Value::as_bool).unwrap_or_default();
+    format!(
+        "Keevoro looks for these photos: {}. And these videos: {}. Switched off: {}.",
+        endings(&|k| on(k) && s(k, "kind") == "photo"),
+        endings(&|k| on(k) && s(k, "kind") == "video"),
+        endings(&|k| !on(k)),
+    )
 }
 
 fn capital(text: &str) -> String {
@@ -290,6 +331,19 @@ fn access(answer: &Value) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn the_kinds_looked_for_are_named() {
+        let list = json!([
+            { "ending": "jpg", "kind": "photo", "on": true, "builtIn": true },
+            { "ending": "avi", "kind": "video", "on": false, "builtIn": true },
+            { "ending": "heix", "kind": "photo", "on": true, "builtIn": false },
+        ]);
+        assert_eq!(
+            summary(Op::FileKindsList, &list),
+            "Keevoro looks for these photos: .jpg, .heix. And these videos: none. Switched off: .avi."
+        );
+    }
 
     #[test]
     fn summaries_are_plain_sentences() {

@@ -30,41 +30,6 @@ pub fn kind_from_mime(mime: &str) -> Option<MediaKind> {
     }
 }
 
-/// Fallback for formats that magic-byte detection does not recognise
-/// (several camera RAW and camcorder formats). Only used when content
-/// detection returns nothing.
-pub fn kind_from_extension(ext: &str) -> Option<MediaKind> {
-    let ext = ext.trim_start_matches('.').to_ascii_lowercase();
-    match ext.as_str() {
-        // Camera RAW
-        "dng" | "cr2" | "cr3" | "crw" | "nef" | "nrw" | "arw" | "srf" | "sr2" | "orf" | "rw2" | "raf" | "pef"
-        | "srw" | "x3f" | "3fr" | "erf" | "kdc" | "mrw" | "raw" | "iiq" | "dcr" | "mef" | "mos" | "rwl" => {
-            Some(MediaKind::Photo)
-        }
-        // Camcorder and old phone video
-        "mts" | "m2ts" | "3gp" | "3g2" | "mod" | "tod" | "vob" | "dv" => Some(MediaKind::Video),
-        _ => None,
-    }
-}
-
-/// A guess at what a file is from its name alone, without opening it.
-///
-/// This is for surveying a drive at speed, where opening every file to be
-/// sure would take hours. It is a hint, never a verdict: a proper search
-/// still looks inside each file before calling it a photo.
-pub fn kind_by_ending(ext: &str) -> Option<MediaKind> {
-    let lower = ext.trim_start_matches('.').to_ascii_lowercase();
-    match lower.as_str() {
-        "jpg" | "jpeg" | "jpe" | "png" | "heic" | "heif" | "tif" | "tiff" | "webp" | "bmp" | "avif" | "jxl" => {
-            Some(MediaKind::Photo)
-        }
-        "mp4" | "mov" | "m4v" | "avi" | "mkv" | "wmv" | "mpg" | "mpeg" | "webm" | "insv" | "asf" | "flv" => {
-            Some(MediaKind::Video)
-        }
-        _ => kind_from_extension(&lower),
-    }
-}
-
 /// Is this the ending of a camera's raw format?
 ///
 /// A raw file is the camera's own untouched record of a picture, and for
@@ -142,7 +107,6 @@ mod tests {
     fn camera_raw_files_are_known_by_their_ending() {
         for ext in ["dng", "DNG", ".cr2", "NEF", "arw", "raf"] {
             assert!(is_raw_extension(ext), "{ext}");
-            assert_eq!(kind_from_extension(ext), Some(MediaKind::Photo), "{ext} is a photo");
         }
         for ext in ["jpg", "tif", "png", "mp4", ""] {
             assert!(!is_raw_extension(ext), "{ext}");
@@ -178,16 +142,6 @@ mod tests {
         assert_eq!(kind_from_mime("image/svg+xml"), None);
         assert_eq!(kind_from_mime("application/pdf"), None);
         assert_eq!(kind_from_mime("audio/mpeg"), None);
-    }
-
-    #[test]
-    fn extension_fallback_covers_raw_and_camcorder_formats() {
-        assert_eq!(kind_from_extension("CR2"), Some(MediaKind::Photo));
-        assert_eq!(kind_from_extension(".nef"), Some(MediaKind::Photo));
-        assert_eq!(kind_from_extension("MTS"), Some(MediaKind::Video));
-        assert_eq!(kind_from_extension("3gp"), Some(MediaKind::Video));
-        assert_eq!(kind_from_extension("txt"), None);
-        assert_eq!(kind_from_extension(""), None);
     }
 
     #[test]

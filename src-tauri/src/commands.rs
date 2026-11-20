@@ -280,6 +280,52 @@ pub fn set_agent_access(
     shared.keevoro.set_agent_access(change).map_err(say)
 }
 
+/// The kinds of file Keevoro looks for, the built-in ones first.
+#[tauri::command]
+pub fn file_kinds(shared: State<'_, Shared>) -> Vec<keevoro_api::FileKind> {
+    shared.keevoro.file_kinds()
+}
+
+/// Adds an ending for Keevoro to look for, as photos or videos.
+#[tauri::command]
+pub fn add_file_kind(
+    shared: State<'_, Shared>,
+    ending: String,
+    kind: keevoro_api::PhotoOrVideo,
+) -> Said<keevoro_api::FileKind> {
+    shared.keevoro.add_file_kind(&ending, kind.into()).map_err(say)
+}
+
+/// Changes one kind: photo or video, on or off, or, for one the person
+/// added, its ending. Anything not given stays as it is.
+#[tauri::command]
+pub fn change_file_kind(
+    shared: State<'_, Shared>,
+    ending: String,
+    kind: Option<keevoro_api::PhotoOrVideo>,
+    on: Option<bool>,
+    to: Option<String>,
+) -> Said<keevoro_api::FileKind> {
+    let change = keevoro_api::KindChange {
+        kind: kind.map(Into::into),
+        on,
+        ending: to,
+    };
+    shared.keevoro.change_file_kind(&ending, &change).map_err(say)
+}
+
+/// Takes an ending the person added off the list.
+#[tauri::command]
+pub fn remove_file_kind(shared: State<'_, Shared>, ending: String) -> Said<keevoro_api::FileKind> {
+    shared.keevoro.remove_file_kind(&ending).map_err(say)
+}
+
+/// Puts back the kinds Keevoro comes with, all on. The person's own stay.
+#[tauri::command]
+pub fn reset_file_kinds(shared: State<'_, Shared>) -> Said<Vec<keevoro_api::FileKind>> {
+    shared.keevoro.reset_file_kinds().map_err(say)
+}
+
 /// What Keevoro is doing now, why, and how hard it has been working.
 #[tauri::command]
 pub fn activity(shared: State<'_, Shared>) -> keevoro_api::activity::ActivityView {

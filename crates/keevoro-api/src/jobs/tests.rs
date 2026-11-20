@@ -338,6 +338,53 @@ fn a_backup_goes_to_a_folder_saying_each_step_and_records_how_it_went() {
     assert_eq!(history.len(), 1);
     assert!(!history[0].stopped && history[0].bytes > 0);
     assert_eq!(history[0].to, format!("the folder {}", usb.display()));
+    // Everything measured is kept beside it, for a person to look back on.
+    let detail = history[0].detail.as_ref().expect("the whole of it is recorded");
+    assert_eq!(detail.ended, keevoro_engine::history::Ended::Finished);
+    assert_eq!(
+        (detail.started_by.as_str(), detail.version.as_str()),
+        ("the app", env!("CARGO_PKG_VERSION"))
+    );
+    assert!(detail.started_at <= history[0].finished_at);
+    assert_eq!(detail.summary, last.summary, "the summary exactly as it was said");
+    assert_eq!(detail.destinations.len(), 1);
+    let at = &detail.destinations[0];
+    assert!(at.reached && !at.over_network && at.problem.is_none());
+    assert_eq!((at.originals.sent, at.originals.already_there), (3, 0));
+    assert!(at.originals.sent_bytes > 0 && at.originals.not_sent.is_empty());
+    assert_eq!(
+        at.previews.as_ref().map(|p| p.sent),
+        Some(6),
+        "a thumb and a display copy each"
+    );
+    assert_eq!(at.indexed, Some(3));
+    assert_eq!(
+        detail.previews.as_ref().map(|p| (p.photos, p.photos_without)),
+        Some((3, 0))
+    );
+    let stages: Vec<_> = detail.stages.iter().map(|s| s.kind).collect();
+    use keevoro_core::estimate::Kind as Stage;
+    for stage in [
+        Stage::Placing,
+        Stage::SendingOriginals,
+        Stage::MakingPreviews,
+        Stage::SendingPreviews,
+        Stage::WritingIndex,
+    ] {
+        assert!(stages.contains(&stage), "{stage:?} in {stages:?}");
+    }
+    let sending = detail
+        .stages
+        .iter()
+        .find(|s| s.kind == Stage::SendingOriginals)
+        .unwrap();
+    assert_eq!(sending.done, at.originals.sent_bytes);
+    assert!(sending.finished);
+    // One of them, by its number, newest first.
+    let one = call(&keevoro, Op::BackupHistory, Some("Card photos"), json!({ "run": 1 })).unwrap();
+    assert_eq!(one[0]["detail"]["destinations"][0]["originals"]["sent"], 3);
+    let e = call(&keevoro, Op::BackupHistory, Some("Card photos"), json!({ "run": 2 })).unwrap_err();
+    assert_eq!(e.kind, Kind::NotFound);
     assert_eq!(
         backup.last_summary().unwrap(),
         Some(serde_json::to_value(&last).unwrap()),
@@ -396,7 +443,12 @@ fn a_backup_stopped_part_way_keeps_what_it_sent_and_carries_on_when_run_again() 
     assert!(last.summary.iter().any(|l| l.starts_with("Stopped.")), "{last:?}");
     assert_eq!(there(&named), 1, "what was sent is kept");
     let backup = Backup::open(&named.home).unwrap();
-    assert!(backup.history().unwrap()[0].stopped);
+    let stopped = &backup.history().unwrap()[0];
+    assert!(stopped.stopped);
+    let detail = stopped.detail.as_ref().unwrap();
+    assert_eq!(detail.ended, keevoro_engine::history::Ended::Stopped);
+    assert_eq!(detail.destinations[0].originals.sent, 1);
+    assert_eq!(detail.previews, None, "this backup sends the originals alone");
     assert!(keevoro
         .log_tail(10)
         .contains("Asked to stop sending after the file in hand"));
@@ -1063,4 +1115,116 @@ fn a_program_that_is_closing_stops_its_own_jobs_and_leaves_the_rest() {
     command_line.wait_for_jobs();
     // With nothing running, it answers at once.
     assert!(agent.stop_here_and_wait(Duration::ZERO));
+}
+
+/// Every file under `folder`, by name, with its bytes.
+fn files_under(folder: &Path) -> Vec<(String, Vec<u8>)> {
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(folder).into_iter().flatten().flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            found.extend(files_under(&path));
+        } else {
+            found.push((
+                entry.file_name().to_string_lossy().into_owned(),
+                std::fs::read(&path).unwrap(),
+            ));
+        }
+    }
+    found
+}
+
+#[test]
+fn a_kind_added_that_keevoro_cannot_open_is_found_and_backed_up_exactly_with_no_preview_and_no_fuss() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro(dir.path());
+    keevoro.add_file_kind(".XYZ", keevoro_core::MediaKind::Photo).unwrap();
+    // Nothing inside either says what it is, and no decoder can open it.
+    let pano: Vec<u8> = (0..5_000u32).map(|n| u8::try_from(n * 7 % 251).unwrap()).collect();
+    let other: Vec<u8> = (0..3_000u32).map(|n| u8::try_from(n * 13 % 241).unwrap()).collect();
+    let card = dir.path().join("Card");
+    for (rel, bytes) in [
+        ("DCIM/pano.xyz", &pano),
+        // A copy in a folder called Icons: with no size known, not set aside.
+        ("Icons/pano copy.xyz", &pano),
+        ("DCIM/other.xyz", &other),
+    ] {
+        std::fs::create_dir_all(card.join(rel).parent().unwrap()).unwrap();
+        std::fs::write(card.join(rel), bytes).unwrap();
+    }
+
+    // "Find where the photos are" counts them.
+    let survey = keevoro.survey(&card, None, None).unwrap();
+    let Some(Said::Surveyed(found)) = keevoro.wait(survey.id) else {
+        panic!("a survey ends with what it found")
+    };
+    let counted: usize = found.hints.iter().map(|h| h.photos).sum();
+    assert_eq!(counted, 3, "{found:?}");
+
+    // Found, told apart from its copy, and not set aside.
+    let named = keevoro.start_backup("Panoramas").unwrap();
+    let look = keevoro.look(&named, &card, None).unwrap();
+    assert!(matches!(keevoro.wait(look.id), Some(Said::Scan(e)) if e.photos == 3 && !e.stopped));
+    keevoro.wait_for_jobs();
+    let backup = Backup::open(&named.home).unwrap();
+    let found = backup.found().unwrap();
+    assert_eq!(
+        (found.photos, found.duplicates, found.set_aside),
+        (2, 1, 0),
+        "{found:?}"
+    );
+    assert_eq!(backup.duplicates().unwrap().len(), 1);
+    assert!(backup.set_aside().unwrap().is_empty());
+    assert!(!backup.collections().unwrap().is_empty());
+    let types = backup.file_types(backup.sources().unwrap()[0].id).unwrap();
+    assert_eq!((types[0].ending.as_str(), types[0].files), ("xyz", 3));
+
+    // No picture: the screens show their placeholder.
+    let id = backup.catalog().load_reports().unwrap()[0].items[0]
+        .id()
+        .unwrap()
+        .to_string();
+    let e = keevoro.picture(&backup, &id, crate::PictureSize::Small).unwrap_err();
+    assert!(e.message.starts_with("This one can't be previewed"), "{e}");
+
+    // Backed up, byte for byte, with previews wanted, and in the index.
+    let usb = dir.path().join("USB");
+    keevoro.add_destination(&backup, &folder(&usb)).unwrap();
+    let job = keevoro.run_backup(&named, None).unwrap();
+    let Some(Said::Send(last)) = keevoro.wait(job.id) else {
+        panic!("a backup ends with what it said")
+    };
+    keevoro.wait_for_jobs();
+    assert_eq!(
+        (last.problem.as_deref(), last.outcome),
+        (None, Some(Outcome::Worked)),
+        "{last:?}"
+    );
+    assert!(
+        last.summary.iter().any(|l| l.starts_with("Safely backed up 2 files")),
+        "{last:?}"
+    );
+    // One of the two copies of the panorama, whichever the duplicate
+    // rules keep, and the other file: each exact.
+    let mut sent: Vec<Vec<u8>> = files_under(&usb.join("originals"))
+        .into_iter()
+        .map(|(_, b)| b)
+        .collect();
+    sent.sort_by_key(Vec::len);
+    assert_eq!(sent, [other.clone(), pano.clone()]);
+    assert!(files_under(&usb.join("renditions")).is_empty(), "no preview was made");
+    let gallery = std::fs::read_to_string(usb.join("index").join("gallery.json")).unwrap();
+    assert!(gallery.contains(".xyz") && gallery.contains("other.xyz"), "{gallery}");
+
+    // Nothing in the log about it failing.
+    let log = keevoro.log_tail(200).to_lowercase();
+    for noise in ["couldn't", "could not", "can't", "failed", "error"] {
+        assert!(!log.contains(noise), "{noise}: {log}");
+    }
+    assert_eq!(
+        std::fs::read(card.join("DCIM/pano.xyz")).unwrap(),
+        pano,
+        "the source is untouched"
+    );
 }

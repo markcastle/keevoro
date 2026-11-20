@@ -11,7 +11,50 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+/// How long a file that another program has open for a moment is waited
+/// for before giving up on it.
+const PATIENCE: Duration = Duration::from_secs(2);
+
+/// How often it is tried again meanwhile.
+const AGAIN_AFTER: Duration = Duration::from_millis(20);
+
+/// True for a refusal that passes: on Windows a file another program has
+/// open (a virus checker or the search indexer looking at something just
+/// written, or another Keevoro reading it) can refuse to be read, renamed
+/// or replaced for a moment, saying "access denied", "in use by another
+/// process" or "about to be deleted". Everywhere, "try again" passes; a
+/// refused permission elsewhere is meant.
+pub(crate) fn passes(e: &io::Error) -> bool {
+    if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::Interrupted) {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        // ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION
+        // and ERROR_DELETE_PENDING.
+        e.kind() == ErrorKind::PermissionDenied || matches!(e.raw_os_error(), Some(5 | 32 | 33 | 303))
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
+/// Does `step`, trying again for a moment while it is refused in a way
+/// that passes. Every file shared between programs goes through this, so
+/// that a request is never dropped, and a status never left unwritten,
+/// because something else glanced at the file.
+pub(crate) fn patiently<T>(mut step: impl FnMut() -> io::Result<T>) -> io::Result<T> {
+    let until = Instant::now() + PATIENCE;
+    loop {
+        match step() {
+            Err(e) if passes(&e) && Instant::now() < until => std::thread::sleep(AGAIN_AFTER),
+            done => return done,
+        }
+    }
+}
 
 /// A name beside `path` that nothing else will choose: hidden, and unique
 /// to this program and this moment.
@@ -41,21 +84,23 @@ pub(crate) fn is_half_made(name: &str) -> bool {
 /// Writes `bytes` to `path`, replacing whatever was there in one step.
 ///
 /// On Windows a file another program has open can briefly refuse to be
-/// replaced (a virus checker looking at it, say), so that is tried a few
-/// times before giving up.
+/// replaced, and a file just written can briefly refuse to be moved, so
+/// that is waited for (see [`patiently`]) rather than given up on.
 pub(crate) fn write_whole(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    write_whole_with(path, bytes, &mut |from, to| fs::rename(from, to))
+}
+
+/// [`write_whole`], moving the file into place with `rename`: for tests,
+/// one that refuses for a while.
+fn write_whole_with(
+    path: &Path,
+    bytes: &[u8],
+    rename: &mut dyn FnMut(&Path, &Path) -> io::Result<()>,
+) -> io::Result<()> {
     let temp = beside(path);
-    let mut result = write_new(&temp, bytes);
+    let mut result = patiently(|| write_new(&temp, bytes));
     if result.is_ok() {
-        for attempt in 0..5 {
-            result = fs::rename(&temp, path);
-            match &result {
-                Err(e) if e.kind() == ErrorKind::PermissionDenied && attempt < 4 => {
-                    std::thread::sleep(Duration::from_millis(20));
-                }
-                _ => break,
-            }
-        }
+        result = patiently(|| rename(&temp, path));
     }
     if result.is_err() {
         let _ = fs::remove_file(&temp);
@@ -91,9 +136,10 @@ pub(crate) fn create_whole(path: &Path, bytes: &[u8]) -> io::Result<bool> {
     }
 }
 
-/// The file's contents, or `None` if it is not there.
+/// The file's contents, or `None` if it is not there. A file another
+/// program has open for a moment is waited for (see [`patiently`]).
 pub(crate) fn read(path: &Path) -> io::Result<Option<Vec<u8>>> {
-    match fs::read(path) {
+    match patiently(|| fs::read(path)) {
         Ok(bytes) => Ok(Some(bytes)),
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
         Err(e) => Err(e),
@@ -124,6 +170,53 @@ mod tests {
             1,
             "no half-made file is left"
         );
+    }
+
+    #[test]
+    fn a_file_that_refuses_to_be_moved_into_place_for_a_moment_is_still_written() {
+        // What Windows does while a virus checker looks at a file just
+        // written: refuses, as "in use", for a while. That once lost a
+        // request to pause, so another program never paused.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("request.json");
+        let mut refusals = 0;
+        write_whole_with(&path, b"pause", &mut |from, to| {
+            if refusals < 10 {
+                refusals += 1;
+                return Err(io::Error::from(ErrorKind::WouldBlock));
+            }
+            fs::rename(from, to)
+        })
+        .unwrap();
+        assert_eq!(read(&path).unwrap().unwrap(), b"pause");
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1, "nothing left beside it");
+    }
+
+    #[test]
+    fn a_refusal_that_does_not_pass_is_given_up_on_at_once_and_leaves_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("status.json");
+        let started = Instant::now();
+        let e = write_whole_with(&path, b"x", &mut |_, _| Err(io::Error::from(ErrorKind::InvalidInput))).unwrap_err();
+        assert_eq!(e.kind(), ErrorKind::InvalidInput);
+        assert!(started.elapsed() < PATIENCE, "not waited on");
+        assert_eq!(
+            fs::read_dir(dir.path()).unwrap().count(),
+            0,
+            "the half-made file is removed"
+        );
+    }
+
+    #[test]
+    fn a_refusal_that_never_passes_is_given_up_on_after_a_while() {
+        let mut tries = 0;
+        let e = patiently(|| -> io::Result<()> {
+            tries += 1;
+            Err(io::Error::from(ErrorKind::WouldBlock))
+        })
+        .unwrap_err();
+        assert_eq!(e.kind(), ErrorKind::WouldBlock);
+        assert!(tries > 1, "tried again");
     }
 
     #[test]

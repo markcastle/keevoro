@@ -308,7 +308,23 @@ fn a_first_backup_from_start_to_finish() {
     assert!(usb.join("originals").is_dir());
 
     let ran = at.keevoro(&["history"]);
-    assert!(ran.out.contains("to the folder"), "{}", ran.out);
+    assert!(
+        ran.out.starts_with("1. ") && ran.out.contains("to the folder"),
+        "{}",
+        ran.out
+    );
+    let ran = at.keevoro(&["history", "1"]);
+    for said in [
+        "Stages, with time paused left out:",
+        "Originals:",
+        "2 files sent",
+        "What it said at the end:",
+    ] {
+        assert!(ran.out.contains(said), "{said}: {}", ran.out);
+    }
+    let ran = at.keevoro(&["history", "1", "--json"]);
+    assert_eq!(ran.json()[0]["detail"]["destinations"][0]["originals"]["sent"], 2);
+    assert_eq!(at.keevoro(&["history", "9"]).code, Code::NotFound);
     let ran = at.keevoro(&["last-backup"]);
     assert!(ran.out.contains("Safely backed up 2 files"), "{}", ran.out);
     let ran = at.keevoro(&["check"]);
@@ -366,7 +382,7 @@ fn json_is_exactly_what_the_api_answers() {
         (vec!["destinations"], Op::DestinationsList, Value::Null),
         (vec!["room"], Op::DestinationsRoom, json!({})),
         (vec!["rehearse"], Op::BackupRehearse, json!({})),
-        (vec!["history"], Op::BackupHistory, Value::Null),
+        (vec!["history"], Op::BackupHistory, json!({})),
         (vec!["previews"], Op::BackupPreviews, json!({})),
         (vec!["about"], Op::KeevoroAbout, Value::Null),
         (vec!["settings"], Op::KeevoroSettings, json!({})),
@@ -586,6 +602,63 @@ fn smaller_things_a_backup_can_be_asked() {
         "{}",
         ran.out
     );
+}
+
+#[test]
+fn the_kinds_of_file_looked_for_are_listed_added_switched_and_put_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let at = At::new(dir.path());
+    let ran = at.keevoro(&["kinds"]);
+    assert_eq!(ran.code, Code::Worked, "{}", ran.err);
+    assert!(ran.out.contains(".jpg        photo  built in  on"), "{}", ran.out);
+
+    let ran = at.keevoro(&["kinds", "add", ".HEIX", "--photo"]);
+    assert_eq!(
+        ran.out.lines().next(),
+        Some("Keevoro looks for .heix files, as photos."),
+        "{}",
+        ran.out
+    );
+    let ran = at.keevoro(&["kinds", "add", "heix", "--video"]);
+    assert_eq!(ran.code, Code::Refused);
+    assert!(
+        ran.err.contains("Keevoro already looks for .heix files."),
+        "{}",
+        ran.err
+    );
+    assert_ne!(
+        at.keevoro(&["kinds", "add", "heiy"]).code,
+        Code::Worked,
+        "photo or video must be said"
+    );
+    assert_eq!(at.keevoro(&["kinds", "add", "exe", "--photo"]).code, Code::Refused);
+
+    let ran = at.keevoro(&["kinds", "off", "avi"]);
+    assert!(
+        ran.out.starts_with("Keevoro no longer looks for .avi files."),
+        "{}",
+        ran.out
+    );
+    let ran = at.keevoro(&["kinds", "change", "heix", "--video", "--to", "heiz"]);
+    assert!(
+        ran.out.starts_with("Keevoro looks for .heiz files, as videos."),
+        "{}",
+        ran.out
+    );
+    let ran = at.keevoro(&["kinds", "--json"]);
+    let list = ran.json();
+    let line = |ending: &str| list.as_array().unwrap().iter().find(|k| k["ending"] == ending).cloned();
+    assert_eq!(line("avi").unwrap()["on"], false);
+    assert_eq!(line("heiz").unwrap()["builtIn"], false);
+    assert_eq!(at.keevoro(&["kinds", "remove", "jpg"]).code, Code::Refused);
+    assert_eq!(at.keevoro(&["kinds", "remove", "nothing"]).code, Code::NotFound);
+
+    let ran = at.keevoro(&["kinds", "reset"]);
+    assert!(ran.out.contains(".avi        video  built in  on"), "{}", ran.out);
+    assert!(ran.out.contains(".heiz       video  yours     on"), "{}", ran.out);
+    let ran = at.keevoro(&["kinds", "remove", ".HEIZ"]);
+    assert!(ran.out.starts_with("Took .heiz off the list."), "{}", ran.out);
+    assert_eq!(at.keevoro(&["kinds", "on", "avi"]).code, Code::Worked);
 }
 
 #[test]

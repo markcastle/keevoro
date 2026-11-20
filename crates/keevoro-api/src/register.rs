@@ -170,8 +170,11 @@ register! {
         "Checks a place works, then adds it. A folder, or cloud storage with its keys",
         changes: Always, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     DestinationsRemove = "destinations.remove",
-        "Takes a place off the backup. Nothing stored there is touched",
+        "Takes a place off the backup. Nothing backed up there is touched",
         changes: Always, job: false, command_line: true, agents: Agents::Yes, implemented: true;
+    DestinationsTidy = "destinations.tidy",
+        "Clears Keevoro's unfinished copies from a backup folder. Nothing backed up is touched",
+        changes: Always, job: false, command_line: true, agents: Agents::No, implemented: true;
     DestinationsRoom = "destinations.room",
         "What is waiting for each place, and whether it has the room",
         changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
@@ -187,7 +190,7 @@ register! {
         "Confirms what is at each destination",
         changes: Never, job: true, command_line: true, agents: Agents::Yes, implemented: true;
     BackupHistory = "backup.history",
-        "How earlier backups went: when, where, how much, how long, how fast",
+        "How earlier backups went, each in full: stages, speeds, files sent and not, previews",
         changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     BackupLastSummary = "backup.last_summary",
         "What the last backup said when it ended",
@@ -235,6 +238,23 @@ register! {
     AgentsAccess = "agents.access",
         "Which folders an agent may use, and whether it may make changes",
         changes: OnlyWhenAsked, job: false, command_line: true, agents: Agents::LookOnly, implemented: true;
+
+    // The kinds of file looked for
+    FileKindsList = "file_kinds.list",
+        "The kinds of file Keevoro looks for, by ending: photo or video, built in or added, on or off",
+        changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
+    FileKindsAdd = "file_kinds.add",
+        "Adds an ending for Keevoro to look for, as a photo or a video",
+        changes: Always, job: false, command_line: true, agents: Agents::No, implemented: true;
+    FileKindsChange = "file_kinds.change",
+        "Switches a kind of file on or off, makes it a photo or a video, or renames one you added",
+        changes: Always, job: false, command_line: true, agents: Agents::No, implemented: true;
+    FileKindsRemove = "file_kinds.remove",
+        "Takes an ending you added off the list. Nothing already found is taken away",
+        changes: Always, job: false, command_line: true, agents: Agents::No, implemented: true;
+    FileKindsReset = "file_kinds.reset",
+        "Puts back the kinds of file Keevoro comes with, all on. Your own stay",
+        changes: Always, job: false, command_line: true, agents: Agents::No, implemented: true;
 }
 
 impl Op {
@@ -285,6 +305,12 @@ impl Op {
                 | Op::KeevoroUpdate
                 | Op::KeevoroReset
                 | Op::AgentsAccess
+                | Op::DestinationsTidy
+                | Op::FileKindsList
+                | Op::FileKindsAdd
+                | Op::FileKindsChange
+                | Op::FileKindsRemove
+                | Op::FileKindsReset
         )
     }
 
@@ -324,12 +350,13 @@ impl Op {
     pub fn request_schema(self) -> serde_json::Value {
         use crate::agents::AgentsAccessRequest as Agents;
         use crate::destinations::{AddDestinationRequest as Add, RemoveDestinationRequest as Remove};
+        use crate::file_kinds::{AddFileKindRequest, ChangeFileKindRequest, FileKindRequest};
         use crate::keevoro::{
             ForgetBackupRequest, LogRequest, RenameBackupRequest, SettingsRequest, StartBackupRequest,
         };
         use crate::picture::PictureRequest;
         use crate::{
-            CollectionRequest, IncludeTypeRequest, JobRequest, KeepCollectionRequest, KeepPhotoRequest,
+            CollectionRequest, HistoryRequest, IncludeTypeRequest, JobRequest, KeepCollectionRequest, KeepPhotoRequest,
             LookAgainRequest, Nothing, PlaceRequest, PreviewsRequest, SourceRequest, StatusRequest,
         };
         match self {
@@ -352,6 +379,11 @@ impl Op {
             Op::KeevoroLog => schema::<LogRequest>(),
             Op::KeevoroSettings => schema::<SettingsRequest>(),
             Op::AgentsAccess => schema::<Agents>(),
+            Op::BackupHistory => schema::<HistoryRequest>(),
+            Op::DestinationsTidy => schema::<crate::keevoro::TidyRequest>(),
+            Op::FileKindsAdd => schema::<AddFileKindRequest>(),
+            Op::FileKindsChange => schema::<ChangeFileKindRequest>(),
+            Op::FileKindsRemove => schema::<FileKindRequest>(),
             Op::BackupsList
             | Op::PlacesList
             | Op::SourcesList
@@ -364,14 +396,15 @@ impl Op {
             | Op::BackupRehearse
             | Op::BackupRun
             | Op::BackupCheck
-            | Op::BackupHistory
             | Op::BackupLastSummary
             | Op::JobsPause
             | Op::JobsCarryOn
             | Op::KeevoroAbout
             | Op::KeevoroActivity
             | Op::KeevoroUpdate
-            | Op::KeevoroReset => schema::<Nothing>(),
+            | Op::KeevoroReset
+            | Op::FileKindsList
+            | Op::FileKindsReset => schema::<Nothing>(),
         }
     }
 
@@ -494,7 +527,7 @@ impl Op {
             Op::DestinationsRemove => (
                 "remove_destination",
                 "Stops backing up to one place, by its position in list_destinations (counting from 0), or to every \
-                 place with all. Nothing stored there is deleted.",
+                 place with all. Nothing backed up there is deleted; only Keevoro's own unfinished copies are cleared.",
             ),
             Op::DestinationsRoom => (
                 "check_room",
@@ -521,8 +554,11 @@ impl Op {
             ),
             Op::BackupHistory => (
                 "backup_history",
-                "Lists how earlier backups went, newest first: when, to where, how many files and how much, how long \
-                 and how fast. Changes nothing.",
+                "Lists how earlier backups went, newest first: when, to where, how much, how long and how fast, and, \
+                 for backups since this was recorded, everything measured: how it ended and who started it, each \
+                 stage with its time and speed, what each destination was sent, already had or could not be sent \
+                 and why, the previews made, and the summary the person saw. Give run (1 for the newest) for one \
+                 backup. Changes nothing.",
             ),
             Op::BackupLastSummary => (
                 "last_summary",
@@ -578,7 +614,22 @@ impl Op {
                 "Says which folders you may look through and back up to, and whether you may make changes. If \
                  something is refused, this explains why; only the person can change it.",
             ),
-            Op::BackupsForget | Op::KeevoroLog | Op::KeevoroReset | Op::JobsFollow => return None,
+            Op::FileKindsList => (
+                "list_file_kinds",
+                "Lists the kinds of file Keevoro looks for on every source, by ending (such as jpg or mov): whether \
+                 each is a photo or a video, whether it came with Keevoro or the person added it, and whether it is \
+                 switched on. A search only finds files of kinds switched on, and a survey only counts them. You \
+                 cannot change the list; the person can, in Settings or with the keevoro command. Changes nothing.",
+            ),
+            Op::BackupsForget
+            | Op::KeevoroLog
+            | Op::KeevoroReset
+            | Op::JobsFollow
+            | Op::DestinationsTidy
+            | Op::FileKindsAdd
+            | Op::FileKindsChange
+            | Op::FileKindsRemove
+            | Op::FileKindsReset => return None,
         };
         Some(Tool { name, tells })
     }
@@ -630,7 +681,7 @@ mod tests {
 
     #[test]
     fn the_register_has_every_operation_in_the_plan() {
-        assert_eq!(Op::ALL.len(), 42);
+        assert_eq!(Op::ALL.len(), 48);
         // Each entry is the one for its own operation.
         for op in Op::ALL {
             assert_eq!(op.entry().op, *op);
@@ -679,19 +730,25 @@ mod tests {
     }
 
     #[test]
-    fn only_the_five_operations_the_plan_names_are_kept_from_agents() {
+    fn only_the_operations_the_plan_names_are_kept_from_agents() {
         let kept_from_agents: HashSet<Op> = entries()
             .filter(|e| matches!(e.agents, Agents::No | Agents::LookOnly))
             .map(|e| e.op)
             .collect();
-        // Forgetting a backup, changing settings, installing an update,
-        // resetting, and changing an agent's own permissions.
+        // Forgetting a backup, changing settings (the kinds of file looked
+        // for among them), installing an update, resetting, changing an
+        // agent's own permissions, and clearing working files from a folder.
         let plan: HashSet<Op> = [
             Op::BackupsForget,
             Op::KeevoroSettings,
             Op::KeevoroUpdate,
             Op::KeevoroReset,
             Op::AgentsAccess,
+            Op::FileKindsAdd,
+            Op::FileKindsChange,
+            Op::FileKindsRemove,
+            Op::FileKindsReset,
+            Op::DestinationsTidy,
         ]
         .into();
         assert_eq!(kept_from_agents, plan);
@@ -778,6 +835,7 @@ mod tests {
         "read_settings",
         "check_for_update",
         "my_access",
+        "list_file_kinds",
     ];
 
     #[test]

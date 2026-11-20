@@ -153,7 +153,7 @@ keevoro check
 Your backup: all 359 originals are there.
 ```
 
-`keevoro history` lists how earlier backups went, and `keevoro last-backup` repeats what the last one said.
+`keevoro history` lists how earlier backups went, numbered from the newest, and `keevoro history 1` shows everything recorded about one of them: each stage with how long it took and how fast it went, what each destination was sent, already had or could not be sent and why, the previews, and what it said at the end. `keevoro last-backup` repeats what the last one said.
 
 ## Running in the background
 
@@ -243,6 +243,21 @@ The words each command shows in `keevoro --help` come from the same list the app
 
 A source is named by its number, its place or its name, as `keevoro sources` lists them.
 
+### The kinds of file Keevoro looks for
+
+One list for the whole of Keevoro, the same as Settings, Advanced, in the app. A change counts from the next time a source is looked through (`keevoro look --again`) or a place surveyed, and never takes away anything already found or backed up.
+
+| Command | What it does |
+| --- | --- |
+| `keevoro kinds` | Every kind on the list: its ending, photo or video, built in or yours, and whether it is looked for. |
+| `keevoro kinds add heif --photo` | Adds an ending to look for, as photos; `--video` for videos. |
+| `keevoro kinds off avi` | Stops looking for a kind; `keevoro kinds on avi` looks for it again. |
+| `keevoro kinds change xyz --video` | Makes a kind videos (or `--photo`), or gives one you added a new ending with `--to xyz2`. |
+| `keevoro kinds remove xyz` | Takes an ending you added off the list. A built-in one can only be switched off. |
+| `keevoro kinds reset` | Puts back the kinds Keevoro comes with, all on. Kinds you added stay. |
+
+An ending is typed with or without its dot, in any case: `.HEIF` and `heif` are the same. It is letters and numbers only, and cannot be one for programs, documents, music or archives (such as `exe`, `pdf`, `mp3` or `zip`), which Keevoro never looks inside. A kind you add is found by its ending alone, so Keevoro backs it up exactly even when it cannot open it, with no preview.
+
 ### Choosing
 
 | Command | What it does |
@@ -266,8 +281,9 @@ A collection is named by its whole name, such as "Holidays / Cornwall", or by it
 | `keevoro destinations` | Where the backup goes, numbered, and what has reached each place. |
 | `keevoro destinations add --folder FOLDER` | Checks a folder works, then adds it. |
 | `keevoro destinations add --r2 ACCOUNT --bucket NAME` | The same for cloud storage, with `--s3 REGION` or `--endpoint URL` for others. |
-| `keevoro destinations remove DESTINATION` | Stops backing up there, by its number, folder or name; `--all` for every one. Nothing stored there is touched. |
+| `keevoro destinations remove DESTINATION` | Stops backing up there, by its number, folder or name; `--all` for every one. Nothing backed up there is touched; Keevoro's own unfinished copies there are cleared. |
 | `keevoro room` | What is waiting for each place, and whether it has the room. |
+| `keevoro tidy FOLDER` | Clears away the unfinished copies a stopped backup left in a backup folder's working folder (`.keevoro-uploads`), whether or not a backup still goes there. Nothing that was backed up is touched; anything written to in the last hour is left, in case it is in use. |
 
 ### Backing up
 
@@ -276,7 +292,8 @@ A collection is named by its whole name, such as "Holidays / Cornwall", or by it
 | `keevoro rehearse` | What backing up now would do: how many files, how much, to where. Changes nothing. |
 | `keevoro run` | Backs up to every destination, originals first. |
 | `keevoro check` | Confirms what is at each destination. |
-| `keevoro history` | How earlier backups went: when, where, how much, how long. |
+| `keevoro history` | How earlier backups went: when, where, how much, how long, numbered from the newest. |
+| `keevoro history N` | Everything recorded about one of them, by its number. |
 | `keevoro last-backup` | What the last backup said when it ended. |
 | `keevoro previews [on or off]` | Whether the backup also makes previews for a gallery, or sends the originals alone. |
 

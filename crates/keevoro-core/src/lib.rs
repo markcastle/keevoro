@@ -13,6 +13,7 @@ pub mod doing;
 pub mod estimate;
 pub mod folders;
 pub mod junk;
+pub mod kinds;
 pub mod layout;
 pub mod libraries;
 pub mod media;
@@ -24,9 +25,8 @@ pub use collections::{date_range_label, group_into_collections, Collection, Coll
 pub use date::{best_date, date_from_filename, date_from_folder, DateGuess, DateSource, FolderDate, PartialDate};
 pub use folders::{folder_hints, FolderHints};
 pub use junk::{junk_hint, JunkInput, JunkReason};
+pub use kinds::{plain_ending, FileKind, FileKinds, KindChange, KindRefusal, Kinds};
 pub use layout::{library_folder, numbered_name, safe_name};
 pub use libraries::{holds_originals, library_album_segments, photo_library, PhotoLibrary};
-pub use media::{
-    is_raw_extension, kind_by_ending, kind_from_extension, kind_from_mime, never_media_extension, MediaKind,
-};
+pub use media::{is_raw_extension, kind_from_mime, never_media_extension, MediaKind};
 pub use skip::{SkipReason, SkipRules};

@@ -56,7 +56,9 @@ button:focus-visible {
 
 .app {
   display: grid;
-  grid-template-columns: 250px 1fr;
+  /* The page column may shrink below its content's natural width, so a
+     wide table scrolls inside itself and never pushes the page sideways. */
+  grid-template-columns: 250px minmax(0, 1fr);
   height: 100%;
 }
 
@@ -503,6 +505,7 @@ h3 {
   border-radius: 18px;
   padding: 30px 32px;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   justify-items: start;
 }
@@ -3101,4 +3104,197 @@ main > section > :nth-last-child(2) {
   color: var(--ink);
   font-size: 14px;
   font-variant-numeric: tabular-nums;
+}
+
+/* Advanced: behind a door of its own, below everything a person needs day to day. */
+.settings .advanced {
+  margin: var(--space-4) 0;
+  max-width: 860px;
+}
+
+.settings .advanced > summary {
+  cursor: pointer;
+  color: var(--ink-muted);
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 14px;
+}
+
+/* The kinds of file looked for: a compact table that scrolls inside itself when narrow. */
+.kinds-table {
+  margin-top: var(--space-3);
+  max-height: 420px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+
+.kinds-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.kinds-table th,
+.kinds-table td {
+  text-align: left;
+  padding: var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.kinds-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface-raised);
+  color: var(--ink-muted);
+  font-weight: 500;
+}
+
+.kinds-table .ending {
+  font-family: ui-monospace, 'Cascadia Mono', Menlo, monospace;
+}
+
+.kinds-table tr.off td:not(:nth-child(4)) {
+  color: var(--ink-muted);
+}
+
+.kinds-table .actions button + button {
+  margin-left: var(--space-3);
+}
+
+.kinds-table .removing td {
+  white-space: normal;
+}
+
+.kinds-table .removing td,
+.kinds-table .editing td {
+  padding: var(--space-3);
+}
+
+.kinds-table .removing .choices {
+  display: inline-flex;
+  gap: var(--space-2);
+  margin-left: var(--space-3);
+}
+
+.kind-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  white-space: normal;
+}
+
+.kind-form label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.kind-form input {
+  width: 9em;
+}
+
+.kind-form .choices {
+  display: inline-flex;
+  gap: var(--space-2);
+}
+
+.kind-form .refusal {
+  flex-basis: 100%;
+  color: var(--danger);
+  font-size: 13px;
+}
+
+/* How earlier backups went: the table scrolls inside itself when narrow. */
+.sends-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.sends tr.open td {
+  border-bottom-color: transparent;
+}
+
+.sends tr.run > td {
+  padding: 0 0 var(--space-4);
+}
+
+/* Everything recorded about one backup, opened in place beneath its row. */
+.run-detail {
+  max-width: 760px;
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  font-size: 13px;
+  line-height: 20px;
+  white-space: normal;
+}
+
+.run-detail .headline {
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 500;
+}
+
+.run-detail h4 {
+  margin: var(--space-4) 0 var(--space-1);
+  font-size: 13px;
+  color: var(--ink-muted);
+  font-weight: 500;
+}
+
+.run-detail ul {
+  margin: 0;
+  padding-left: var(--space-4);
+}
+
+.run-detail ul.not-sent {
+  margin-top: var(--space-1);
+}
+
+.run-detail .stages-scroll {
+  overflow-x: auto;
+}
+
+.run-detail table.stages {
+  margin-top: 0;
+  width: 100%;
+}
+
+.run-detail table.stages td,
+.run-detail table.stages th {
+  padding: var(--space-1) var(--space-4) var(--space-1) 0;
+  font-size: 13px;
+}
+
+.run-detail .range {
+  display: block;
+}
+
+.run-detail .summary-lines p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+/* The history of backups never sets the width of the page: its table
+   scrolls inside its own box. */
+.sends {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.sends-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  /* Holds the hidden labels for screen readers inside the scrolling box;
+     left to the page, they stretch it sideways. */
+  position: relative;
 }

@@ -218,7 +218,76 @@ export type Sent = {
   /** Where it went, in words. */
   to: string
   stopped: boolean
+  /** Everything else measured; missing for a backup recorded before it was kept. */
+  detail?: RunDetail
 }
+
+/** Everything measured about one backup. Mirrors `RunDetail` in keevoro-engine's history. */
+export type RunDetail = {
+  startedAt: number
+  pausedSeconds: number
+  ended: 'finished' | 'stopped' | 'problem'
+  problem?: string
+  /** "the app", "the command line" or "an AI agent". */
+  startedBy: string
+  version: string
+  destinations: DestinationRecord[]
+  stages: StageRecord[]
+  duplicates: number
+  duplicateBytes: number
+  /** Missing when the backup sends the originals alone. */
+  previews?: PreviewsMade
+  /** What it said at the end, exactly as it was shown. */
+  summary: string[]
+}
+
+export type StageKind =
+  | 'tellingApart'
+  | 'placing'
+  | 'sendingOriginals'
+  | 'makingPreviews'
+  | 'makingVideoPreviews'
+  | 'sendingPreviews'
+  | 'writingIndex'
+
+/** One stage: its time with pauses left out, how much it did and how fast. */
+export type StageRecord = {
+  kind: StageKind
+  to?: string
+  unit: 'bytes' | 'files'
+  done: number
+  seconds: number
+  finished: boolean
+  perSecond: number | null
+  /** Held for a minute or more; null for a shorter stage. */
+  slowest: number | null
+  fastest: number | null
+}
+
+export type DestinationRecord = {
+  to: string
+  overNetwork: boolean
+  reached: boolean
+  problem?: string
+  seconds: number
+  bytes: number
+  originals: Sending
+  previews?: Sending
+  indexed?: number
+  /** Keevoro's own unfinished working files cleared there; never anything backed up. */
+  clearedFiles?: number
+  clearedBytes?: number
+}
+
+export type Sending = {
+  sent: number
+  sentBytes: number
+  alreadyThere: number
+  notSent: { file: string; reason: string }[]
+  notSentMore: number
+}
+
+export type PreviewsMade = { photos: number; videos: number; photosWithout: number; videosWithout: number }
 
 /** How a send is getting on. */
 export type SendProgress = {
@@ -293,6 +362,22 @@ export type Acceleration = { on: boolean; available: boolean; ways: string[]; co
  */
 export type AgentAccess = { lookIn: string[]; backUpTo: string[]; mayChange: boolean }
 
+/**
+ * One kind of file Keevoro looks for, by the ending of its name (`jpg`,
+ * lower case, without the dot). Mirrors `FileKind` in keevoro-core.
+ */
+export type FileKind = {
+  ending: string
+  kind: 'photo' | 'video'
+  /** Looked for. One switched off is passed over. */
+  on: boolean
+  /** Comes with Keevoro: it can be switched off, not removed or renamed. */
+  builtIn: boolean
+}
+
+/** A change to one kind of file. Anything left out stays as it is. */
+export type FileKindChange = { kind?: 'photo' | 'video'; on?: boolean; to?: string }
+
 /** A newer version of Keevoro that is ready to install. */
 export type Update = { version: string; page: string }
 
@@ -325,6 +410,16 @@ export interface Backend {
   agentAccess(): Promise<AgentAccess>
   /** Changes what an AI agent may do. Each part given replaces what was there. */
   setAgentAccess(change: Partial<AgentAccess>): Promise<AgentAccess>
+  /** The kinds of file Keevoro looks for, the built-in ones first. */
+  fileKinds(): Promise<FileKind[]>
+  /** Adds an ending to look for, as photos or videos. */
+  addFileKind(ending: string, kind: 'photo' | 'video'): Promise<FileKind>
+  /** Changes one kind: photo or video, on or off, or a new ending for one you added. */
+  changeFileKind(ending: string, change: FileKindChange): Promise<FileKind>
+  /** Takes an ending you added off the list. */
+  removeFileKind(ending: string): Promise<FileKind>
+  /** Puts back the kinds Keevoro comes with, all on. Your own stay. */
+  resetFileKinds(): Promise<FileKind[]>
   /** Asks for a folder an AI agent may use. Null if they cancel. */
   chooseAgentFolder(): Promise<string | null>
   /** Asks a running search to stop. Nothing from it is kept. */
@@ -392,7 +487,7 @@ export interface Backend {
   connectDestination(request: ConnectRequest): Promise<string>
   /**
    * Stops backing up to one destination, by its place in the list, or to
-   * all of them when none is given. Nothing stored there is touched.
+   * all of them when none is given. Nothing backed up there is touched.
    */
   disconnectDestination(at?: number): Promise<void>
   send(): Promise<void>
@@ -435,6 +530,17 @@ async function tauriBackend(): Promise<Backend> {
     setAcceleration: (on) => invoke('set_acceleration', { on }),
     agentAccess: () => invoke('agent_access'),
     setAgentAccess: (change) => invoke('set_agent_access', { change }),
+    fileKinds: () => invoke('file_kinds'),
+    addFileKind: (ending, kind) => invoke('add_file_kind', { ending, kind }),
+    changeFileKind: (ending, change) =>
+      invoke('change_file_kind', {
+        ending,
+        kind: change.kind ?? null,
+        on: change.on ?? null,
+        to: change.to ?? null,
+      }),
+    removeFileKind: (ending) => invoke('remove_file_kind', { ending }),
+    resetFileKinds: () => invoke('reset_file_kinds'),
     chooseAgentFolder: () => pickFolder('Choose a folder an AI agent may use'),
     activity: () => invoke('activity'),
     sendProgress: () => invoke('send_progress'),
