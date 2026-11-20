@@ -791,6 +791,13 @@ mod how_deep {
         assert_eq!(found.hints.len(), 1);
         assert_eq!((found.hints[0].photos, found.hints[0].online_only), (10, 4));
         assert_eq!(found.online_only, 4, "a document only online is not a photo left out");
+        // On the map, the room every file only online takes is said as such,
+        // photo or not, from its listing alone.
+        let totals = found.map.totals();
+        assert_eq!(totals[0].online_only_bytes, 4 * 100 + 10);
+        let work = found.map.find(&t.root().join("Work")).unwrap();
+        assert_eq!(totals[work as usize].online_only_bytes, 10);
+        assert_eq!(totals[0].bytes(), 10 * 100 + 11 * 10, "and still counted in full");
     }
     use crate::survey::survey;
     use keevoro_core::Kinds;
