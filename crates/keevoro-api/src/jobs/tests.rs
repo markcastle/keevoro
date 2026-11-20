@@ -1049,10 +1049,14 @@ fn a_program_that_is_closing_stops_its_own_jobs_and_leaves_the_rest() {
     assert!(matches!(agent.wait(mine.id), Some(Said::Scan(e)) if e.stopped));
     // Both programs are one process here and share its pause, which the
     // closing one lifts to wake its own job. So the other's job may have
-    // finished by now; what matters is that it was never asked to stop.
+    // finished by now, and its duplicate check may have begun; what matters
+    // is that nothing of the other program's was asked to stop.
     let still = command_line.jobs(None);
+    assert!(command_line
+        .wait(theirs.id)
+        .is_none_or(|said| !matches!(said, Said::Scan(e) if e.stopped)));
     assert!(
-        still.iter().all(|job| job.handle.id == theirs.id && !job.stopping),
+        still.iter().all(|job| job.handle.id != mine.id && !job.stopping),
         "the other program's job is left alone: {still:?}"
     );
     command_line.stop(Which::All);

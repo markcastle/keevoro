@@ -15,6 +15,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 - **The "Making previews" reason on the activity page** now says that during a backup they are made beside it, at low priority, and wait while the computer is on battery or busy.
 
+### Fixed
+
+- **While a backup runs, the screen no longer keeps saying how many files are waiting and how much room they need.** Those figures were from before it began, and stayed on show even when every file had been sent.
+
 ## [0.31.0] - 2026-11-19
 
 ### Added

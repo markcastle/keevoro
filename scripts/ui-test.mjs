@@ -530,6 +530,9 @@ try {
   // And the file just dealt with is named beneath.
   await page.getByText(/^Just done: originals\/Holidays\/Cornwall\/IMG_\d+\.jpg$/).waitFor()
   await shot('9l-send-speed')
+  // Counts from before the backup began are not left on show while it runs.
+  assert.equal(await page.getByText(/waiting to be backed up/).count(), 0, 'no stale count of what is waiting')
+  assert.equal(await page.locator('.send .needs').count(), 0, 'no stale room needed')
   // The bar keeps one length whatever the words under it say.
   const barWidth = () => page.locator('.speed progress').first().evaluate((bar) => bar.getBoundingClientRect().width)
   const wide = await barWidth()

@@ -2271,16 +2271,20 @@ function SendPanel(props: {
               ))}
             </ul>
           )}
-          <p>
-            {props.waiting > 0
-              ? `${props.waiting.toLocaleString('en-GB')} ${props.waiting === 1 ? 'file is' : 'files are'} waiting to be backed up.${
-                  props.safe > 0 ? ` ${props.safe.toLocaleString('en-GB')} already there.` : ''
-                }`
-              : props.safe > 0
-                ? `Everything you are keeping is there: ${props.safe.toLocaleString('en-GB')} files.`
-                : 'Nothing is being kept yet.'}
-          </p>
-          {room && room.needed > 0 && (
+          {/* While a backup runs its own progress says what is left; these
+              counts are from before it began and would only mislead. */}
+          {!sending && (
+            <p>
+              {props.waiting > 0
+                ? `${props.waiting.toLocaleString('en-GB')} ${props.waiting === 1 ? 'file is' : 'files are'} waiting to be backed up.${
+                    props.safe > 0 ? ` ${props.safe.toLocaleString('en-GB')} already there.` : ''
+                  }`
+                : props.safe > 0
+                  ? `Everything you are keeping is there: ${props.safe.toLocaleString('en-GB')} files.`
+                  : 'Nothing is being kept yet.'}
+            </p>
+          )}
+          {!sending && room && room.needed > 0 && (
             <p className={room.enough ? 'needs' : 'needs short'} role={room.enough ? undefined : 'alert'}>
               {room.free === null ? (
                 <>
