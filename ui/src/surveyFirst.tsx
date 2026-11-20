@@ -12,6 +12,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Backend, SurveyProgress } from './backend'
 import { count, photosAndVideos } from './format'
+import { LiveMap } from './liveMap'
 
 export type Surveying = { progress: SurveyProgress | null; stopping: boolean }
 
@@ -38,7 +39,8 @@ export function useAfterSurvey<T>(
   useEffect(() => {
     let current = true
     const unhear = api.onSurvey((progress) => {
-      if (current) setSurveying((s) => s && { ...s, progress })
+      // The top of the map comes twice a second; between, the last is kept.
+      if (current) setSurveying((s) => s && { ...s, progress: { ...progress, top: progress.top ?? s.progress?.top } })
     })
     const survey = async () => {
       setSurveying({ progress: null, stopping: false })
@@ -93,6 +95,7 @@ export function SurveyingPanel(props: { name: string; surveying: Surveying; onSt
         spotted so far, by name. This only reads the list of what is in each folder. No file is opened, and nothing is
         added or changed.
       </p>
+      <LiveMap name={props.name} top={progress?.top} />
       {progress?.sizing && (
         <p className="quiet">
           Every photo and video is found. Now measuring the folders Keevoro never looks through, such as system and app

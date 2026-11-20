@@ -19,6 +19,8 @@ import { nameOf } from './inside'
 import { LeaveOutButton, LeftOutSaid } from './leaveOut'
 import { MapCanvas, MapKey } from './mapCanvas'
 import { called, find, holds, keysOf, notesOn } from './mapWords'
+import type { Picked } from './mapWords'
+import { KindsList } from './mapKinds'
 import { SurveyingPanel, useAfterSurvey } from './surveyFirst'
 
 /** How many levels of folders are asked for at once. */
@@ -54,6 +56,9 @@ export function SpaceScreen(props: {
   // In a very narrow window the map is a strip of the biggest boxes until asked for.
   const narrow = useNarrow()
   const [wholeMap, setWholeMap] = useState(false)
+  // The list by folder, or by kind of file with what was picked there.
+  const [byKind, setByKind] = useState(false)
+  const [picked, setPicked] = useState<Picked | null>(null)
   const answers = useRef(new Map<string, MapView>())
 
   const ask = useCallback(async () => {
@@ -84,6 +89,8 @@ export function SpaceScreen(props: {
     setSaid(null)
     setListPoint(null)
     setMapPoint(null)
+    // An ending is a place in this folder's list of kinds, so it goes with it.
+    setPicked(null)
     setFolder(to)
     props.onAt?.(to)
   }
@@ -170,20 +177,37 @@ export function SpaceScreen(props: {
             onChoose={setChosen}
             onGo={go}
             onPoint={setMapPoint}
+            picked={byKind ? picked : null}
           />
           <MapKey />
         </div>
-        <SpaceList
-          top={top}
-          rows={rows}
-          keys={keys}
-          chosen={chosenRow}
-          lit={mapPoint}
-          onChoose={setChosen}
-          onPoint={setListPoint}
-          onGo={go}
-          onUp={up ? () => go(up) : undefined}
-        />
+        <div className="space-side">
+          <div className="segmented list-tabs" role="tablist" aria-label="Show the list">
+            <button role="tab" id="by-folder" aria-selected={!byKind} aria-controls="space-list-panel" onClick={() => setByKind(false)}>
+              By folder
+            </button>
+            <button role="tab" id="by-kind" aria-selected={byKind} aria-controls="space-list-panel" onClick={() => setByKind(true)}>
+              By kind of file
+            </button>
+          </div>
+          <div id="space-list-panel" role="tabpanel" aria-labelledby={byKind ? 'by-kind' : 'by-folder'}>
+            {byKind ? (
+              <KindsList view={view} picked={picked} onPick={setPicked} />
+            ) : (
+              <SpaceList
+                top={top}
+                rows={rows}
+                keys={keys}
+                chosen={chosenRow}
+                lit={mapPoint}
+                onChoose={setChosen}
+                onPoint={setListPoint}
+                onGo={go}
+                onUp={up ? () => go(up) : undefined}
+              />
+            )}
+          </div>
+        </div>
       </div>
       {/* Below the list, held at the foot of the window, so choosing a row never moves the rows. */}
       <Chosen

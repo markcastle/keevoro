@@ -1104,6 +1104,31 @@ try {
   await page.locator('.space-list tbody tr').first().focus()
   await page.keyboard.press('Backspace')
   await page.getByRole('grid', { name: 'What is in Pictures, the biggest first' }).waitFor()
+  // By kind of file: photos, videos and everything else, each opening to
+  // its endings; picking one fades every box on the map without it.
+  await page.getByRole('tab', { name: 'By kind of file' }).click()
+  const byKindTable = page.getByRole('table', { name: 'What is in Pictures, by kind of file' })
+  await byKindTable.waitFor()
+  assert.deepEqual(await byKindTable.locator('tr.kind-group button[aria-pressed]').allInnerTexts(), ['Photos', 'Videos', 'Everything else'])
+  assert.equal(await map.getAttribute('data-picked'), '', 'nothing picked, nothing faded')
+  await byKindTable.getByRole('button', { name: 'Everything else', exact: true }).click()
+  await page.waitForFunction(() => document.querySelector('.map-canvas')?.dataset.picked === 'other')
+  assert.ok(Number(await map.getAttribute('data-faded')) > 0, 'boxes with no other files fade')
+  await byKindTable.getByRole('button', { name: 'Show the endings of everything else' }).click()
+  await byKindTable.getByRole('button', { name: 'zip', exact: true }).click()
+  await page.waitForFunction(() => /^other:\d+$/.test(document.querySelector('.map-canvas')?.dataset.picked ?? ''))
+  const fadedForZip = Number(await map.getAttribute('data-faded'))
+  assert.ok(fadedForZip > 0, 'boxes without a zip file fade')
+  assert.match(await text('.kinds-list .picked'), /Only the boxes with zip files are bright on the map\./)
+  await shot('9t7-space-by-kind')
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await shot('9t7-space-by-kind-dark')
+  await page.emulateMedia({ colorScheme: 'light' })
+  await fitsNarrow('Where the space goes, by kind of file')
+  await page.locator('.kinds-list').getByRole('button', { name: 'Show everything' }).click()
+  await page.waitForFunction(() => document.querySelector('.map-canvas')?.dataset.picked === '')
+  await page.getByRole('tab', { name: 'By folder' }).click()
+  await page.getByRole('grid', { name: 'What is in Pictures, the biggest first' }).waitFor()
   await fitsNarrow('Where the space goes')
   await page.setViewportSize({ width: 400, height: 800 })
   await shot('9s3-space-list-400')
@@ -1118,12 +1143,31 @@ try {
   assert.equal(await page.locator('.kept li.source').count(), 0, 'nothing was added')
   // While a survey measures what it never looks through, the folders found
   // can be shown at once.
-  await page.goto(`${base}/?demo=empty&slow`)
-  await page.getByRole('button', { name: /Windows \(C:\)/ }).click()
-  await page.getByRole('button', { name: 'Find the folders with photos' }).click()
-  await page.getByRole('button', { name: 'Show the folders now' }).waitFor({ timeout: 15000 })
-  assert.match(await text('.searching'), /Now measuring the rest/)
+  // The map grows while it walks, the top boxes coming with its progress,
+  // easing from one picture to the next unless motion is unwelcome.
+  const surveyGrowing = async () => {
+    await page.goto(`${base}/?demo=empty&slow`)
+    await page.evaluate(() => {
+      window.keevoroEased = false
+      new MutationObserver(() => {
+        if (document.querySelector('.live-map[data-easing]')) window.keevoroEased = true
+      }).observe(document.body, { attributes: true, subtree: true, attributeFilter: ['data-easing'] })
+    })
+    await page.getByRole('button', { name: /Windows \(C:\)/ }).click()
+    await page.getByRole('button', { name: 'Find the folders with photos' }).click()
+    await page.getByRole('button', { name: 'Show the folders now' }).waitFor({ timeout: 15000 })
+    assert.match(await text('.searching'), /Now measuring the rest/)
+    const growing = page.locator('.searching .live-map')
+    await growing.waitFor()
+    assert.ok(Number(await growing.getAttribute('data-boxes')) > 1, 'boxes, not a spinner alone')
+    assert.match(await growing.locator('canvas').getAttribute('aria-label'), /^Map of Windows \(C:\) so far: /)
+    return page.evaluate(() => window.keevoroEased)
+  }
+  assert.equal(await surveyGrowing(), true, 'the boxes grow')
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  assert.equal(await surveyGrowing(), false, 'with reduced motion each picture simply appears')
   await shot('9s6-survey-measuring')
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
   // From a source's card, surveyed first when Keevoro has not seen inside it.
   await page.goto(`${base}/?slow`)
   await page.locator('.steps button').nth(0).click()

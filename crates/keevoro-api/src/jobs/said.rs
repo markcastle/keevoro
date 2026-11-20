@@ -9,7 +9,7 @@
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// How far a survey of a drive has got. Counts are by file name alone.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SurveyEvent {
     pub folders: usize,
     pub files: usize,
@@ -19,6 +19,60 @@ pub struct SurveyEvent {
     /// are being sized for the map of where the space goes.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub sizing: bool,
+    /// The top of the map of where the space goes, as it grows: at most
+    /// twice a second and 48 boxes, the biggest first. Absent in between.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub top: Vec<TopView>,
+}
+
+/// One box at the top of the map while a survey walks: a folder in the
+/// place surveyed with everything inside it, the files directly in the
+/// place, or the smaller folders together. The same names as a box of
+/// `places.map`, so a screen draws both alike.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TopView {
+    pub name: String,
+    /// `folder`, `files` (directly in the place) or `smaller`.
+    pub node: String,
+    pub bytes: u64,
+    pub photos: u64,
+    pub videos: u64,
+    pub others: u64,
+    pub photo_bytes: u64,
+    pub video_bytes: u64,
+    pub other_bytes: u64,
+    /// For the smaller folders together, how many.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub folders: u64,
+}
+
+fn is_zero_u64(n: &u64) -> bool {
+    *n == 0
+}
+
+impl From<&keevoro_scan::map::TopBox> for TopView {
+    fn from(b: &keevoro_scan::map::TopBox) -> Self {
+        use keevoro_scan::map::TopItem;
+        let (node, folders) = match b.item {
+            TopItem::Folder => ("folder", 0),
+            TopItem::FilesHere => ("files", 0),
+            TopItem::Smaller(n) => ("smaller", u64::from(n)),
+        };
+        let k = &b.kinds;
+        TopView {
+            name: b.name.to_string(),
+            node: node.to_string(),
+            bytes: b.bytes(),
+            photos: k[0].files,
+            videos: k[1].files,
+            others: k[2].files,
+            photo_bytes: k[0].bytes,
+            video_bytes: k[1].bytes,
+            other_bytes: k[2].bytes,
+            folders,
+        }
+    }
 }
 
 /// Progress reading, in the background, the files a quick search only
@@ -295,6 +349,18 @@ mod tests {
                 photos: 3,
                 videos: 4,
                 sizing: false,
+                top: vec![TopView {
+                    name: "Camera Roll".into(),
+                    node: "folder".into(),
+                    bytes: 9,
+                    photos: 2,
+                    videos: 0,
+                    others: 1,
+                    photo_bytes: 8,
+                    video_bytes: 0,
+                    other_bytes: 1,
+                    folders: 0,
+                }],
             }),
             Said::Surveyed(SurveyView {
                 hints: vec![hint],
@@ -396,14 +462,30 @@ mod tests {
             photos: 30,
             videos: 1,
             sizing: false,
+            top: Vec::new(),
         };
         assert_eq!(
-            serde_json::to_value(Said::Survey(survey)).unwrap(),
+            serde_json::to_value(Said::Survey(survey.clone())).unwrap(),
             serde_json::json!({ "folders": 3, "files": 40, "photos": 30, "videos": 1 }),
             "as older readers expect it"
         );
         survey.sizing = true;
-        assert_eq!(serde_json::to_value(Said::Survey(survey)).unwrap()["sizing"], true);
+        assert_eq!(
+            serde_json::to_value(Said::Survey(survey.clone())).unwrap()["sizing"],
+            true
+        );
+        // The top of the map as it grows, read back as a survey's progress
+        // still, by its folders.
+        let mut grown = survey.clone();
+        grown.top = vec![TopView::from(&keevoro_scan::map::TopBox {
+            name: "Others".into(),
+            item: keevoro_scan::map::TopItem::Smaller(3),
+            kinds: Default::default(),
+        })];
+        let written = serde_json::to_value(Said::Survey(grown.clone())).unwrap();
+        assert_eq!(written["top"][0]["node"], "smaller");
+        assert_eq!(written["top"][0]["folders"], 3);
+        assert_eq!(serde_json::from_value::<Said>(written).unwrap(), Said::Survey(grown));
         let names: Vec<&str> = [
             Said::Scan(ScanEvent {
                 name: String::new(),
@@ -420,7 +502,7 @@ mod tests {
                 unreadable_names: vec!["b".into()],
                 ..ScanEvent::default()
             }),
-            Said::Survey(survey),
+            Said::Survey(survey.clone()),
             Said::Send(SendEvent::progress("x")),
             Said::Check(check),
         ]

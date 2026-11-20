@@ -151,6 +151,14 @@ function sums(made: Made): Sums {
   return total
 }
 
+/** The endings a made-up folder holds, everything inside it counted in. */
+function endingsIn(made: Made, into = new Set<string>()) {
+  for (const kind of ['photo', 'video', 'other'] as Kind[]) if ((made.rest?.[kind]?.[0] ?? 0) > 0) into.add(endingOf(made.name, kind))
+  for (const [name] of made.files ?? []) into.add(endingOf(made.name, kindOf(name), name))
+  made.folders?.forEach((f) => endingsIn(f, into))
+  return into
+}
+
 const kindOf = (file: string): Kind => (/\.(mp4|mov)$/i.test(file) ? 'video' : /\.(jpg|png|heic)$/i.test(file) ? 'photo' : 'other')
 
 /** The made-up folder at `path`, given the place the tree is of. */
@@ -189,6 +197,9 @@ export function demoMap(
   const smallest = Math.max(1, request.smallest ?? Math.floor(bytes / 2000))
   const depth = Math.min(6, Math.max(1, request.depth))
 
+  // Each box says which endings it holds, as places in the answer's kinds.
+  let places = new Map<string, number>()
+  const placesOf = (endings: Iterable<string>) => [...endings].map((e) => places.get(e)).filter((i): i is number => i !== undefined).sort((a, b) => a - b)
   const node = (made: Made, path: string, level: number, passed: Made | null): MapNode => {
     const skipped = made.skipped ? made : passed
     const s = sums(made)
@@ -211,13 +222,14 @@ export function demoMap(
       ...(skipped?.madeByKeevoro ? { madeByKeevoro: true, leftOut: 'Keevoro made this folder, so it is not a source' } : {}),
       ...(out ? { leftOut: 'you left this folder out of this backup', leftOutFolder: out } : {}),
       wouldBackUp: skipped || out ? 0 : media,
+      endings: placesOf(endingsIn(made)),
     }
     if (level === 0) {
       if ((made.folders?.length ?? 0) > 0 || made.files || made.rest) shown.deeper = true
       return shown
     }
     const children: MapNode[] = []
-    const smaller = { bytes: 0, folders: 0, photo: [0, 0], video: [0, 0], other: [0, 0] }
+    const smaller = { bytes: 0, folders: 0, photo: [0, 0], video: [0, 0], other: [0, 0], endings: new Set<string>() }
     for (const inside of made.folders ?? []) {
       const t = sums(inside)
       const b = t.photo[1] + t.video[1] + t.other[1]
@@ -225,6 +237,7 @@ export function demoMap(
       else {
         smaller.bytes += b
         smaller.folders += 1 + t.folders
+        endingsIn(inside, smaller.endings)
         for (const kind of ['photo', 'video', 'other'] as Kind[]) {
           smaller[kind][0] += t[kind][0]
           smaller[kind][1] += t[kind][1]
@@ -244,6 +257,7 @@ export function demoMap(
         otherBytes: smaller.other[1],
         folders: smaller.folders,
         wouldBackUp: 0,
+        endings: placesOf(smaller.endings),
       })
     }
     const rest: Record<Kind, [number, number]> = {
@@ -279,6 +293,7 @@ export function demoMap(
         otherBytes: kind === 'other' ? b : 0,
         ...notes(kind),
         wouldBackUp: kind === 'other' || skipped || out ? 0 : b,
+        endings: placesOf([endingOf(made.name, kind, name)]),
       })
     }
     for (const kind of ['photo', 'video', 'other'] as Kind[]) {
@@ -298,6 +313,7 @@ export function demoMap(
         ...(made.onlineOnly && kind !== 'other' ? { onlineOnlyBytes: Math.round(made.onlineOnly / 2) } : {}),
         ...notes(kind),
         wouldBackUp: kind === 'other' || skipped || out ? 0 : b,
+        endings: placesOf([endingOf(made.name, kind)]),
       })
     }
     shown.children = children.sort((a, b) => b.bytes - a.bytes)
@@ -319,6 +335,8 @@ export function demoMap(
     endings.set(ending, { ...was, files: was.files + files, bytes: was.bytes + b })
   }
   count(at)
+  const kinds = [...endings.values()].sort((a, b) => b.bytes - a.bytes)
+  places = new Map(kinds.map((k, i) => [k.ending, i]))
 
   const trail: { name: string; folder: string }[] = []
   const placePath = place === 'C:' ? 'C:' : place
@@ -336,7 +354,7 @@ export function demoMap(
     complete: true,
     sizedAll: true,
     top: node(at, folder, depth, ancestorsSkipped(tree, top, folder)),
-    kinds: [...endings.values()].sort((a, b) => b.bytes - a.bytes),
+    kinds,
     smallest,
     backup: 'Family photos',
   }

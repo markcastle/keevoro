@@ -66,7 +66,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
-pub use said::{CheckEvent, HintView, Outcome, Said, ScanEvent, SendEvent, SurveyEvent, SurveyView};
+pub use said::{CheckEvent, HintView, Outcome, Said, ScanEvent, SendEvent, SurveyEvent, SurveyView, TopView};
 
 /// How often a running job says how it is getting on. Often enough to feel
 /// alive, not so often that drawing it slows the job down. What it last

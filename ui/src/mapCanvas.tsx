@@ -21,7 +21,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { MapNode } from './backend'
 import { share, size } from './format'
-import { called, holds, mainKind, notesOn } from './mapWords'
+import { called, holds, holdsPicked, mainKind, notesOn } from './mapWords'
+import type { Picked } from './mapWords'
 import { between, easeOut, hit, layout } from './treemap'
 import type { Laid, Rect } from './treemap'
 
@@ -72,7 +73,7 @@ function pattern(ctx: CanvasRenderingContext2D, draw: (tile: CanvasRenderingCont
   return ctx.createPattern(tile, 'repeat')
 }
 
-function lookOf(ctx: CanvasRenderingContext2D): Look {
+export function lookOf(ctx: CanvasRenderingContext2D): Look {
   const style = getComputedStyle(document.documentElement)
   const sunken = token(style, '--surface-sunken')
   const surface = token(style, '--surface')
@@ -133,10 +134,21 @@ function fit(ctx: CanvasRenderingContext2D, words: string, width: number) {
   return cut.length > 1 ? `${cut}…` : ''
 }
 
-/** Draws every box of a layout. */
-function draw(ctx: CanvasRenderingContext2D, top: Laid<MapNode>, look: Look) {
+/**
+ * Draws every box of a layout. With a kind of file picked, every box that
+ * holds none of it is faded, as WinDirStat does; how many is given back.
+ */
+export function draw(ctx: CanvasRenderingContext2D, top: Laid<MapNode>, look: Look, picked: Picked | null = null) {
   ctx.fillStyle = look.ground
   ctx.fillRect(top.x, top.y, top.w, top.h)
+  let faded = 0
+  const fade = (b: Laid<MapNode>, h: number) => {
+    ctx.save()
+    ctx.globalAlpha = 0.78
+    ctx.fillStyle = look.ground
+    ctx.fillRect(b.x, b.y, b.w, h)
+    ctx.restore()
+  }
   const box = (b: Laid<MapNode>, passedBy: boolean, leftOut: boolean) => {
     const n = b.item
     const never = passedBy || Boolean(n.skipped)
@@ -164,12 +176,20 @@ function draw(ctx: CanvasRenderingContext2D, top: Laid<MapNode>, look: Look) {
       ctx.fillStyle = look.hatch
       ctx.fillRect(b.x, b.y, b.w, b.h)
     }
+    // Faded when it holds none of the kind picked; an opened folder's own
+    // boxes fade for themselves, and only its strip here.
+    const without = picked !== null && !holdsPicked(n, picked)
+    if (without) {
+      faded += 1
+      if (!opened) fade(b, b.h)
+    }
     ctx.strokeStyle = edge
     ctx.lineWidth = 1
     ctx.setLineDash(n.onlineOnlyBytes ? [4, 3] : [])
     ctx.strokeRect(b.x + 0.5, b.y + 0.5, Math.max(0, b.w - 1), Math.max(0, b.h - 1))
     ctx.setLineDash([])
     label(b, opened, kind)
+    if (without && opened) fade(b, Math.min(b.h, (b.inner?.y ?? b.y) - b.y))
   }
   const label = (b: Laid<MapNode>, opened: boolean, kind: 'photo' | 'video' | 'other') => {
     if (b.w < 36 || b.h < 14) return
@@ -185,6 +205,7 @@ function draw(ctx: CanvasRenderingContext2D, top: Laid<MapNode>, look: Look) {
     }
   }
   top.children.forEach((c) => box(c, Boolean(top.item.skipped), Boolean(top.item.leftOut) && !top.item.skipped))
+  return faded
 }
 
 /** The box with this key in a layout, if it is there. */
@@ -201,7 +222,10 @@ function boxOf(top: Laid<MapNode>, keys: Map<MapNode, string>, key: string | nul
   return visit(top)
 }
 
-const motionWelcome = () => !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+/** A kind of file picked, as words a page attribute and an effect can compare. */
+const pickedKey = (picked: Picked | null | undefined) => (picked ? `${picked.kind}${picked.ending === undefined ? '' : `:${picked.ending}`}` : '')
+
+export const motionWelcome = () => !window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
 /** What the map is, in words, for a screen reader: the list beside it says the rest. */
 function summary(top: MapNode) {
@@ -224,6 +248,8 @@ export function MapCanvas(props: {
   onGo: (folder: string) => void
   /** Hears the row the pointer is over on the map, to light it in the list. */
   onPoint: (key: string | null) => void
+  /** A kind of file, or one ending, picked in the list: boxes without it fade. */
+  picked?: Picked | null
 }) {
   const { top, keys } = props
   const wrap = useRef<HTMLDivElement>(null)
@@ -307,6 +333,7 @@ export function MapCanvas(props: {
     const before = drawn.current
     drawn.current = { top, keys, laid }
     const look = lookOf(ctx)
+    const picked = props.picked ?? null
     const at = (from: Laid<MapNode>, rect: Rect, alpha: number) => {
       ctx.save()
       ctx.globalAlpha = alpha
@@ -315,12 +342,14 @@ export function MapCanvas(props: {
       ctx.clip()
       ctx.translate(rect.x, rect.y)
       ctx.scale(rect.w / full.w || 1, rect.h / full.h || 1)
-      draw(ctx, from, look)
+      draw(ctx, from, look, picked)
       ctx.restore()
     }
     const still = () => {
       ctx.clearRect(0, 0, full.w, full.h)
-      draw(ctx, laid, look)
+      const faded = draw(ctx, laid, look, picked)
+      // Said on the page, so a test can see what faded without reading pixels.
+      wrap.current?.setAttribute('data-faded', picked ? String(faded) : '')
       drawOver()
     }
     const into = before && before.top.path !== top.path ? boxOf(before.laid, before.keys, top.path) : null
@@ -357,7 +386,7 @@ export function MapCanvas(props: {
     }
     // The highlight is drawn by its own effect; this one is the boxes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [top, keys, props.depth, area, theme])
+  }, [top, keys, props.depth, area, theme, pickedKey(props.picked)])
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(drawOver, [props.chosen, props.lit, area, theme])
@@ -435,6 +464,7 @@ export function MapCanvas(props: {
       data-selected={props.chosen ?? ''}
       data-lit={props.lit ?? ''}
       data-pointed=""
+      data-picked={pickedKey(props.picked)}
     >
       <canvas ref={base} role="img" aria-label={summary(top)} />
       <canvas

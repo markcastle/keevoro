@@ -57,6 +57,7 @@ pub(super) fn start(
                             photos: p.photos,
                             videos: p.videos,
                             sizing: p.sizing,
+                            top: p.top.iter().map(super::TopView::from).collect(),
                         }),
                         true,
                     );

@@ -386,3 +386,36 @@ fn on_its_own(command: &mut std::process::Command) {
 
 #[cfg(not(any(unix, windows)))]
 fn on_its_own(_: &mut std::process::Command) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_survey_says_its_counts_and_leaves_the_growing_map_to_the_app() {
+        let plain = keevoro_api::jobs::SurveyEvent {
+            folders: 1_200,
+            files: 9_000,
+            photos: 30,
+            videos: 2,
+            sizing: false,
+            top: Vec::new(),
+        };
+        let mut grown = plain.clone();
+        grown.top = vec![keevoro_api::jobs::TopView {
+            name: "Camera Roll".into(),
+            node: "folder".into(),
+            bytes: 9,
+            photos: 2,
+            videos: 0,
+            others: 1,
+            photo_bytes: 8,
+            video_bytes: 0,
+            other_bytes: 1,
+            folders: 0,
+        }];
+        let line = step(&Said::Survey(grown));
+        assert_eq!(line, step(&Said::Survey(plain)));
+        assert_eq!(line, "Looked in 1,200 folders: 30 photos and 2 videos by name so far");
+    }
+}

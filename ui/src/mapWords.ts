@@ -74,3 +74,21 @@ export function notesOn(node: MapNode) {
   return notes
 }
 
+
+/** A kind of file picked in the list, or one ending of it (its place in the map's `kinds`). */
+export type Picked = { kind: 'photo' | 'video' | 'other'; ending?: number }
+
+/** Does a box hold any of the kind, or the ending, picked? */
+export function holdsPicked(node: MapNode, picked: Picked) {
+  if (picked.ending !== undefined) return node.endings?.includes(picked.ending) ?? false
+  const files = picked.kind === 'photo' ? node.photos : picked.kind === 'video' ? node.videos : node.others
+  return files > 0
+}
+
+/** What a kind of file is called, as `keevoro map --kinds` says it. */
+export const KIND_NAMES = { photo: 'Photos', video: 'Videos', other: 'Everything else' } as const
+
+/** An ending as it is said: "jpg", "(no ending)" or "(other endings)", as `keevoro map --kinds` says it. */
+export function endingName(ending: string) {
+  return ending === '' ? '(no ending)' : ending === '…' ? '(other endings)' : ending
+}

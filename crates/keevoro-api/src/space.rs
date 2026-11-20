@@ -163,6 +163,11 @@ pub struct MapNode {
     /// There is more inside than the depth asked for shows.
     #[serde(skip_serializing_if = "not")]
     pub deeper: bool,
+    /// The endings of the files it holds, everything inside it counted in,
+    /// as places in the answer's `kinds`: what lights it when a screen
+    /// picks out one kind of file.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub endings: Vec<usize>,
     /// What is inside it, the biggest first.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<MapNode>,
@@ -270,14 +275,21 @@ impl Keevoro {
         let smallest = ask.smallest.unwrap_or(total / BOXES_WHEN_NOT_SAID);
         let shown = map::view(map, &loaded.totals, top, ask.depth, smallest, map::MOST_BOXES);
         let offered = map.offered(top, |path, kind, ending| judge.offered(path, kind, ending));
+        let (endings, kinds_short) = map.endings_beneath(top);
+        let endings: Vec<(u16, map::KindSum)> = endings
+            .into_iter()
+            .filter(|(id, _)| map.endings.get(*id as usize).is_some())
+            .collect();
+        let in_kinds: std::collections::HashMap<u16, usize> =
+            endings.iter().enumerate().map(|(i, (id, _))| (*id, i)).collect();
         let said = Said {
             map,
             totals: &loaded.totals,
             judge: &judge,
             offered: &offered,
+            in_kinds: &in_kinds,
         };
         let above = said.passed_by_above(top);
-        let (endings, kinds_short) = map.endings_beneath(top);
         let folder_path = map.path_of(top);
         let kinds_seen = endings
             .into_iter()
@@ -386,6 +398,8 @@ struct Said<'a> {
     totals: &'a [map::Totals],
     judge: &'a Judge<'a>,
     offered: &'a map::Offered<LeftOutBy>,
+    /// Each ending's place in the answer's `kinds`.
+    in_kinds: &'a std::collections::HashMap<u16, usize>,
 }
 
 impl Said<'_> {
@@ -429,6 +443,11 @@ impl Said<'_> {
             not_sized: false,
             more_folders: 0,
             deeper: shown.deeper,
+            endings: shown
+                .endings
+                .iter()
+                .filter_map(|e| self.in_kinds.get(e).copied())
+                .collect(),
             children: Vec::new(),
         };
         let mut passed = above;
@@ -626,6 +645,15 @@ mod tests {
             .find(|k| k["ending"] == "zip")
             .unwrap();
         assert_eq!((zip["files"].as_u64(), zip["kind"].as_str()), (Some(2), Some("other")));
+        // Each box says which of those endings it holds, to light by kind.
+        let zip_at = map["kinds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .position(|k| k["ending"] == "zip");
+        let holds_zip = |node: &Value| node["endings"].as_array().unwrap().contains(&json!(zip_at.unwrap()));
+        assert!(holds_zip(packs) && holds_zip(top));
+        assert!(!holds_zip(child(top, "Captures")));
 
         // Into a folder, with the trail back.
         let inside = call(

@@ -65,6 +65,7 @@ import { ClearUnfinished } from './tidy'
 import { FoundPicture, Viewer } from './pictures'
 import { LookInside } from './inside'
 import { SpaceScreen } from './map'
+import { LiveMap } from './liveMap'
 import { LeaveOutButton, LeftOutByYou, LeftOutSaid, leftOutByYou } from './leaveOut'
 import { VirtualTiles } from './tiles'
 import type { Theme } from './theme'
@@ -666,7 +667,14 @@ function FindScreen(props: {
   // Where the space goes in a place, under a look inside opened from it.
   const [space, setSpace] = useState<{ place: string; name?: string; at?: string } | null>(null)
   const surveyScroll = useRef(0)
-  useEffect(() => api.onSurvey((progress) => setSurvey((s) => (s && !s.found ? { ...s, progress } : s))), [api])
+  useEffect(
+    () =>
+      api.onSurvey((progress) =>
+        // The top of the map comes twice a second; between, the last is kept.
+        setSurvey((s) => (s && !s.found ? { ...s, progress: { ...progress, top: progress.top ?? s.progress?.top } } : s)),
+      ),
+    [api],
+  )
 
   const look = useCallback(() => {
     api.places().then(setPlaces).catch(onProblem)
@@ -893,6 +901,7 @@ function FindScreen(props: {
           <p className="quiet">
             spotted so far, by name. This only reads the list of what is in each folder. No file is opened.
           </p>
+          <LiveMap name={survey.name} top={survey.progress?.top} />
           {survey.progress?.sizing && (
             <p className="quiet">
               Every folder with photos and videos is found. Now measuring the rest, such as system and app folders, so

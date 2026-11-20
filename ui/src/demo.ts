@@ -10,6 +10,7 @@
 
 import { demoMap } from './demoMap'
 import type {
+  TopBox,
   AppState,
   FileKind,
   Wants,
@@ -145,6 +146,39 @@ function demoFiles(folder: string, photos: number, videos: number): FileView[] {
     })
   }
   return files
+}
+
+
+/**
+ * The top of a made-up map part of the way through its survey: the
+ * folders found so far, each with that part of what it holds, as the real
+ * survey sends them while it walks.
+ */
+function topSoFar(place: string, part: number): TopBox[] {
+  const whole = demoMap({ place, depth: 1, smallest: 1 }, () => undefined, 0)?.top.children ?? []
+  const boxes: TopBox[] = []
+  const here: TopBox = { name: place, node: 'files', bytes: 0, photos: 0, videos: 0, others: 0, photoBytes: 0, videoBytes: 0, otherBytes: 0 }
+  whole.forEach((n, i) => {
+    // Folders are come upon one after another, and fill as they are walked.
+    if (i / whole.length > part) return
+    const scaled = (v: number) => Math.round(v * part)
+    const box: TopBox = {
+      name: n.name,
+      node: n.node === 'smaller' ? 'smaller' : 'folder',
+      bytes: scaled(n.bytes),
+      photos: scaled(n.photos),
+      videos: scaled(n.videos),
+      others: scaled(n.others),
+      photoBytes: scaled(n.photoBytes),
+      videoBytes: scaled(n.videoBytes),
+      otherBytes: scaled(n.otherBytes),
+      ...(n.node === 'smaller' ? { folders: n.folders } : {}),
+    }
+    if (n.node === 'folder' || n.node === 'smaller') boxes.push(box)
+    else for (const k of ['bytes', 'photos', 'videos', 'others', 'photoBytes', 'videoBytes', 'otherBytes'] as const) here[k] += box[k]
+  })
+  if (here.bytes > 0) boxes.push(here)
+  return boxes.sort((a, b) => b.bytes - a.bytes)
 }
 
 export function demoBackend(): Backend {
@@ -719,7 +753,14 @@ export function demoBackend(): Backend {
       for (let step = 1; step <= 5; step++) {
         surveyListeners.forEach((tell) =>
           // The last steps measure what Keevoro never looks through, for the map.
-          tell({ folders: step * 9_000, files: step * 120_000, photos: Math.min(step, 3) * 3_100, videos: Math.min(step, 3) * 90, ...(step > 3 ? { sizing: true } : {}) }),
+          tell({
+            folders: step * 9_000,
+            files: step * 120_000,
+            photos: Math.min(step, 3) * 3_100,
+            videos: Math.min(step, 3) * 90,
+            ...(step > 3 ? { sizing: true } : {}),
+            top: topSoFar(drive, step / 5),
+          }),
         )
         await new Promise((r) => setTimeout(r, new URLSearchParams(window.location.search).has('slow') ? 400 : 60))
       }

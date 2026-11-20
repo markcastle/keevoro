@@ -85,7 +85,31 @@ export type LeftOut = { folder: string; what: 'keevoroBackup' | 'keevoroOwn' | '
 /** What leaving a folder out, or putting it back, did, in words that say nothing backed up is touched. */
 export type LeftOutFolder = { folder: string; leftOut: boolean; files: number; stillInside?: string; said: string }
 
-export type SurveyProgress = { folders: number; files: number; photos: number; videos: number; sizing?: boolean }
+export type SurveyProgress = {
+  folders: number
+  files: number
+  photos: number
+  videos: number
+  sizing?: boolean
+  /** The top of the map as it grows: at most twice a second, the biggest first. */
+  top?: TopBox[]
+}
+
+/** One box at the top of the map while a survey walks, named as a box of the map is. */
+export type TopBox = {
+  name: string
+  /** A folder, the files directly in the place (`files`), or the smaller folders together. */
+  node: 'folder' | 'files' | 'smaller'
+  bytes: number
+  photos: number
+  videos: number
+  others: number
+  photoBytes: number
+  videoBytes: number
+  otherBytes: number
+  /** For the smaller folders together, how many. */
+  folders?: number
+}
 
 /** A drive plugged into this computer, offered as somewhere to look. */
 export type Place = {
@@ -561,6 +585,8 @@ export type MapNode = {
   moreFolders?: number
   /** There is more inside than the depth asked for shows. */
   deeper?: boolean
+  /** The endings of the files it holds, as places in the answer's `kinds`. */
+  endings?: number[]
   children?: MapNode[]
 }
 
