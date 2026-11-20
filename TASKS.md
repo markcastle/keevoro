@@ -31,15 +31,22 @@ Small, known, and better closed while the work is fresh.
 - [ ] Third-party licence acknowledgements in the app, now including the MCP library
 - [ ] Progress notifications to an agent as a job runs, so it need not ask
 
-### 3. Scheduled and repeat backups
+### 3. See inside a source before choosing it
+
+Two views for the step where you decide what to look through, asked for by the owner after pointing Keevoro at a Pictures folder that also held texture packs, zip files and screen recordings. Both only read the source. See "Seeing inside a source".
+
+- [ ] A look inside a folder: a grid of thumbnails of the photos and video stills in it, before it is added
+- [ ] A map of where the space goes: boxes sized by how much each folder and file takes, coloured by kind, in the style of WinDirStat
+
+### 4. Scheduled and repeat backups
 
 The next thing a person would notice, and the reason the jobs work came first: a scheduled run is just another program asking the API to run a backup, taking its turn with the app. Start with the single command a system scheduler can call, then the schedule in the app, then running with the window closed. See "Scheduled and repeat backups".
 
-### 4. The catalog travels with the backup
+### 5. The catalog travels with the backup
 
 A copy of Keevoro's record inside each destination, so a backup can be opened on a new computer or after the record here is lost. This matters more once backups run unattended. See "The catalog".
 
-### 5. Cloud storage as sure as a folder
+### 6. Cloud storage as sure as a folder
 
 A folder backup is fingerprinted as it is sent and read back afterwards. Cloud storage is not yet held to the same standard.
 
@@ -363,6 +370,38 @@ Before building
 - [ ] Prove, as a job the person starts, whether every photo in an old library is already in one of this computer's backups (by fingerprint against each catalog), so they can remove it knowing nothing is lost. Not done yet: it reads every copy in full, gigabytes, so it must be a job with progress and a stop, not something done unasked
 - [ ] Say on screen, not only in the log, how many files a search passed over because they are only in online storage (OneDrive's "files on demand"), with how to include them. Check this against a real OneDrive folder, which CI cannot do: the attributes are read from the folder listing, and should not download anything
 - [ ] Recognise Keevoro's previews copied out of a backup by hand (loose `.webp` thumbnails). Nothing marks them as Keevoro's yet
+
+### Seeing inside a source
+
+Finding photos is hard when you do not know what a folder holds. "Find where the photos are" names the folders; these two views show what is in them, so the choice is made by looking, not by guessing from a name.
+
+A look inside a folder
+
+- [ ] Each folder the survey suggests opens to a grid of thumbnails: photos, and a still from each video with its length
+- [ ] The same look for any folder you pick yourself, and for a source already added
+- [ ] Thumbnails are made as you look and kept in Keevoro's own cache, never beside the originals; the source is only read
+- [ ] Only what is on screen is fetched, so a folder of ten thousand opens at once
+- [ ] Sort by date or name, and show photos only or videos only
+- [ ] Open one in the closer look, and play a video there
+- [ ] From the grid: look through this folder, or leave it out
+- [ ] Say plainly when a picture cannot be opened, with a placeholder, and carry on
+
+A map of where the space goes
+
+- [ ] Boxes sized by how much room each folder and file takes, drawn from folder listings alone so it stays as quick as the survey
+- [ ] Coloured by kind: photos, videos, and everything else (zip files, documents, programs), with a key
+- [ ] A list beside it, by folder and by kind of file, with sizes and counts; choosing a row lights up its boxes, and the other way round
+- [ ] Click a box to go into that folder; a trail above to come back out
+- [ ] Point at a box to see its name, size and how many photos and videos it holds
+- [ ] From a folder on the map: look through it, leave it out, or open the look inside
+- [ ] Show what is already a source, and what is already backed up, on the map
+- [ ] Usable without a mouse and by a screen reader: the list carries everything the map does
+- [ ] Remember a survey, so the map is there next time without waiting
+
+Decided
+
+- [ ] Whether the map shows everything on the drive or only folders that hold photos and videos (the first is more useful for finding things; the second is closer to what Keevoro is for)
+- [ ] Whether these views are also offered from the command line and to AI agents (the figures yes, as lists; the pictures only through `picture`, as now)
 
 ### Scheduled and repeat backups
 
