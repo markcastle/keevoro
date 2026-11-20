@@ -16,21 +16,48 @@ use std::sync::Arc;
 use std::time::Instant;
 
 /// The places `sources.look_again` looks through: the one source asked
-/// for, or every one, in the order they were added.
+/// for, or every one, in the order they were added. A source the person
+/// left out (or one inside a folder left out) is passed by, so what was
+/// found there is kept for when it is put back.
 pub(super) fn sources_to_look_again(backup: &Named, source: Option<i64>) -> Result<Vec<PathBuf>> {
     let catalog = Catalog::open_in_library(&backup.home)?;
     let sources = catalog.sources()?;
-    let places: Vec<PathBuf> = sources
+    let choices = catalog.choices()?;
+    let asked: Vec<PathBuf> = sources
         .iter()
         .filter(|s| source.is_none_or(|id| s.id == id))
         .map(|s| s.root.clone())
         .collect();
-    match (places.is_empty(), source) {
-        (true, Some(_)) => Err(Error::not_found("That source isn't part of this backup.")),
-        (true, None) => Err(Error::refused(
+    let left_out = asked
+        .iter()
+        .find_map(|root| choices.left_out_folder(root).map(friendly_path));
+    let places: Vec<PathBuf> = asked
+        .into_iter()
+        .filter(|root| choices.left_out_folder(root).is_none())
+        .collect();
+    match (places.is_empty(), source, left_out) {
+        (true, _, Some(folder)) => Err(Error::refused(left_out_said(&folder))),
+        (true, Some(_), None) => Err(Error::not_found("That source isn't part of this backup.")),
+        (true, None, None) => Err(Error::refused(
             "This backup has no sources to look through again. Add one first.",
         )),
-        (false, _) => Ok(places),
+        (false, _, _) => Ok(places),
+    }
+}
+
+/// Why a place is not looked through: the person left it out.
+pub(super) fn left_out_said(folder: &str) -> String {
+    format!("You left {folder} out of this backup, so it isn't looked through. Put it back first to include it.")
+}
+
+/// Refuses to look through a place the person left out of `backup`, or
+/// one inside such a folder, rather than finding nothing there.
+pub(super) fn not_left_out(backup: &Named, place: &Path) -> Result<()> {
+    let real = std::fs::canonicalize(place).unwrap_or_else(|_| place.to_path_buf());
+    let folders = Catalog::open_in_library(&backup.home)?.left_out_folders()?;
+    match folders.iter().find(|f| keevoro_core::places::within(&real, f)) {
+        Some(folder) => Err(Error::refused(left_out_said(&friendly_path(folder)))),
+        None => Ok(()),
     }
 }
 

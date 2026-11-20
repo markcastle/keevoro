@@ -37,6 +37,7 @@ const BACKED: &[(&str, &[Op])] = &[
     ("forget_source", &[Op::SourcesForget]),
     ("file_types", &[Op::SourcesFileTypes]),
     ("include_file_type", &[Op::SourcesIncludeType]),
+    ("leave_out_folder", &[Op::SourcesLeaveOut]),
     ("collection_photos", &[Op::CollectionsPhotos]),
     ("keep_collection", &[Op::CollectionsKeep]),
     ("keep_photo", &[Op::PhotosKeep]),

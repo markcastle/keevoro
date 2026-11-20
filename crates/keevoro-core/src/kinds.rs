@@ -439,6 +439,13 @@ impl Kinds {
         self.get(ending).filter(|l| l.on).map(|l| l.kind)
     }
 
+    /// The kind of a file with this ending, and whether it is looked for,
+    /// for any ending on the list, switched on or off: what a look inside
+    /// a folder shows, saying of one switched off that it is left out.
+    pub fn listed(&self, ending: &str) -> Option<(MediaKind, bool)> {
+        self.get(ending).map(|l| (l.kind, l.on))
+    }
+
     /// True if files with this ending are passed over without being opened.
     pub fn switched_off(&self, ending: &str) -> bool {
         self.get(ending).is_some_and(|l| !l.on)

@@ -32,6 +32,8 @@ export function Picture(props: {
   cannot?: string
   /** How long a video lasts, in seconds, when known. */
   seconds?: number
+  /** Why it would not be backed up, when it would not: marked "Left out". */
+  leftOut?: string
 }) {
   const { id, load, drop } = props
   const [url, setUrl] = useState<string | null>(null)
@@ -68,7 +70,7 @@ export function Picture(props: {
   const words = props.missing ?? (failed ? (props.isVideo ? 'Video' : (props.cannot ?? 'No preview')) : null)
   return (
     <div
-      className={words ? 'picture missing' : url ? 'picture' : 'picture loading'}
+      className={`${words ? 'picture missing' : url ? 'picture' : 'picture loading'}${props.leftOut ? ' left-out' : ''}`}
       title={props.name}
       aria-busy={!url && !words}
     >
@@ -86,6 +88,11 @@ export function Picture(props: {
       )}
       {words && <span>{words}</span>}
       {props.isVideo && url && !words && <span className="play" aria-label="Video" />}
+      {props.leftOut && (
+        <span className="out-mark" title={`Left out: ${props.leftOut}`}>
+          Left out
+        </span>
+      )}
       {props.isVideo && props.seconds !== undefined && !props.missing && (
         <span className="length" aria-label={`Lasts ${length(props.seconds)}`}>
           {length(props.seconds)}
@@ -120,6 +127,8 @@ export type Looked = {
   missing?: string
   /** How long a video lasts, in seconds, when known. */
   seconds?: number
+  /** Why it would not be backed up, when it would not. */
+  leftOut?: string
 }
 
 /**
@@ -205,6 +214,7 @@ export function Viewer(props: {
                 {item.seconds !== undefined ? `Video, ${length(item.seconds)} long` : 'Video'}: this is a still from it
               </span>
             )}
+            {item.leftOut && <span className="badge">Left out: {item.leftOut}</span>}
             <span className="quiet small where">{item.where}</span>
           </div>
           <div className="choices">

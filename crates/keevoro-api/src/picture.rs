@@ -218,8 +218,8 @@ static MADE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::ne
 const TRIM_EVERY: usize = 500;
 
 /// Makes (or finds in `cache`) a picture of any photo or video, by its
-/// path, as WebP bytes. Only kinds of file looked for (`kinds`) are
-/// pictured. `found` is a backup whose search may know the file already.
+/// path, as WebP bytes. Only kinds of file on the list (`kinds`) are
+/// pictured, switched on or off. `found` is a backup whose search may know the file already.
 pub fn picture_of_file(
     cache: &Path,
     file: &Path,
@@ -238,7 +238,7 @@ pub fn picture_of_file(
         .extension()
         .map(|e| e.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let Some(kind) = kinds.looked_for(&ending) else {
+    let Some((kind, _)) = kinds.listed(&ending) else {
         return Err(crate::Error::refused(
             "Keevoro doesn't look for that kind of file here, so it makes no picture of it.",
         ));
@@ -356,7 +356,7 @@ mod tests {
     }
 
     #[test]
-    fn a_file_in_no_backup_is_pictured_by_its_path_and_only_kinds_looked_for() {
+    fn a_file_in_no_backup_is_pictured_by_its_path_and_only_kinds_on_the_list() {
         let (dir, card, _backup) = one_backup();
         let cache = dir.path().join("cache");
         let photo = walk(&card)
@@ -366,9 +366,15 @@ mod tests {
         let kinds = keevoro_core::Kinds::default();
         let small = picture_of_file(&cache, &photo, &kinds, PictureSize::Small, None).unwrap();
         assert_eq!(&small[8..12], b"WEBP");
+        // A kind switched off is still pictured, so the look inside can show
+        // it and say it is left out; one not on the list at all is not.
         let videos_only = kinds.clone().only(keevoro_core::MediaKind::Video);
-        let e = picture_of_file(&cache, &photo, &videos_only, PictureSize::Small, None).unwrap_err();
+        assert!(picture_of_file(&cache, &photo, &videos_only, PictureSize::Small, None).is_ok());
+        let text = card.join("notes.txt");
+        std::fs::write(&text, b"words").unwrap();
+        let e = picture_of_file(&cache, &text, &kinds, PictureSize::Small, None).unwrap_err();
         assert_eq!(e.kind, crate::Kind::Refused);
+        std::fs::remove_file(&text).unwrap();
         let e = picture_of_file(&cache, &card.join("gone.jpg"), &kinds, PictureSize::Small, None).unwrap_err();
         assert_eq!(e.kind, crate::Kind::NotFound);
     }

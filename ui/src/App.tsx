@@ -34,6 +34,7 @@ import type {
   Wants,
   WantsView,
   LeftOut,
+  LeftOutFolder,
   StageRecord,
   Sending,
   AppState,
@@ -63,6 +64,7 @@ import { chooseTheme, savedTheme } from './theme'
 import { ClearUnfinished } from './tidy'
 import { FoundPicture, Viewer } from './pictures'
 import { LookInside } from './inside'
+import { LeaveOutButton, LeftOutByYou, LeftOutSaid, leftOutByYou } from './leaveOut'
 import { VirtualTiles } from './tiles'
 import type { Theme } from './theme'
 
@@ -779,6 +781,7 @@ function FindScreen(props: {
         place={inside.place}
         name={inside.name}
         lookThrough={inside.again ? 'Look through it again' : undefined}
+        onChanged={props.onChanged}
         onProblem={onProblem}
         onBack={() => {
           setInside(null)
@@ -938,6 +941,13 @@ function FindScreen(props: {
                   )}
                   {justFound.onlineOnlySaid && <p className="online-only">{justFound.onlineOnlySaid}</p>}
                   <LeftOutNote api={api} leftOut={justFound.leftOut} onProblem={onProblem} />
+                  <LeftOutByYou
+                    api={api}
+                    folders={leftOutByYou(justFound.leftOut)}
+                    title="Passed by, as you left these out of this backup:"
+                    onChanged={props.onChanged}
+                    onProblem={onProblem}
+                  />
                 </>
               )}
             </div>
@@ -1033,6 +1043,13 @@ function FindScreen(props: {
                   </span>
                 )}
                 {s.onlineOnlySaid && <p className="online-only small">{s.onlineOnlySaid}</p>}
+                <LeftOutByYou
+                  api={api}
+                  folders={s.leftOut ?? []}
+                  title="Left out of this backup:"
+                  onChanged={props.onChanged}
+                  onProblem={onProblem}
+                />
                 {typesOf === s.id && removing !== s.id && (
                   <FileTypes api={api} source={s} onChanged={props.onChanged} onProblem={onProblem} />
                 )}
@@ -3382,7 +3399,8 @@ const DOUBLE_CLICK_WAIT = 260
  * say what each is, with a way to see it. Keevoro never removes them.
  */
 function LeftOutNote(props: { api: Backend; leftOut?: LeftOut[]; onProblem: (error: unknown) => void }) {
-  const leftOut = props.leftOut ?? []
+  // Those the person left out are said apart, each with Put back.
+  const leftOut = (props.leftOut ?? []).filter((left) => left.what !== 'leftOutByYou')
   if (leftOut.length === 0) return null
   return (
     <details className="left-out">
@@ -3417,7 +3435,10 @@ function SurveyResult(props: {
   onCancel: () => void
 }) {
   const { found, chosen } = props
-  const picked = found.hints.filter((h) => chosen.has(h.folder))
+  // Suggestions left out from here, and what that did, said once.
+  const [outNow, setOutNow] = useState<Set<string>>(new Set())
+  const [said, setSaid] = useState<LeftOutFolder | null>(null)
+  const picked = found.hints.filter((h) => chosen.has(h.folder) && !outNow.has(h.folder))
   const photos = picked.reduce((n, h) => n + h.photos, 0)
   const videos = picked.reduce((n, h) => n + h.videos, 0)
   const bytes = picked.reduce((n, h) => n + h.bytes, 0)
@@ -3441,8 +3462,8 @@ function SurveyResult(props: {
               <label>
                 <input
                   type="checkbox"
-                  checked={chosen.has(hint.folder)}
-                  disabled={hint.alreadyASource}
+                  checked={chosen.has(hint.folder) && !outNow.has(hint.folder)}
+                  disabled={hint.alreadyASource || outNow.has(hint.folder)}
                   onChange={() => props.onToggle(hint.folder)}
                 />
                 <span className="where">{hint.folder}</span>
@@ -3458,6 +3479,26 @@ function SurveyResult(props: {
               >
                 Look inside
               </button>
+              {!hint.alreadyASource && (
+                <LeaveOutButton
+                  api={props.api}
+                  folder={hint.folder}
+                  leftOut={outNow.has(hint.folder)}
+                  words="Leave out"
+                  small
+                  onChanged={(done) => {
+                    setSaid(done)
+                    setOutNow((now) => {
+                      const next = new Set(now)
+                      if (done.leftOut) next.add(hint.folder)
+                      else next.delete(hint.folder)
+                      return next
+                    })
+                  }}
+                  onProblem={props.onProblem}
+                />
+              )}
+              {outNow.has(hint.folder) && <span className="badge">Left out of this backup</span>}
               {hint.alreadyASource && <span className="badge">Already a source</span>}
               {!hint.likelyPhotos && !hint.alreadyASource && (
                 <span className="badge" title="The pictures here are very small and there are no videos">
@@ -3469,7 +3510,15 @@ function SurveyResult(props: {
           ))}
         </ul>
       )}
+      <LeftOutSaid done={said} />
       <LeftOutNote api={props.api} leftOut={found.leftOut} onProblem={props.onProblem} />
+      <LeftOutByYou
+        api={props.api}
+        folders={leftOutByYou(found.leftOut)}
+        title="Passed by, as you left these out of this backup:"
+        onChanged={setSaid}
+        onProblem={props.onProblem}
+      />
       {found.unreadable > 0 && (
         <p className="quiet small">
           {count(found.unreadable, 'folder')} could not be listed, usually because this account is not allowed to

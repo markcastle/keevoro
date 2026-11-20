@@ -165,6 +165,48 @@ fn a_kind_switched_off_is_passed_over_without_being_opened() {
 }
 
 #[test]
+fn a_folder_left_out_is_never_listed_and_a_sibling_with_a_like_name_is_searched() {
+    let t = Tree::new();
+    t.add("Games/IMG_1.jpg", &plain_jpeg(1));
+    t.add("Games/deep/IMG_2.jpg", &plain_jpeg(2));
+    t.add("Games 2/IMG_3.jpg", &plain_jpeg(3));
+    let root = std::fs::canonicalize(t.root()).unwrap();
+    #[cfg(unix)]
+    {
+        // Listing it would fail and be reported: it must not be listed.
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(root.join("Games"), std::fs::Permissions::from_mode(0o000)).unwrap();
+    }
+    let opts = ScanOptions {
+        skip: SkipRules::default().with_left_out(vec![root.join("Games")]),
+        ..ScanOptions::default()
+    };
+    let r = scan(&root, &opts, &mut |_| {});
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(root.join("Games"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let names: Vec<_> = r
+        .items
+        .iter()
+        .map(|i| i.path.strip_prefix(&root).unwrap().to_path_buf())
+        .collect();
+    assert_eq!(names, [PathBuf::from("Games 2").join("IMG_3.jpg")]);
+    assert!(r.unreadable.is_empty(), "{:?}", r.unreadable);
+    let left: Vec<_> = r
+        .skipped
+        .iter()
+        .filter(|s| s.reason == SkipReason::LeftOut)
+        .map(|s| s.path.clone())
+        .collect();
+    assert_eq!(left, [root.join("Games")]);
+    // Searched from inside it, it is left out all the same.
+    let inside = scan(&root.join("Games").join("deep"), &opts, &mut |_| {});
+    assert!(inside.items.is_empty());
+}
+
+#[test]
 fn what_keevoro_made_is_never_searched_and_the_report_says_why() {
     let t = Tree::new();
     t.add("Holiday/IMG_1.jpg", &plain_jpeg(1));

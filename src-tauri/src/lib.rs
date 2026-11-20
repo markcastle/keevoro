@@ -138,6 +138,7 @@ fn app<R: Runtime>(
             commands::forget_source,
             commands::file_types,
             commands::include_file_type,
+            commands::leave_out_folder,
             commands::keep_photo,
             commands::preview,
             commands::closer_look,

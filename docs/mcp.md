@@ -16,6 +16,7 @@ When you allow it, it can also:
 
 - look through folders you have named, and add them to a backup as sources;
 - start and rename backups, keep or leave out collections and photos, and choose kinds of file;
+- leave a folder you have named out of a backup, or put it back (`leave_out_folder`), so it is not looked through and what was found in it is no longer offered. Nothing in the folder, and nothing already backed up, is touched;
 - add a folder you have named as a destination, or cloud storage with its keys;
 - back up, check what arrived, pause, carry on and stop.
 

@@ -19,13 +19,15 @@ use keevoro_engine::friendly_path;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-/// One folder Keevoro made, left out of a search or a survey.
+/// One folder left out of a search or a survey: one Keevoro made, or one
+/// the person left out of the backup.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LeftOut {
     /// As a person would write it, and as it is handed back to show it.
     pub folder: String,
-    /// `keevoroBackup`, `keevoroOwn` or `oldLibrary`.
+    /// `keevoroBackup`, `keevoroOwn`, `oldLibrary`, or `leftOutByYou`,
+    /// which can be put back.
     pub what: String,
     /// What is said about it, in a sentence or two.
     pub said: String,
@@ -63,6 +65,16 @@ impl Keevoro {
         }
         SkipRules::default().with_own_places(own)
     }
+
+    /// The rules for a search or a survey for `backup`: as
+    /// [`Keevoro::skip_rules`], and the folders the person left out of it.
+    pub(crate) fn skip_rules_for(&self, backup: Option<&crate::backups::Named>) -> SkipRules {
+        let left_out = backup
+            .and_then(|b| crate::backup::Backup::open_existing(&b.home))
+            .and_then(|b| b.catalog().left_out_folders().ok())
+            .unwrap_or_default();
+        self.skip_rules().with_left_out(left_out)
+    }
 }
 
 /// What to say about each folder Keevoro made that was left out. `found
@@ -71,7 +83,7 @@ impl Keevoro {
 pub(crate) fn left_out(skipped: &[(PathBuf, SkipReason)], found_before: &[PathBuf]) -> Vec<LeftOut> {
     skipped
         .iter()
-        .filter(|(_, reason)| reason.keevoro_made())
+        .filter(|(_, reason)| reason.keevoro_made() || *reason == SkipReason::LeftOut)
         .map(|(folder, reason)| {
             let at = friendly_path(folder);
             let mut said = match reason {
@@ -91,6 +103,7 @@ pub(crate) fn left_out(skipped: &[(PathBuf, SkipReason)], found_before: &[PathBu
                 what: match reason {
                     SkipReason::KeevoroBackup => "keevoroBackup",
                     SkipReason::OldLibrary => "oldLibrary",
+                    SkipReason::LeftOut => "leftOutByYou",
                     _ => "keevoroOwn",
                 }
                 .to_string(),

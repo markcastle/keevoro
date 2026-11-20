@@ -144,6 +144,9 @@ register! {
     SourcesIncludeType = "sources.include_type",
         "Includes or leaves out one kind of file on a source",
         changes: Always, job: false, command_line: true, agents: Agents::Yes, implemented: true;
+    SourcesLeaveOut = "sources.leave_out",
+        "Leaves a folder out of a backup's searches, or puts it back. Nothing on it is touched",
+        changes: Always, job: false, command_line: true, agents: Agents::Yes, implemented: true;
 
     // Choosing
     FoundSummary = "found.summary",
@@ -383,6 +386,7 @@ impl Op {
             Op::SourcesLookAgain => schema::<LookAgainRequest>(),
             Op::SourcesForget | Op::SourcesFileTypes => schema::<SourceRequest>(),
             Op::SourcesIncludeType => schema::<IncludeTypeRequest>(),
+            Op::SourcesLeaveOut => schema::<crate::leave_out::LeaveOutRequest>(),
             Op::CollectionsPhotos => schema::<CollectionRequest>(),
             Op::CollectionsKeep => schema::<KeepCollectionRequest>(),
             Op::PhotosKeep => schema::<KeepPhotoRequest>(),
@@ -512,6 +516,14 @@ impl Op {
                 "include_file_type",
                 "Includes, or leaves out, every file with one ending on a source. Leaving out only means those files \
                  are not backed up; nothing is deleted.",
+            ),
+            Op::SourcesLeaveOut => (
+                "leave_out_folder",
+                "Leaves a folder out of a backup, or with leftOut false puts it back. A folder left out is not \
+                 looked through by that backup's searches, and what was found in it before is no longer offered. \
+                 It may be a folder in no source yet. Nothing in the folder is changed and nothing already backed \
+                 up is touched. Needs changes allowed, and only works in folders the person has allowed (see \
+                 my_access).",
             ),
             Op::FoundSummary => (
                 "summarise_backup",
@@ -730,7 +742,7 @@ mod tests {
 
     #[test]
     fn the_register_has_every_operation_in_the_plan() {
-        assert_eq!(Op::ALL.len(), 52);
+        assert_eq!(Op::ALL.len(), 53);
         // Each entry is the one for its own operation.
         for op in Op::ALL {
             assert_eq!(op.entry().op, *op);
@@ -860,6 +872,7 @@ mod tests {
         "source_photos_or_videos",
         "list_file_types",
         "include_file_type",
+        "leave_out_folder",
         "summarise_backup",
         "list_collections",
         "list_photos",

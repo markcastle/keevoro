@@ -48,6 +48,9 @@ pub struct FileEntry {
     pub modified: i64,
     /// Only in online storage, not on this computer: never opened.
     pub online_only: bool,
+    /// False for a kind on the list that is switched off: shown, and said
+    /// to be left out, but never found by a search.
+    pub looked_for: bool,
 }
 
 impl FileEntry {
@@ -64,9 +67,9 @@ impl FileEntry {
 }
 
 /// The photos and videos directly in `folder`, by name, from one listing.
-/// Only kinds of file `kinds` looks for are listed; links are not
-/// followed, and names Keevoro always passes over (such as `._` files a
-/// Mac leaves) are left out.
+/// Only kinds of file on `kinds`'s list are listed, those switched off
+/// marked as not looked for; links are not followed, and names Keevoro
+/// always passes over (such as `._` files a Mac leaves) are left out.
 pub fn list_folder(folder: &Path, kinds: &Kinds, online: &dyn OnlineCheck) -> std::io::Result<Vec<FileEntry>> {
     let rules = keevoro_core::SkipRules::default();
     let mut files = Vec::new();
@@ -79,7 +82,7 @@ pub fn list_folder(folder: &Path, kinds: &Kinds, online: &dyn OnlineCheck) -> st
         if rules.skip_file(&name).is_some() {
             continue;
         }
-        let Some(kind) = name.rsplit_once('.').and_then(|(_, ending)| kinds.looked_for(ending)) else {
+        let Some((kind, looked_for)) = name.rsplit_once('.').and_then(|(_, ending)| kinds.listed(ending)) else {
             continue;
         };
         let Ok(listing) = entry.metadata() else { continue };
@@ -90,6 +93,7 @@ pub fn list_folder(folder: &Path, kinds: &Kinds, online: &dyn OnlineCheck) -> st
             bytes: listing.len(),
             name,
             kind,
+            looked_for,
             path,
         });
     }
@@ -490,7 +494,11 @@ mod tests {
         assert_eq!(listed[3].kind, MediaKind::Video);
         assert!(listed[2].online_only && !listed[0].online_only);
         let photos_only = list_folder(dir.path(), &Kinds::default().only(MediaKind::Photo), &NamedOnline).unwrap();
-        assert_eq!(photos_only.len(), 3, "a backup for photos only lists no videos");
+        assert_eq!(photos_only.len(), 4, "a kind switched off is still listed");
+        assert!(
+            !photos_only[3].looked_for && photos_only[0].looked_for,
+            "and marked as not looked for"
+        );
     }
 
     #[test]
@@ -733,6 +741,7 @@ mod tests {
             bytes: 0,
             modified: 0,
             online_only,
+            looked_for: true,
         }
     }
 

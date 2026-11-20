@@ -31,6 +31,8 @@ pub enum SkipReason {
     /// A library made by a version of Keevoro before 0.30, which gathered
     /// copies of photos into it. Keevoro no longer uses it.
     OldLibrary,
+    /// A folder the person left out of this backup.
+    LeftOut,
 }
 
 impl SkipReason {
@@ -46,6 +48,7 @@ impl SkipReason {
             Self::KeevoroBackup => "A Keevoro backup",
             Self::KeevoroOwn => "Keevoro's own files",
             Self::OldLibrary => "A library from an older Keevoro",
+            Self::LeftOut => "Left out by you",
         }
     }
 
@@ -68,6 +71,9 @@ impl SkipReason {
             Self::OldLibrary => Some(format!(
                 "Left out {at}: a folder an older version of Keevoro made, which it no longer uses. It holds copies \
                  of photos it gathered there and previews it made; Keevoro leaves it to you to remove."
+            )),
+            Self::LeftOut => Some(format!(
+                "Left out {at}, as you chose: it is not looked through for this backup. Put it back to include it again."
             )),
             _ => None,
         }
@@ -111,6 +117,9 @@ pub struct SkipRules {
     /// its full path: every backup's destinations and home folders, and
     /// Keevoro's data, cache and log folders.
     own: Vec<(PathBuf, SkipReason)>,
+    /// Folders the person left out of the backup in hand, by full path:
+    /// each is left out with everything beneath it.
+    left_out: Vec<PathBuf>,
 }
 
 impl Default for SkipRules {
@@ -154,6 +163,7 @@ impl Default for SkipRules {
             folders: folders.iter().map(|(n, r)| ((*n).to_string(), *r)).collect(),
             skip_hidden: true,
             own: Vec::new(),
+            left_out: Vec::new(),
         }
     }
 }
@@ -165,6 +175,7 @@ impl SkipRules {
             folders: Vec::new(),
             skip_hidden: false,
             own: Vec::new(),
+            left_out: Vec::new(),
         }
     }
 
@@ -178,10 +189,31 @@ impl SkipRules {
         self
     }
 
+    /// Also leaves out these folders, which the person left out of the
+    /// backup in hand, each given as the computer gives its full path,
+    /// with everything beneath them ([`SkipReason::LeftOut`]).
+    #[must_use]
+    pub fn with_left_out(mut self, folders: Vec<PathBuf>) -> Self {
+        self.left_out = folders;
+        self
+    }
+
     /// Should this folder, by its full path as the computer gives it, be
-    /// left out as one of Keevoro's own places?
+    /// left out by its place: as one of Keevoro's own, or because the
+    /// person left it, or a folder it is in, out? A folder a search or a
+    /// survey begins in is asked too, so one inside a left-out folder is
+    /// never looked through.
     pub fn own_place(&self, folder: &Path) -> Option<SkipReason> {
-        self.own.iter().find(|(place, _)| place == folder).map(|(_, r)| *r)
+        self.own
+            .iter()
+            .find(|(place, _)| crate::places::same_place(place, folder))
+            .map(|(_, r)| *r)
+            .or_else(|| {
+                self.left_out
+                    .iter()
+                    .any(|out| crate::places::within(folder, out))
+                    .then_some(SkipReason::LeftOut)
+            })
     }
 
     /// Should a folder with this name be skipped, and why?
@@ -222,6 +254,21 @@ mod tests {
         assert_eq!(r.skip_folder("Backups.backupdb"), Some(SkipReason::SystemFolder));
         assert_eq!(r.skip_folder(".Trashes"), Some(SkipReason::RecycleBin));
         assert_eq!(r.skip_folder("node_modules"), Some(SkipReason::DeveloperFolder));
+    }
+
+    #[test]
+    fn a_folder_left_out_is_left_out_with_all_beneath_it_and_nothing_beside_it() {
+        let photos = PathBuf::from("/home/mark/Photos");
+        let rules = SkipRules::default().with_left_out(vec![photos.clone()]);
+        assert_eq!(rules.own_place(&photos), Some(SkipReason::LeftOut));
+        assert_eq!(rules.own_place(&photos.join("2019")), Some(SkipReason::LeftOut));
+        assert_eq!(rules.own_place(Path::new("/home/mark/Photos 2")), None);
+        assert_eq!(rules.own_place(Path::new("/home/mark")), None);
+        assert!(!SkipReason::LeftOut.keevoro_made());
+        assert_eq!(SkipReason::LeftOut.describe(), "Left out by you");
+        // Keevoro's own place is said first: it can't be put back.
+        let both = rules.with_own_places(vec![(photos.clone(), SkipReason::KeevoroBackup)]);
+        assert_eq!(both.own_place(&photos), Some(SkipReason::KeevoroBackup));
     }
 
     #[test]

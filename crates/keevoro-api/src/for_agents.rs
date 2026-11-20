@@ -104,6 +104,10 @@ fn allowed(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: &Value) -> 
             Ok(())
         }
         Op::PhotosPicture if !text(request, "file").is_empty() => may_look_in(&access, text(request, "file")),
+        Op::SourcesLeaveOut => match text(request, "folder") {
+            "" => Err(Error::not_understood("it names no folder (give one as folder)")),
+            folder => may_look_in(&access, folder),
+        },
         Op::PhotosPicture => {
             let photo = text(request, "photo");
             let found = keevoro.backups().open(backup)?.catalog().find_item(photo)?;
@@ -454,6 +458,51 @@ mod tests {
             None,
             json!({ "kind": "folder", "place": card.join("way out").join("new").display().to_string() }),
         ));
+    }
+
+    #[test]
+    fn an_agent_leaves_a_folder_out_only_with_changes_allowed_and_only_in_allowed_folders() {
+        let (dir, card, keevoro) = for_an_agent();
+        let elsewhere = dir.path().join("Elsewhere");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        let ask =
+            |folder: &Path, left_out: bool| json!({ "folder": folder.display().to_string(), "leftOut": left_out });
+        let cornwall = card.join("Holidays").join("Cornwall");
+
+        allow(&keevoro, &[&card], &[], false);
+        assert_eq!(
+            refused(call_for_agent(
+                &keevoro,
+                Op::SourcesLeaveOut,
+                None,
+                ask(&cornwall, true)
+            )),
+            LOOK_ONLY,
+            "look-only: no change"
+        );
+        allow(&keevoro, &[&card], &[], true);
+        let outside = refused(call_for_agent(
+            &keevoro,
+            Op::SourcesLeaveOut,
+            None,
+            ask(&elsewhere, true),
+        ));
+        assert!(outside.contains("hasn't allowed that folder"), "{outside}");
+        let e = call_for_agent(&keevoro, Op::SourcesLeaveOut, None, json!({ "leftOut": true })).unwrap_err();
+        assert_eq!(e.kind, Kind::NotUnderstood);
+
+        let done = call_for_agent(&keevoro, Op::SourcesLeaveOut, None, ask(&cornwall, true)).unwrap();
+        assert_eq!(done["leftOut"], true);
+        let back = call_for_agent(&keevoro, Op::SourcesLeaveOut, None, ask(&cornwall, false)).unwrap();
+        assert_eq!(back["leftOut"], false);
+        assert!(keevoro
+            .backups()
+            .open(None)
+            .unwrap()
+            .catalog()
+            .left_out_folders()
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

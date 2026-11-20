@@ -250,17 +250,25 @@ impl Walk<'_> {
     /// Lists one folder: counts its files and queues its subfolders. Only
     /// the listing is read. No file is opened.
     fn list(&self, folder: PathBuf) {
-        let Ok(entries) = std::fs::read_dir(&folder) else {
-            self.unreadable.fetch_add(1, Ordering::Relaxed);
-            return;
+        // A place left out by where it is (Keevoro's own, or one the
+        // person left out) is not even listed.
+        let by_place = self.rules.own_place(&folder);
+        let entries: Vec<std::fs::DirEntry> = match by_place {
+            Some(_) => Vec::new(),
+            None => {
+                let Ok(entries) = std::fs::read_dir(&folder) else {
+                    self.unreadable.fetch_add(1, Ordering::Relaxed);
+                    return;
+                };
+                entries.flatten().collect()
+            }
         };
-        let entries: Vec<std::fs::DirEntry> = entries.flatten().collect();
         // What Keevoro made is never a source. Looked at closely only when
         // one of the names it leaves is there, so a survey stays quick.
         let telltale = entries
             .iter()
             .any(|e| e.file_name() == ".keevoro" || e.file_name() == keevoro_core::BACKUP_GUIDE);
-        let made = self.rules.own_place(&folder).or_else(|| {
+        let made = by_place.or_else(|| {
             telltale
                 .then(|| keevoro_core::folder_made_by_keevoro(&folder))
                 .flatten()
@@ -692,6 +700,50 @@ mod tests {
                 (root.join("Pictures").join("Keevoro Library"), OldLibrary),
                 (root.join("Pictures").join("USB"), KeevoroBackup),
             ]
+        );
+    }
+
+    #[test]
+    fn a_folder_left_out_is_never_listed_or_suggested() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(dir.path()).unwrap();
+        for n in 0..20 {
+            for folder in ["Games", "Games 2"] {
+                let file = root.join(folder).join(format!("IMG_{n}.jpg"));
+                fs::create_dir_all(file.parent().unwrap()).unwrap();
+                fs::write(file, [0u8; 100]).unwrap();
+            }
+        }
+        // Not mostly photos as a whole, so its folders are offered one by one.
+        fs::create_dir_all(root.join("Work")).unwrap();
+        for n in 0..60 {
+            fs::write(root.join("Work").join(format!("{n}.docx")), [0u8; 100]).unwrap();
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(root.join("Games"), fs::Permissions::from_mode(0o000)).unwrap();
+        }
+        let rules = SkipRules::default().with_left_out(vec![root.join("Games")]);
+        let found = survey(
+            &root,
+            &rules,
+            &Kinds::default(),
+            &crate::ByAttributes,
+            None,
+            &mut |_| {},
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(root.join("Games"), fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        assert_eq!(found.unreadable, 0, "it was not even listed");
+        let offered: Vec<_> = found.hints.iter().map(|h| h.folder.clone()).collect();
+        assert_eq!(offered, [root.join("Games 2")]);
+        assert_eq!(
+            found.left_out,
+            [(root.join("Games"), keevoro_core::SkipReason::LeftOut)]
         );
     }
 

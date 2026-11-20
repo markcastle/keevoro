@@ -177,6 +177,19 @@ pub fn include_file_type(shared: State<'_, Shared>, id: i64, ending: String, inc
     Ok(())
 }
 
+/// Leaves a folder out of the open backup, or puts it back, and says what
+/// that means. Nothing in the folder, or already backed up, is touched.
+#[tauri::command]
+pub fn leave_out_folder(
+    shared: State<'_, Shared>,
+    folder: String,
+    left_out: bool,
+) -> Said<keevoro_api::leave_out::LeftOutFolder> {
+    let done = backup(&shared)?.leave_out(Path::new(&folder), left_out).map_err(say)?;
+    shared.keevoro.log().say(&done.said);
+    Ok(done)
+}
+
 /// Every file found more than once: which copy is kept, which are left out.
 #[tauri::command]
 pub fn duplicates(shared: State<'_, Shared>) -> Said<Vec<keevoro_engine::DuplicateGroup>> {

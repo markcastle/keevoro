@@ -284,6 +284,24 @@ h3 {
   border: 2px solid rgba(255, 255, 255, 0.9);
 }
 
+/* A file a look inside shows that would not be backed up, and why in its title. */
+.picture.left-out img {
+  opacity: 0.45;
+  filter: grayscale(0.7);
+}
+
+.picture .out-mark {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-raised);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 500;
+}
+
 /* How long a video lasts, in the corner of its still, as a player shows it. */
 .picture .length {
   position: absolute;
@@ -3087,7 +3105,8 @@ main > section > :nth-last-child(2) {
 }
 
 .kept li.source .types,
-.kept li.source .explain {
+.kept li.source .explain,
+.kept li.source .left-out-by-you {
   grid-column: 1 / -1;
 }
 
@@ -3104,6 +3123,7 @@ main > section > :nth-last-child(2) {
   .kept li.source .row-actions,
   .kept li.source .confirm {
     grid-column: 2;
+    flex-wrap: wrap;
   }
 }
 
@@ -3528,10 +3548,80 @@ fieldset.wants [role='status'] {
   min-width: 0;
 }
 
-.tiles-heading b {
+/* The name and counts give way, a folder's Leave out button never does. */
+.tiles-heading > * {
+  flex: none;
+}
+
+.tiles-heading .quiet {
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.tiles-heading .button {
+  margin-left: auto;
+}
+
+.tiles-heading b {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Folders the person left out, each with Put back, and what a choice did. */
+.left-out-by-you {
+  margin-top: var(--space-3);
+}
+
+.left-out-by-you ul {
+  list-style: none;
+  padding: 0;
+  margin: var(--space-2) 0 0;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.left-out-by-you li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  min-width: 0;
+}
+
+.left-out-by-you .where {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.left-out-said {
+  margin-top: var(--space-2);
+  color: var(--ink-muted);
+}
+
+.inside .left-out-here {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+}
+
+.inside .left-out-here p {
+  flex: 1 1 18em;
+  margin: 0;
+}
+
+.inside .left-out-here .where {
+  overflow-wrap: anywhere;
 }
 
 /* Which files to show and in what order, under the look inside's heading. */

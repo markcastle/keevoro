@@ -10,10 +10,14 @@
 // Any folder can be looked inside: one the survey suggested, a source, or
 // one the person picks. When Keevoro has not surveyed it yet, it does that
 // first (it only reads folder listings, so it is quick), with Stop.
+//
+// It can be left out of the backup from here, and each folder in it;
+// whatever would not be backed up is marked, and the closer look says why.
 
 import { useEffect, useRef, useState } from 'react'
-import type { Backend, FilesShow, FilesSort, FileView, FoldersView, SurveyProgress } from './backend'
+import type { Backend, FilesShow, FilesSort, FileView, FoldersView, LeftOutFolder, SurveyProgress } from './backend'
 import { count, photosAndVideos, size, thousands } from './format'
+import { LeaveOutButton, LeftOutSaid } from './leaveOut'
 import { fileKey } from './pictureQueue'
 import { Picture, Viewer } from './pictures'
 import { VirtualTiles } from './tiles'
@@ -47,6 +51,8 @@ export function LookInside(props: {
   /** What the main button says: "Look through this folder", or for a source, "Look through it again". */
   lookThrough?: string
   onBack: () => void
+  /** A folder was left out or put back, so what the backup holds has changed. */
+  onChanged?: () => void
   /** Looks through this folder properly, adding it as a source. */
   onLookThrough: (folder: string) => void
   onProblem: (error: unknown) => void
@@ -61,6 +67,16 @@ export function LookInside(props: {
   // What has been fetched, so the closer look can move to the next one.
   const fetched = useRef(new Map<string, Map<number, FileView>>())
   const [looking, setLooking] = useState<{ folder: string; at: number; file: FileView } | null>(null)
+  // Asked again after a folder is left out or put back, so every mark follows.
+  const [version, setVersion] = useState(0)
+  const [said, setSaid] = useState<LeftOutFolder | null>(null)
+  const changed = (done: LeftOutFolder) => {
+    setSaid(done)
+    fetched.current = new Map()
+    setLooking(null)
+    setVersion((v) => v + 1)
+    props.onChanged?.()
+  }
 
   useEffect(() => {
     let current = true
@@ -89,7 +105,7 @@ export function LookInside(props: {
       current = false
       unhear()
     }
-  }, [api, place, onProblem])
+  }, [api, place, onProblem, version])
 
   const choose = (next: { sort?: FilesSort; only?: FilesShow }) => {
     // A new order or kind starts the grid afresh.
@@ -111,6 +127,18 @@ export function LookInside(props: {
         <>
           <b>{folder.relative || name}</b>
           <span className="quiet small">{photosAndVideos(folder.photos, folder.videos)}</span>
+          {folder.leftOut && <span className="badge">Left out</span>}
+          {!outline?.leftOut && (
+            <LeaveOutButton
+              api={api}
+              folder={folder.folder}
+              leftOut={Boolean(folder.leftOut)}
+              words="Leave out"
+              small
+              onChanged={changed}
+              onProblem={onProblem}
+            />
+          )}
         </>
       ),
       load: (from, count) =>
@@ -198,11 +226,23 @@ export function LookInside(props: {
         {!outline.complete && (
           <p className="quiet small">The search for folders was stopped part-way, so there may be more here.</p>
         )}
-        <p className="choices within">
-          <button className="primary" onClick={() => props.onLookThrough(place)}>
-            {lookThrough}
-          </button>
-        </p>
+        {outline.leftOut ? (
+          <div className="left-out-here">
+            <p>
+              You left <span className="where">{outline.leftOut}</span> out of this backup, so nothing here is looked
+              through or backed up. Nothing already backed up was touched.
+            </p>
+            <LeaveOutButton api={api} folder={outline.leftOut} leftOut onChanged={changed} onProblem={onProblem} />
+          </div>
+        ) : (
+          <p className="choices within">
+            <button className="primary" onClick={() => props.onLookThrough(place)}>
+              {lookThrough}
+            </button>
+            <LeaveOutButton api={api} folder={place} leftOut={false} onChanged={changed} onProblem={onProblem} />
+          </p>
+        )}
+        <LeftOutSaid done={said} />
         {outline.folders.length > 0 && (
           <div className="arrange">
             <div className="segmented" role="radiogroup" aria-label="Show">
@@ -239,7 +279,7 @@ export function LookInside(props: {
       {outline.folders.length === 0 && <div className="empty quiet">No photos or videos were found here.</div>}
       {outline.folders.length > 0 && sections.length === 0 && <div className="empty quiet">There are no {only} here.</div>}
       <VirtualTiles
-        key={`${sort} ${only}`}
+        key={`${sort} ${only} ${version}`}
         label={`Photos and videos inside ${name}`}
         sections={sections}
         tile={(file, at, section) => (
@@ -255,6 +295,7 @@ export function LookInside(props: {
                   name={file.name}
                   isVideo={file.isVideo}
                   seconds={file.seconds}
+                  leftOut={file.leftOut}
                   load={() => api.filePicture(file.path)}
                   drop={() => api.notNeeded(fileKey(file.path))}
                   missing={file.onlineOnly ? ONLINE_ONLY : undefined}
@@ -276,14 +317,17 @@ export function LookInside(props: {
             where: current.path,
             missing: current.onlineOnly ? ONLINE_ONLY : undefined,
             seconds: current.seconds,
+            leftOut: current.leftOut,
           }}
           small={() => api.filePicture(current.path)}
           large={() => api.closerLookAtFile(current.path)}
           place={`${thousands(looking.at + 1)} of ${thousands(inFolder ? shownOf(inFolder) : 0)}`}
           actions={
-            <button className="button" onClick={() => props.onLookThrough(place)}>
-              {lookThrough}
-            </button>
+            outline.leftOut ? undefined : (
+              <button className="button" onClick={() => props.onLookThrough(place)}>
+                {lookThrough}
+              </button>
+            )
           }
           onMove={move}
           onClose={close}

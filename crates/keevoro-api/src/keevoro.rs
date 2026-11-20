@@ -484,11 +484,11 @@ impl Keevoro {
         })
     }
 
-    /// `photos.picture` of any photo or video by its path, as WebP bytes.
-    /// `backup`, when given, decides photos or videos only, and may know
-    /// the file from a search already.
+    /// `photos.picture` of any photo or video by its path, as WebP bytes:
+    /// any kind on the list, even one left out, since a look inside shows
+    /// it to say so. `backup`, when given, may know the file from a search.
     pub fn picture_of_file(&self, file: &Path, size: PictureSize, backup: Option<&crate::Named>) -> Result<Vec<u8>> {
-        let (kinds, _) = self.kinds_for(backup);
+        let kinds = self.kinds_to_look_for();
         let open = backup.and_then(|b| Backup::open_existing(&b.home));
         crate::picture::picture_of_file(&self.cache, file, &kinds, size, open.as_ref())
     }

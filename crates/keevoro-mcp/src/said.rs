@@ -154,6 +154,7 @@ pub fn summary(op: Op, answer: &Value) -> String {
             }
         }
         Op::JobsStatus => status(answer),
+        Op::SourcesLeaveOut => s(answer, "said").to_string(),
         Op::JobsPause => "Paused: Keevoro's heavy work waits once the file in hand is done.".to_string(),
         Op::JobsCarryOn => "Carrying on from where it was.".to_string(),
         Op::JobsStop => match each(answer).count() {

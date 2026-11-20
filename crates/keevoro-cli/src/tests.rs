@@ -838,3 +838,28 @@ fn a_folder_is_looked_inside_and_a_picture_saved_without_adding_anything() {
     let api = keevoro_in(dir.path(), FrontEnd::App);
     assert!(api.backups().all().is_empty(), "nothing was added to any backup");
 }
+
+#[test]
+fn a_folder_is_left_out_of_a_backup_and_put_back_from_the_command_line() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let card = card(dir.path());
+    let at = At::new(dir.path());
+    at.keevoro(&["backups", "start", "Card photos"]);
+    at.keevoro(&["look", &text(&card)]);
+    let before = everything_written(&card);
+    let cornwall = card.join("Holidays").join("Cornwall");
+    let out = at.keevoro(&["sources", "leave-out", &text(&cornwall)]);
+    assert_eq!(out.code, Code::Worked, "{}", out.err);
+    assert!(out.out.starts_with("Left out "), "{}", out.out);
+    assert!(out.out.contains("nothing already backed up is touched"), "{}", out.out);
+    let sources = at.keevoro(&["sources"]);
+    assert!(sources.out.contains("Left out: "), "{}", sources.out);
+    let back = at.keevoro(&["sources", "leave-out", &text(&cornwall), "--put-back"]);
+    assert_eq!(back.code, Code::Worked, "{}", back.err);
+    assert!(back.out.starts_with("Put back "), "{}", back.out);
+    assert!(!at.keevoro(&["sources"]).out.contains("Left out: "));
+    let gone = at.keevoro(&["sources", "leave-out", &text(&dir.path().join("Nowhere"))]);
+    assert_ne!(gone.code, Code::Worked);
+    assert_eq!(everything_written(&card), before, "the source is exactly as it was");
+}

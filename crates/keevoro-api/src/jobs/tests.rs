@@ -1084,6 +1084,53 @@ fn the_persons_own_pause_outlasts_the_work_and_is_still_said() {
 }
 
 #[test]
+fn a_search_and_a_survey_pass_by_a_folder_left_out_and_say_so() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro(dir.path());
+    let named = keevoro.start_backup("Card photos").unwrap();
+    let card = std::fs::canonicalize(card_in(dir.path())).unwrap();
+    let holidays = card.join("Holidays");
+    Backup::open(&named.home).unwrap().leave_out(&holidays, true).unwrap();
+    // Asked to look through it, or a folder in it, Keevoro says why not.
+    let refused = keevoro.look(&named, &holidays.join("Cornwall"), None).unwrap_err();
+    assert_eq!(refused.kind, Kind::Refused);
+    assert!(refused.message.contains("Put it back first"), "{refused}");
+
+    let job = keevoro.look(&named, &card, None).unwrap();
+    let Some(Said::Scan(found)) = keevoro.wait(job.id) else {
+        panic!("the search ends")
+    };
+    let ours: Vec<_> = found.left_out.iter().filter(|l| l.what == "leftOutByYou").collect();
+    assert_eq!(ours.len(), 1, "{:?}", found.left_out);
+    assert!(ours[0].said.contains("as you chose"), "{}", ours[0].said);
+    let backup = Backup::open(&named.home).unwrap();
+    let paths: Vec<PathBuf> = backup
+        .catalog()
+        .load_reports()
+        .unwrap()
+        .iter()
+        .flat_map(|r| r.items.iter().map(|i| i.path.clone()))
+        .collect();
+    assert!(
+        !paths.is_empty() && paths.iter().all(|p| !p.starts_with(&holidays)),
+        "{paths:?}"
+    );
+
+    let job = keevoro.survey(&card, Some(&named), None).unwrap();
+    let Some(Said::Surveyed(view)) = keevoro.wait(job.id) else {
+        panic!("the survey ends")
+    };
+    assert!(
+        view.left_out.iter().any(|l| l.what == "leftOutByYou"),
+        "{:?}",
+        view.left_out
+    );
+    assert!(view.hints.iter().all(|h| !h.folder.contains("Holidays")));
+    keevoro.wait_for_jobs();
+}
+
+#[test]
 fn stopping_by_kind_on_one_backup_leaves_the_rest_running() {
     let _turn = one_at_a_time();
     let _after = CarryOnAfter;

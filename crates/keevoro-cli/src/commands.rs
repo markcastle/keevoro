@@ -445,6 +445,24 @@ pub static ROWS: &[Row] = &[
         show: show::file_types,
     },
     Row {
+        words: &["sources", "leave-out"],
+        ops: &[Op::SourcesLeaveOut],
+        about: Some(
+            "Leaves a folder out of this backup: it is not looked through, and what was found in it is no longer offered. With --put-back, includes it again. Nothing in the folder, and nothing already backed up, is touched.",
+        ),
+        args: |c| {
+            c.arg(arg("folder", "The folder, which need not be in a source yet").required(true))
+                .arg(flag("put-back", "Put the folder back, so it is looked through again"))
+        },
+        ask: |_, m, _| {
+            Ok((
+                Op::SourcesLeaveOut,
+                json!({ "folder": required(m, "folder"), "leftOut": !m.get_flag("put-back") }),
+            ))
+        },
+        show: show::said,
+    },
+    Row {
         words: &["sources", "photos-or-videos"],
         ops: &[Op::SourcesPhotosOrVideos],
         about: Some(

@@ -4,10 +4,13 @@
 //!
 //! Both only read. Nothing is added to a backup, nothing on the place is
 //! opened beyond its folder listings, and the only thing written anywhere
-//! is Keevoro's own cache (by `photos.picture`, not here). They follow the
-//! kinds of file Keevoro looks for, and, when a backup is in hand, its
-//! choice of photos or videos. A folder Keevoro made (a backup, an old
-//! library) is not looked inside as if it were photos to back up.
+//! is Keevoro's own cache (by `photos.picture`, not here). They list the
+//! kinds of file on Keevoro's list, and when one would not be backed up,
+//! say which choice left it out (`keevoro_core::Choices::offered`): a
+//! kind switched off, the backup's or the source's photos or videos, an
+//! ending left out of a source, or a folder the person left out. A folder
+//! Keevoro made (a backup, an old library) is not looked inside as if it
+//! were photos to back up.
 
 use crate::backups::Named;
 use crate::error::{Error, Result};
@@ -127,6 +130,10 @@ pub struct FolderView {
     pub bytes: u64,
     /// Of them, how many are only in online storage, never opened.
     pub online_only: usize,
+    /// True when the person left it, or a folder it is in, out of the
+    /// backup in hand.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub left_out: bool,
 }
 
 /// What `places.folders` answers.
@@ -143,6 +150,10 @@ pub struct FoldersView {
     pub videos: usize,
     pub bytes: u64,
     pub online_only: usize,
+    /// The folder left out of the backup in hand that the place is in (or
+    /// is), if any, as a person would write it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub left_out: Option<String>,
 }
 
 /// One photo or video in a folder.
@@ -164,6 +175,10 @@ pub struct FileView {
     /// (MP4, MOV, M4V and 3GP). Never read for a file only online.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seconds: Option<f64>,
+    /// Why it would not be backed up, when it would not: the choice that
+    /// left it out, in words (`keevoro_core::Choices::offered`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub left_out: Option<String>,
 }
 
 /// What `places.files` answers.
@@ -198,19 +213,13 @@ struct Listing {
 const LISTINGS_KEPT: usize = 4;
 
 impl Keevoro {
-    /// The kinds of file looked for, as the backup in hand wants them: one
-    /// for photos only is shown no videos. With the one kind it wants, if
-    /// it wants only one.
-    pub(crate) fn kinds_for(&self, backup: Option<&Named>) -> (keevoro_core::Kinds, Option<MediaKind>) {
-        let kinds = self.kinds_to_look_for();
-        let only = backup
+    /// Every choice the backup in hand made about what is offered; none
+    /// when there is no backup, so everything is.
+    fn choices_for(backup: Option<&Named>) -> keevoro_core::Choices {
+        backup
             .and_then(|b| crate::backup::Backup::open_existing(&b.home))
-            .and_then(|b| b.catalog().wants().ok())
-            .and_then(keevoro_core::Wants::only);
-        match only {
-            Some(kind) => (kinds.only(kind), Some(kind)),
-            None => (kinds, None),
-        }
+            .and_then(|b| b.catalog().choices().ok())
+            .unwrap_or_default()
     }
 
     /// `places.folders`: the folders inside `place` that hold photos or
@@ -232,7 +241,7 @@ impl Keevoro {
         let Some(survey) = keevoro_engine::surveys::covering(&self.cache_folder(), &real) else {
             return Ok(None);
         };
-        let (_, only) = self.kinds_for(backup);
+        let choices = Self::choices_for(backup);
         let folders: Vec<FolderView> = survey
             .folders
             .iter()
@@ -248,15 +257,16 @@ impl Keevoro {
                             .join(" › ")
                     })
                     .unwrap_or_default(),
-                photos: if only == Some(MediaKind::Video) { 0 } else { f.photos },
-                videos: if only == Some(MediaKind::Photo) { 0 } else { f.videos },
-                // Sizes are not kept by kind; a choice of one kind keeps the whole.
+                photos: f.photos,
+                videos: f.videos,
                 bytes: f.bytes,
                 online_only: f.online_only,
+                left_out: choices.left_out_folder(&f.folder).is_some(),
             })
             .filter(|f| f.photos + f.videos > 0)
             .collect();
         Ok(Some(FoldersView {
+            left_out: choices.left_out_folder(&real).map(friendly_path),
             place: friendly_path(place),
             surveyed_at: survey.surveyed_at,
             complete: survey.complete,
@@ -277,7 +287,8 @@ impl Keevoro {
         if let Some(said) = self.made_by_keevoro(&real) {
             return Err(Error::refused(said));
         }
-        let (kinds, _) = self.kinds_for(backup);
+        let kinds = self.kinds_to_look_for();
+        let choices = Self::choices_for(backup);
         let files = self.listing(&real, &kinds)?;
         let shown = arranged(&files, ask.sort, ask.only);
         let page = shown
@@ -292,6 +303,17 @@ impl Keevoro {
                 modified: f.modified,
                 online_only: f.online_only,
                 seconds: f.length(),
+                // A folder Keevoro made was refused above, so only the
+                // person's choices can leave a file here out.
+                left_out: choices
+                    .offered(&keevoro_core::FileFacts {
+                        path: &f.path,
+                        kind: f.kind,
+                        looked_for: f.looked_for,
+                        made_by_keevoro: false,
+                    })
+                    .err()
+                    .map(|by| by.why(f.kind).to_string()),
             })
             .collect();
         Ok(FilesView {
@@ -465,6 +487,7 @@ mod tests {
             bytes: 1,
             modified,
             online_only: false,
+            looked_for: true,
         }
     }
 
@@ -539,21 +562,53 @@ mod tests {
     }
 
     #[test]
-    fn a_backup_for_photos_only_is_shown_no_videos() {
+    fn what_the_backup_leaves_out_is_shown_saying_which_choice_left_it_out() {
         let _turn = one_at_a_time();
         let dir = tempfile::tempdir().unwrap();
         let k = keevoro(dir.path());
         let named = k.start_backup("Stills").unwrap();
-        k.set_backup_wants(&crate::Backup::open(&named.home).unwrap(), keevoro_core::Wants::Photos)
-            .unwrap();
+        let backup = crate::Backup::open(&named.home).unwrap();
+        k.set_backup_wants(&backup, keevoro_core::Wants::Photos).unwrap();
         let place = pictures(dir.path(), 3);
         surveyed(&k, &place);
-        let folders = k.folders_inside(&place, Some(&named)).unwrap();
-        assert_eq!((folders.photos, folders.videos), (3, 0));
-        let files = k
-            .files_in(&FilesRequest::of(&place.join("2019")), Some(&named))
-            .unwrap();
-        assert_eq!((files.total, files.videos), (3, 0));
+        let folder = place.join("2019");
+        let why = |files: &FilesView, name: &str| {
+            files
+                .files
+                .iter()
+                .find(|f| f.name == name)
+                .and_then(|f| f.left_out.clone())
+        };
+
+        // The videos are there, said to be left out by the backup's choice.
+        let files = k.files_in(&FilesRequest::of(&folder), Some(&named)).unwrap();
+        assert_eq!((files.total, files.videos), (5, 2));
+        assert_eq!(
+            why(&files, "clip.mp4").as_deref(),
+            Some("this backup is for photos only")
+        );
+        assert_eq!(why(&files, "IMG_0000.jpg"), None);
+        // With no backup in hand, nothing is left out.
+        let free = k.files_in(&FilesRequest::of(&folder), None).unwrap();
+        assert!(free.files.iter().all(|f| f.left_out.is_none()));
+
+        // A folder left out: it, and every file in it, says so.
+        backup.leave_out(&folder, true).unwrap();
+        let outline = k.folders_inside(&place, Some(&named)).unwrap();
+        assert!(outline.folders[0].left_out && outline.left_out.is_none());
+        let inside = k.folders_inside(&folder, Some(&named)).unwrap();
+        assert!(
+            inside.left_out.is_some(),
+            "looked inside itself, the whole place is left out"
+        );
+        let files = k.files_in(&FilesRequest::of(&folder), Some(&named)).unwrap();
+        assert_eq!(
+            why(&files, "IMG_0000.jpg").as_deref(),
+            Some("you left this folder out of this backup")
+        );
+        backup.leave_out(&folder, false).unwrap();
+        let files = k.files_in(&FilesRequest::of(&folder), Some(&named)).unwrap();
+        assert_eq!(why(&files, "IMG_0000.jpg"), None, "put back");
         k.wait_for_jobs();
     }
 

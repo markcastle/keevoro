@@ -138,7 +138,19 @@ pub fn sources(io: &mut Io<'_>, _: &ArgMatches, list: &Value) -> Said_ {
         if let Some(online) = source.get("onlineOnlySaid").and_then(Value::as_str) {
             writeln!(io.out, "   {online}")?;
         }
+        for folder in each(source.get("leftOut").unwrap_or(&Value::Null)).filter_map(Value::as_str) {
+            writeln!(
+                io.out,
+                "   Left out: {folder}  (keevoro sources leave-out \"{folder}\" --put-back)"
+            )?;
+        }
     }
+    Ok(Code::Worked)
+}
+
+/// An answer that says what happened in its own words, as `said`.
+pub fn said(io: &mut Io<'_>, _: &ArgMatches, answer: &Value) -> Said_ {
+    writeln!(io.out, "{}", s(answer, "said"))?;
     Ok(Code::Worked)
 }
 

@@ -384,7 +384,7 @@ A look inside a folder
 - [x] Only what is on screen is fetched, so a folder of ten thousand opens at once
 - [x] Sort by date or name, and show photos only or videos only (by the file's date, said as such)
 - [x] Open one in the closer look, and a video's length on its tile and there (playing it was decided against for now)
-- [ ] From the grid: look through this folder, or leave it out
+- [x] From the grid: look through this folder, or leave it out (and put it back), there, in the survey and under each source
 - [x] Say plainly when a picture cannot be opened, with a placeholder, and carry on
 
 A map of where the space goes

@@ -175,6 +175,14 @@ export function demoBackend(): Backend {
   const surveyListeners = new Set<(e: SurveyProgress) => void>()
   // The places surveyed, so looking inside one surveys it first, as the real one does.
   const surveyed = new Set<string>()
+  // Folders left out of the backup, and whether a path is in one (case
+  // ignored, as on Windows; never fooled by "Photos 2" beside "Photos").
+  const leftOutFolders = new Set<string>()
+  const within = (path: string, folder: string) => {
+    const [p, f] = [path.toLowerCase().replace(/\\+$/, ''), folder.toLowerCase().replace(/\\+$/, '')]
+    return p === f || p.startsWith(`${f}\\`)
+  }
+  const leftOutOf = (path: string) => [...leftOutFolders].find((f) => within(path, f))
   const checkListeners = new Set<(event: CheckEvent) => void>()
   const sendListeners = new Set<(e: SendEvent) => void>()
   // What the last backup said when it ended, as the real app keeps it.
@@ -456,7 +464,10 @@ export function demoBackend(): Backend {
       junk: junk.length,
       waitingToGather: kept.reduce((n, c) => n + c.photos + c.videos - c.gathered, 0),
       waitingBytes: waitingBytes(),
-      sources: [...sources],
+      sources: sources.map((s) => ({
+        ...s,
+        leftOut: [...leftOutFolders].filter((f) => within(f, s.root) || within(s.root, f)),
+      })),
       destinations: dests.map((d) => {
         const all = kept.reduce((n, c) => n + c.photos + c.videos, 0)
         const there = Math.min(d.there, all)
@@ -710,13 +721,14 @@ export function demoBackend(): Backend {
         )
         await new Promise((r) => setTimeout(r, new URLSearchParams(window.location.search).has('slow') ? 400 : 60))
       }
+      const leftOutHere = [...leftOutFolders].filter((f) => within(f, drive))
       return {
         hints: [
           { folder: `${drive}\\Users\\Mark\\Videos\\Drone`, photos: 333, videos: 26, bytes: 94 * 1024 ** 3, likelyPhotos: true, alreadyASource: false },
           { folder: `${drive}\\Users\\Mark\\Pictures`, photos: 11_204, videos: 310, bytes: 61 * 1024 ** 3, likelyPhotos: true, alreadyASource: false, onlineOnly: 412, onlineOnlySaid: onlineOnlySaid(412) },
           { folder: `${drive}\\Old laptop backup\\Photos`, photos: 902, videos: 12, bytes: 3.4 * 1024 ** 3, likelyPhotos: true, alreadyASource: false },
           { folder: `${drive}\\Games\\Launcher\\assets`, photos: 1_840, videos: 0, bytes: 9 * 1024 ** 2, likelyPhotos: false, alreadyASource: false },
-        ],
+        ].filter((hint) => !leftOutOf(hint.folder)),
         folders: 36_412,
         files: 481_907,
         unreadable: 3,
@@ -730,6 +742,11 @@ export function demoBackend(): Backend {
             what: 'oldLibrary',
             said: `Left out ${drive}\\Users\\Mark\\Pictures\\Keevoro Library: a folder an older version of Keevoro made, which it no longer uses. It takes 9.2 GB: 8.4 GB of copies of your photos it gathered there (2,310 files), and 0.8 GB of previews and working files it made. Keevoro has not checked that every copy is also in one of your backups, so it leaves the folder for you to decide about and never removes it.`,
           },
+          ...leftOutHere.map((folder) => ({
+            folder,
+            what: 'leftOutByYou' as const,
+            said: `Left out ${folder}, as you chose: it is not looked through for this backup. Put it back to include it again.`,
+          })),
         ],
       }
     },
@@ -826,6 +843,23 @@ export function demoBackend(): Backend {
         }
         return k.included ? { ...k } : { ...k, leftOutBy: 'ending' as const, why: 'files with this ending are left out of this source' }
       }),
+    leaveOutFolder: async (folder, leftOut) => {
+      const at = folder.replace(/\\+$/, '')
+      if (leftOut) leftOutFolders.add(at)
+      else [...leftOutFolders].filter((f) => f.toLowerCase() === at.toLowerCase()).forEach((f) => leftOutFolders.delete(f))
+      const still = leftOutOf(at)
+      return {
+        folder: at,
+        leftOut,
+        files: 0,
+        ...(!leftOut && still ? { stillInside: still } : {}),
+        said: leftOut
+          ? `Left out ${at}. This backup won\u2019t look through it. Nothing in it is changed, and nothing already backed up is touched.`
+          : still
+            ? `Put back ${at}, but it is inside ${still}, which is still left out. Put that back to include it.`
+            : `Put back ${at}. It is looked through again the next time its source is.`,
+      }
+    },
     includeFileType: async (_id, ending, included) => {
       const kind = kinds.find((k) => k.ending === ending)
       if (kind) kind.included = included
@@ -871,8 +905,11 @@ export function demoBackend(): Backend {
         videos: f.videos,
         bytes: (f.photos * 3.1 + f.videos * 88) * 1024 ** 2,
         onlineOnly: Math.floor(f.photos / 50),
+        ...(leftOutOf(f.relative ? `${place}\\${f.relative.replace(/ › /g, '\\')}` : place) ? { leftOut: true } : {}),
       }))
+      const out = leftOutOf(place)
       return {
+        ...(out ? { leftOut: out } : {}),
         place,
         surveyedAt: Math.floor(Date.now() / 1000) - 120,
         complete: true,
@@ -899,7 +936,9 @@ export function demoBackend(): Backend {
         photos: files.filter((f) => !f.isVideo).length,
         videos: files.filter((f) => f.isVideo).length,
         onlineOnly: files.filter((f) => f.onlineOnly).length,
-        files: shown.slice(from, from + Math.min(count, 500)),
+        files: shown
+          .slice(from, from + Math.min(count, 500))
+          .map((f) => (leftOutOf(f.path) ? { ...f, leftOut: 'you left this folder out of this backup' } : f)),
       }
     },
     // Each picture takes a moment, a few at a time, as the real ones do.

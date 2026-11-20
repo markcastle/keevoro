@@ -1234,20 +1234,28 @@ impl Keevoro {
         if let Some(kind) = only {
             kinds = kinds.only(kind);
         }
-        surveying::start(&self.context(), place, backup, kinds, self.skip_rules(), listener)
+        surveying::start(
+            &self.context(),
+            place,
+            backup,
+            kinds,
+            self.skip_rules_for(backup),
+            listener,
+        )
     }
 
     /// `sources.look`: looks through a drive or folder quickly and adds it
     /// to the backup as a source.
     pub fn look(&self, backup: &Named, place: &Path, listener: Option<Listener>) -> Result<JobHandle> {
         must_be_there(place)?;
+        looking::not_left_out(backup, place)?;
         looking::start(
             &self.context(),
             backup,
             vec![place.to_path_buf()],
             JobKind::Look,
             self.kinds_to_look_for(),
-            self.skip_rules(),
+            self.skip_rules_for(Some(backup)),
             listener,
         )
     }
@@ -1262,7 +1270,7 @@ impl Keevoro {
             places,
             JobKind::LookAgain,
             self.kinds_to_look_for(),
-            self.skip_rules(),
+            self.skip_rules_for(Some(backup)),
             listener,
         )
     }

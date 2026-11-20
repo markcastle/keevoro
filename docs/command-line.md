@@ -252,6 +252,7 @@ The words each command shows in `keevoro --help` come from the same list the app
 | `keevoro sources types SOURCE` | The kinds of file on a source, and which are included. |
 | `keevoro sources types SOURCE --leave-out png` | Leaves out one kind of file; `--include png` brings it back. |
 | `keevoro sources photos-or-videos SOURCE [backup, both, photos or videos]` | Whether one source follows its backup's choice of photos or videos, or has its own. |
+| `keevoro sources leave-out FOLDER [--put-back]` | Leaves a folder out of this backup, so it is not looked through and what was found in it is no longer offered; `--put-back` includes it again. It need not be in a source yet. Nothing in it, or already backed up, is touched. |
 
 A source is named by its number, its place or its name, as `keevoro sources` lists them.
 
