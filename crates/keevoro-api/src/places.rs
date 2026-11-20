@@ -87,6 +87,7 @@ fn network_drives() -> Vec<Place> {
 }
 
 /// The letters that answered as network drives, as places to offer.
+#[cfg(any(windows, test))]
 fn across_a_network(answers: &[(char, bool)]) -> Vec<Place> {
     let mut letters: Vec<char> = answers.iter().filter(|(_, there)| *there).map(|(l, _)| *l).collect();
     letters.sort_unstable();
