@@ -877,6 +877,24 @@ fn where_the_space_goes_is_said_from_the_survey_by_folder_and_by_kind() {
 }
 
 #[test]
+fn the_map_says_which_folder_is_a_source_and_how_much_of_it_is_backed_up() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let card = card(dir.path());
+    let at = At::new(dir.path());
+    at.keevoro(&["backups", "start", "Card photos"]);
+    at.keevoro(&["look", &text(&card.join("Holidays"))]);
+    at.keevoro(&["survey", &text(&card)]);
+    let before = everything_written(&card);
+    let map = at.keevoro(&["map", &text(&card)]);
+    assert_eq!(map.code, Code::Worked, "{}", map.err);
+    let holidays = map.out.lines().find(|l| l.contains("Holidays")).unwrap();
+    assert!(holidays.contains("a source of this backup"), "{}", map.out);
+    assert!(holidays.contains("backed up: 0 of "), "{}", map.out);
+    assert_eq!(everything_written(&card), before, "nothing on it was changed");
+}
+
+#[test]
 fn a_folder_is_left_out_of_a_backup_and_put_back_from_the_command_line() {
     let _turn = one_at_a_time();
     let dir = tempfile::tempdir().unwrap();

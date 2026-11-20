@@ -1067,6 +1067,17 @@ impl Map {
                         offer.judge(ending.kind, e.bytes, offered(&path, ending.kind, &ending.name));
                     }
                 }
+                // Endings are kept for every file, but a search never takes a
+                // system file such as a Mac's `._IMG_1.jpg`, nor anything
+                // counted in from a folder Keevoro passes by: never more than
+                // what is left once those are taken away.
+                if let Some(u) = node.uncounted.as_deref() {
+                    for kind in [Kind::Photo, Kind::Video] {
+                        let i = kind.index();
+                        let most = node.direct[i].bytes.saturating_sub(u.unseen[i].bytes);
+                        offer.bytes[i] = offer.bytes[i].min(most);
+                    }
+                }
             }
             by_folder.insert(*at, offer);
             if node.children > 0 {
@@ -1862,6 +1873,34 @@ mod tests {
         let originals = at(&map, "Old library/originals");
         assert_eq!(offered.beneath[&originals], 0);
         assert_eq!(map.offered(originals, |_: &Path, _, _: &str| Ok::<(), ()>(())).bytes, 0);
+    }
+
+    #[test]
+    fn a_backup_is_never_said_to_take_what_no_search_would() {
+        let limits = Limits::default();
+        let mut b = Builder::new(Path::new("/d"), limits);
+        let mut here = listing(&[("a.jpg", 10)], &limits);
+        // A Mac's companion file: a photo by its ending, never taken.
+        here.file(
+            &FileSeen {
+                system: true,
+                ..seen("._a.jpg", 4_096)
+            },
+            &limits,
+        );
+        b.record(CountedIn::Own(0), here);
+        // Past the folder bound, a folder Keevoro passes by counted in.
+        b.record(
+            CountedIn::Above {
+                node: 0,
+                passed_by: true,
+            },
+            listing(&[("copy.jpg", 7_000)], &limits),
+        );
+        let map = b.finish();
+        assert_eq!(map.totals()[0].kinds[0].bytes, 10 + 4_096 + 7_000, "all of it is shown");
+        let offered = map.offered(0, |_: &Path, _, _: &str| Ok::<(), ()>(()));
+        assert_eq!(offered.bytes, 10, "but only the photo a search would take is offered");
     }
 
     #[test]

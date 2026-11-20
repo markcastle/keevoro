@@ -65,6 +65,9 @@ export function called(node: MapNode) {
 /** The notes said beside a box, in words. */
 export function notesOn(node: MapNode) {
   const notes: string[] = []
+  if (node.source) notes.push('A source of this backup')
+  else if (node.inSource) notes.push('In a source of this backup')
+  if (node.backedUp && node.backedUp.of > 0) notes.push(backedUpWords(node.backedUp))
   if (node.skipped) notes.push(`${node.skipped}: Keevoro never looks through it`)
   else if (node.leftOut) notes.push(`Not backed up: ${node.leftOut}`)
   if (node.onlineOnlyBytes) notes.push(`${size(node.onlineOnlyBytes)} in ${SERVICE} only, not on this computer`)
@@ -92,3 +95,22 @@ export const KIND_NAMES = { photo: 'Photos', video: 'Videos', other: 'Everything
 export function endingName(ending: string) {
   return ending === '' ? '(no ending)' : ending === '…' ? '(other endings)' : ending
 }
+
+/** How much of what this backup keeps from a folder is safe: "Backed up: 1,180 of 1,204". */
+export function backedUpWords(backedUp: { files: number; of: number }) {
+  if (backedUp.files === backedUp.of) return `Backed up: all ${backedUp.of.toLocaleString('en-GB')}`
+  return `Backed up: ${backedUp.files.toLocaleString('en-GB')} of ${backedUp.of.toLocaleString('en-GB')}`
+}
+
+/** Everything this backup keeps from a box is safely backed up. */
+export const allBackedUp = (node: MapNode) => Boolean(node.backedUp && node.backedUp.of > 0 && node.backedUp.files === node.backedUp.of)
+
+/** What the computer's file manager is called here. */
+export const FILE_MANAGER =
+  typeof navigator === 'undefined'
+    ? 'File Explorer'
+    : /Mac/.test(navigator.platform)
+      ? 'Finder'
+      : /Win/.test(navigator.platform)
+        ? 'File Explorer'
+        : 'Files'

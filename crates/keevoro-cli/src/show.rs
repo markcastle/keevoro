@@ -412,6 +412,19 @@ fn map_lines(io: &mut Io<'_>, node: &Value, whole: u64, depth: usize, above: Opt
         Some(why) if !yes(node, "madeByKeevoro") => notes.push(format!("not backed up: {why}")),
         _ => {}
     }
+    if yes(node, "source") {
+        notes.push("a source of this backup".to_string());
+    }
+    if let Some(kept) = node.get("backedUp") {
+        let (safe, of) = (n(kept, "files"), n(kept, "of"));
+        if of > 0 {
+            notes.push(format!(
+                "backed up: {} of {}",
+                keevoro_api::words::thousands(safe),
+                keevoro_api::words::thousands(of)
+            ));
+        }
+    }
     if b(node, "onlineOnlyBytes") > 0 {
         notes.push(format!("{} only online", bytes(b(node, "onlineOnlyBytes"))));
     }

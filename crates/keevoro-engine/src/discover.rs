@@ -211,21 +211,87 @@ fn photo_view(library: &Path, catalog: &Catalog, item: &FoundItem) -> Result<Pho
     })
 }
 
+/// Where this backup goes, and whether a file has reached each place: the
+/// one rule for what is safely backed up, used by the Discover view, what
+/// is waiting for each destination, and the map's "backed up" figures.
+struct Reach<'a> {
+    catalog: &'a Catalog,
+    places: Vec<crate::connect::Saved>,
+}
+
+impl<'a> Reach<'a> {
+    fn of(catalog: &'a Catalog) -> Result<Self> {
+        Ok(Reach {
+            catalog,
+            places: crate::connect::destinations(catalog)?,
+        })
+    }
+
+    /// Whether `item` is safely backed up, and whether it has reached each
+    /// destination, in order. Safe means a copy is everywhere it is meant to
+    /// be: at every destination of the backup. At some but not all is not
+    /// safe yet; that is the whole point of having more than one. With no
+    /// destinations yet, a copy gathered anywhere counts.
+    fn safe(&self, item: &FoundItem) -> Result<(bool, Vec<bool>)> {
+        let catalog = self.catalog;
+        let place = match &item.blake3 {
+            Some(hash) => catalog.collected_path(hash)?,
+            None => None,
+        };
+        // A file has reached a destination when the catalog has a record of
+        // it under that destination's name. One saved before names were
+        // remembered is believed if the file is recorded anywhere, which is
+        // what was true when there could only be one.
+        let mut there = Vec::with_capacity(self.places.len());
+        for to in &self.places {
+            there.push(match (&place, &to.target) {
+                (Some(place), Some(target)) => catalog.is_uploaded(target, place)?,
+                (Some(place), None) => catalog.stored_anywhere(place)?,
+                (None, _) => false,
+            });
+        }
+        let everywhere = !there.is_empty() && there.iter().all(|t| *t);
+        let is_in = match &place {
+            Some(place) => everywhere || (self.places.is_empty() && catalog.stored_anywhere(place)?),
+            None => false,
+        };
+        Ok((is_in, there))
+    }
+}
+
+/// How many of the files this backup keeps are in each folder, and how many
+/// of those are safely backed up, by the same rule the Discover view and
+/// what is waiting use: `(safe, kept)` by the folder each file is directly
+/// in, as its full path. Worked out when asked, never stored.
+pub fn safe_by_folder(catalog: &Catalog) -> Result<std::collections::HashMap<std::path::PathBuf, (usize, usize)>> {
+    let reports = catalog.load_reports()?;
+    let rescued = catalog.kept_hashes()?;
+    let (summary, items) = summary::summarise_with(&reports, &rescued);
+    let reach = Reach::of(catalog)?;
+    let mut by_folder: std::collections::HashMap<std::path::PathBuf, (usize, usize)> = std::collections::HashMap::new();
+    for c in &summary.collections {
+        for item in c.members.iter().filter_map(|&m| items.get(m).copied()) {
+            if !wanted(catalog, item)? {
+                continue;
+            }
+            let Some(folder) = item.path.parent() else { continue };
+            let (is_in, _) = reach.safe(item)?;
+            let counts = by_folder.entry(folder.to_path_buf()).or_default();
+            counts.0 += usize::from(is_in);
+            counts.1 += 1;
+        }
+    }
+    Ok(by_folder)
+}
+
 /// Builds the Discover view from everything the backup remembers.
 pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
     let reports = catalog.load_reports()?;
     let rescued = catalog.kept_hashes()?;
     let (summary, items) = summary::summarise_with(&reports, &rescued);
 
-    // Where this backup goes. A file has reached a destination when the
-    // catalog has a record of it under that destination's name. One saved
-    // before names were remembered is believed if the file is recorded
-    // anywhere, which is what was true when there could only be one.
-    let places = crate::connect::destinations(catalog)?;
-    let reached = |place: &str, to: &crate::connect::Saved| match &to.target {
-        Some(target) => catalog.is_uploaded(target, place),
-        None => catalog.stored_anywhere(place),
-    };
+    let reach = Reach::of(catalog)?;
+    let places = &reach.places;
     let mut tallies = vec![(0usize, 0usize, 0u64); places.len()];
 
     let mut waiting_to_gather = 0;
@@ -239,21 +305,9 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
         for item in &members {
             let is_wanted = wanted(catalog, item)?;
             kept |= is_wanted;
-            // Safe means a copy is everywhere it is meant to be: at every
-            // destination of the backup. At some but not all is not safe
-            // yet; that is the whole point of having more than one.
-            let place = match &item.blake3 {
-                Some(hash) => catalog.collected_path(hash)?,
-                None => None,
-            };
-            let mut everywhere = !places.is_empty();
-            for (to, tally) in places.iter().zip(tallies.iter_mut()) {
-                let there = match &place {
-                    Some(place) => reached(place, to)?,
-                    None => false,
-                };
-                everywhere &= there;
-                if is_wanted {
+            let (is_in, there) = reach.safe(item)?;
+            if is_wanted {
+                for (there, tally) in there.into_iter().zip(tallies.iter_mut()) {
                     if there {
                         tally.0 += 1;
                     } else {
@@ -262,10 +316,6 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
                     }
                 }
             }
-            let is_in = match &place {
-                Some(place) => everywhere || (places.is_empty() && catalog.stored_anywhere(place)?),
-                None => false,
-            };
             gathered += usize::from(is_in);
             waiting_to_gather += usize::from(is_wanted && !is_in);
             if is_wanted && !is_in {

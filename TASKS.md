@@ -36,7 +36,7 @@ Small, known, and better closed while the work is fresh.
 Two views for the step where you decide what to look through, asked for by the owner after pointing Keevoro at a Pictures folder that also held texture packs, zip files and screen recordings. Both only read the source. See "Seeing inside a source".
 
 - [ ] A look inside a folder: a grid of thumbnails of the photos and video stills in it, before it is added
-- [x] A map of where the space goes: boxes sized by how much each folder and file takes, coloured by kind, in the style of WinDirStat (what is backed up and remembered maps that stay honest are still to come, under "Seeing inside a source")
+- [x] A map of where the space goes: boxes sized by how much each folder and file takes, coloured by kind, in the style of WinDirStat (remembered maps that stay honest are still to come, under "Seeing inside a source")
 
 ### 4. Other kinds of file, carried along
 
@@ -405,10 +405,10 @@ A map of where the space goes
 - [x] Click a box to go into that folder; a trail above to come back out, eased unless reduced motion is asked for
 - [x] Point at a box to see its name, size and how many photos and videos it holds
 - [x] From a folder on the map: look through it, leave it out, or open the look inside
-- [ ] Show what is already a source, and what is already backed up, on the map (`safe_by_folder` from the destinations' waiting logic, rolled up the map; a green outline for a source and a tick for what is backed up, in the key)
+- [x] Show what is already a source, and what is already backed up, on the map (`safe_by_folder` from the destinations' waiting logic, rolled up the map; a green outline for a source and a tick for what is backed up, in the key)
 - [x] The map growing while the survey walks: the top-level boxes sent with its progress at most twice a second (`SurveyEvent.top`), drawn as they grow
 - [ ] Remembered maps that stay honest: open a map over an hour old on a local disk and it is surveyed again by itself (asked first on a network drive), a search of a source marks the surveys covering it out of date, at most 8 surveys and 200 MB, and Forget remembered maps in Settings
-- [ ] Show in File Explorer (Finder, Files) from a folder on the map: `open_place` allowed inside the remembered survey
+- [x] Show in File Explorer (Finder, Files) from a folder on the map: `open_place` allowed inside the remembered survey
 - [x] Usable without a mouse and by a screen reader: the list carries everything the map does
 - [x] Remember a survey, so the map is there next time without waiting
 

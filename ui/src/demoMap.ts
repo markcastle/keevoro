@@ -22,6 +22,10 @@ type Made = {
   madeByKeevoro?: boolean
   /** Of its own files, the bytes only in OneDrive. */
   onlineOnly?: number
+  /** A source of this backup. */
+  source?: boolean
+  /** Of the files the backup keeps from it directly, how many are safe, and how many it keeps. */
+  backedUp?: [number, number]
 }
 
 const KB = 1024
@@ -43,6 +47,8 @@ const PICTURES: Made = {
       ],
       rest: { photo: [1_204, 3.7 * GB], video: [35, 0.6 * GB], other: [12, 2 * MB] },
       onlineOnly: 0.3 * GB,
+      source: true,
+      backedUp: [1_180, 1_241],
     },
     {
       name: 'Captures',
@@ -73,7 +79,7 @@ const PICTURES: Made = {
       ],
     },
     { name: 'Screenshots', rest: { photo: [300, 0.9 * GB] } },
-    { name: '2019', folders: [{ name: 'Cornwall', rest: { photo: [120, 0.4 * GB], video: [4, 0.35 * GB] } }] },
+    { name: '2019', source: true, folders: [{ name: 'Cornwall', rest: { photo: [120, 0.4 * GB], video: [4, 0.35 * GB] }, backedUp: [124, 124] }] },
     { name: '.thumbnails', skipped: 'Hidden folder', rest: { photo: [2_000, 90 * MB] } },
   ],
 }
@@ -151,6 +157,22 @@ function sums(made: Made): Sums {
   return total
 }
 
+/** What the backup keeps from a made-up folder and has backed up, everything inside it counted in. */
+function backedUpIn(made: Made): [number, number] {
+  const own = made.backedUp ?? [0, 0]
+  return (made.folders ?? []).map(backedUpIn).reduce(([a, b], [c, d]) => [a + c, b + d], own)
+}
+
+/** Is a made-up path a source, or inside one? */
+function sourceOf(tree: Made, top: string, path: string): 'source' | 'inSource' | null {
+  if (find(tree, top, path)?.source) return 'source'
+  for (let up = path.slice(0, path.lastIndexOf('\\')); up.includes('\\') || up === top; up = up.slice(0, up.lastIndexOf('\\'))) {
+    if (find(tree, top, up)?.source) return 'inSource'
+    if (up === top) break
+  }
+  return null
+}
+
 /** The endings a made-up folder holds, everything inside it counted in. */
 function endingsIn(made: Made, into = new Set<string>()) {
   for (const kind of ['photo', 'video', 'other'] as Kind[]) if ((made.rest?.[kind]?.[0] ?? 0) > 0) into.add(endingOf(made.name, kind))
@@ -224,6 +246,10 @@ export function demoMap(
       wouldBackUp: skipped || out ? 0 : media,
       endings: placesOf(endingsIn(made)),
     }
+    const kept = backedUpIn(made)
+    if (kept[1] > 0) shown.backedUp = { files: kept[0], of: kept[1] }
+    const source = sourceOf(tree, top, path)
+    if (source) shown[source] = true
     if (level === 0) {
       if ((made.folders?.length ?? 0) > 0 || made.files || made.rest) shown.deeper = true
       return shown

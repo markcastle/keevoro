@@ -578,6 +578,12 @@ export type MapNode = {
   leftOutFolder?: string
   /** Of its photos and videos, the bytes this backup would take. */
   wouldBackUp: number
+  /** It is a source of this backup. */
+  source?: boolean
+  /** It is inside a source of this backup. */
+  inSource?: boolean
+  /** Of the files this backup keeps from it, everything inside counted in, how many are safely everywhere it goes. */
+  backedUp?: BackedUp
   unreadable?: boolean
   /** Something in it was not measured: the survey was stopped first. */
   notSized?: boolean
@@ -589,6 +595,9 @@ export type MapNode = {
   endings?: number[]
   children?: MapNode[]
 }
+
+/** How much of what this backup keeps from a folder is safely everywhere it goes: "Backed up: 1,180 of 1,204". */
+export type BackedUp = { files: number; of: number }
 
 /** One step of the trail from the place to the folder shown. */
 export type TrailStep = { name: string; folder: string }

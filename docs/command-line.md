@@ -65,7 +65,7 @@ By kind: photos 13.8 GB (31%), videos 12.4 GB (28%), everything else 17.7 GB (40
 Of it, 17.1 GB is photos and videos Keevoro would back up.
 ```
 
-`--folder` shows one folder inside the place, `--depth` how many levels of folders (1 to 6, 3 when left out), and `--kinds` lists the kinds of file by ending instead (`zip`, `mp4`, `jpg` and so on). Each line says what Keevoro would make of it for the backup in hand: a folder it made or never looks through, a folder you left out, or photos or videos the backup does not want, and why. It is answered from the survey, so nothing is walked or opened again; survey again for a fresh one.
+`--folder` shows one folder inside the place, `--depth` how many levels of folders (1 to 6, 3 when left out), and `--kinds` lists the kinds of file by ending instead (`zip`, `mp4`, `jpg` and so on). Each line says what Keevoro would make of it for the backup in hand: a folder it made or never looks through, a folder you left out, or photos or videos the backup does not want, and why; which folder is a source of the backup; and how much of what it keeps from each folder is safely backed up ("backed up: 1,180 of 1,204"). It is answered from the survey, so nothing is walked or opened again; survey again for a fresh one.
 
 ### Look through a source
 

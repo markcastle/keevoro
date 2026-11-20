@@ -18,7 +18,7 @@ import { ago, photosAndVideos, share, size } from './format'
 import { nameOf } from './inside'
 import { LeaveOutButton, LeftOutSaid } from './leaveOut'
 import { MapCanvas, MapKey } from './mapCanvas'
-import { called, find, holds, keysOf, notesOn } from './mapWords'
+import { called, FILE_MANAGER, find, holds, keysOf, notesOn } from './mapWords'
 import type { Picked } from './mapWords'
 import { KindsList } from './mapKinds'
 import { SurveyingPanel, useAfterSurvey } from './surveyFirst'
@@ -297,6 +297,13 @@ function Chosen(props: {
               Look through it
             </button>
           )}
+          <button
+            className="button small"
+            onClick={() => props.api.openPlace(path).catch(props.onProblem)}
+            aria-label={`Show ${node.name} in ${FILE_MANAGER}`}
+          >
+            Show in {FILE_MANAGER}
+          </button>
           {!node.skipped && (
             <LeaveOutButton
               api={props.api}

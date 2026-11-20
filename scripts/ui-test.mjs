@@ -1080,6 +1080,15 @@ try {
   await chosen.getByRole('button', { name: 'Look inside Camera Roll' }).waitFor()
   assert.ok(await chosen.getByRole('button', { name: 'Look through Camera Roll' }).isVisible())
   assert.match(await chosen.innerText(), /307\.2 MB in OneDrive only, not on this computer/)
+  // What is already a source, and how much of it is safely backed up, in
+  // words beside the outline and tick on the map, and in the key.
+  assert.match(await chosen.innerText(), /A source of this backup/)
+  assert.match(await chosen.innerText(), /Backed up: 1,180 of 1,241/)
+  assert.match(await page.locator('.space-list tbody tr', { hasText: '2019' }).innerText(), /A source of this backup\s+Backed up: all 124/)
+  assert.match(await text('.space .key'), /A source of this backup\s+✓\s*All backed up/)
+  // And it can be shown in the computer's own file manager.
+  await chosen.getByRole('button', { name: /^Show Camera Roll in (File Explorer|Finder|Files)$/ }).click()
+  await shot('9t8-space-sources-backed-up')
   await chosen.getByRole('button', { name: 'Leave out Camera Roll' }).click()
   await chosen.getByRole('button', { name: 'Put back Camera Roll' }).waitFor()
   assert.match(await text('.space .left-out-said'), /nothing already backed up is touched/)

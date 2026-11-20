@@ -21,7 +21,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { MapNode } from './backend'
 import { share, size } from './format'
-import { called, holds, holdsPicked, mainKind, notesOn } from './mapWords'
+import { allBackedUp, called, holds, holdsPicked, mainKind, notesOn } from './mapWords'
 import type { Picked } from './mapWords'
 import { between, easeOut, hit, layout } from './treemap'
 import type { Laid, Rect } from './treemap'
@@ -45,6 +45,7 @@ type Look = {
   onSun: string
   onPine: string
   focus: string
+  success: string
   font: string
   stripes: CanvasPattern | null
   dots: CanvasPattern | null
@@ -94,6 +95,7 @@ export function lookOf(ctx: CanvasRenderingContext2D): Look {
     onSun: token(style, '--on-sun'),
     onPine: token(style, '--on-primary'),
     focus: token(style, '--focus-ring'),
+    success: token(style, '--success'),
     font: getComputedStyle(document.body).fontFamily,
     // Fine diagonal lines over a video's colour.
     stripes: pattern(ctx, (t) => {
@@ -188,8 +190,33 @@ export function draw(ctx: CanvasRenderingContext2D, top: Laid<MapNode>, look: Lo
     ctx.setLineDash(n.onlineOnlyBytes ? [4, 3] : [])
     ctx.strokeRect(b.x + 0.5, b.y + 0.5, Math.max(0, b.w - 1), Math.max(0, b.h - 1))
     ctx.setLineDash([])
+    // A source of this backup: a firm outline in the colour of safety.
+    if (n.source) {
+      ctx.strokeStyle = look.success
+      ctx.lineWidth = 2
+      ctx.strokeRect(b.x + 1, b.y + 1, Math.max(0, b.w - 2), Math.max(0, b.h - 2))
+    }
     label(b, opened, kind)
+    // All of it safely backed up: a tick in the corner, where there is room.
+    if (allBackedUp(n) && b.w >= 24 && b.h >= 16) tick(b)
     if (without && opened) fade(b, Math.min(b.h, (b.inner?.y ?? b.y) - b.y))
+  }
+  const tick = (b: Laid<MapNode>) => {
+    const [x, y] = [b.x + b.w - 14, b.y + 4]
+    ctx.save()
+    ctx.fillStyle = look.ground
+    ctx.beginPath()
+    ctx.arc(x + 5, y + 5, 6.5, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.strokeStyle = look.success
+    ctx.lineWidth = 2
+    ctx.lineCap = 'round'
+    ctx.beginPath()
+    ctx.moveTo(x + 1.5, y + 5)
+    ctx.lineTo(x + 4, y + 7.5)
+    ctx.lineTo(x + 8.5, y + 2.5)
+    ctx.stroke()
+    ctx.restore()
   }
   const label = (b: Laid<MapNode>, opened: boolean, kind: 'photo' | 'video' | 'other') => {
     if (b.w < 36 || b.h < 14) return
@@ -502,6 +529,15 @@ export function MapKey() {
       </li>
       <li>
         <span className="swatch online" aria-hidden /> Partly in online storage only
+      </li>
+      <li>
+        <span className="swatch source" aria-hidden /> A source of this backup
+      </li>
+      <li>
+        <span className="swatch backed-up" aria-hidden>
+          ✓
+        </span>{' '}
+        All backed up
       </li>
     </ul>
   )
