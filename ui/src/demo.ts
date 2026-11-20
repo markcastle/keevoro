@@ -716,9 +716,10 @@ export function demoBackend(): Backend {
     async surveyPlace(path) {
       const drive = path.replace(/[\\/]+$/, '')
       surveyed.add(drive)
-      for (let step = 1; step <= 4; step++) {
+      for (let step = 1; step <= 5; step++) {
         surveyListeners.forEach((tell) =>
-          tell({ folders: step * 9_000, files: step * 120_000, photos: step * 3_100, videos: step * 90 }),
+          // The last steps measure what Keevoro never looks through, for the map.
+          tell({ folders: step * 9_000, files: step * 120_000, photos: Math.min(step, 3) * 3_100, videos: Math.min(step, 3) * 90, ...(step > 3 ? { sizing: true } : {}) }),
         )
         await new Promise((r) => setTimeout(r, new URLSearchParams(window.location.search).has('slow') ? 400 : 60))
       }

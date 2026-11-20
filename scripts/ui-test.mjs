@@ -1049,6 +1049,14 @@ try {
   await page.getByRole('button', { name: '‹ Back' }).click()
   await page.getByRole('heading', { name: '4 folders on Windows (C:) seem to hold photos and videos' }).waitFor()
   assert.equal(await page.locator('.kept li.source').count(), 0, 'nothing was added')
+  // While a survey measures what it never looks through, the folders found
+  // can be shown at once.
+  await page.goto(`${base}/?demo=empty&slow`)
+  await page.getByRole('button', { name: /Windows \(C:\)/ }).click()
+  await page.getByRole('button', { name: 'Find the folders with photos' }).click()
+  await page.getByRole('button', { name: 'Show the folders now' }).waitFor({ timeout: 15000 })
+  assert.match(await text('.searching'), /Now measuring the rest/)
+  await shot('9s6-survey-measuring')
   // From a source's card, surveyed first when Keevoro has not seen inside it.
   await page.goto(`${base}/?slow`)
   await page.locator('.steps button').nth(0).click()
