@@ -806,6 +806,14 @@ impl Map {
         out
     }
 
+    /// The folders `node` is inside, the nearest first.
+    pub fn ancestors(&self, node: u32) -> impl Iterator<Item = u32> + '_ {
+        std::iter::successors(self.nodes.get(node as usize).map(|n| n.parent), |at| {
+            self.nodes.get(*at as usize).map(|n| n.parent)
+        })
+        .take_while(|at| *at != NO_PARENT)
+    }
+
     /// The files kept by name in one folder, biggest first.
     pub fn named_in(&self, folder: u32) -> &[NamedFile] {
         let from = self.named.partition_point(|f| f.folder < folder);
@@ -906,14 +914,26 @@ impl Map {
         let order = self.beneath(top);
         let mut by_folder: HashMap<u32, FolderOffer<E>> = HashMap::new();
         let mut paths: HashMap<u32, PathBuf> = HashMap::new();
+        // Never looked through: a folder Keevoro passes by for a reason of
+        // its own, or one inside it. A folder passed by only because the
+        // person left it out is judged like any other, so a folder put back
+        // since the survey counts, and one still left out says so.
+        let mut never: HashMap<u32, bool> = HashMap::new();
+        let own_reason = |n: &FolderNode| n.skipped.is_some_and(|r| r != SkipReason::LeftOut);
         for at in &order {
             let node = &self.nodes[*at as usize];
             let path = match paths.get(&node.parent) {
                 Some(parent) if *at != top => parent.join(&*node.name),
                 _ => self.path_of(*at),
             };
+            let above = match never.get(&node.parent) {
+                Some(above) if *at != top => *above,
+                _ => self.ancestors(*at).any(|a| own_reason(&self.nodes[a as usize])),
+            };
+            let passed = above || own_reason(node);
+            never.insert(*at, passed);
             let mut offer = FolderOffer::default();
-            if !node.passed_by() {
+            if !passed {
                 let media = node.direct[0].files + node.direct[1].files > 0;
                 if media && node.has(flag::ENDINGS_DROPPED) {
                     for kind in [Kind::Photo, Kind::Video] {
@@ -1520,6 +1540,25 @@ mod tests {
         let captures = offered.by_folder[&at(&map, "Captures")];
         assert_eq!(captures.why_not[1], Some(("videos", 92_000_000)));
         assert_eq!(offered.beneath[&roll], 7_000_000);
+        // Nothing inside the old library, however deep.
+        let originals = at(&map, "Old library/originals");
+        assert_eq!(offered.beneath[&originals], 0);
+        assert_eq!(map.offered(originals, |_: &Path, _, _: &str| Ok::<(), ()>(())).bytes, 0);
+    }
+
+    #[test]
+    fn a_folder_passed_by_only_because_it_was_left_out_is_judged_as_it_is_now() {
+        let limits = Limits::default();
+        let mut b = Builder::new(Path::new("/d"), limits);
+        b.record(CountedIn::Own(0), Listing::default());
+        let first = b.subfolders(CountedIn::Own(0), &[("Games", None)]).unwrap();
+        b.passed_by(first, SkipReason::LeftOut);
+        b.record(CountedIn::Own(first), listing(&[("a.jpg", 10)], &limits));
+        let map = b.finish();
+        let put_back = map.offered(0, |_: &Path, _, _: &str| Ok::<(), &str>(()));
+        assert_eq!(put_back.bytes, 10, "put back since the survey, it counts");
+        let still_out = map.offered(0, |_: &Path, _, _: &str| Err("left out"));
+        assert_eq!(still_out.by_folder[&first].why_not[0], Some(("left out", 10)));
     }
 
     /// How much a map of a million files in a hundred thousand folders
