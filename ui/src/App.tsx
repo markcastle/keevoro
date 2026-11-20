@@ -1153,7 +1153,7 @@ function sourceTitle(source: Source, places: Place[] | null): string {
 function PlaceCard(props: { place: Place; added: boolean; onClick: () => void }) {
   const { place } = props
   return (
-    <button className={place.removable ? 'place likely' : 'place'} onClick={props.onClick}>
+    <button className="place" onClick={props.onClick}>
       <DriveIcon large />
       <b>{place.name}</b>
       <span>{place.detail}</span>
@@ -2632,7 +2632,7 @@ function SendPanel(props: {
           {!form && (
             <div className="places destinations">
               <button
-                className="place likely"
+                className="place"
                 onClick={() =>
                   api
                     .chooseDestinationFolder()

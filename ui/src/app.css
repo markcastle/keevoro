@@ -1019,10 +1019,6 @@ progress::-webkit-progress-value {
   font-style: normal;
 }
 
-.place.likely {
-  background: var(--surface-frame);
-}
-
 .panel.searching,
 .panel.found-it {
   justify-items: center;
@@ -1731,11 +1727,6 @@ h3,
 }
 
 .place:hover:not(:disabled) {
-  background: var(--surface-frame);
-  border-color: var(--line-strong);
-}
-
-.place.likely {
   background: var(--surface-frame);
   border-color: var(--line-strong);
 }
