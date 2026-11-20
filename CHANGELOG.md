@@ -17,6 +17,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- **The steps of a backup are marked like traffic lights.** A green disc with a tick when a step is done, an amber dot while it is under way, and a grey ring for one still to come, so you can see at a glance how far along it is. Previews that are all made now show as done straight away, instead of looking unfinished until the whole backup ends.
 - **Find where the photos are now measures everything it passes, without keeping you waiting.** It suggests folders as quickly as before, then measures what it never looks through (system and app folders, hidden ones, Keevoro's own), so where the space goes shows the whole drive. While it measures, **Show the folders now** gives you the suggestions straight away, losing none. Pause now holds a survey too.
 - **A survey of a whole drive takes less of your computer's memory.** It now keeps up to 100,000 folders one by one, rather than half a million, so mapping a very large drive holds under 40 MB instead of over 100 MB. Every size and count is still exact; past that, deeper folders (on a system disk, nearly always inside system and app folders) are counted into the folder above them, which says how many more it holds.
 

@@ -2449,26 +2449,72 @@ main > section > :nth-last-child(2) {
   color: var(--ink);
 }
 
+.speed .stages li {
+  align-items: center;
+}
+
+/* Traffic lights, each with its own shape so colour is never the only
+   sign: a hollow ring to come, a filled amber dot under way, a green
+   disc with a tick when done, red with a cross if it went wrong. */
 .speed .stages .mark {
   flex: none;
-  width: 8px;
-  height: 8px;
+  box-sizing: border-box;
+  width: 14px;
+  height: 14px;
   border-radius: var(--radius-pill);
-  border: 1.5px solid var(--line-strong);
+  border: 2px solid var(--status-waiting);
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 700;
+  color: var(--on-status);
 }
 
 .speed .stages li.is-done .mark {
-  background: var(--pine);
-  border-color: var(--pine);
+  background: var(--status-done);
+  border-color: var(--status-done);
+}
+
+.speed .stages li.is-done .mark::before {
+  content: '';
+  width: 6px;
+  height: 3px;
+  border-left: 2px solid var(--on-status);
+  border-bottom: 2px solid var(--on-status);
+  transform: translateY(-1px) rotate(-45deg);
+}
+
+.speed .stages li.is-now .mark,
+.speed .stages li.is-alongside .mark {
+  background: var(--status-doing);
+  border-color: var(--status-doing);
 }
 
 .speed .stages li.is-now .mark {
-  background: var(--sun);
-  border-color: var(--sun);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-doing) 28%, transparent);
+  animation: stage-doing 1.6s ease-in-out infinite;
 }
 
-.speed .stages li.is-alongside .mark {
-  border-color: var(--sun);
+.speed .stages li.is-problem .mark {
+  background: var(--status-problem);
+  border-color: var(--status-problem);
+}
+
+.speed .stages li.is-problem .mark::before {
+  content: '×';
+}
+
+@keyframes stage-doing {
+  50% {
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--status-doing) 10%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .speed .stages li.is-now .mark {
+    animation: none;
+  }
 }
 
 /* Read aloud, not shown: the mark says it to the eye. */
