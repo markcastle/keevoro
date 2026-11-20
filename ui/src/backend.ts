@@ -274,6 +274,9 @@ export type DestinationRecord = {
   originals: Sending
   previews?: Sending
   indexed?: number
+  /** Keevoro's own unfinished working files cleared there; never anything backed up. */
+  clearedFiles?: number
+  clearedBytes?: number
 }
 
 export type Sending = {
@@ -484,7 +487,7 @@ export interface Backend {
   connectDestination(request: ConnectRequest): Promise<string>
   /**
    * Stops backing up to one destination, by its place in the list, or to
-   * all of them when none is given. Nothing stored there is touched.
+   * all of them when none is given. Nothing backed up there is touched.
    */
   disconnectDestination(at?: number): Promise<void>
   send(): Promise<void>

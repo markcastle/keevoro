@@ -441,15 +441,25 @@ pub fn everywhere(
         let started = std::time::Instant::now();
         let before = keevoro_core::meter::totals().0;
         let mut record = crate::history::DestinationRecord::new(&name);
+        let mut cleared = keevoro_storage_folder::Swept::default();
         let turn = (|| {
             let destination = to.open(world)?;
+            // Working files an earlier backup left behind go first, so the
+            // room they took is free for this one.
+            if let Destination::Folder(folder) = &destination {
+                add_swept(&mut cleared, tidy(folder));
+            }
             if to.target.is_none() {
                 // Learn the name its records are kept under, for counting.
                 let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
                 let (_, target, _) = open(&mut Vec::new(), &runtime, destination.clone())?;
                 crate::connect::note_target(catalog, to, &target)?;
             }
-            originals_first(
+            let folder = match &destination {
+                Destination::Folder(folder) => Some(folder.clone()),
+                Destination::Bucket { .. } => None,
+            };
+            let failed = originals_first(
                 out,
                 catalog,
                 home,
@@ -470,8 +480,18 @@ pub fn everywhere(
                         on_progress(line);
                     }
                 },
-            )
+            );
+            // And again at the end, for anything left by a turn stopped part-way.
+            if let Some(folder) = &folder {
+                add_swept(&mut cleared, tidy(folder));
+            }
+            failed
         })();
+        if cleared.bytes >= NOTICEABLE {
+            writeln!(out, "{}", cleared_words(cleared.bytes))?;
+        }
+        record.cleared_files = cleared.files;
+        record.cleared_bytes = cleared.bytes;
         let stopped = stop.load(Ordering::SeqCst);
         record.seconds = started.elapsed().as_secs();
         record.bytes = keevoro_core::meter::totals().0.saturating_sub(before);
@@ -519,6 +539,62 @@ pub fn everywhere(
         });
     }
     Ok(went)
+}
+
+/// Tells the storage to throw away the uploads in parts this backup
+/// started there for files of this pass that it no longer sends (left
+/// out since, or no longer found), so that their parts stop taking room,
+/// and costing money in cloud storage. One for a file still being sent is
+/// kept: the next backup carries it on. Only uploads this backup itself
+/// started, as its own record remembers them, are ever touched.
+fn abandon_unfinished(
+    runtime: &tokio::runtime::Runtime,
+    store: &dyn MultipartStore,
+    catalog: &Catalog,
+    target: &str,
+    uploads: &[Upload],
+    pass: Kind,
+) -> Result<()> {
+    let this_pass = if pass == Kind::SendingPreviews {
+        "renditions/"
+    } else {
+        "originals/"
+    };
+    let still_sent: std::collections::HashSet<&str> = uploads.iter().map(|u| u.key.as_str()).collect();
+    for (key, id) in catalog.multiparts(target)? {
+        if key.starts_with(this_pass) && !still_sent.contains(key.as_str()) {
+            // Gone already is as good as thrown away.
+            let _ = runtime.block_on(store.abort(&keevoro_storage::UploadId(id)));
+            catalog.set_multipart(target, &key, None)?;
+        }
+    }
+    Ok(())
+}
+
+/// Clearing away less than this is done without a word on the screen.
+const NOTICEABLE: u64 = 10 * 1024 * 1024;
+
+/// What clearing away an earlier backup's unfinished copies says.
+pub fn cleared_words(bytes: u64) -> String {
+    format!(
+        "Cleared {} of unfinished copies left by an earlier backup that was stopped. They were Keevoro's working \
+         files, not part of your backup.",
+        summary::bytes(bytes)
+    )
+}
+
+/// Clears the abandoned working files from a folder destination's
+/// `.keevoro-uploads` (see `keevoro_storage_folder::sweep_working_files`).
+/// A folder that cannot be tidied is no reason to stop a backup, so a
+/// problem here only means nothing was cleared.
+pub fn tidy(folder: &Path) -> keevoro_storage_folder::Swept {
+    keevoro_storage_folder::sweep_working_files(folder, keevoro_storage_folder::ABANDONED_AFTER).unwrap_or_default()
+}
+
+fn add_swept(total: &mut keevoro_storage_folder::Swept, more: keevoro_storage_folder::Swept) {
+    total.files += more.files;
+    total.bytes += more.bytes;
+    total.left = more.left;
 }
 
 /// Everything this backup will do, in order, with how much of each there
@@ -763,6 +839,8 @@ fn run_until(
         tracker.progress(Kind::WritingIndex, Some(pass.to), 1);
         tracker.finish(Kind::WritingIndex, Some(pass.to));
     }
+
+    abandon_unfinished(&runtime, store, catalog, &target, &uploads, pass.sending)?;
 
     let sending = if pass.sending == Kind::SendingPreviews {
         record.previews.get_or_insert_with(Default::default)
@@ -1576,6 +1654,120 @@ mod tests {
         assert_eq!(String::from_utf8(said).unwrap().trim_end(), STOPPED);
         assert!(went.stopped && went.reached == 0 && went.refused.is_none());
         assert!(!to.join("originals").exists(), "nothing was sent");
+    }
+
+    #[test]
+    fn unfinished_copies_an_earlier_backup_left_are_cleared_and_said_and_a_live_one_is_not() {
+        use crate::connect::{self, testing::MemorySecrets, Flags, Saved, World};
+        let (dir, _card, home, catalog) = one_backup();
+        let secrets = MemorySecrets::default();
+        let world = World {
+            secrets: &secrets,
+            ask: &connect::testing::nobody_to_ask,
+        };
+        let to = dir.path().join("usb");
+        let folder = Saved::from_flags(&Flags {
+            to_folder: Some(to.clone()),
+            ..Flags::default()
+        })
+        .unwrap();
+        connect::add(&mut Vec::new(), &catalog, &folder, &world).unwrap();
+        let work = to.join(".keevoro-uploads");
+        std::fs::create_dir_all(work.join("18e866207c01f87097a80")).unwrap();
+        let aged = |path: &Path, bytes: usize, seconds_ago: u64| {
+            std::fs::write(path, vec![7u8; bytes]).unwrap();
+            let file = std::fs::File::options().write(true).open(path).unwrap();
+            file.set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(seconds_ago))
+                .unwrap();
+        };
+        // Parts of a large video from a backup stopped two days ago.
+        aged(
+            &work.join("18e866207c01f87097a80/part-00001"),
+            12 * 1024 * 1024,
+            2 * 86_400,
+        );
+        aged(&work.join("18e866207c01f87097a80/target"), 20, 2 * 86_400);
+        // Another program copying to the same folder this very moment.
+        aged(&work.join("tmp-someone-elses"), 1000, 0);
+
+        let mut said = Vec::new();
+        let went = everywhere(
+            &mut said,
+            &catalog,
+            &home,
+            &world,
+            None,
+            &Stop::default(),
+            &Tracker::new(keevoro_core::estimate::Remembered::default()),
+            &mut |_| {},
+            &mut |_| {},
+        )
+        .unwrap();
+        let said = String::from_utf8(said).unwrap();
+        assert!(said.contains(&cleared_words(12 * 1024 * 1024 + 20)), "{said}");
+        assert!(said.contains("Cleared 12.0 MB of unfinished copies left by an earlier backup that was stopped."));
+        assert!(!work.join("18e866207c01f87097a80").exists());
+        assert!(work.join("tmp-someone-elses").is_file(), "a live copy is never touched");
+        assert_eq!(went.destinations[0].cleared_bytes, 12 * 1024 * 1024 + 20);
+        assert!(to.join("originals").is_dir(), "and the backup itself went ahead");
+    }
+
+    #[test]
+    fn an_upload_in_parts_for_a_file_no_longer_sent_is_thrown_away_and_one_still_wanted_is_kept() {
+        use crate::connect::{self, testing::MemorySecrets, Flags, Saved, World};
+        use keevoro_storage::MultipartStore as _;
+        let (dir, _card, home, catalog) = one_backup();
+        let secrets = MemorySecrets::default();
+        let world = World {
+            secrets: &secrets,
+            ask: &connect::testing::nobody_to_ask,
+        };
+        let to = dir.path().join("usb");
+        let folder = Saved::from_flags(&Flags {
+            to_folder: Some(to.clone()),
+            ..Flags::default()
+        })
+        .unwrap();
+        connect::add(&mut Vec::new(), &catalog, &folder, &world).unwrap();
+        let target = format!("folder:{}", std::fs::canonicalize(&to).unwrap().display());
+        // Two uploads this backup started earlier: one for a file it has
+        // stopped keeping, and one in a part of the backup not sent now.
+        let runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        let store = runtime.block_on(FolderStore::open(&to)).unwrap();
+        let start = |key: &str| {
+            let id = runtime
+                .block_on(store.start(&ObjectKey::new(key).unwrap(), &keevoro_storage::PutOptions::default()))
+                .unwrap();
+            catalog.set_multipart(&target, key, Some(&id.0)).unwrap();
+            id
+        };
+        let gone = start("originals/Left out/big.mov");
+        let elsewhere = start("someone/else.mov");
+
+        everywhere(
+            &mut Vec::new(),
+            &catalog,
+            &home,
+            &world,
+            None,
+            &Stop::default(),
+            &Tracker::new(keevoro_core::estimate::Remembered::default()),
+            &mut |_| {},
+            &mut |_| {},
+        )
+        .unwrap();
+        let left: Vec<String> = catalog
+            .multiparts(&target)
+            .unwrap()
+            .into_iter()
+            .map(|(k, _)| k)
+            .collect();
+        assert_eq!(left, ["someone/else.mov"]);
+        assert!(
+            !to.join(".keevoro-uploads").join(&gone.0).exists(),
+            "its parts are gone"
+        );
+        assert!(to.join(".keevoro-uploads").join(&elsewhere.0).exists());
     }
 
     #[test]

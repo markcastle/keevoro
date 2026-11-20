@@ -176,6 +176,27 @@ impl Settings {
     }
 }
 
+/// Removes settings files half-written by a program that stopped between
+/// writing one and moving it into place, once an hour old, so a crash
+/// leaves nothing behind for good. A younger one may be another program's
+/// at this moment.
+fn clear_half_written(config: &Path) {
+    let Ok(entries) = std::fs::read_dir(config) else { return };
+    for entry in entries.filter_map(|e| e.ok()) {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let stale = entry
+            .metadata()
+            .ok()
+            .filter(std::fs::Metadata::is_file)
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.elapsed().ok())
+            .is_some_and(|age| age >= std::time::Duration::from_secs(60 * 60));
+        if name.starts_with(&format!(".{FILE}.")) && name.ends_with(".part") && stale {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+}
+
 /// Keevoro's list of backups, kept in its settings file. Every change is
 /// saved at once, and every question is answered from the file as it is
 /// now, whichever program last changed it.
@@ -191,6 +212,7 @@ impl Backups {
     /// Keevoro's list, in the settings file in `config`. New backups get
     /// their home folders under `data`.
     pub fn load(config: &Path, data: &Path) -> Self {
+        clear_half_written(config);
         Self {
             config: config.to_path_buf(),
             data: data.to_path_buf(),
@@ -385,6 +407,24 @@ mod tests {
             .collect();
         left.sort();
         assert_eq!(left, [FILE, LOCK], "no temporary file is left");
+    }
+
+    #[test]
+    fn a_settings_file_half_written_by_a_program_that_stopped_is_cleared_once_old() {
+        let dir = tempfile::tempdir().unwrap();
+        let old = dir.path().join(format!(".{FILE}.123.0.part"));
+        let young = dir.path().join(format!(".{FILE}.124.0.part"));
+        for path in [&old, &young] {
+            std::fs::write(path, "{").unwrap();
+        }
+        let file = std::fs::File::options().write(true).open(&old).unwrap();
+        file.set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(7200))
+            .unwrap();
+        std::fs::write(dir.path().join("notes.part"), "mine").unwrap();
+        Backups::load(dir.path(), dir.path());
+        assert!(!old.exists());
+        assert!(young.exists(), "perhaps another program's, this moment");
+        assert!(dir.path().join("notes.part").exists());
     }
 
     #[test]

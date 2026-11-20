@@ -77,7 +77,7 @@ pub fn summary(op: Op, answer: &Value) -> String {
         Op::DestinationsRemove => {
             let gone: Vec<&str> = each(answer).filter_map(Value::as_str).collect();
             format!(
-                "No longer backing up to {}. Nothing stored there was changed.",
+                "No longer backing up to {}. Nothing that was backed up there was changed.",
                 gone.join(" or ")
             )
         }

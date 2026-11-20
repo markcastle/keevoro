@@ -364,7 +364,7 @@ pub fn removed(io: &mut Io<'_>, _: &ArgMatches, gone: &Value) -> Said_ {
     for name in each(gone).filter_map(Value::as_str) {
         writeln!(
             io.out,
-            "No longer backing up to {name}. Nothing stored there was changed."
+            "No longer backing up to {name}. Nothing that was backed up there was changed."
         )?;
     }
     Ok(Code::Worked)
@@ -724,6 +724,32 @@ pub fn kind_removed(io: &mut Io<'_>, _: &ArgMatches, kind: &Value) -> Said_ {
         "Took .{} off the list. Nothing already found or backed up is taken away.",
         s(kind, "ending")
     )?;
+    Ok(Code::Worked)
+}
+
+pub fn tidied(io: &mut Io<'_>, _: &ArgMatches, tidied: &Value) -> Said_ {
+    let freed = b(tidied, "bytes");
+    if freed > 0 {
+        writeln!(
+            io.out,
+            "Cleared {} of unfinished copies from {}. They were Keevoro's working files; nothing that was backed up was touched.",
+            bytes(freed),
+            s(tidied, "folder")
+        )?;
+    } else {
+        writeln!(
+            io.out,
+            "There were no unfinished copies to clear in {}.",
+            s(tidied, "folder")
+        )?;
+    }
+    if n(tidied, "left") > 0 {
+        writeln!(
+            io.out,
+            "Left {} in its working folder: written to in the last hour, so perhaps still in use, or not Keevoro's. Try again later.",
+            count(n(tidied, "left"), "thing")
+        )?;
+    }
     Ok(Code::Worked)
 }
 

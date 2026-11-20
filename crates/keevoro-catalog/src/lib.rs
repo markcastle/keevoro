@@ -917,6 +917,15 @@ impl Catalog {
         Ok(())
     }
 
+    /// Every upload in parts remembered for a target: (key, upload id).
+    pub fn multiparts(&self, target: &str) -> Result<Vec<(String, String)>> {
+        let mut q = self
+            .conn
+            .prepare("SELECT key, upload_id FROM multipart WHERE target = ?1 ORDER BY key")?;
+        let rows = q.query_map([target], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
     pub fn multipart(&self, target: &str, key: &str) -> Result<Option<String>> {
         Ok(self
             .conn

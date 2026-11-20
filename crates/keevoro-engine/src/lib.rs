@@ -39,6 +39,7 @@ use keevoro_catalog::Catalog;
 use keevoro_core::MediaKind;
 use keevoro_media::VideoTools;
 use keevoro_scan::{scan, FoundItem, ScanOptions, ScanProgress, ScanReport};
+pub use keevoro_storage_folder::{sweep_working_files, Swept, ABANDONED_AFTER};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 

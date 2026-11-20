@@ -2516,7 +2516,7 @@ function SendPanel(props: {
                       className="button small"
                       onClick={() => remove(at)}
                       aria-label={`Stop backing up to ${to.name}`}
-                      title="Takes it off this backup. Nothing stored there is deleted."
+                      title="Takes it off this backup. Nothing backed up there is deleted."
                     >
                       Remove
                     </button>
@@ -2671,7 +2671,7 @@ function SendPanel(props: {
                 <button
                   className="button"
                   onClick={() => remove()}
-                  title="Stops backing up here, so you can choose somewhere else. Nothing stored there is deleted."
+                  title="Stops backing up here, so you can choose somewhere else. Nothing backed up there is deleted."
                 >
                   Back up somewhere else
                 </button>
@@ -2990,6 +2990,13 @@ function RunDetailPanel(props: { sent: Sent }) {
             {to.reached
               ? `: ${size(to.bytes)} in ${took(to.seconds)}${to.indexed !== undefined ? `, its index lists ${count(to.indexed, 'file')}` : ''}.`
               : `: couldn’t be backed up to. ${to.problem ?? ''}`}
+            {!!to.clearedBytes && (
+              <>
+                {' '}
+                Cleared {size(to.clearedBytes)} of unfinished copies left by an earlier backup that was stopped. They were
+                Keevoro’s working files, not part of your backup.
+              </>
+            )}
           </li>
         ))}
       </ul>

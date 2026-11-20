@@ -111,6 +111,17 @@ pub struct DestinationRecord {
     /// How many files the index written there lists.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub indexed: Option<usize>,
+    /// Keevoro's own unfinished working files, left there by an earlier
+    /// backup that was stopped, that were cleared away: never anything
+    /// that was backed up.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub cleared_files: u64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub cleared_bytes: u64,
+}
+
+fn is_zero(n: &u64) -> bool {
+    *n == 0
 }
 
 impl DestinationRecord {

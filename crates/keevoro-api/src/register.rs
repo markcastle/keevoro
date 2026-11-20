@@ -170,8 +170,11 @@ register! {
         "Checks a place works, then adds it. A folder, or cloud storage with its keys",
         changes: Always, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     DestinationsRemove = "destinations.remove",
-        "Takes a place off the backup. Nothing stored there is touched",
+        "Takes a place off the backup. Nothing backed up there is touched",
         changes: Always, job: false, command_line: true, agents: Agents::Yes, implemented: true;
+    DestinationsTidy = "destinations.tidy",
+        "Clears Keevoro's unfinished copies from a backup folder. Nothing backed up is touched",
+        changes: Always, job: false, command_line: true, agents: Agents::No, implemented: true;
     DestinationsRoom = "destinations.room",
         "What is waiting for each place, and whether it has the room",
         changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
@@ -302,6 +305,7 @@ impl Op {
                 | Op::KeevoroUpdate
                 | Op::KeevoroReset
                 | Op::AgentsAccess
+                | Op::DestinationsTidy
                 | Op::FileKindsList
                 | Op::FileKindsAdd
                 | Op::FileKindsChange
@@ -376,6 +380,7 @@ impl Op {
             Op::KeevoroSettings => schema::<SettingsRequest>(),
             Op::AgentsAccess => schema::<Agents>(),
             Op::BackupHistory => schema::<HistoryRequest>(),
+            Op::DestinationsTidy => schema::<crate::keevoro::TidyRequest>(),
             Op::FileKindsAdd => schema::<AddFileKindRequest>(),
             Op::FileKindsChange => schema::<ChangeFileKindRequest>(),
             Op::FileKindsRemove => schema::<FileKindRequest>(),
@@ -522,7 +527,7 @@ impl Op {
             Op::DestinationsRemove => (
                 "remove_destination",
                 "Stops backing up to one place, by its position in list_destinations (counting from 0), or to every \
-                 place with all. Nothing stored there is deleted.",
+                 place with all. Nothing backed up there is deleted; only Keevoro's own unfinished copies are cleared.",
             ),
             Op::DestinationsRoom => (
                 "check_room",
@@ -620,6 +625,7 @@ impl Op {
             | Op::KeevoroLog
             | Op::KeevoroReset
             | Op::JobsFollow
+            | Op::DestinationsTidy
             | Op::FileKindsAdd
             | Op::FileKindsChange
             | Op::FileKindsRemove
@@ -675,7 +681,7 @@ mod tests {
 
     #[test]
     fn the_register_has_every_operation_in_the_plan() {
-        assert_eq!(Op::ALL.len(), 47);
+        assert_eq!(Op::ALL.len(), 48);
         // Each entry is the one for its own operation.
         for op in Op::ALL {
             assert_eq!(op.entry().op, *op);
@@ -730,8 +736,8 @@ mod tests {
             .map(|e| e.op)
             .collect();
         // Forgetting a backup, changing settings (the kinds of file looked
-        // for among them), installing an update, resetting, and changing an
-        // agent's own permissions.
+        // for among them), installing an update, resetting, changing an
+        // agent's own permissions, and clearing working files from a folder.
         let plan: HashSet<Op> = [
             Op::BackupsForget,
             Op::KeevoroSettings,
@@ -742,6 +748,7 @@ mod tests {
             Op::FileKindsChange,
             Op::FileKindsRemove,
             Op::FileKindsReset,
+            Op::DestinationsTidy,
         ]
         .into();
         assert_eq!(kept_from_agents, plan);

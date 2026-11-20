@@ -122,6 +122,42 @@ impl Drop for Turn<'_> {
 
 static PICTURES: Turns = Turns::new(3);
 
+/// The most room pictures kept for quick showing may take. Past it the
+/// ones not looked at for longest are removed; any can be made again.
+pub const CACHE_LIMIT: u64 = 1024 * 1024 * 1024;
+
+/// Keeps the pictures in `cache` within `limit`, removing those not
+/// written for longest first. Only plain `.webp` files directly in the
+/// cache folder, which Keevoro made, are ever removed. Answers the bytes
+/// freed.
+pub fn trim_cache(cache: &Path, limit: u64) -> u64 {
+    let Ok(entries) = std::fs::read_dir(cache) else {
+        return 0;
+    };
+    let mut pictures: Vec<(std::time::SystemTime, u64, std::path::PathBuf)> = entries
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().is_some_and(|x| x == "webp"))
+        .filter_map(|e| {
+            let meta = std::fs::symlink_metadata(e.path()).ok()?;
+            meta.is_file()
+                .then(|| (meta.modified().unwrap_or(std::time::UNIX_EPOCH), meta.len(), e.path()))
+        })
+        .collect();
+    let mut total: u64 = pictures.iter().map(|p| p.1).sum();
+    pictures.sort();
+    let mut freed = 0;
+    for (_, bytes, path) in pictures {
+        if total <= limit {
+            break;
+        }
+        if std::fs::remove_file(&path).is_ok() {
+            total -= bytes;
+            freed += bytes;
+        }
+    }
+    freed
+}
+
 /// Standard Base64 with padding. A few lines here rather than a crate for
 /// one use.
 fn base64(bytes: &[u8]) -> String {
@@ -180,6 +216,26 @@ mod tests {
     use super::*;
     use crate::backup::tests::one_backup;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn the_cache_is_kept_within_its_limit_oldest_first_and_only_pictures_are_removed() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("previews");
+        std::fs::create_dir_all(&cache).unwrap();
+        for (n, age) in [(1, 300), (2, 200), (3, 100)] {
+            let path = cache.join(format!("{n}.webp"));
+            std::fs::write(&path, vec![0u8; 1000]).unwrap();
+            let file = std::fs::File::options().write(true).open(&path).unwrap();
+            file.set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(age))
+                .unwrap();
+        }
+        std::fs::write(cache.join("notes.txt"), vec![0u8; 5000]).unwrap();
+        assert_eq!(trim_cache(&cache, 2500), 1000);
+        assert!(!cache.join("1.webp").exists() && cache.join("2.webp").is_file() && cache.join("3.webp").is_file());
+        assert!(cache.join("notes.txt").is_file(), "only Keevoro's pictures");
+        assert_eq!(trim_cache(&cache, 2500), 0);
+        assert_eq!(trim_cache(&dir.path().join("none"), 0), 0);
+    }
 
     #[test]
     fn a_picture_is_made_once_and_kept_in_the_cache() {

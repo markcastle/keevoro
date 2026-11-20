@@ -188,6 +188,9 @@ pub fn run_in_full(sent: &Sent) -> Vec<String> {
             ));
         }
         lines.push(format!("{}.", line.trim_end_matches('.')));
+        if at.cleared_bytes > 0 {
+            lines.push(format!("    {}", keevoro_engine::send::cleared_words(at.cleared_bytes)));
+        }
     }
 
     if !detail.summary.is_empty() {
@@ -278,6 +281,8 @@ mod a_run_in_full {
                         ..Sending::default()
                     }),
                     indexed: Some(11_243),
+                    cleared_files: 583,
+                    cleared_bytes: 15 * GB,
                 }],
                 stages: vec![stage(Kind::Placing, None, 11_245, 40), sending],
                 duplicates: 312,
@@ -311,6 +316,7 @@ mod a_run_in_full {
             "21,792 preview files sent (3.8 GB).",
             ", across a network: 720.6 GB in about 22 hours 50 minutes, its index lists 11,243 files.",
             "  Safely backed up 11,243 files (716.8 GB).",
+            "    Cleared 15.0 GB of unfinished copies left by an earlier backup that was stopped. They were Keevoro's working files, not part of your backup.",
         ] {
             assert!(lines.contains(said), "{said}\n---\n{lines}");
         }

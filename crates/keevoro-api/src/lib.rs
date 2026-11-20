@@ -369,6 +369,10 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
             };
             answer(keevoro.remove_destination(&open()?, at)?)
         }
+        Op::DestinationsTidy => {
+            let r: keevoro::TidyRequest = read(request)?;
+            answer(keevoro.tidy_folder(Path::new(&r.place))?)
+        }
         Op::DestinationsRoom => {
             read::<Nothing>(request)?;
             answer(open()?.room()?)

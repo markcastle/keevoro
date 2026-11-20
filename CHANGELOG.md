@@ -14,6 +14,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- **Keevoro no longer leaves unfinished copies lying about in your backup folders.** A backup that was stopped, or lost its drive part-way, could leave Keevoro's half-made copies in a hidden working folder called `.keevoro-uploads`, sometimes many gigabytes, and nothing ever cleared them. Now each backup to that folder clears them away as it starts and ends, and says so ("Cleared 15.0 GB of unfinished copies left by an earlier backup that was stopped"). They were Keevoro's working files, never part of your backup: nothing that was backed up is touched, and anything written to in the last hour is left alone in case another backup is using it. Taking a folder off a backup clears it too, and for a folder no backup goes to any more, `keevoro tidy "D:\Backups"` does it.
+- **Cloud storage is no longer left holding unfinished uploads** for files a backup has stopped sending, which took room and could cost money.
+- **The pictures Keevoro keeps for showing photos quickly now take at most 1 GB** on your computer, the oldest cleared first; they are made again when needed.
 - **Pause, Carry on and Stop now always reach a backup another Keevoro program is running, on Windows too.** Pausing from the command line while the app was backing up, say, could on rare occasions go unheard, because Windows sometimes holds a just-written file for a moment (while a virus checker looks at it) and Keevoro gave up on it instead of trying again.
 
 ## [0.32.0] - 2026-11-20

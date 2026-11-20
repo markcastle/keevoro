@@ -494,6 +494,16 @@ pub static ROWS: &[Row] = &[
         show: show::removed,
     },
     Row {
+        words: &["tidy"],
+        ops: &[Op::DestinationsTidy],
+        about: Some(
+            "Clears away the unfinished copies an earlier backup that was stopped left in a backup folder (Keevoro's working folder, .keevoro-uploads), whether or not a backup still goes there. Nothing that was backed up is touched. A backup to the folder does this by itself.",
+        ),
+        args: |c| c.arg(arg("folder", "The backup folder").required(true)),
+        ask: |_, m, _| Ok((Op::DestinationsTidy, json!({ "place": required(m, "folder") }))),
+        show: show::tidied,
+    },
+    Row {
         words: &["room"],
         ops: &[Op::DestinationsRoom],
         about: None,

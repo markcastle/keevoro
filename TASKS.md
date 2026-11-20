@@ -348,6 +348,14 @@ Before building
 - [x] Each backup's entry in the history keeps everything measured: stages with time and speed, what each destination was sent and could not be, previews, how it ended, who started it, and what it said
 - [x] Each row opens in place in the app; `keevoro history N` and the API give the same, and an agent can read it
 
+### A good guest on people's computers
+
+- [x] Clear the unfinished copies a stopped backup leaves in a backup folder, at the start and end of each backup, when a folder is taken off a backup, and on request (`keevoro tidy`)
+- [x] Abort uploads in parts at cloud storage for files a backup no longer sends
+- [x] Keep the pictures cache within 1 GB, and clear settings files half-written by a program that stopped
+- [ ] When cloud storage is taken off a backup, abort the unfinished uploads in parts this backup started there. Not done yet: taking it off forgets its keys at once, so the storage cannot be asked; doing it needs the removal to open the storage first, which may be offline. Until then they are aborted only while the destination is still part of the backup
+- [ ] List and clear uploads in parts at cloud storage that this backup started but its record no longer knows (ListMultipartUploads under its own keys). Its record saves each upload before any part is sent, so this only matters for a record that was lost or reset
+
 ### Scheduled and repeat backups
 
 Today a backup runs when someone presses "Back up now". These make it run by itself, which is what turns a one-off rescue into something that keeps photos safe as new ones are taken.

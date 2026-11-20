@@ -558,6 +558,123 @@ fn invalid(key: &ObjectKey, reason: &'static str) -> StorageError {
     }
 }
 
+/// How long a working file must have been left untouched before it is
+/// taken to be abandoned. A copy in progress writes to its file every few
+/// seconds, even over a slow network, so an hour without a change means
+/// nobody is writing it: not this program, nor another on this computer or
+/// another one using the same folder.
+pub const ABANDONED_AFTER: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
+/// What tidying a folder's working files did.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Swept {
+    /// Abandoned working files removed, and their size.
+    pub files: u64,
+    pub bytes: u64,
+    /// Things left in the working folder: written to within the last hour
+    /// (someone may be using them), links, or anything Keevoro does not
+    /// recognise as its own.
+    pub left: u64,
+}
+
+/// Removes the working files under `root`'s `.keevoro-uploads` folder that
+/// nobody can ever use again, and the working folder itself once it is
+/// empty. Nothing outside that folder is ever touched: not a backed-up
+/// file, not anything the person put there.
+///
+/// What is there, and what becomes of it:
+///
+/// - `tmp-…`: a whole file being copied, or one whose copy was stopped,
+///   crashed or lost its drive part-way. Nothing resumes a part-copied
+///   file (the next backup copies it afresh), so once untouched for
+///   [`ABANDONED_AFTER`] it is removed.
+/// - a folder named in hexadecimal holding `target` and `part-…` files:
+///   a large file sent in parts, which versions of Keevoro before 0.22
+///   did for folders. Folders are now always sent whole files, so no
+///   version that still runs resumes these; once nothing in one has
+///   changed for [`ABANDONED_AFTER`], it is removed.
+/// - anything else, or a link: left alone, and counted in [`Swept::left`].
+///
+/// The age rule is what keeps a live copy safe when another program, or
+/// another computer, is backing up to the same folder at this moment: its
+/// files are being written, so they are young. Every path is checked to
+/// lie inside the working folder, by where it really leads, before it is
+/// removed, and links are never followed.
+pub fn sweep_working_files(root: &Path, abandoned_after: std::time::Duration) -> std::io::Result<Swept> {
+    let mut swept = Swept::default();
+    let work = root.join(WORK_DIR);
+    let meta = match std::fs::symlink_metadata(&work) {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(swept),
+        Err(e) => return Err(e),
+    };
+    if !meta.is_dir() || meta.file_type().is_symlink() {
+        // Not a folder Keevoro made: it is somebody else's.
+        swept.left += 1;
+        return Ok(swept);
+    }
+    let inside = std::fs::canonicalize(&work)?;
+    let old_enough = |modified: SystemTime| {
+        SystemTime::now()
+            .duration_since(modified)
+            .is_ok_and(|age| age >= abandoned_after)
+    };
+    for entry in std::fs::read_dir(&work)? {
+        let entry = entry?;
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let meta = std::fs::symlink_metadata(&path)?;
+        let ours = std::fs::canonicalize(&path).is_ok_and(|real| real.parent() == Some(inside.as_path()));
+        if meta.file_type().is_symlink() || !ours {
+            swept.left += 1;
+        } else if meta.is_file() && name.starts_with("tmp-") {
+            if old_enough(meta.modified()?) {
+                std::fs::remove_file(&path)?;
+                swept.files += 1;
+                swept.bytes += meta.len();
+            } else {
+                swept.left += 1;
+            }
+        } else if meta.is_dir() && !name.is_empty() && name.chars().all(|c| c.is_ascii_hexdigit()) {
+            sweep_upload_in_parts(&path, &inside, &old_enough, &mut swept)?;
+        } else {
+            swept.left += 1;
+        }
+    }
+    // Empty now: the working folder goes too. A copy starting this moment
+    // makes it again.
+    let _ = std::fs::remove_dir(&work);
+    Ok(swept)
+}
+
+/// One upload in parts, removed whole once nothing in it has changed for
+/// long enough, and only if it holds nothing but its own plain files.
+fn sweep_upload_in_parts(
+    dir: &Path,
+    inside: &Path,
+    old_enough: &dyn Fn(SystemTime) -> bool,
+    swept: &mut Swept,
+) -> std::io::Result<()> {
+    let mut files = Vec::new();
+    for entry in std::fs::read_dir(dir)? {
+        let path = entry?.path();
+        let meta = std::fs::symlink_metadata(&path)?;
+        let ours = std::fs::canonicalize(&path).is_ok_and(|real| real.parent().and_then(Path::parent) == Some(inside));
+        if !meta.is_file() || !ours || !old_enough(meta.modified()?) {
+            // A link, a folder, or a part written within the hour.
+            swept.left += 1;
+            return Ok(());
+        }
+        files.push((path, meta.len()));
+    }
+    for (path, bytes) in files {
+        std::fs::remove_file(&path)?;
+        swept.files += 1;
+        swept.bytes += bytes;
+    }
+    std::fs::remove_dir(dir)
+}
+
 fn not_found_or(e: std::io::Error, key: &ObjectKey) -> StorageError {
     if e.kind() == ErrorKind::NotFound {
         StorageError::NotFound(key.to_string())
@@ -855,5 +972,152 @@ mod tests {
         let second = s.list_page("p/", first.next).await.unwrap();
         assert_eq!(second.objects.len(), 5);
         assert!(second.next.is_none());
+    }
+
+    mod sweeping {
+        use super::super::*;
+        use std::fs;
+        use std::time::Duration;
+
+        const HOURS_AGO: Duration = Duration::from_secs(2 * 60 * 60);
+
+        fn write_aged(path: &Path, bytes: &[u8], age: Duration) {
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, bytes).unwrap();
+            let file = fs::File::options().write(true).open(path).unwrap();
+            file.set_modified(SystemTime::now() - age).unwrap();
+        }
+
+        /// A backup folder with real files, as a backup leaves it.
+        fn backup() -> (tempfile::TempDir, PathBuf) {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path().join("Backup");
+            write_aged(&root.join("originals/2019/IMG_0001.jpg"), b"a photo", HOURS_AGO);
+            write_aged(&root.join("index/gallery.json"), b"{}", HOURS_AGO);
+            (dir, root)
+        }
+
+        fn backed_up_untouched(root: &Path) {
+            assert_eq!(fs::read(root.join("originals/2019/IMG_0001.jpg")).unwrap(), b"a photo");
+            assert_eq!(fs::read(root.join("index/gallery.json")).unwrap(), b"{}");
+        }
+
+        #[test]
+        fn abandoned_copies_and_parts_are_cleared_and_the_working_folder_goes_when_empty() {
+            let (_dir, root) = backup();
+            let work = root.join(WORK_DIR);
+            write_aged(&work.join("tmp-18e8662"), &[1u8; 1000], HOURS_AGO);
+            // An upload in parts left by an older version: 2 parts and its record.
+            write_aged(
+                &work.join("18e866207c01f87097a80/target"),
+                b"1\noriginals/big.mov",
+                HOURS_AGO,
+            );
+            write_aged(&work.join("18e866207c01f87097a80/part-00001"), &[2u8; 3000], HOURS_AGO);
+            write_aged(
+                &work.join("18e866207c01f87097a80/part-00002.tmp"),
+                &[3u8; 500],
+                HOURS_AGO,
+            );
+
+            let swept = sweep_working_files(&root, ABANDONED_AFTER).unwrap();
+            assert_eq!(
+                swept,
+                Swept {
+                    files: 4,
+                    bytes: 1000 + 3000 + 500 + 19,
+                    left: 0
+                }
+            );
+            assert!(!work.exists(), "the empty working folder is removed");
+            backed_up_untouched(&root);
+            assert_eq!(
+                sweep_working_files(&root, ABANDONED_AFTER).unwrap(),
+                Swept::default(),
+                "nothing twice"
+            );
+        }
+
+        #[test]
+        fn a_copy_another_program_is_making_right_now_is_left_alone() {
+            let (_dir, root) = backup();
+            let work = root.join(WORK_DIR);
+            // Written a moment ago: live, whoever is writing it.
+            write_aged(&work.join("tmp-live"), &[1u8; 100], Duration::ZERO);
+            write_aged(&work.join("abc123/target"), b"1\noriginals/big.mov", HOURS_AGO);
+            write_aged(&work.join("abc123/part-00001"), &[2u8; 100], HOURS_AGO);
+            write_aged(&work.join("abc123/part-00002"), &[2u8; 100], Duration::ZERO);
+            write_aged(&work.join("tmp-old"), &[1u8; 50], HOURS_AGO);
+
+            let swept = sweep_working_files(&root, ABANDONED_AFTER).unwrap();
+            assert_eq!((swept.files, swept.bytes, swept.left), (1, 50, 2));
+            assert!(work.join("tmp-live").is_file());
+            assert!(
+                work.join("abc123/part-00001").is_file(),
+                "an upload still being sent is kept whole"
+            );
+            backed_up_untouched(&root);
+        }
+
+        #[test]
+        fn what_keevoro_does_not_recognise_is_left_where_it_is() {
+            let (_dir, root) = backup();
+            let work = root.join(WORK_DIR);
+            write_aged(&work.join("notes.txt"), b"someone's", HOURS_AGO);
+            write_aged(&work.join("Holiday/IMG_1.jpg"), b"someone's", HOURS_AGO);
+            let swept = sweep_working_files(&root, ABANDONED_AFTER).unwrap();
+            assert_eq!((swept.files, swept.left), (0, 2));
+            assert!(work.join("notes.txt").is_file() && work.join("Holiday/IMG_1.jpg").is_file());
+        }
+
+        #[test]
+        fn a_folder_with_no_working_files_is_fine() {
+            let (_dir, root) = backup();
+            assert_eq!(sweep_working_files(&root, ABANDONED_AFTER).unwrap(), Swept::default());
+            assert_eq!(
+                sweep_working_files(&root.join("not there"), ABANDONED_AFTER).unwrap(),
+                Swept::default()
+            );
+        }
+
+        #[cfg(unix)]
+        #[test]
+        fn links_are_never_followed_out_of_the_working_folder() {
+            let (dir, root) = backup();
+            let work = root.join(WORK_DIR);
+            let elsewhere = dir.path().join("Elsewhere");
+            write_aged(&elsewhere.join("tmp-precious"), b"keep", HOURS_AGO);
+            write_aged(&elsewhere.join("part-00001"), b"keep", HOURS_AGO);
+            fs::create_dir_all(&work).unwrap();
+            std::os::unix::fs::symlink(elsewhere.join("tmp-precious"), work.join("tmp-link")).unwrap();
+            std::os::unix::fs::symlink(&elsewhere, work.join("abcdef")).unwrap();
+            let swept = sweep_working_files(&root, ABANDONED_AFTER).unwrap();
+            assert_eq!((swept.files, swept.left), (0, 2));
+            assert_eq!(fs::read(elsewhere.join("tmp-precious")).unwrap(), b"keep");
+            assert_eq!(fs::read(elsewhere.join("part-00001")).unwrap(), b"keep");
+
+            // A working folder that is itself a link leads somewhere else:
+            // nothing in it is Keevoro's to remove.
+            fs::remove_dir_all(&work).unwrap();
+            std::os::unix::fs::symlink(&elsewhere, &work).unwrap();
+            let swept = sweep_working_files(&root, ABANDONED_AFTER).unwrap();
+            assert_eq!((swept.files, swept.left), (0, 1));
+            assert!(elsewhere.join("tmp-precious").is_file());
+        }
+
+        #[cfg(unix)]
+        #[test]
+        fn a_link_inside_an_upload_keeps_the_whole_upload() {
+            let (dir, root) = backup();
+            let work = root.join(WORK_DIR);
+            let outside = dir.path().join("outside.bin");
+            write_aged(&outside, b"keep", HOURS_AGO);
+            write_aged(&work.join("abc/target"), b"1\nx", HOURS_AGO);
+            std::os::unix::fs::symlink(&outside, work.join("abc/part-00001")).unwrap();
+            let swept = sweep_working_files(&root, ABANDONED_AFTER).unwrap();
+            assert_eq!((swept.files, swept.left), (0, 1));
+            assert_eq!(fs::read(&outside).unwrap(), b"keep");
+            assert!(work.join("abc/target").is_file());
+        }
     }
 }
