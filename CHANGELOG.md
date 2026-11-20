@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.33.0] - 2026-11-20
+
 ### Added
 
 - **You can choose the kinds of file Keevoro looks for.** In Settings, under the new Advanced section, a table lists every ending Keevoro looks for (.jpg, .mov, .cr2 and so on), whether each is a photo or a video, whether it came with Keevoro or you added it, and a switch to look for it or not. Add an ending your camera uses that Keevoro does not know, such as .insp, and its files are found and backed up like any other. If Keevoro cannot open them, they are still copied and checked exactly, and simply show "No preview". The kinds Keevoro comes with can be switched off, or made photos or videos, and "Put back the built-in list" brings them all back. Changes count from the next time a source is looked through, and switching a kind off never takes away anything already found or backed up. The same is there from the command line as `keevoro kinds`, and an AI app can see the list but not change it.
@@ -537,7 +541,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.32.0...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.33.0...HEAD
+[0.33.0]: https://github.com/markcastle/keevoro/compare/v0.32.0...v0.33.0
 [0.32.0]: https://github.com/markcastle/keevoro/compare/v0.31.0...v0.32.0
 [0.31.0]: https://github.com/markcastle/keevoro/compare/v0.30.1...v0.31.0
 [0.30.1]: https://github.com/markcastle/keevoro/compare/v0.30.0...v0.30.1
