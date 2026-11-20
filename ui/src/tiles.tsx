@@ -13,6 +13,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import { scrollerOf } from './scroller'
 
 /** One section of the grid: a heading and the items under it. */
 export type TileSection<T> = {
@@ -63,7 +64,7 @@ export function VirtualTiles<T>(props: {
   const look = useCallback(() => {
     const el = box.current
     if (!el) return
-    const scroller = el.closest('main')
+    const scroller = scrollerOf(el)
     const view = scroller ? scroller.getBoundingClientRect() : { top: 0, height: window.innerHeight }
     const top = el.getBoundingClientRect().top - view.top
     const height = view.height
@@ -74,12 +75,13 @@ export function VirtualTiles<T>(props: {
   }, [])
 
   useEffect(() => {
-    const scroller = box.current?.closest('main') ?? window
+    // Which box scrolls changes with the window's width, so every scroll
+    // is heard, whichever box it is in.
     look()
-    scroller.addEventListener('scroll', look, { passive: true })
+    document.addEventListener('scroll', look, { capture: true, passive: true })
     window.addEventListener('resize', look)
     return () => {
-      scroller.removeEventListener('scroll', look)
+      document.removeEventListener('scroll', look, { capture: true })
       window.removeEventListener('resize', look)
     }
   }, [look])

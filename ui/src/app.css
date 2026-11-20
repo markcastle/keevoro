@@ -3394,11 +3394,16 @@ fieldset.wants [role='status'] {
    Below this width the side bar would leave the page too little room, so
    it becomes a band across the top: the logo and the backup's name, the
    three steps side by side, and the links below them. Nothing changes
-   order or name, so a person who knows the wide window knows this one. */
+   order or name, so a person who knows the wide window knows this one.
+   The band scrolls away with the page rather than staying put: held at
+   the top it would take a third of a small window, and the page's
+   heading would slide under it as soon as the page moved. */
 @media (max-width: 640px) {
   .app {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
+    overflow-x: hidden;
+    overflow-y: auto;
   }
 
   .sidebar {
@@ -3454,6 +3459,7 @@ fieldset.wants [role='status'] {
 
   main {
     padding: var(--space-5) 16px 0;
+    overflow-y: visible;
   }
 }
 

@@ -62,12 +62,38 @@ const spills = () =>
     }
     return found.slice(0, 5)
   })
+// In a narrow window the side bar is a band across the top. Says how the
+// page's first heading is covered by it, if it is: their boxes overlap.
+// A heading scrolled away above the window is not covered.
+const headingUnderBand = () =>
+  page.evaluate(() => {
+    const band = document.querySelector('.sidebar')?.getBoundingClientRect()
+    const heading = document.querySelector('main h1, main h2')?.getBoundingClientRect()
+    if (!band || !heading) return null
+    const overlap = heading.top < band.bottom && heading.bottom > band.top && heading.left < band.right && heading.right > band.left
+    return overlap ? `the heading (${Math.round(heading.top)} to ${Math.round(heading.bottom)}) is under the band (to ${Math.round(band.bottom)})` : null
+  })
+// The same, with the page as it is and scrolled a little way down, which is
+// where a heading would slide under a band that stayed put.
+const headingClearOfBand = async (where) => {
+  assert.equal(await headingUnderBand(), null, where)
+  const scrolled = await page.evaluate(() =>
+    [document.scrollingElement, ...document.querySelectorAll('.app, main')].map((el) => {
+      const was = el.scrollTop
+      el.scrollTop = was + 60
+      return was
+    }),
+  )
+  assert.equal(await headingUnderBand(), null, `${where}, scrolled down a little`)
+  await page.evaluate((was) => [document.scrollingElement, ...document.querySelectorAll('.app, main')].forEach((el, n) => (el.scrollTop = was[n])), scrolled)
+}
 // Checks the screen as it is at narrow widths, then puts the window back.
 const fitsNarrow = async (screen) => {
   for (const width of [400, 560]) {
     await page.setViewportSize({ width, height: 800 })
     await page.waitForTimeout(50)
     assert.deepEqual(await spills(), [], `${screen} at ${width} pixels wide spills sideways`)
+    await headingClearOfBand(`${screen} at ${width} pixels wide`)
   }
   await page.setViewportSize({ width: 1440, height: 900 })
 }
@@ -873,6 +899,7 @@ try {
   await fitsNarrow('Backing up')
   await page.setViewportSize({ width: 400, height: 800 })
   await page.getByRole('heading', { name: /^Backing up to the folder/ }).scrollIntoViewIfNeeded()
+  assert.equal(await headingUnderBand(), null, 'the backup screen’s heading is not under the band')
   await shot('11b-backup-400')
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.getByRole('button', { name: 'Settings' }).click()

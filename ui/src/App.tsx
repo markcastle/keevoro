@@ -21,6 +21,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import type { ReactNode } from 'react'
 
 import { backend } from './backend'
+import { scrollerOf } from './scroller'
 import type {
   Acceleration,
   Destination,
@@ -126,12 +127,13 @@ export function App() {
   const main = useRef<HTMLElement>(null)
   const wasAt = useRef(0)
   const show = (next: Overlay) => {
-    if (overlay === null) wasAt.current = main.current?.scrollTop ?? 0
+    if (overlay === null) wasAt.current = scrollerOf(main.current)?.scrollTop ?? 0
     setOverlay(next)
   }
   useLayoutEffect(() => {
-    if (!main.current) return
-    main.current.scrollTop = overlay === null ? wasAt.current : 0
+    const scroller = scrollerOf(main.current)
+    if (!scroller) return
+    scroller.scrollTop = overlay === null ? wasAt.current : 0
   }, [overlay])
 
   const refresh = useCallback((from: Backend) => from.discover().then(setFound).catch(report), [report])
@@ -748,7 +750,7 @@ function FindScreen(props: {
   const done = new Set(found?.sources.map((s) => s.root.replace(/[\\/]+$/, '')))
   const removable = places?.filter((p) => p.removable) ?? []
   const fixed = places?.filter((p) => !p.removable) ?? []
-  const scroller = () => document.querySelector('main')
+  const scroller = () => scrollerOf(document.querySelector('main'))
 
   if (inside) {
     return (
