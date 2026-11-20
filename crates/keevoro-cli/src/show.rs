@@ -135,6 +135,9 @@ pub fn sources(io: &mut Io<'_>, _: &ArgMatches, list: &Value) -> Said_ {
             many => format!("{} photos and videos", thousands(many)),
         };
         writeln!(io.out, "   {items} ({})", bytes(b(source, "bytes")))?;
+        if let Some(online) = source.get("onlineOnlySaid").and_then(Value::as_str) {
+            writeln!(io.out, "   {online}")?;
+        }
     }
     Ok(Code::Worked)
 }
@@ -812,6 +815,9 @@ pub fn last_word(io: &mut Io<'_>, last: Option<&Said>) -> std::io::Result<()> {
                     e.unreadable_names.join(", ")
                 )?;
             }
+            if let Some(online) = &e.online_only_said {
+                writeln!(io.out, "{online}")?;
+            }
             for left in &e.left_out {
                 writeln!(io.out, "{}", left.said)?;
             }
@@ -843,6 +849,9 @@ pub fn last_word(io: &mut Io<'_>, last: Option<&Said>) -> std::io::Result<()> {
                     photos_and_videos(hint.photos, hint.videos),
                     hint.folder
                 )?;
+                if let Some(online) = &hint.online_only_said {
+                    writeln!(io.out, "{:>9}  {online}", "")?;
+                }
             }
             if found.unreadable > 0 {
                 writeln!(

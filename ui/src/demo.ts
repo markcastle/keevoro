@@ -98,6 +98,10 @@ const FOUND: (() => Collection)[] = [
   () => collection('Undated', '', 9, 0),
 ]
 
+/** As Keevoro says it of files only in OneDrive, passed over unopened. */
+const onlineOnlySaid = (n: number) =>
+  `${count(n, 'file')} here ${n === 1 ? 'is' : 'are'} in OneDrive only, not on this computer, so Keevoro did not open ${n === 1 ? 'it' : 'them'}. To include ${n === 1 ? 'it' : 'them'}, make ${n === 1 ? 'it' : 'them'} available offline in OneDrive first, then look again.`
+
 export function demoBackend(): Backend {
   const mode = new URLSearchParams(window.location.search).get('demo')
   const firstHome = 'C:\\Users\\You\\AppData\\Keevoro\\backups\\s1'
@@ -449,10 +453,12 @@ export function demoBackend(): Backend {
         if (junk.length === 0) junk.push(...junkFound())
         // Looking through a source again replaces what was known about it.
         const known = sources.findIndex((s) => s.root === root)
-        const entry = { id: known >= 0 ? sources[known].id : Date.now(), name: known >= 0 ? sources[known].name : name, root, items: photos + videos, bytes: (photos * 3.2 + videos * 48) * 1024 * 1024 }
+        // The owner's Pictures folder is kept in OneDrive, part of it online only.
+        const online = root.endsWith('\\Pictures') ? { onlineOnly: 412, onlineOnlySaid: onlineOnlySaid(412) } : {}
+        const entry = { id: known >= 0 ? sources[known].id : Date.now(), name: known >= 0 ? sources[known].name : name, root, items: photos + videos, bytes: (photos * 3.2 + videos * 48) * 1024 * 1024, ...online }
         if (known >= 0) sources[known] = entry
         else sources.push(entry)
-        scanListeners.forEach((l) => l({ name, photos, videos, finished: true }))
+        scanListeners.forEach((l) => l({ name, photos, videos, finished: true, ...online }))
         // Then, as the real app does, the careful checking carries on behind.
         const total = Math.max(1, Math.round((photos + videos) / 6))
         for (let done = 0; done < total; done += Math.ceil(total / 5)) {
@@ -655,7 +661,7 @@ export function demoBackend(): Backend {
       return {
         hints: [
           { folder: `${drive}\\Users\\Mark\\Videos\\Drone`, photos: 333, videos: 26, bytes: 94 * 1024 ** 3, likelyPhotos: true, alreadyASource: false },
-          { folder: `${drive}\\Users\\Mark\\Pictures`, photos: 11_204, videos: 310, bytes: 61 * 1024 ** 3, likelyPhotos: true, alreadyASource: false },
+          { folder: `${drive}\\Users\\Mark\\Pictures`, photos: 11_204, videos: 310, bytes: 61 * 1024 ** 3, likelyPhotos: true, alreadyASource: false, onlineOnly: 412, onlineOnlySaid: onlineOnlySaid(412) },
           { folder: `${drive}\\Old laptop backup\\Photos`, photos: 902, videos: 12, bytes: 3.4 * 1024 ** 3, likelyPhotos: true, alreadyASource: false },
           { folder: `${drive}\\Games\\Launcher\\assets`, photos: 1_840, videos: 0, bytes: 9 * 1024 ** 2, likelyPhotos: false, alreadyASource: false },
         ],
@@ -664,6 +670,8 @@ export function demoBackend(): Backend {
         unreadable: 3,
         seconds: 6.2,
         stopped: false,
+        onlineOnly: 412,
+        onlineOnlySaid: onlineOnlySaid(412),
         leftOut: [
           {
             folder: `${drive}\\Users\\Mark\\Pictures\\Keevoro Library`,

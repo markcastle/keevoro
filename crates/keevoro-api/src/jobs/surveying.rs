@@ -39,18 +39,25 @@ pub(super) fn start(
         let stop = job.stop_switch();
         let found = {
             let _busy = keevoro_core::doing::doing(keevoro_core::doing::Work::Surveying);
-            keevoro_scan::survey::survey(&root, &skip, &kinds, Some(&stop), &mut |p| {
-                ctx.jobs.heard(
-                    job,
-                    Said::Survey(SurveyEvent {
-                        folders: p.folders_seen,
-                        files: p.files_seen,
-                        photos: p.photos,
-                        videos: p.videos,
-                    }),
-                    true,
-                );
-            })
+            keevoro_scan::survey::survey(
+                &root,
+                &skip,
+                &kinds,
+                &keevoro_scan::ByAttributes,
+                Some(&stop),
+                &mut |p| {
+                    ctx.jobs.heard(
+                        job,
+                        Said::Survey(SurveyEvent {
+                            folders: p.folders_seen,
+                            files: p.files_seen,
+                            photos: p.photos,
+                            videos: p.videos,
+                        }),
+                        true,
+                    );
+                },
+            )
         };
         let seconds = started.elapsed().as_secs_f32();
         ctx.log.say(&format!(
@@ -73,6 +80,8 @@ pub(super) fn start(
                         videos: h.videos,
                         bytes: h.bytes,
                         likely_photos: h.likely == keevoro_scan::survey::Likely::Photos,
+                        online_only: h.online_only,
+                        online_only_said: keevoro_engine::summary::online_only(h.online_only),
                     }
                 })
                 .collect(),
@@ -82,7 +91,12 @@ pub(super) fn start(
             seconds,
             stopped: found.stopped,
             left_out: super::own::left_out(&found.left_out, &[]),
+            online_only: found.online_only,
+            online_only_said: keevoro_engine::summary::online_only(found.online_only),
         };
+        if let Some(said) = &view.online_only_said {
+            ctx.log.say(&format!("In {}: {said}", root.display()));
+        }
         for left in &view.left_out {
             ctx.log.say(&left.said);
         }

@@ -678,20 +678,89 @@ fn a_raw_file_is_never_judged_by_the_small_preview_in_its_header() {
 mod how_deep {
     use super::*;
 
+    /// Says a file is only online when its name says so, on any computer,
+    /// the way Windows' attributes or a Mac's flags say it for real.
+    #[derive(Debug)]
+    pub(crate) struct NamedOnline;
+
+    impl crate::OnlineCheck for NamedOnline {
+        fn online_only(&self, file: &Path, _: &std::fs::Metadata) -> bool {
+            file.file_name()
+                .is_some_and(|n| n.to_string_lossy().contains("(online)"))
+        }
+    }
+
     #[test]
-    fn files_only_in_online_storage_are_known_by_their_attributes() {
-        // A OneDrive placeholder: recall on data access, as Windows lists it.
-        assert!(crate::online_only(0x0040_0000 | 0x20));
-        assert!(crate::online_only(0x1000), "offline");
-        assert!(crate::online_only(0x0004_0000), "recall on open");
-        assert!(!crate::online_only(0x20), "an ordinary file");
-        assert!(!crate::online_only(0x0008_0000 | 0x20), "pinned, so on this computer");
+    fn files_only_in_online_storage_are_counted_and_never_opened() {
+        let t = Tree::new();
+        t.add("OneDrive/Pictures/here.jpg", &plain_jpeg(1));
+        let away = t.add("OneDrive/Pictures/away (online).jpg", &plain_jpeg(2));
+        t.add("OneDrive/Pictures/clip (online).mp4", &mp4());
+        // Not a photo by its name, so not counted as a photo left out.
+        t.add("OneDrive/Documents/report (online).docx", b"words");
+        #[cfg(unix)]
+        {
+            // Opening it would fail, and say so: it must not be opened.
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&away, fs::Permissions::from_mode(0o000)).unwrap();
+        }
+        let opts = ScanOptions {
+            online: std::sync::Arc::new(NamedOnline),
+            ..ScanOptions::default()
+        };
+        let r = scan(t.root(), &opts, &mut |_| {});
+        assert_eq!(r.items.len(), 1, "only the photo on this computer is found");
+        let names: Vec<String> = r
+            .online_only
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, ["away (online).jpg", "clip (online).mp4"]);
+        assert!(r.unreadable.is_empty(), "nothing online was opened: {:?}", r.unreadable);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&away, fs::Permissions::from_mode(0o644)).unwrap();
+        }
+    }
+
+    #[test]
+    fn a_survey_counts_what_is_only_online_beside_each_suggestion() {
+        let t = Tree::new();
+        for n in 0..6 {
+            t.add(&format!("OneDrive/Pictures/IMG_{n}.jpg"), &[0u8; 100]);
+        }
+        for n in 0..4 {
+            t.add(&format!("OneDrive/Pictures/IMG_{n} (online).jpg"), &[0u8; 100]);
+        }
+        t.add("Work/report (online).docx", &[0u8; 10]);
+        for n in 0..10 {
+            t.add(&format!("Work/{n}.docx"), &[0u8; 10]);
+        }
+        let found = survey(
+            t.root(),
+            &SkipRules::default(),
+            &Kinds::default(),
+            &NamedOnline,
+            None,
+            &mut |_| {},
+        );
+        assert_eq!(found.hints.len(), 1);
+        assert_eq!((found.hints[0].photos, found.hints[0].online_only), (10, 4));
+        assert_eq!(found.online_only, 4, "a document only online is not a photo left out");
     }
     use crate::survey::survey;
     use keevoro_core::Kinds;
 
     fn survey_of(root: &Path) -> crate::survey::Survey {
-        survey(root, &SkipRules::default(), &Kinds::default(), None, &mut |_| {})
+        survey(
+            root,
+            &SkipRules::default(),
+            &Kinds::default(),
+            &crate::ByAttributes,
+            None,
+            &mut |_| {},
+        )
     }
 
     fn photos_found_by_survey(root: &Path) -> usize {

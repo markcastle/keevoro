@@ -883,6 +883,7 @@ function FindScreen(props: {
                       list is in the log, in Settings.
                     </p>
                   )}
+                  {justFound.onlineOnlySaid && <p className="online-only">{justFound.onlineOnlySaid}</p>}
                   <LeftOutNote api={api} leftOut={justFound.leftOut} onProblem={onProblem} />
                 </>
               )}
@@ -963,6 +964,7 @@ function FindScreen(props: {
                     </button>
                   </span>
                 )}
+                {s.onlineOnlySaid && <p className="online-only small">{s.onlineOnlySaid}</p>}
                 {typesOf === s.id && removing !== s.id && (
                   <FileTypes api={api} source={s} onChanged={props.onChanged} onProblem={onProblem} />
                 )}
@@ -3464,6 +3466,7 @@ function SurveyResult(props: {
                   Small pictures, probably not photos
                 </span>
               )}
+              {hint.onlineOnlySaid && <p className="online-only small">{hint.onlineOnlySaid}</p>}
             </li>
           ))}
         </ul>

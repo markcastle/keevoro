@@ -186,6 +186,25 @@ pub fn thousands(n: usize) -> String {
     out
 }
 
+/// What is said about files here that could be photos or videos but are
+/// only in online storage, not on this computer, so were not opened: how
+/// many, and how to include them. The same on screen, at the command line
+/// and to an AI app. Nothing when there are none.
+pub fn online_only(n: usize) -> Option<String> {
+    online_only_in(n, keevoro_scan::online::SERVICE)
+}
+
+fn online_only_in(n: usize, service: &str) -> Option<String> {
+    let (are, them) = if n == 1 { ("is", "it") } else { ("are", "them") };
+    (n > 0).then(|| {
+        format!(
+            "{} here {are} in {service} only, not on this computer, so Keevoro did not open {them}. To include \
+             {them}, make {them} available offline in {service} first, then look again.",
+            count(n, "file")
+        )
+    })
+}
+
 /// Sizes the way Windows Explorer and Finder users read them.
 pub fn bytes(b: u64) -> String {
     const UNITS: [&str; 5] = ["bytes", "KB", "MB", "GB", "TB"];
@@ -233,6 +252,22 @@ mod tests {
             height: None,
             junk: None,
         }
+    }
+
+    #[test]
+    fn files_only_online_are_said_plainly_with_how_to_include_them() {
+        assert_eq!(
+            online_only_in(412, "OneDrive").unwrap(),
+            "412 files here are in OneDrive only, not on this computer, so Keevoro did not open them. To include \
+             them, make them available offline in OneDrive first, then look again."
+        );
+        assert_eq!(
+            online_only_in(1, "iCloud").unwrap(),
+            "1 file here is in iCloud only, not on this computer, so Keevoro did not open it. To include it, make \
+             it available offline in iCloud first, then look again."
+        );
+        assert_eq!(online_only(0), None);
+        assert!(online_only(2).unwrap().contains(keevoro_scan::online::SERVICE));
     }
 
     fn aug(d: u8) -> Option<(DateSource, PartialDate)> {

@@ -11,8 +11,11 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
+pub mod online;
 pub mod survey;
 mod video;
+
+pub use online::{ByAttributes, OnlineCheck};
 
 use keevoro_core::{
     best_date, date_from_filename, folder_hints, folder_made_by_keevoro, holds_originals, is_raw_extension, junk_hint,
@@ -49,6 +52,9 @@ pub struct ScanOptions {
     /// The kinds of file looked for, read once from the settings before
     /// the search starts. The built-in list unless told otherwise.
     pub kinds: Kinds,
+    /// How a file only in online storage is told apart, so it is never
+    /// opened. The file's own attributes unless told otherwise.
+    pub online: Arc<dyn OnlineCheck>,
 }
 
 impl ScanOptions {
@@ -65,6 +71,7 @@ impl Default for ScanOptions {
             quick: false,
             stop: None,
             kinds: Kinds::default(),
+            online: Arc::new(ByAttributes),
         }
     }
 }
@@ -121,9 +128,9 @@ pub struct ScanReport {
     pub unreadable: Vec<Unreadable>,
     /// Files looked at that were not photos or videos.
     pub other_files: u64,
-    /// Files only in online storage (OneDrive's "files on demand", say),
-    /// not on this computer. They are passed over unopened, as opening one
-    /// downloads it.
+    /// Files that could be photos or videos but are only in online storage
+    /// (OneDrive's "files on demand", say), not on this computer. They are
+    /// passed over unopened, as opening one downloads it.
     pub online_only: Vec<PathBuf>,
     /// True when the search was stopped before it had looked everywhere,
     /// so this is only part of what is there.
@@ -148,31 +155,6 @@ pub struct ScanProgress {
 
 /// Files at least this big are announced before they are read.
 const WORTH_ANNOUNCING: u64 = 64 * 1024 * 1024;
-
-/// Windows marks a file whose contents are in online storage, not on the
-/// disk, with these attributes: recall on data access, recall on open, and
-/// offline. Opening such a file downloads it.
-const ONLINE_ONLY: u32 = 0x0040_0000 | 0x0004_0000 | 0x0000_1000;
-
-/// True for a file whose attributes say it is only in online storage.
-pub fn online_only(attributes: u32) -> bool {
-    attributes & ONLINE_ONLY != 0
-}
-
-/// Is this file only in online storage? Read from the folder listing, so
-/// asking does not download it.
-fn is_online_only(entry: &walkdir::DirEntry) -> bool {
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::MetadataExt;
-        entry.metadata().is_ok_and(|m| online_only(m.file_attributes()))
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = entry;
-        false
-    }
-}
 
 /// What became of one thing the walk came across.
 enum Looked {
@@ -364,24 +346,26 @@ fn walk(
         if !entry.file_type().is_file() || opts.skip.skip_file(&name).is_some() {
             continue;
         }
-        if is_online_only(&entry) {
-            if done.send((order, entry.into_path(), Looked::OnlineOnly)).is_err() {
-                break;
-            }
-            continue;
-        }
-        let path = entry.into_path();
-        let passed_over = path.extension().is_some_and(|ext| {
+        let passed_over = entry.path().extension().is_some_and(|ext| {
             let ext = ext.to_string_lossy();
             match opts.kinds.looked_for(&ext) {
                 Some(_) => false,
                 None => opts.kinds.switched_off(&ext) || never_media_extension(&ext),
             }
         });
+        // Only in online storage: opening it would download it. Asked of
+        // what the listing says, and only of files that could be photos.
+        let online = !passed_over
+            && entry
+                .metadata()
+                .is_ok_and(|listing| opts.online.online_only(entry.path(), &listing));
+        let path = entry.into_path();
         let sent = if passed_over {
             // Programs, documents and music, and kinds the person switched
             // off, are not opened at all.
             done.send((order, path, Looked::Other)).is_ok()
+        } else if online {
+            done.send((order, path, Looked::OnlineOnly)).is_ok()
         } else {
             to_read.send((order, path)).is_ok()
         };

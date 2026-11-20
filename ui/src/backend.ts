@@ -56,6 +56,10 @@ export type Hint = {
   /** False when the pictures are so small they are probably icons, not photos. */
   likelyPhotos: boolean
   alreadyASource: boolean
+  /** Of its photos and videos, those only in online storage (OneDrive), which a search passes over unopened. */
+  onlineOnly?: number
+  /** The same in words, with how to include them. */
+  onlineOnlySaid?: string
 }
 
 /** What a survey of a drive found. Counts are by file name alone. */
@@ -68,6 +72,9 @@ export type Survey = {
   stopped: boolean
   /** Folders Keevoro made that were left out, each with what is said. */
   leftOut?: LeftOut[]
+  /** Photos and videos only in online storage, everywhere it looked, and that in words. */
+  onlineOnly?: number
+  onlineOnlySaid?: string
 }
 
 /** A folder Keevoro made (a backup, an old library, its own files), left out of a search or survey. */
@@ -119,6 +126,13 @@ export type Source = {
   items: number
   /** The size of everything found on it, in bytes. */
   bytes: number
+  /**
+   * Files there that could be photos or videos but were only in online
+   * storage (OneDrive) when it was last looked through, so were not opened,
+   * and that in words with how to include them.
+   */
+  onlineOnly?: number
+  onlineOnlySaid?: string
 }
 
 export type Discover = {
@@ -190,6 +204,9 @@ export type ScanEvent = {
   unreadableNames?: string[]
   /** On the last event: folders Keevoro made that were left out, each with what is said. */
   leftOut?: LeftOut[]
+  /** On the last event: files only in online storage (OneDrive), passed over unopened, and that in words. */
+  onlineOnly?: number
+  onlineOnlySaid?: string
 }
 
 /** Sent while files a quick search only sampled are read in the background. */

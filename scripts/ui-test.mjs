@@ -394,6 +394,9 @@ try {
   )
   assert.match(await page.locator('.survey .hints li').last().innerText(), /Small pictures, probably not photos/)
   await shot('9q-survey')
+  // Files only in OneDrive are never opened, and never left out silently: each suggestion says so.
+  const onlineSaid = /^412 files here are in OneDrive only, not on this computer, so Keevoro did not open them\. To include them, make them available offline in OneDrive first, then look again\.$/
+  assert.match(await page.locator('.survey .hints li').nth(1).locator('.online-only').innerText(), onlineSaid)
   // A library an older Keevoro left is never offered, and is said quietly, on one line that opens.
   const leftOut = page.locator('.survey .left-out')
   assert.equal(await leftOut.locator('summary').innerText(), 'Left out a folder Keevoro made, as it is not a source')
@@ -411,6 +414,14 @@ try {
   await page.locator('.kept li.source').nth(1).waitFor()
   assert.equal(await page.locator('.kept li.source').count(), 2, 'each ticked folder became a source')
   assert.equal(await page.locator('.survey').count(), 0)
+  // After the search, on screen, not only in the log; and kept with the source.
+  await page.locator('.found-it .online-only').getByText(onlineSaid).waitFor()
+  assert.match(await page.locator('.kept li.source').nth(1).locator('.online-only').innerText(), onlineSaid)
+  await page.locator('.kept li.source').nth(1).scrollIntoViewIfNeeded()
+  await shot('9q2-online-only')
+  await page.locator('.steps button').nth(1).click()
+  await page.locator('.steps button').nth(0).click()
+  assert.match(await page.locator('.kept li.source').nth(1).locator('.online-only').innerText(), onlineSaid, 'still said after going elsewhere')
 
   // One button looks through every source again for anything new.
   await page.getByRole('button', { name: 'Look through all 2 again for new photos' }).click()

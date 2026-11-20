@@ -368,7 +368,8 @@ Before building
 - [x] Leave out backups, old libraries, a backup's own folder, Keevoro's own folders and every folder a backup goes to, in the survey and the search, and say so
 - [x] Describe an old library (how big, how much is copies of photos) and offer to show it; never remove it
 - [ ] Prove, as a job the person starts, whether every photo in an old library is already in one of this computer's backups (by fingerprint against each catalog), so they can remove it knowing nothing is lost. Not done yet: it reads every copy in full, gigabytes, so it must be a job with progress and a stop, not something done unasked
-- [ ] Say on screen, not only in the log, how many files a search passed over because they are only in online storage (OneDrive's "files on demand"), with how to include them. Check this against a real OneDrive folder, which CI cannot do: the attributes are read from the folder listing, and should not download anything
+- [x] Say on screen, not only in the log, how many files a search passed over because they are only in online storage (OneDrive's "files on demand"), with how to include them: after a search, on each survey suggestion and on the source, at the command line and to an agent
+- [ ] Check the online-only count against a real OneDrive folder on Windows and a real iCloud Drive on a Mac, which CI cannot do: the attributes are read from the folder listing, and should not download anything
 - [ ] Recognise Keevoro's previews copied out of a backup by hand (loose `.webp` thumbnails). Nothing marks them as Keevoro's yet
 
 ### Seeing inside a source

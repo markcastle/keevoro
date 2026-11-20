@@ -164,6 +164,9 @@ pub struct Source {
     pub bytes: u64,
     /// Seconds since 1970, UTC.
     pub scanned_at: i64,
+    /// Files there that could be photos or videos but were only in online
+    /// storage the last time it was looked through, so were passed over.
+    pub online_only: u64,
 }
 
 /// One kind of file found on a source, by the ending of its name.
@@ -189,6 +192,12 @@ const WANTS: &str = "wants";
 
 fn wants_key(root: &str) -> String {
     format!("wants:{root}")
+}
+
+/// How many files the last look through a source passed over as only in
+/// online storage, kept beside it so it is still said after the search.
+fn online_only_key(root: &str) -> String {
+    format!("online_only:{root}")
 }
 
 fn left_out_key(root: &str) -> String {
@@ -284,6 +293,13 @@ impl Catalog {
             }
         }
         tx.execute("DELETE FROM sources WHERE root = ?1", [&root])?;
+        tx.execute("DELETE FROM settings WHERE key = ?1", [online_only_key(&root)])?;
+        if !report.online_only.is_empty() {
+            tx.execute(
+                "INSERT INTO settings (key, value) VALUES (?1, ?2)",
+                params![online_only_key(&root), report.online_only.len().to_string()],
+            )?;
+        }
         tx.execute(
             "INSERT INTO sources (name, root, other_files, scanned_at) VALUES (?1, ?2, ?3, ?4)",
             params![name, root, to_i64(report.other_files), scanned_at],
@@ -340,7 +356,8 @@ impl Catalog {
         let mut q = self.conn.prepare(
             "SELECT s.id, s.name, s.root, s.scanned_at,
                     (SELECT COUNT(*) FROM items i WHERE i.source_id = s.id),
-                    (SELECT COALESCE(SUM(i.bytes), 0) FROM items i WHERE i.source_id = s.id)
+                    (SELECT COALESCE(SUM(i.bytes), 0) FROM items i WHERE i.source_id = s.id),
+                    (SELECT CAST(value AS INTEGER) FROM settings WHERE key = 'online_only:' || s.root)
              FROM sources s ORDER BY s.id",
         )?;
         let rows = q.query_map([], |r| {
@@ -351,6 +368,10 @@ impl Catalog {
                 scanned_at: r.get(3)?,
                 items: u64::try_from(r.get::<_, i64>(4)?).unwrap_or(0),
                 bytes: u64::try_from(r.get::<_, i64>(5)?).unwrap_or(0),
+                online_only: r
+                    .get::<_, Option<i64>>(6)?
+                    .and_then(|n| u64::try_from(n).ok())
+                    .unwrap_or(0),
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -425,6 +446,14 @@ impl Catalog {
     /// Forgets a source and everything found on it. Keep choices stay.
     /// Returns false when there was no such source.
     pub fn forget_source(&mut self, id: i64) -> Result<bool> {
+        let root: Option<String> = self
+            .conn
+            .query_row("SELECT root FROM sources WHERE id = ?1", [id], |r| r.get(0))
+            .optional()?;
+        if let Some(root) = &root {
+            self.conn
+                .execute("DELETE FROM settings WHERE key = ?1", [online_only_key(root)])?;
+        }
         Ok(self.conn.execute("DELETE FROM sources WHERE id = ?1", [id])? > 0)
     }
 

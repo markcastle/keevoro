@@ -3355,3 +3355,19 @@ fieldset.wants [role='status'] {
 .tidying p + p {
   margin-top: var(--space-2);
 }
+
+/* Files only in online storage, passed over unopened: said plainly, never only in the log. */
+.online-only {
+  flex-basis: 100%;
+  grid-column: 1 / -1;
+  max-width: 720px;
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--sun-ink);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--sun-ink) 8%, transparent);
+  color: var(--ink);
+}
+
+.online-only.small {
+  font-size: 13px;
+}

@@ -40,8 +40,13 @@ pub fn summary(op: Op, answer: &Value) -> String {
         ),
         Op::BackupsRename => format!("It is now called \"{}\".", s(answer, "name")),
         Op::SourcesList => listed(answer, "source", |source| {
+            let online = source
+                .get("onlineOnlySaid")
+                .and_then(Value::as_str)
+                .map(|said| format!(" {said}"))
+                .unwrap_or_default();
             format!(
-                "{} (id {}, {}): {} files",
+                "{} (id {}, {}): {} files.{online}",
                 s(source, "name"),
                 source.get("id").cloned().unwrap_or_default(),
                 s(source, "root"),
@@ -271,6 +276,7 @@ fn last_word(last: Option<&Said>) -> Vec<String> {
             if e.unreadable > 0 {
                 lines.push(format!("{} couldn't be read.", count(e.unreadable, "file")));
             }
+            lines.extend(e.online_only_said.clone());
             lines.extend(e.left_out.iter().map(|left| left.said.clone()));
             lines.extend(e.problem.clone());
             lines
@@ -297,6 +303,7 @@ fn last_word(last: Option<&Said>) -> Vec<String> {
                         ""
                     }
                 ));
+                lines.extend(hint.online_only_said.clone());
             }
             lines.extend(found.left_out.iter().map(|left| left.said.clone()));
             lines
@@ -345,6 +352,26 @@ mod tests {
             summary(Op::FileKindsList, &list),
             "Keevoro looks for these photos: .jpg, .heix. And these videos: none. Switched off: .avi."
         );
+    }
+
+    #[test]
+    fn files_only_online_are_said_in_the_summaries_not_only_the_log() {
+        let said = "412 files here are in OneDrive only, not on this computer, so Keevoro did not open them.";
+        let sources = summary(
+            Op::SourcesList,
+            &json!([{ "id": 1, "name": "OneDrive", "root": "C:\\Users\\Mark\\OneDrive", "items": 30, "onlineOnly": 412, "onlineOnlySaid": said }]),
+        );
+        assert!(sources.ends_with(&format!("30 files. {said}")), "{sources}");
+        let looked = summary(
+            Op::JobsStatus,
+            &json!([{ "id": 3, "ended": true, "last": { "name": "OneDrive", "photos": 30, "videos": 0, "files": 99, "finished": true, "onlineOnly": 412, "onlineOnlySaid": said } }]),
+        );
+        assert!(looked.contains(said), "{looked}");
+        let surveyed = summary(
+            Op::JobsStatus,
+            &json!([{ "id": 4, "ended": true, "last": { "hints": [{ "folder": "C:\\Users\\Mark\\OneDrive\\Pictures", "photos": 500, "videos": 0, "bytes": 1, "likelyPhotos": true, "alreadyASource": false, "onlineOnly": 412, "onlineOnlySaid": said }], "folders": 1, "files": 2, "unreadable": 0, "seconds": 0.1, "stopped": false } }]),
+        );
+        assert!(surveyed.contains(said), "{surveyed}");
     }
 
     #[test]

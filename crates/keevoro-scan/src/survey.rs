@@ -35,6 +35,9 @@ pub struct Tally {
     pub bytes: u64,
     /// Files that are neither.
     pub others: usize,
+    /// Of the photos and videos, those only in online storage, not on this
+    /// computer: a search will pass over them unopened.
+    pub online_only: usize,
 }
 
 /// What the photos in a suggested folder look like from the outside.
@@ -57,6 +60,9 @@ pub struct Hint {
     pub videos: usize,
     pub bytes: u64,
     pub likely: Likely,
+    /// Of those photos and videos, how many are only in online storage, so
+    /// that a search will pass over them unopened.
+    pub online_only: usize,
 }
 
 /// The result of a survey.
@@ -68,6 +74,8 @@ pub struct Survey {
     pub files_seen: usize,
     /// Folders that could not be listed, usually for want of permission.
     pub unreadable: usize,
+    /// Photos and videos only in online storage, everywhere it looked.
+    pub online_only: usize,
     /// True when it was stopped before it had seen everything.
     pub stopped: bool,
     /// Folders Keevoro made (a backup, an old library, its own data), left
@@ -94,6 +102,7 @@ struct Sum {
     videos: usize,
     bytes: u64,
     files: usize,
+    online_only: usize,
 }
 
 impl Sum {
@@ -105,6 +114,7 @@ impl Sum {
         self.videos += other.videos;
         self.bytes += other.bytes;
         self.files += other.files;
+        self.online_only += other.online_only;
     }
     /// At least half of what is here is photos and videos.
     fn mostly_media(self) -> bool {
@@ -146,6 +156,7 @@ pub fn suggest(root: &Path, tallies: &[Tally]) -> Vec<Hint> {
                 videos: t.videos,
                 bytes: t.bytes,
                 files: t.photos + t.videos + t.others,
+                online_only: t.online_only,
             },
         );
         if t.folder != root {
@@ -191,6 +202,7 @@ pub fn suggest(root: &Path, tallies: &[Tally]) -> Vec<Hint> {
                 videos: total.videos,
                 bytes: total.bytes,
                 likely: if small { Likely::AppPictures } else { Likely::Photos },
+                online_only: total.online_only,
             });
         } else if let Some(inside) = children.get(folder) {
             to_visit.extend(inside.iter().copied());
@@ -211,6 +223,7 @@ pub fn suggest(root: &Path, tallies: &[Tally]) -> Vec<Hint> {
 struct Walk<'a> {
     rules: &'a SkipRules,
     kinds: &'a Kinds,
+    online: &'a dyn crate::OnlineCheck,
     stop: Option<&'a AtomicBool>,
     queue: Mutex<VecDeque<PathBuf>>,
     more: Condvar,
@@ -278,9 +291,14 @@ impl Walk<'_> {
                     .and_then(|(_, ending)| self.kinds.looked_for(ending));
                 match guess {
                     Some(found) => {
-                        // The size comes with the listing on Windows, and
-                        // costs one small question elsewhere.
-                        tally.bytes += entry.metadata().map_or(0, |m| m.len());
+                        // The size and attributes come with the listing on
+                        // Windows, and cost one small question elsewhere.
+                        if let Ok(listing) = entry.metadata() {
+                            tally.bytes += listing.len();
+                            if self.online.online_only(&entry.path(), &listing) {
+                                tally.online_only += 1;
+                            }
+                        }
                         if found == MediaKind::Photo {
                             tally.photos += 1;
                         } else {
@@ -356,12 +374,14 @@ pub fn survey(
     root: &Path,
     rules: &SkipRules,
     kinds: &Kinds,
+    online: &dyn crate::OnlineCheck,
     stop: Option<&AtomicBool>,
     on_progress: &mut dyn FnMut(&SurveyProgress),
 ) -> Survey {
     let walk = Walk {
         rules,
         kinds,
+        online,
         stop,
         queue: Mutex::new(VecDeque::from([root.to_path_buf()])),
         more: Condvar::new(),
@@ -388,6 +408,7 @@ pub fn survey(
     on_progress(&last);
     let (stopped, unreadable) = (walk.stopped(), walk.unreadable.load(Ordering::Relaxed));
     let tallies = walk.tallies.into_inner().unwrap_or_default();
+    let online_only = tallies.iter().map(|t| t.online_only).sum();
     let mut left_out = walk.left_out.into_inner().unwrap_or_default();
     left_out.sort_by(|a, b| a.0.cmp(&b.0));
     Survey {
@@ -395,6 +416,7 @@ pub fn survey(
         folders_seen: last.folders_seen,
         files_seen: last.files_seen,
         unreadable,
+        online_only,
         stopped,
         left_out,
     }
@@ -413,6 +435,7 @@ mod tests {
             // Three megabytes a photo and a hundred a video, as a camera makes them.
             bytes: (photos as u64) * 3_000_000 + (videos as u64) * 100_000_000,
             others,
+            online_only: 0,
         }
     }
 
@@ -539,7 +562,14 @@ mod tests {
         put("Pictures/._IMG_1.JPG", 10);
 
         let mut seen = SurveyProgress::default();
-        let found = survey(root, &SkipRules::default(), &Kinds::default(), None, &mut |p| seen = *p);
+        let found = survey(
+            root,
+            &SkipRules::default(),
+            &Kinds::default(),
+            &crate::ByAttributes,
+            None,
+            &mut |p| seen = *p,
+        );
         assert_eq!(found.hints.len(), 1);
         let hint = &found.hints[0];
         assert_eq!(hint.folder, root.join("Pictures"));
@@ -568,7 +598,14 @@ mod tests {
         for n in 0..10 {
             fs::write(root.join(format!("Work/{n}.docx")), [0u8; 5]).unwrap();
         }
-        let built_in = survey(root, &SkipRules::default(), &Kinds::default(), None, &mut |_| {});
+        let built_in = survey(
+            root,
+            &SkipRules::default(),
+            &Kinds::default(),
+            &crate::ByAttributes,
+            None,
+            &mut |_| {},
+        );
         assert_eq!(built_in.hints.len(), 1, "only the clips");
 
         let mut kinds = keevoro_core::FileKinds::default();
@@ -578,7 +615,14 @@ mod tests {
             ..Default::default()
         };
         kinds.change("avi", &off).unwrap();
-        let found = survey(root, &SkipRules::default(), &kinds.lookup(), None, &mut |_| {});
+        let found = survey(
+            root,
+            &SkipRules::default(),
+            &kinds.lookup(),
+            &crate::ByAttributes,
+            None,
+            &mut |_| {},
+        );
         assert_eq!(found.hints.len(), 1, "{:?}", found.hints);
         assert_eq!(found.hints[0].folder, root.join("Panoramas"));
         assert_eq!((found.hints[0].photos, found.hints[0].videos), (20, 0));
@@ -614,7 +658,14 @@ mod tests {
             keevoro_core::SkipReason::KeevoroBackup,
         )]);
         let root = std::fs::canonicalize(root).unwrap();
-        let found = survey(&root, &rules, &Kinds::default(), None, &mut |_| {});
+        let found = survey(
+            &root,
+            &rules,
+            &Kinds::default(),
+            &crate::ByAttributes,
+            None,
+            &mut |_| {},
+        );
         let offered: Vec<_> = found.hints.iter().map(|h| h.folder.clone()).collect();
         // Pictures is offered whole, counting only the person's own photos;
         // a search of it leaves Keevoro's folders out in the same way.
@@ -640,6 +691,7 @@ mod tests {
             dir.path(),
             &SkipRules::default(),
             &Kinds::default(),
+            &crate::ByAttributes,
             Some(&stop),
             &mut |_| {},
         );

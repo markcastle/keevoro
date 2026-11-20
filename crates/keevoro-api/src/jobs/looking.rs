@@ -108,12 +108,7 @@ fn look_through(
         folder: friendly_path(&p.folder),
         reading: p.reading.as_ref().map(|(path, bytes)| (friendly_path(path), *bytes)),
         saving,
-        stopped: false,
-        finished: false,
-        problem: None,
-        unreadable: 0,
-        unreadable_names: Vec::new(),
-        left_out: Vec::new(),
+        ..ScanEvent::default()
     };
     let mut last_progress = keevoro_scan::ScanProgress::default();
     // What an earlier look through this place found, to say which files
@@ -193,14 +188,8 @@ fn look_through(
                 report.skipped.len(),
                 report.unreadable.len()
             ));
-            if !report.online_only.is_empty() {
-                log.say(&format!(
-                    "Passed over {} in {} that {} only in online storage (such as OneDrive), not on this computer, rather than download {}. Files found there before are still offered. To include the others, make them available on this computer and look again",
-                    keevoro_engine::summary::count(report.online_only.len(), "file"),
-                    friendly_path(source),
-                    if report.online_only.len() == 1 { "is" } else { "are" },
-                    if report.online_only.len() == 1 { "it" } else { "them all" },
-                ));
+            if let Some(said) = keevoro_engine::summary::online_only(report.online_only.len()) {
+                log.say(&format!("In {}: {said}", friendly_path(source)));
             }
             for left in &left_out_of(report, &found_before) {
                 log.say(&left.said);
@@ -234,6 +223,13 @@ fn look_through(
         left_out: result
             .as_ref()
             .map_or_else(|_| Vec::new(), |r| left_out_of(r, &found_before)),
+        // What could not be looked at without downloading it is said on
+        // the screen too, so no photo is left out silently.
+        online_only: result.as_ref().map_or(0, |r| r.online_only.len()),
+        online_only_said: result
+            .as_ref()
+            .ok()
+            .and_then(|r| keevoro_engine::summary::online_only(r.online_only.len())),
         problem: result.err().map(|e| format!("{e:#}")),
     }
 }

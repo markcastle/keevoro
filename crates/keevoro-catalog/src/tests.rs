@@ -696,3 +696,30 @@ fn photos_only_or_videos_only_is_a_filter_over_what_was_found_for_a_backup_or_on
     c.set_source_wants(again, None).unwrap();
     assert_eq!(kinds(&c).len(), 5);
 }
+
+#[test]
+fn how_many_files_were_only_online_is_kept_with_the_source_until_it_is_looked_through_again_or_forgotten() {
+    let mut c = Catalog::in_memory().unwrap();
+    let mut first = report("/media/onedrive");
+    first.online_only = vec![
+        PathBuf::from("/media/onedrive/a.jpg"),
+        PathBuf::from("/media/onedrive/b.mov"),
+    ];
+    c.save_scan("OneDrive", &first, 100).unwrap();
+    assert_eq!(c.sources().unwrap()[0].online_only, 2);
+    // Made available on this computer, then looked through again.
+    let id = c.save_scan("OneDrive", &report("/media/onedrive"), 200).unwrap();
+    assert_eq!(c.sources().unwrap()[0].online_only, 0);
+    c.save_scan("OneDrive", &first, 300).unwrap();
+    let id = c.sources().unwrap()[0].id.max(id);
+    assert!(c.forget_source(id).unwrap());
+    let left: i64 = c
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM settings WHERE key LIKE 'online_only:%'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(left, 0, "nothing is kept about a source forgotten");
+}
