@@ -28,6 +28,7 @@ import type {
   BackupEstimate,
   BackupStage,
 } from './backend'
+import { count, size } from './format'
 
 const SCENES: [string, string, string][] = [
   ['#7ec8e3', '#f6d365', '#2e7d6b'], // beach
@@ -149,6 +150,11 @@ export function demoBackend(): Backend {
   }
   let stopAsked = false
   let stopLooking = false
+  // Folders holding a stopped backup's working files, and how many.
+  const untidy = new Map<string, number>([
+    ['F:\\Family Backup', 12],
+    ['G:\\Old Keevoro backup', 583],
+  ])
   let systemCodecs = true
   let agents = { lookIn: [] as string[], backUpTo: [] as string[], mayChange: false }
   let previews = true
@@ -589,6 +595,27 @@ export function demoBackend(): Backend {
       return lookedFor.map((k) => ({ ...k }))
     },
     chooseAgentFolder: async () => (agents.lookIn.includes('D:\\Photos') ? 'F:\\Family Backup' : 'D:\\Photos'),
+    // The owner's case: an old backup folder full of a stopped backup's working files.
+    tidyFolder: async (folder, dryRun) => {
+      const files = untidy.get(folder) ?? 0
+      const bytes = files * 26.7 * 1024 ** 2
+      const inUse = files > 0 ? 1 : 0
+      if (!dryRun) untidy.delete(folder)
+      const said =
+        files === 0
+          ? [`There ${dryRun ? 'are' : 'were'} no unfinished copies to clear in ${folder}.`]
+          : dryRun
+            ? [
+                `There are ${size(bytes)} of unfinished copies (${count(files, 'file')}) in ${folder}, left by a backup that was stopped part-way. Clearing them touches nothing that was backed up.`,
+                '1 thing written to in the last hour will be left, as a backup may be using it right now.',
+              ]
+            : [
+                `Cleared ${size(bytes)} of unfinished copies (${count(files, 'file')}) from ${folder}. They were Keevoro's working files; nothing that was backed up was touched.`,
+                'Left 1 thing written to in the last hour, as a backup may be using it right now. Try again later.',
+              ]
+      return { folder, cleared: !dryRun, files, bytes, inUse, notOurs: 0, said }
+    },
+    chooseFolderToTidy: async () => 'G:\\Old Keevoro backup',
     setAcceleration: async (on) => {
       systemCodecs = on
       return speed()

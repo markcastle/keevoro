@@ -504,6 +504,21 @@ pub fn room(shared: State<'_, Shared>) -> Said<keevoro_api::RoomAtAGlance> {
     Ok(backup(&shared)?.room().map_err(say)?.at_a_glance)
 }
 
+/// Clears Keevoro's unfinished copies from a folder, or with `dry_run`
+/// only says what it would clear. Any folder the person chooses: one no
+/// backup goes to any more is the case it is for.
+#[tauri::command]
+pub async fn tidy_folder<R: Runtime>(
+    app: AppHandle<R>,
+    folder: String,
+    dry_run: bool,
+) -> Said<keevoro_api::keevoro::Tidied> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<Shared>().keevoro.tidy_folder(Path::new(&folder), dry_run))
+        .await
+        .map_err(say)?
+        .map_err(say)
+}
+
 /// Shows a folder Keevoro has mentioned in the computer's file manager.
 /// Only folders it knows about are opened: a source, where this backup
 /// sends to, or the backup's own folder. Anything else is refused, so a

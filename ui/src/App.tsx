@@ -61,6 +61,7 @@ import lockupShadowUrl from './assets/keevoro-lockup-shadow.png'
 import lockupDarkUrl from './assets/keevoro-lockup-reversed.png'
 import lockupUrl from './assets/keevoro-lockup.png'
 import { chooseTheme, savedTheme } from './theme'
+import { ClearUnfinished } from './tidy'
 import type { Theme } from './theme'
 
 type Step = 'find' | 'choose' | 'send'
@@ -1705,6 +1706,17 @@ function SettingsScreen(props: {
       <details className="advanced">
         <summary>Advanced</summary>
         <FileKindsSetting api={api} onSources={props.onSources} onProblem={onProblem} />
+        <div className="setting">
+          <h3>Unfinished copies</h3>
+          <p className="quiet">
+            A backup that is stopped part-way can leave unfinished copies in a working folder where it was going. Each
+            backup clears its own as it starts and ends. For a folder no backup goes to any more, clear them here.
+            Nothing that was backed up is touched, and Keevoro says how much there is first.
+          </p>
+          <div className="choices">
+            <ClearUnfinished api={api} label="Clear unfinished copies from a folder…" onProblem={onProblem} />
+          </div>
+        </div>
       </details>
 
       <div className="setting">
@@ -2609,6 +2621,9 @@ function SendPanel(props: {
                       ? `All ${thousands(to.there)} there`
                       : `${thousands(to.there)} there · ${thousands(to.waiting)} waiting (${size(to.waitingBytes)})`}
                   </span>
+                  {!running && to.folder && (
+                    <ClearUnfinished api={api} folder={to.folder} label="Clear unfinished copies…" small onProblem={onProblem} />
+                  )}
                   {!running && (
                     <button
                       className="button small"
@@ -2761,6 +2776,14 @@ function SendPanel(props: {
                 <button className="button" onClick={() => api.openDestination().catch(onProblem)}>
                   Show me the folder
                 </button>
+              )}
+              {destinations.length <= 1 && destinations[0]?.folder && (
+                <ClearUnfinished
+                  api={api}
+                  folder={destinations[0].folder}
+                  label="Clear unfinished copies…"
+                  onProblem={onProblem}
+                />
               )}
               <button className="button" onClick={() => setAdding(true)}>
                 Add another destination

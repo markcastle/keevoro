@@ -175,18 +175,28 @@ pub struct LogRequest {
 pub struct TidyRequest {
     /// A backup folder, whether or not a backup still goes there.
     pub place: String,
+    /// Only say what would be cleared, and clear nothing.
+    #[serde(default)]
+    pub dry_run: bool,
 }
 
-/// What `destinations.tidy` cleared.
+/// What `destinations.tidy` cleared, or, asked first, would clear.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Tidied {
     pub folder: String,
-    /// Abandoned working files removed, and their size.
+    /// True when it was cleared; false when it was only asked what would be.
+    pub cleared: bool,
+    /// Abandoned working files removed (or that would be), and their size.
     pub files: u64,
     pub bytes: u64,
-    /// Left in the working folder: in use in the last hour, or not Keevoro's.
-    pub left: u64,
+    /// Left because they were written to in the last hour, so a backup may
+    /// be using them right now.
+    pub in_use: u64,
+    /// Left because Keevoro does not recognise them as its own.
+    pub not_ours: u64,
+    /// All of that in sentences, the same in the app and at the command line.
+    pub said: Vec<String>,
 }
 
 /// A newer Keevoro that this computer can install.
@@ -428,7 +438,7 @@ impl Keevoro {
         // Not there (a drive unplugged) or not tidied: no reason not to take it off.
         for (_, folder) in folders.iter().filter(|(name, _)| gone.contains(name)) {
             if Path::new(folder).is_dir() {
-                let _ = self.tidy_folder(Path::new(folder));
+                let _ = self.tidy_folder(Path::new(folder), false);
             }
         }
         Ok(gone)
@@ -438,38 +448,39 @@ impl Keevoro {
     /// (`.keevoro-uploads`) from a backup folder, whether or not any backup
     /// still goes there. Only that working folder is ever touched; what was
     /// backed up, and anything else in the folder, stays as it is.
-    pub fn tidy_folder(&self, folder: &Path) -> Result<Tidied> {
+    pub fn tidy_folder(&self, folder: &Path, dry_run: bool) -> Result<Tidied> {
         if !folder.is_dir() {
             return Err(Error::not_found(format!(
                 "There is no folder at {}.",
                 keevoro_engine::friendly_path(folder)
             )));
         }
-        let swept = keevoro_engine::sweep_working_files(folder, keevoro_engine::ABANDONED_AFTER).map_err(|e| {
+        let place = keevoro_engine::friendly_path(folder);
+        let sweep = if dry_run {
+            keevoro_engine::working_files_to_clear
+        } else {
+            keevoro_engine::sweep_working_files
+        };
+        let swept = sweep(folder, keevoro_engine::ABANDONED_AFTER).map_err(|e| {
             Error::failed(format!(
-                "Keevoro couldn't clear its unfinished copies in {}: {e}.",
-                keevoro_engine::friendly_path(folder)
+                "Keevoro couldn't {} its unfinished copies in {place}: {e}.",
+                if dry_run { "look at" } else { "clear" }
             ))
         })?;
-        let place = keevoro_engine::friendly_path(folder);
-        if swept.bytes > 0 {
-            self.log.say(&format!(
-                "In {place}: {} Nothing that was backed up was touched",
-                keevoro_engine::send::cleared_words(swept.bytes)
-            ));
-        }
-        if swept.left > 0 {
-            self.log.say(&format!(
-                "In {place}: left {} in Keevoro's working folder, as {} in use in the last hour or not recognised as Keevoro's",
-                keevoro_engine::summary::count(usize::try_from(swept.left).unwrap_or(usize::MAX), "thing"),
-                if swept.left == 1 { "it was" } else { "they were" }
-            ));
+        let said = crate::words::tidied(&place, &swept, !dry_run);
+        if !dry_run && (swept.files > 0 || swept.left() > 0) {
+            for line in &said {
+                self.log.say(line);
+            }
         }
         Ok(Tidied {
             folder: place,
+            cleared: !dry_run,
             files: swept.files,
             bytes: swept.bytes,
-            left: swept.left,
+            in_use: swept.in_use,
+            not_ours: swept.not_ours,
+            said,
         })
     }
 
@@ -710,7 +721,7 @@ pub(crate) mod tests {
         );
         let log = k.log_tail(10);
         assert!(
-            log.contains("Cleared 4.9 KB of unfinished copies left by an earlier backup that was stopped."),
+            log.contains("Cleared 4.9 KB of unfinished copies (1 file) from"),
             "{log}"
         );
         assert!(log.contains("Nothing that was backed up there was changed"), "{log}");
@@ -745,7 +756,7 @@ pub(crate) mod tests {
             (
                 tidied["files"].as_u64(),
                 tidied["bytes"].as_u64(),
-                tidied["left"].as_u64()
+                tidied["inUse"].as_u64()
             ),
             (Some(1), Some(7000), Some(1))
         );

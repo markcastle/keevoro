@@ -284,7 +284,7 @@ A collection is named by its whole name, such as "Holidays / Cornwall", or by it
 | `keevoro destinations add --r2 ACCOUNT --bucket NAME` | The same for cloud storage, with `--s3 REGION` or `--endpoint URL` for others. |
 | `keevoro destinations remove DESTINATION` | Stops backing up there, by its number, folder or name; `--all` for every one. Nothing backed up there is touched; Keevoro's own unfinished copies there are cleared. |
 | `keevoro room` | What is waiting for each place, and whether it has the room. |
-| `keevoro tidy FOLDER` | Clears away the unfinished copies a stopped backup left in a backup folder's working folder (`.keevoro-uploads`), whether or not a backup still goes there. Nothing that was backed up is touched; anything written to in the last hour is left, in case it is in use. |
+| `keevoro tidy FOLDER [--dry-run]` | Clears away the unfinished copies a stopped backup left in a backup folder's working folder (`.keevoro-uploads`), whether or not a backup still goes there, and says what was cleared and what was left and why. Nothing that was backed up is touched; anything written to in the last hour is left, in case it is in use. `--dry-run` only says what it would clear. The app has the same as a button beside a folder destination, and in Settings, Advanced. |
 
 ### Backing up
 

@@ -755,3 +755,50 @@ fn a_key_given_is_never_shown_logged_or_written_down() {
         .to_string();
     assert!(help.contains("kept in your shell's history"), "{help}");
 }
+
+#[test]
+fn tidy_says_first_what_it_would_clear_then_clears_it_in_the_apps_own_words() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join("Old backup");
+    let work = folder.join(".keevoro-uploads");
+    std::fs::create_dir_all(&work).unwrap();
+    let old = work.join("tmp-abandoned");
+    std::fs::write(&old, [0u8; 2048]).unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&old)
+        .unwrap()
+        .set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(2 * 3600))
+        .unwrap();
+    let at = At::new(dir.path());
+    let first = at.keevoro(&["tidy", &text(&folder), "--dry-run"]);
+    assert_eq!(first.code, Code::Worked, "{}", first.err);
+    assert!(
+        first
+            .out
+            .starts_with("There are 2.0 KB of unfinished copies (1 file) in"),
+        "{}",
+        first.out
+    );
+    assert!(old.is_file(), "a dry run clears nothing");
+    let api = keevoro_in(dir.path(), FrontEnd::App);
+    let ran = at.keevoro(&["tidy", &text(&folder)]);
+    assert!(
+        ran.out.starts_with("Cleared 2.0 KB of unfinished copies (1 file) from"),
+        "{}",
+        ran.out
+    );
+    assert!(!old.exists());
+    let again = call(&api, Op::DestinationsTidy, None, json!({ "place": text(&folder) })).unwrap();
+    let words: Vec<String> = again["said"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|l| format!("{}\n", l.as_str().unwrap()))
+        .collect();
+    assert_eq!(
+        at.keevoro(&["tidy", &text(&folder)]).out,
+        words.concat(),
+        "the same words as the API"
+    );
+}

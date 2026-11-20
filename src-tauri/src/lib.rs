@@ -119,6 +119,7 @@ fn app<R: Runtime>(
             commands::reset_everything,
             commands::stop_sending,
             commands::open_place,
+            commands::tidy_folder,
             commands::discover,
             commands::scan_place,
             commands::stop_scanning,

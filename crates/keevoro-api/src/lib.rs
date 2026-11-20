@@ -376,7 +376,7 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
         }
         Op::DestinationsTidy => {
             let r: keevoro::TidyRequest = read(request)?;
-            answer(keevoro.tidy_folder(Path::new(&r.place))?)
+            answer(keevoro.tidy_folder(Path::new(&r.place), r.dry_run)?)
         }
         Op::DestinationsRoom => {
             read::<Nothing>(request)?;
@@ -657,6 +657,69 @@ mod tests {
                 entry.name, entry.implemented
             );
         }
+    }
+
+    #[test]
+    fn unfinished_copies_are_said_first_then_cleared_and_what_stays_is_said_with_why() {
+        let dir = tempfile::tempdir().unwrap();
+        let keevoro = keevoro(dir.path());
+        let folder = dir.path().join("Old backup");
+        let work = folder.join(".keevoro-uploads");
+        std::fs::create_dir_all(&work).unwrap();
+        std::fs::create_dir_all(folder.join("originals")).unwrap();
+        std::fs::write(folder.join("originals/IMG_1.jpg"), b"a photo").unwrap();
+        let old = work.join("tmp-abandoned");
+        std::fs::write(&old, [0u8; 4096]).unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&old)
+            .unwrap()
+            .set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(3 * 3600))
+            .unwrap();
+        std::fs::write(work.join("tmp-live"), b"being written").unwrap();
+        let place = folder.display().to_string();
+
+        let first = call(
+            &keevoro,
+            Op::DestinationsTidy,
+            None,
+            json!({ "place": place, "dryRun": true }),
+        )
+        .unwrap();
+        assert_eq!(first["cleared"], false);
+        assert_eq!(
+            (first["files"].as_u64(), first["bytes"].as_u64()),
+            (Some(1), Some(4096))
+        );
+        assert_eq!(first["inUse"], 1);
+        assert!(old.is_file(), "asking first clears nothing");
+        assert!(first["said"][0]
+            .as_str()
+            .unwrap()
+            .starts_with("There are 4.0 KB of unfinished copies (1 file) in"));
+        assert!(!Op::DestinationsTidy.changes_with(&json!({ "place": place, "dryRun": true })));
+        assert!(Op::DestinationsTidy.changes_with(&json!({ "place": place })));
+
+        let done = call(&keevoro, Op::DestinationsTidy, None, json!({ "place": place })).unwrap();
+        assert_eq!(done["cleared"], true);
+        assert_eq!(done["files"], 1);
+        assert!(!old.exists());
+        assert!(work.join("tmp-live").is_file(), "a copy being made now is left");
+        assert_eq!(std::fs::read(folder.join("originals/IMG_1.jpg")).unwrap(), b"a photo");
+        let said: Vec<&str> = done["said"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_str)
+            .collect();
+        assert!(
+            said[0].starts_with("Cleared 4.0 KB of unfinished copies (1 file) from"),
+            "{said:?}"
+        );
+        assert!(
+            said[1].starts_with("Left 1 thing written to in the last hour"),
+            "{said:?}"
+        );
     }
 
     #[test]

@@ -594,7 +594,8 @@ pub fn tidy(folder: &Path) -> keevoro_storage_folder::Swept {
 fn add_swept(total: &mut keevoro_storage_folder::Swept, more: keevoro_storage_folder::Swept) {
     total.files += more.files;
     total.bytes += more.bytes;
-    total.left = more.left;
+    total.in_use = more.in_use;
+    total.not_ours = more.not_ours;
 }
 
 /// Everything this backup will do, in order, with how much of each there

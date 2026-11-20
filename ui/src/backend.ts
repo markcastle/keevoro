@@ -406,6 +406,23 @@ export type FileKind = {
 /** A change to one kind of file. Anything left out stays as it is. */
 export type FileKindChange = { kind?: 'photo' | 'video'; on?: boolean; to?: string }
 
+/**
+ * What clearing Keevoro's unfinished copies from a folder did or, asked
+ * first (`cleared` false), would do. `said` is the same sentences the
+ * command line prints.
+ */
+export type Tidied = {
+  folder: string
+  cleared: boolean
+  files: number
+  bytes: number
+  /** Left: written to in the last hour, so perhaps in use right now. */
+  inUse: number
+  /** Left: not something Keevoro put there. */
+  notOurs: number
+  said: string[]
+}
+
 /** A newer version of Keevoro that is ready to install. */
 export type Update = { version: string; page: string }
 
@@ -454,6 +471,14 @@ export interface Backend {
   removeFileKind(ending: string): Promise<FileKind>
   /** Puts back the kinds Keevoro comes with, all on. Your own stay. */
   resetFileKinds(): Promise<FileKind[]>
+  /**
+   * Clears Keevoro's unfinished copies (its `.keevoro-uploads` working
+   * files) from a folder, or with `dryRun` only says what it would clear.
+   * Nothing that was backed up is touched.
+   */
+  tidyFolder(folder: string, dryRun: boolean): Promise<Tidied>
+  /** Asks for a folder to clear unfinished copies from. Null if they cancel. */
+  chooseFolderToTidy(): Promise<string | null>
   /** Asks for a folder an AI agent may use. Null if they cancel. */
   chooseAgentFolder(): Promise<string | null>
   /** Asks a running search to stop. Nothing from it is kept. */
@@ -580,6 +605,8 @@ async function tauriBackend(): Promise<Backend> {
     removeFileKind: (ending) => invoke('remove_file_kind', { ending }),
     resetFileKinds: () => invoke('reset_file_kinds'),
     chooseAgentFolder: () => pickFolder('Choose a folder an AI agent may use'),
+    tidyFolder: (folder, dryRun) => invoke('tidy_folder', { folder, dryRun }),
+    chooseFolderToTidy: () => pickFolder('Choose a folder to clear unfinished copies from'),
     activity: () => invoke('activity'),
     sendProgress: () => invoke('send_progress'),
     sendHistory: () => invoke('send_history'),

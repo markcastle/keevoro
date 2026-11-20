@@ -3340,3 +3340,18 @@ fieldset.wants [role='status'] {
   flex-basis: 100%;
   margin: 0;
 }
+
+/* Clearing unfinished copies: the question and its answer, in the page beside the button. */
+.tidying {
+  flex-basis: 100%;
+  grid-column: 1 / -1;
+  max-width: 720px;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+}
+
+.tidying p + p {
+  margin-top: var(--space-2);
+}

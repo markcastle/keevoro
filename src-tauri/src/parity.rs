@@ -74,6 +74,8 @@ const BACKED: &[(&str, &[Op])] = &[
     ("reset_file_kinds", &[Op::FileKindsReset]),
     ("check_update", &[Op::KeevoroUpdate]),
     ("reset_everything", &[Op::KeevoroReset]),
+    // Clearing unfinished copies from a folder, first saying how much.
+    ("tidy_folder", &[Op::DestinationsTidy]),
     // Jobs. Each command starts, asks after or stops one in the API, and
     // what the job says reaches the window through `jobs.follow`'s stream,
     // the listener set up in lib.rs.

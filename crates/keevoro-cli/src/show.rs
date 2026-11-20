@@ -737,27 +737,9 @@ pub fn kind_removed(io: &mut Io<'_>, _: &ArgMatches, kind: &Value) -> Said_ {
 }
 
 pub fn tidied(io: &mut Io<'_>, _: &ArgMatches, tidied: &Value) -> Said_ {
-    let freed = b(tidied, "bytes");
-    if freed > 0 {
-        writeln!(
-            io.out,
-            "Cleared {} of unfinished copies from {}. They were Keevoro's working files; nothing that was backed up was touched.",
-            bytes(freed),
-            s(tidied, "folder")
-        )?;
-    } else {
-        writeln!(
-            io.out,
-            "There were no unfinished copies to clear in {}.",
-            s(tidied, "folder")
-        )?;
-    }
-    if n(tidied, "left") > 0 {
-        writeln!(
-            io.out,
-            "Left {} in its working folder: written to in the last hour, so perhaps still in use, or not Keevoro's. Try again later.",
-            count(n(tidied, "left"), "thing")
-        )?;
+    // The API's own sentences, so the app says exactly the same.
+    for line in each(tidied.get("said").unwrap_or(&Value::Null)).filter_map(Value::as_str) {
+        writeln!(io.out, "{line}")?;
     }
     Ok(Code::Worked)
 }

@@ -176,8 +176,8 @@ register! {
         "Takes a place off the backup. Nothing backed up there is touched",
         changes: Always, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     DestinationsTidy = "destinations.tidy",
-        "Clears Keevoro's unfinished copies from a backup folder. Nothing backed up is touched",
-        changes: Always, job: false, command_line: true, agents: Agents::No, implemented: true;
+        "Clears, or first says, Keevoro's unfinished copies in a backup folder. Nothing backed up is touched",
+        changes: OnlyWhenAsked, job: false, command_line: true, agents: Agents::No, implemented: true;
     DestinationsRoom = "destinations.room",
         "What is waiting for each place, and whether it has the room",
         changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
@@ -343,6 +343,8 @@ impl Op {
                 Op::BackupPreviews => given("wanted"),
                 Op::BackupPhotosOrVideos | Op::SourcesPhotosOrVideos => given("wants"),
                 Op::KeevoroSettings => given("ownCodecs"),
+                // Asked only what it would clear, it clears nothing.
+                Op::DestinationsTidy => request.get("dryRun").and_then(serde_json::Value::as_bool) != Some(true),
                 Op::AgentsAccess => given("lookIn") || given("backUpTo") || given("mayChange"),
                 // Through the API, only the check: installing is the app's.
                 Op::KeevoroUpdate => false,
