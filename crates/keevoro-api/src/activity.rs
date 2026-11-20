@@ -118,7 +118,9 @@ fn said(work: Work) -> Job {
             what: "Making previews",
             why: "Making a small and a screen-sized version of each photo, so the backup is quick to \
                   look through. This is the heaviest thing Keevoro does to the processor, and it uses \
-                  half the cores at most. Your originals are not changed.",
+                  half the cores at most. During a backup they are made beside it at low priority, one \
+                  at a time while you are using the computer, and not at all while it is on battery or \
+                  busy. Your originals are not changed.",
         },
         Work::LookingThroughASource => Job {
             what: "Looking through a source",

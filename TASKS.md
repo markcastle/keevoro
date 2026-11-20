@@ -193,8 +193,10 @@ Done when a non-technical tester gets from a drive to a backup without help.
 - [ ] Show a raw file's true pixel size (read from inside the file, not the header)
 - [x] Activity page: what is being done and why, graphs of Keevoro's own processor and disk use, and Pause
 - [x] Memory graph on the Activity page
-- [ ] Pause by itself when on battery or when the computer is busy with something else
-- [ ] Run background checking at low priority, and with fewer readers, so it gives way to everything else
+- [x] Previews made during a backup wait by themselves while on battery or while the computer is busy with something else, and slow to one at a time while it is in use
+- [ ] Pause the rest of Keevoro's work by itself when on battery or when the computer is busy with something else
+- [x] Make previews during a backup at low priority, with fewer workers than the foreground and one reader per source, so they give way to everything else
+- [ ] Run the background check for duplicates at low priority, and with fewer readers, so it gives way to everything else
 - [ ] Notice when a drive is plugged in and offer to look through it
 - [ ] Time left ("About 20 minutes"), and cancel for a search or a gather
 - [ ] "Show folders" view with tick boxes, for people who want control
@@ -259,6 +261,8 @@ Separate, remembered jobs ("Drone footage to R2", "Family photos to a folder"), 
 - [x] Stop a send between files
 - [x] Folder names open the folder
 - [x] Live speed and time left while sending; a summary when it finishes; a record of earlier sends
+- [x] One estimate of the time left for the whole backup, every stage listed, re-estimated on a schedule that suits its length, and how long it has been running
+- [x] Previews made in the background while the originals are sent
 - [x] Network graph on the Activity page (what Keevoro sends to cloud storage)
 - [x] Count bytes as they are read, so a single huge file to a folder shows steady progress and not one jump at the end
 - [ ] Stop part-way through one very large file (it currently finishes the file in hand)

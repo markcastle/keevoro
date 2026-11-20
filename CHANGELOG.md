@@ -6,7 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **A backup now says how long the whole of it has left, and how long it has been running.** The backup screen leads with one line, such as "Running for 5 hours 12 minutes, about 3 hours left", and one bar for the whole backup, which no longer fills up and then starts again for the previews. Beneath it is a short list of every stage, the one in hand and those still to come ("Then: Backing up the previews"), so nothing comes as a surprise at the end. The time left is worked out afresh on a schedule that suits the backup (about five times an hour on a two-hour backup, at least once an hour on a day-long one, and at once when the speed really changes or a stage ends) and counts down smoothly in between. It is said roughly ("Roughly 6 hours left") when part of it is a guess, and not at all ("Working out how long this will take") until there is something to go on. Each backup remembers how fast things went on this computer, so the next one has a better first guess. Paused time does not eat into the time left, and "Running for" says how much of it was paused. `keevoro status`, `keevoro follow`, `keevoro run` and an AI app all give the same words.
+- **Previews are made while your files are being backed up, not after.** On a long backup they are ready, or nearly, by the time the originals have all arrived, instead of being a long second wait. Your originals still come first: previews are only sent once every original is safely there. While your files are being sent, previews are made gently: at low priority, with fewer workers than before and never more than one reading from each source, one at a time while you are using the computer, and not at all while it is on battery or busy with something else. Pause and Stop reach them as before, whatever was made is kept, and switching previews off for a backup means none of this happens.
+
+### Changed
+
+- **The "Making previews" reason on the activity page** now says that during a backup they are made beside it, at low priority, and wait while the computer is on battery or busy.
 
 ## [0.31.0] - 2026-11-19
 
