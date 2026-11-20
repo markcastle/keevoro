@@ -6,7 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **No drive looks chosen before you have chosen one.** On "Where are your photos?", a USB or external drive was shaded to suggest it, which looked as if it was already selected. Plugged-in drives are still listed first, and every card now looks the same until you click one. The same goes for the choices of where to back up to.
+- **A mapped network drive now appears among your drives.** A drive letter that leads to another computer or server, such as `Y:` for a share, was missing from "Where are your photos?" and could only be reached through "Choose a folder". It is now listed as "Network drive (Y:)".
 
 ## [0.37.0] - 2026-11-20
 

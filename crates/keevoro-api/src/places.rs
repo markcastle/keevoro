@@ -39,9 +39,69 @@ pub fn plugged_in() -> Vec<Place> {
             )
         })
         .collect();
+    places.extend(network_drives());
     places.sort_by(|a, b| b.removable.cmp(&a.removable).then_with(|| a.path.cmp(&b.path)));
     places.dedup_by(|a, b| a.path == b.path);
     places
+}
+
+/// Drive letters that lead to another computer: a mapped network drive,
+/// such as `Y:` for a share on a server. The system's list of disks leaves
+/// these out, because they are not disks of this computer, but to the
+/// person they are a drive like any other and belong on the same screen.
+///
+/// Each letter is asked on a thread of its own and given a short while to
+/// answer: a mapped drive whose server is switched off can otherwise hold
+/// the whole list up for many seconds. One that does not answer in time is
+/// simply not offered; "Choose a folder" still reaches it.
+#[cfg(windows)]
+fn network_drives() -> Vec<Place> {
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
+    const PATIENCE: Duration = Duration::from_millis(1500);
+    let (said, heard) = mpsc::channel();
+    for letter in 'A'..='Z' {
+        let said = said.clone();
+        std::thread::spawn(move || {
+            let root = format!("{letter}:\\");
+            let path = std::path::Path::new(&root);
+            let there = path.is_dir() && keevoro_engine::reach::is_across_a_network(path);
+            let _ = said.send((letter, there));
+        });
+    }
+    drop(said);
+    let until = Instant::now() + PATIENCE;
+    let mut answers = Vec::new();
+    while let Some(left) = until.checked_duration_since(Instant::now()) {
+        match heard.recv_timeout(left) {
+            Ok(answer) => answers.push(answer),
+            Err(_) => break,
+        }
+    }
+    across_a_network(&answers)
+}
+
+#[cfg(not(windows))]
+fn network_drives() -> Vec<Place> {
+    Vec::new()
+}
+
+/// The letters that answered as network drives, as places to offer.
+#[cfg(any(windows, test))]
+fn across_a_network(answers: &[(char, bool)]) -> Vec<Place> {
+    let mut letters: Vec<char> = answers.iter().filter(|(_, there)| *there).map(|(l, _)| *l).collect();
+    letters.sort_unstable();
+    letters
+        .into_iter()
+        .map(|letter| Place {
+            path: format!("{letter}:\\"),
+            name: format!("Network drive ({letter}:)"),
+            detail: "On another computer or server".to_string(),
+            removable: false,
+            // It may be vast, and is slower than a disk: always ask first.
+            ask_first: true,
+        })
+        .collect()
 }
 
 /// Removable drives larger than this are external hard disks, not sticks or
@@ -149,6 +209,27 @@ mod tests {
             describe("G:\\", "RECOVERY", 100 * 1024 * 1024, false),
             None,
             "too small to be a real drive"
+        );
+    }
+
+    #[test]
+    fn a_mapped_network_drive_is_offered_like_any_other_drive() {
+        let offered = across_a_network(&[('Z', false), ('Y', true), ('C', false), ('N', true)]);
+        let names: Vec<&str> = offered.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["Network drive (N:)", "Network drive (Y:)"],
+            "in order, and only those that answered"
+        );
+        assert_eq!(offered[1].path, "Y:\\");
+        assert_eq!(offered[1].detail, "On another computer or server");
+        assert!(
+            !offered[1].removable && offered[1].ask_first,
+            "never looked through whole without asking"
+        );
+        assert!(
+            across_a_network(&[]).is_empty(),
+            "none that answered in time, none offered"
         );
     }
 
