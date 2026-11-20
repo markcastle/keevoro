@@ -8,7 +8,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
-- **See where the space goes.** After "Find where the photos are", **See where the space goes** shows everything on the drive or folder, photos or not, as a map of boxes in the style of WinDirStat, each sized by the room it takes: photos in orange, videos striped green, everything else grey, so you can see at a glance what is filling it. Point at a box to see what it is, click it to choose it, and click again to go inside; the trail above goes back up. Beside the map, a list of the same folders and files, biggest first, with how much room each takes, how many photos, videos and other files it holds, and its share as a bar; pointing at either lights the other, and the list works with the keyboard alone. It is how to find the zip files, screen recordings or an old Keevoro library filling a Pictures folder. Folders Keevoro never looks through (system and app folders, hidden ones, a backup or library it made) are listed too and say so, and anything this backup would not take says why: a folder you left out, or videos in a backup for photos only. Choose a folder to look inside it, look through it, or leave it out. Each source has it too, beside Look inside. It comes from what the survey saw, so nothing is opened or changed; **Map again** surveys afresh. From the command line: `keevoro map PLACE`, and an AI app can ask in folders you have allowed it.
 - **Watch the map take shape while Keevoro looks.** While "Find where the photos are" walks a drive or folder, the biggest folders appear as boxes that grow as it goes, so you see what fills the place straight away rather than a spinner. If you have asked your computer for less motion, each new picture simply appears.
 - **Where the space goes by kind of file.** Beside **By folder**, **By kind of file** lists the photos, videos and everything else in the folder shown, each opening to its endings (jpg, mp4, zip and so on) with how many files and how much room. Choose one and every box on the map without it fades, so you can see at a glance where the zip files or the screen recordings are.
 - **See what is already a source, and what is already backed up, on the map.** A folder that is a source of this backup has a firm outline, and a folder whose files are all safely backed up has a tick in its corner; the list says it in words, such as "A source of this backup" and "Backed up: 1,180 of 1,204", and the key explains both. It is worked out when you open the map, so it is always as things are now. `keevoro map` says the same.
@@ -18,12 +17,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Changed
 
 - **The steps of a backup are marked like traffic lights.** A green disc with a tick when a step is done, an amber dot while it is under way, and a grey ring for one still to come, so you can see at a glance how far along it is. Previews that are all made now show as done straight away, instead of looking unfinished until the whole backup ends.
-- **Find where the photos are now measures everything it passes, without keeping you waiting.** It suggests folders as quickly as before, then measures what it never looks through (system and app folders, hidden ones, Keevoro's own), so where the space goes shows the whole drive. While it measures, **Show the folders now** gives you the suggestions straight away, losing none. Pause now holds a survey too.
 - **A survey of a whole drive takes less of your computer's memory.** It now keeps up to 100,000 folders one by one, rather than half a million, so mapping a very large drive holds under 40 MB instead of over 100 MB. Every size and count is still exact; past that, deeper folders (on a system disk, nearly always inside system and app folders) are counted into the folder above them, which says how many more it holds.
 
 ### Fixed
 
 - **What a backup would take, on the map, no longer counts a Mac's hidden companion files.** Files like `._IMG_1.jpg`, which no search ever takes, were counted in "This backup would take", and so were photos inside a folder Keevoro made when a very large drive was mapped. Now the figure is only what a backup would really take.
+
+## [0.36.1] - 2026-11-20
+
+### Fixed
+
+- **The progress bar of a backup no longer sits at full from the start.** For an instant before a backup had worked out what it had to do, it reported itself as finished, and the bar then held that. It now starts empty and follows the work, and a wrong reading can no longer pin it.
+
+## [0.36.0] - 2026-11-20
+
+### Added
+
+- **See where the space goes.** After "Find where the photos are", **See where the space goes** shows everything on the drive or folder, photos or not, as a map of boxes in the style of WinDirStat, each sized by the room it takes: photos in orange, videos striped green, everything else grey, so you can see at a glance what is filling it. Point at a box to see what it is, click it to choose it, and click again to go inside; the trail above goes back up. Beside the map, a list of the same folders and files, biggest first, with how much room each takes, how many photos, videos and other files it holds, and its share as a bar; pointing at either lights the other, and the list works with the keyboard alone. It is how to find the zip files, screen recordings or an old Keevoro library filling a Pictures folder. Folders Keevoro never looks through (system and app folders, hidden ones, a backup or library it made) are listed too and say so, and anything this backup would not take says why: a folder you left out, or videos in a backup for photos only. Choose a folder to look inside it, look through it, or leave it out. Each source has it too, beside Look inside. It comes from what the survey saw, so nothing is opened or changed; **Map again** surveys afresh. From the command line: `keevoro map PLACE`, and an AI app can ask in folders you have allowed it.
+
+### Changed
+
+- **Find where the photos are now measures everything it passes, without keeping you waiting.** It suggests folders as quickly as before, then measures what it never looks through (system and app folders, hidden ones, Keevoro's own), so where the space goes shows the whole drive. While it measures, **Show the folders now** gives you the suggestions straight away, losing none. Pause now holds a survey too.
 
 ## [0.35.0] - 2026-11-20
 
@@ -585,7 +599,9 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.35.0...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.36.1...HEAD
+[0.36.1]: https://github.com/markcastle/keevoro/compare/v0.36.0...v0.36.1
+[0.36.0]: https://github.com/markcastle/keevoro/compare/v0.35.0...v0.36.0
 [0.35.0]: https://github.com/markcastle/keevoro/compare/v0.34.0...v0.35.0
 [0.34.0]: https://github.com/markcastle/keevoro/compare/v0.33.0...v0.34.0
 [0.33.0]: https://github.com/markcastle/keevoro/compare/v0.32.0...v0.33.0
