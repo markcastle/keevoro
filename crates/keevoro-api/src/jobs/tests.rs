@@ -708,7 +708,7 @@ fn a_survey_finds_the_folders_with_photos_and_can_be_stopped() {
         .any(|s| matches!(s, Said::Survey(p) if p.files == 5 && p.folders == found.folders)));
     assert!(keevoro.log_tail(2).contains("Looked at 5 files in"));
 
-    // Stopped the moment it first says how far it has got.
+    // Stopped after it had seen everything: nothing is said to be missing.
     let (jobs, log) = (keevoro.jobs.clone(), keevoro.log_shared());
     let stopper: Listener = Arc::new(move |event: &Event| {
         if matches!(event.said, Said::Survey(_)) {
@@ -719,8 +719,24 @@ fn a_survey_finds_the_folders_with_photos_and_can_be_stopped() {
     let Some(Said::Surveyed(found)) = keevoro.wait(job.id) else {
         panic!()
     };
+    assert!(!found.stopped, "it had seen everything before it was told to stop");
+
+    // Stopped part-way: held by Pause before it lists a folder, then stopped.
+    let _after = CarryOnAfter;
+    keevoro.pause();
+    let job = keevoro.survey(&card, None, None).unwrap();
+    keevoro.jobs.stop(Which::Job(job.id), &keevoro.log_shared());
+    keevoro.carry_on();
+    let Some(Said::Surveyed(found)) = keevoro.wait(job.id) else {
+        panic!()
+    };
     assert!(found.stopped);
-    assert!(keevoro.log_tail(1).ends_with("(stopped early)"));
+    assert!(keevoro.log_tail(2).contains("(stopped early)"));
+    // What it saw is remembered as partly mapped.
+    let map = keevoro.space_map(&crate::space::MapRequest::of(&card), None).unwrap();
+    assert!(!map.complete && !map.sized_all, "{map:?}");
+    let outline = keevoro.folders_inside(&card, None).unwrap();
+    assert!(!outline.complete);
     keevoro.wait_for_jobs();
 }
 

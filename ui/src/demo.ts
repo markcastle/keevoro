@@ -8,6 +8,7 @@
 // Add ?demo=new to the address to start as a first-time user with no
 // backup, or ?demo=empty for a backup with nothing found yet.
 
+import { demoMap } from './demoMap'
 import type {
   AppState,
   FileKind,
@@ -919,6 +920,13 @@ export function demoBackend(): Backend {
         bytes: folders.reduce((n, f) => n + f.bytes, 0),
         onlineOnly: folders.reduce((n, f) => n + f.onlineOnly, 0),
       }
+    },
+    // Where the space goes: the owner's own disk, or any other place.
+    spaceMap: async (request) => {
+      const { place } = request
+      if (![...surveyed].some((root) => place === root || place.startsWith(`${root}\\`))) return null
+      await later(40 * pace)
+      return demoMap(request, leftOutOf, Math.floor(Date.now() / 1000) - 120)
     },
     folderFiles: async ({ place, from, count, sort, only }) => {
       await later(80 * pace)

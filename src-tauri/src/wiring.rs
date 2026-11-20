@@ -277,6 +277,18 @@ fn a_folder_is_looked_inside_by_the_names_and_shapes_the_screens_use_and_nothing
     invoke(&window, "survey_place", json!({ "path": place })).unwrap();
     let outline = invoke(&window, "folders_inside", json!({ "place": place })).unwrap();
     fits(&outline, "FoldersView");
+    // Where the space goes, from the same survey.
+    let map = invoke(
+        &window,
+        "space_map",
+        json!({ "request": { "place": place, "depth": 3, "smallest": 1 } }),
+    )
+    .unwrap();
+    fits(&map, "MapView");
+    fits(&map["top"], "MapNode");
+    fits(&map["top"]["children"][0], "MapNode");
+    fits(&map["trail"][0], "TrailStep");
+    fits(&map["kinds"][0], "KindView");
     fits(&outline["folders"][0], "FolderView");
     let folder = outline["folders"][0]["folder"].as_str().unwrap().to_string();
     let page = invoke(

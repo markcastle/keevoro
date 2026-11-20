@@ -49,6 +49,24 @@ keevoro picture --file "D:\Users\Mark\Pictures\Camera Roll\IMG_0001.jpg" --to lo
 
 `folders` lists the folders inside that hold photos or videos, with how many each holds; `files` lists one folder's photos and videos a page at a time (`--from` and `--count`, at most 500), by name or with `--sort newest` or `--sort oldest` by each file's date (when it was last changed or copied, which is not always when it was taken), all of them or only `--photos` or `--videos`, with how long each video lasts when its file says (MP4, MOV, M4V and 3GP); `picture --file` saves a picture of any of them. The picture is kept in Keevoro's own cache, and a file only in OneDrive (or iCloud) is never opened.
 
+The survey also remembers where the space goes: every folder and the biggest files, photos or not, so you can see what fills a drive (zip files, screen recordings, an old library) before choosing what to back up. Folders Keevoro never looks through, such as system folders, are measured last, once the suggestions are ready:
+
+```sh
+keevoro map "D:\Users\Mark\Pictures"
+```
+
+```text
+Where the space goes in D:\Users\Mark\Pictures (mapped 2 minutes ago)
+  44.0 GB  100%  Pictures  12,436 photos, 179 videos, 172 other files
+  17.7 GB   40%    Texture packs  160 other files
+   9.2 GB   21%    Keevoro Library  6,830 photos, 100 videos, 1 other file  (A library from an older Keevoro, never looked through)
+   9.1 GB   21%    Captures  41 videos
+By kind: photos 13.8 GB (31%), videos 12.4 GB (28%), everything else 17.7 GB (40%)
+Of it, 17.1 GB is photos and videos Keevoro would back up.
+```
+
+`--folder` shows one folder inside the place, `--depth` how many levels of folders (1 to 6, 3 when left out), and `--kinds` lists the kinds of file by ending instead (`zip`, `mp4`, `jpg` and so on). Each line says what Keevoro would make of it for the backup in hand: a folder it made or never looks through, a folder you left out, or photos or videos the backup does not want, and why. It is answered from the survey, so nothing is walked or opened again; survey again for a fresh one.
+
 ### Look through a source
 
 ```sh
@@ -245,6 +263,7 @@ The words each command shows in `keevoro --help` come from the same list the app
 | `keevoro survey PLACE` | Finds the folders in a drive or folder that hold photos and videos, reading listings only. |
 | `keevoro folders PLACE` | The folders inside a surveyed place that hold photos or videos, with how many each holds. |
 | `keevoro files FOLDER [--from N] [--count N] [--sort name\|newest\|oldest] [--photos\|--videos]` | The photos and videos directly in one folder, a page at a time, by name or by the file's date, with each video's length. Nothing is added. |
+| `keevoro map PLACE [--folder FOLDER] [--depth N] [--kinds]` | Where the space goes in a surveyed place: every folder and the biggest files, photos or not, by size, or with `--kinds` by ending. Nothing is opened or changed. |
 | `keevoro look PLACE` | Looks through a drive or folder and adds it as a source. |
 | `keevoro look --again [SOURCE]` | Looks through one source, or all of them, for what is new. |
 | `keevoro sources` | The backup's sources, each with its number. |

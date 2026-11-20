@@ -123,6 +123,9 @@ register! {
     PlacesFiles = "places.files",
         "The photos and videos in one folder, a page at a time, without adding anything",
         changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
+    PlacesMap = "places.map",
+        "Where the space goes in a surveyed place: its folders and files by size and kind",
+        changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     SourcesList = "sources.list",
         "A backup's sources: name, place, how many photos and videos, size",
         changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
@@ -383,6 +386,7 @@ impl Op {
             Op::BackupsForget => schema::<ForgetBackupRequest>(),
             Op::PlacesSurvey | Op::SourcesLook | Op::PlacesFolders => schema::<PlaceRequest>(),
             Op::PlacesFiles => schema::<crate::inside::FilesRequest>(),
+            Op::PlacesMap => schema::<crate::space::MapRequest>(),
             Op::SourcesLookAgain => schema::<LookAgainRequest>(),
             Op::SourcesForget | Op::SourcesFileTypes => schema::<SourceRequest>(),
             Op::SourcesIncludeType => schema::<IncludeTypeRequest>(),
@@ -477,6 +481,16 @@ impl Op {
                  whether it is a video and how many seconds it lasts, and whether it is only in online storage. \
                  Give a path to show_picture as file to see one. Reads the folder's listing only; changes nothing \
                  and adds nothing to a backup. Only works in folders the person has allowed (see my_access).",
+            ),
+            Op::PlacesMap => (
+                "where_the_space_goes",
+                "Says where the space goes in a drive or folder survey_place has surveyed (survey it first), in \
+                 the style of WinDirStat: every folder and the biggest files, photos, videos and everything else, \
+                 each with its size and how many files, the biggest first, to a depth (1 to 6) and with smaller \
+                 ones merged; and the files by ending. Give folder, inside place, to go into one. Says which \
+                 folders Keevoro never looks through or made itself, and what the backup would leave out and \
+                 why. Answered from the survey, so nothing is walked or opened; changes nothing. Only works in \
+                 folders the person has allowed (see my_access).",
             ),
             Op::SourcesList => (
                 "list_sources",
@@ -742,7 +756,7 @@ mod tests {
 
     #[test]
     fn the_register_has_every_operation_in_the_plan() {
-        assert_eq!(Op::ALL.len(), 53);
+        assert_eq!(Op::ALL.len(), 54);
         // Each entry is the one for its own operation.
         for op in Op::ALL {
             assert_eq!(op.entry().op, *op);
@@ -865,6 +879,7 @@ mod tests {
         "survey_place",
         "folders_inside",
         "files_in_folder",
+        "where_the_space_goes",
         "list_sources",
         "look_through",
         "look_again",

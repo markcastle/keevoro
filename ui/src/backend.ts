@@ -85,7 +85,7 @@ export type LeftOut = { folder: string; what: 'keevoroBackup' | 'keevoroOwn' | '
 /** What leaving a folder out, or putting it back, did, in words that say nothing backed up is touched. */
 export type LeftOutFolder = { folder: string; leftOut: boolean; files: number; stillInside?: string; said: string }
 
-export type SurveyProgress = { folders: number; files: number; photos: number; videos: number }
+export type SurveyProgress = { folders: number; files: number; photos: number; videos: number; sizing?: boolean }
 
 /** A drive plugged into this computer, offered as somewhere to look. */
 export type Place = {
@@ -512,6 +512,92 @@ export type FilesView = {
   files: FileView[]
 }
 
+/** Asks where the space goes in a surveyed place. */
+export type MapRequest = {
+  /** The place, written whole: where the trail back starts. */
+  place: string
+  /** A folder inside it to show; the place itself when left out. */
+  folder?: string
+  /** How many levels of folders to open, 1 to 6. */
+  depth: number
+  /** The least room a box must take to be shown on its own; smaller ones are merged. */
+  smallest?: number
+}
+
+/** One box on the map: a folder, one of the biggest files, or several together. */
+export type MapNode = {
+  /** A folder's or file's name; for several together "Photos", "Videos", "Other files" or "Smaller folders". */
+  name: string
+  /** A folder, written whole. */
+  path?: string
+  node: 'folder' | 'file' | 'files' | 'smaller'
+  /** For a file, or files together, which kind. */
+  kind?: 'photo' | 'video' | 'other'
+  bytes: number
+  photos: number
+  videos: number
+  others: number
+  photoBytes: number
+  videoBytes: number
+  otherBytes: number
+  /** Of its bytes, those only in online storage, never opened. */
+  onlineOnlyBytes?: number
+  /** Folders inside it; for smaller folders together, how many. */
+  folders?: number
+  /** Why Keevoro never looks through it, such as "System folder". */
+  skipped?: string
+  /** Keevoro made it: a backup, an old library, its own files. */
+  madeByKeevoro?: boolean
+  /** Why none of its photos and videos would be backed up, in words. */
+  leftOut?: string
+  /** The folder left out of this backup that this folder is, or is in: what Put back takes. */
+  leftOutFolder?: string
+  /** Of its photos and videos, the bytes this backup would take. */
+  wouldBackUp: number
+  unreadable?: boolean
+  /** Something in it was not measured: the survey was stopped first. */
+  notSized?: boolean
+  /** Folders inside it counted into it, past what a map keeps one by one. */
+  moreFolders?: number
+  /** There is more inside than the depth asked for shows. */
+  deeper?: boolean
+  children?: MapNode[]
+}
+
+/** One step of the trail from the place to the folder shown. */
+export type TrailStep = { name: string; folder: string }
+
+/** One kind of file by ending, at or inside the folder shown. */
+export type KindView = {
+  /** Lower case without the dot; empty for no ending, "…" for rarer ones. */
+  ending: string
+  kind: 'photo' | 'video' | 'other'
+  files: number
+  bytes: number
+  /** Why files with it here would not be backed up, when they would not. */
+  leftOut?: string
+}
+
+/** Where the space goes in a surveyed place, from the survey Keevoro remembers. */
+export type MapView = {
+  place: string
+  folder: string
+  trail: TrailStep[]
+  /** When the survey was made, in seconds since 1970. */
+  surveyedAt: number
+  /** False when the survey was stopped before it had seen every folder. */
+  complete: boolean
+  /** False when it was stopped before everything was measured. */
+  sizedAll: boolean
+  top: MapNode
+  kinds: KindView[]
+  /** Some folders' endings were not kept, so the kinds add up to less. */
+  kindsShort?: boolean
+  smallest: number
+  /** The backup whose choices are said. */
+  backup?: string
+}
+
 /** A newer version of Keevoro that is ready to install. */
 export type Update = { version: string; page: string }
 
@@ -640,6 +726,11 @@ export interface Backend {
   foldersInside(place: string): Promise<FoldersView | null>
   /** A page of the photos and videos directly in one folder, as asked. Nothing is added. */
   folderFiles(request: FilesRequest): Promise<FilesView>
+  /**
+   * Where the space goes in a place, from the survey Keevoro remembers;
+   * `null` when no survey covers it yet. Nothing is opened or changed.
+   */
+  spaceMap(request: MapRequest): Promise<MapView | null>
   /** An address for a small picture of any photo or video, by its path. Only Keevoro's cache is written. */
   filePicture(path: string): Promise<string>
   /** A screen-sized picture of any photo or video, by its path. Fetched afresh each time. */
@@ -754,6 +845,7 @@ async function tauriBackend(): Promise<Backend> {
     closerLook: (id) => invoke<ArrayBuffer>('closer_look', { id }).then(webp),
     foldersInside: (place) => invoke('folders_inside', { place }),
     folderFiles: (request) => invoke('folder_files', { request }),
+    spaceMap: (request) => invoke('space_map', { request }),
     filePicture: (path) =>
       pictures.want(fileKey(path), () => invoke<ArrayBuffer>('file_picture', { path, large: false }).then(webp)),
     closerLookAtFile: (path) => invoke<ArrayBuffer>('file_picture', { path, large: true }).then(webp),

@@ -370,6 +370,41 @@ pub static ROWS: &[Row] = &[
         show: show::files,
     },
     Row {
+        words: &["map"],
+        ops: &[Op::PlacesMap],
+        about: Some(
+            "Where the space goes in a place `keevoro survey` has surveyed: every folder and the biggest files, photos, videos and everything else, by size, from what the survey saw. Nothing is opened, added or changed.",
+        ),
+        args: |c| {
+            c.arg(arg("place", "A drive or folder that was surveyed").required(true))
+                .arg(
+                    Arg::new("folder")
+                        .long("folder")
+                        .value_name("FOLDER")
+                        .help("A folder inside the place to show instead of the whole of it"),
+                )
+                .arg(
+                    Arg::new("depth")
+                        .long("depth")
+                        .value_name("N")
+                        .help("How many levels of folders to show, 1 to 6; 3 when left out")
+                        .value_parser(clap::value_parser!(u8).range(1..=6)),
+                )
+                .arg(flag("kinds", "List the kinds of file by ending instead of the folders"))
+        },
+        ask: |_, m, _| {
+            let mut ask = json!({
+                "place": required(m, "place"),
+                "depth": m.get_one::<u8>("depth").copied().unwrap_or(3),
+            });
+            if let Some(folder) = text(m, "folder") {
+                ask["folder"] = json!(folder);
+            }
+            Ok((Op::PlacesMap, ask))
+        },
+        show: show::space_map,
+    },
+    Row {
         words: &["sources"],
         ops: &[Op::SourcesList],
         about: None,

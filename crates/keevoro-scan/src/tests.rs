@@ -784,6 +784,7 @@ mod how_deep {
             &SkipRules::default(),
             &Kinds::default(),
             &NamedOnline,
+            crate::map::Limits::default(),
             None,
             &mut |_| {},
         );
@@ -800,6 +801,7 @@ mod how_deep {
             &SkipRules::default(),
             &Kinds::default(),
             &crate::ByAttributes,
+            crate::map::Limits::default(),
             None,
             &mut |_| {},
         )

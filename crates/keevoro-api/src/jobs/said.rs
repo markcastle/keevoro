@@ -15,6 +15,10 @@ pub struct SurveyEvent {
     pub files: usize,
     pub photos: usize,
     pub videos: usize,
+    /// Every suggestion is final; the folders Keevoro never looks through
+    /// are being sized for the map of where the space goes.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub sizing: bool,
 }
 
 /// Progress reading, in the background, the files a quick search only
@@ -290,6 +294,7 @@ mod tests {
                 files: 2,
                 photos: 3,
                 videos: 4,
+                sizing: false,
             }),
             Said::Surveyed(SurveyView {
                 hints: vec![hint],
@@ -385,16 +390,20 @@ mod tests {
             serde_json::to_value(Said::Check(check.clone())).unwrap(),
             serde_json::to_value(&check).unwrap()
         );
-        let survey = SurveyEvent {
+        let mut survey = SurveyEvent {
             folders: 3,
             files: 40,
             photos: 30,
             videos: 1,
+            sizing: false,
         };
         assert_eq!(
             serde_json::to_value(Said::Survey(survey)).unwrap(),
-            serde_json::json!({ "folders": 3, "files": 40, "photos": 30, "videos": 1 })
+            serde_json::json!({ "folders": 3, "files": 40, "photos": 30, "videos": 1 }),
+            "as older readers expect it"
         );
+        survey.sizing = true;
+        assert_eq!(serde_json::to_value(Said::Survey(survey)).unwrap()["sizing"], true);
         let names: Vec<&str> = [
             Said::Scan(ScanEvent {
                 name: String::new(),

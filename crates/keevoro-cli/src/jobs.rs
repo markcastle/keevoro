@@ -231,6 +231,12 @@ fn step(said: &Said) -> String {
             n(e.photos),
             n(e.videos)
         ),
+        Said::Survey(e) if e.sizing => format!(
+            "Found {} photos and {} videos by name. Now measuring everything else for the map, {} folders so far",
+            keevoro_api::words::thousands(e.photos),
+            keevoro_api::words::thousands(e.videos),
+            keevoro_api::words::thousands(e.folders)
+        ),
         Said::Survey(e) => format!(
             "Looked in {} folders: {} photos and {} videos by name so far",
             keevoro_api::words::thousands(e.folders),

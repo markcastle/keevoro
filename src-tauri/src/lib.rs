@@ -145,6 +145,7 @@ fn app<R: Runtime>(
             commands::folders_inside,
             commands::folder_files,
             commands::file_picture,
+            commands::space_map,
             commands::destination,
             commands::connect_destination,
             commands::disconnect_destination,

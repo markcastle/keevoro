@@ -259,6 +259,25 @@ pub fn folders_inside(shared: State<'_, Shared>, place: String) -> Said<Option<k
         .map_err(say)
 }
 
+/// Where the space goes in a surveyed place, from the survey Keevoro
+/// remembers; `None` when no survey covers it yet, so the screen surveys it
+/// first.
+#[tauri::command]
+pub async fn space_map<R: Runtime>(
+    app: AppHandle<R>,
+    request: keevoro_api::space::MapRequest,
+) -> Said<Option<keevoro_api::space::MapView>> {
+    // A map of a whole drive can take a moment to read back.
+    tauri::async_runtime::spawn_blocking(move || {
+        let keevoro = &app.state::<Shared>().keevoro;
+        let backup = keevoro.backups().current();
+        keevoro.space_map_if_surveyed(&request, backup.as_ref())
+    })
+    .await
+    .map_err(say)?
+    .map_err(say)
+}
+
 /// One page of the photos and videos directly in a folder, sorted and
 /// shown as asked.
 #[tauri::command]

@@ -63,6 +63,21 @@ pub fn date_and_time(seconds: i64) -> String {
     crate::log::stamp(u64::try_from(seconds).unwrap_or(0))
 }
 
+/// How long ago a moment was, both given in seconds since 1970, as a
+/// person says it: "just now", "5 minutes ago", "3 hours ago", "2 days
+/// ago", and the date beyond a month.
+pub fn ago(then: i64, now: i64) -> String {
+    let gone = now.saturating_sub(then).max(0);
+    let say = |n: i64, unit: &str| format!("{} ago", count(usize::try_from(n).unwrap_or(0), unit));
+    match gone {
+        0..60 => "just now".to_string(),
+        60..3_600 => say(gone / 60, "minute"),
+        3_600..86_400 => say(gone / 3_600, "hour"),
+        86_400..2_592_000 => say(gone / 86_400, "day"),
+        _ => format!("on {}", &date_and_time(then)[..10]),
+    }
+}
+
 /// How long a video lasts, as a video player shows it: `0:07`, `1:42`,
 /// `1:02:05`. Rounded to the nearest second.
 pub fn length(seconds: f64) -> String {
@@ -268,6 +283,17 @@ pub fn run_in_full(sent: &Sent) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn how_long_ago_is_said_as_a_person_says_it() {
+        let now = 1_800_000_000;
+        assert_eq!(super::ago(now - 5, now), "just now");
+        assert_eq!(super::ago(now - 60, now), "1 minute ago");
+        assert_eq!(super::ago(now - 7_200, now), "2 hours ago");
+        assert_eq!(super::ago(now - 3 * 86_400, now), "3 days ago");
+        assert_eq!(super::ago(1_700_000_000, now), "on 2023-11-14");
+        assert_eq!(super::ago(now + 99, now), "just now", "a clock that moved back");
+    }
+
     use super::*;
 
     #[test]

@@ -44,6 +44,7 @@ pub mod places;
 mod rates;
 pub mod register;
 pub mod reset;
+pub mod space;
 pub mod wants;
 pub mod words;
 
@@ -378,6 +379,10 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
         Op::PlacesFiles => {
             let r: inside::FilesRequest = read(request)?;
             answer(keevoro.files_in(&r, any_backup()?.as_ref())?)
+        }
+        Op::PlacesMap => {
+            let r: space::MapRequest = read(request)?;
+            answer(keevoro.space_map(&r, any_backup()?.as_ref())?)
         }
         Op::DestinationsList => {
             read::<Nothing>(request)?;

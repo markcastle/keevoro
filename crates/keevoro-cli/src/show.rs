@@ -371,6 +371,160 @@ pub fn folders(io: &mut Io<'_>, _: &ArgMatches, view: &Value) -> Said_ {
     Ok(Code::Worked)
 }
 
+/// Of `whole`, as a percentage a person reads: "40%", "<1%".
+fn share(part: u64, whole: u64) -> String {
+    if whole == 0 {
+        return "0%".to_string();
+    }
+    #[allow(clippy::cast_precision_loss)]
+    let percent = part as f64 * 100.0 / whole as f64;
+    if part > 0 && percent < 1.0 {
+        "<1%".to_string()
+    } else {
+        format!("{percent:.0}%")
+    }
+}
+
+/// What a box on the map holds, in words: "1,204 photos, 37 videos, 12
+/// other files", leaving out kinds it has none of.
+fn holds(node: &Value) -> String {
+    let said: Vec<String> = [("photos", "photo"), ("videos", "video"), ("others", "other file")]
+        .into_iter()
+        .filter(|(field, _)| n(node, field) > 0)
+        .map(|(field, word)| count(n(node, field), word))
+        .collect();
+    if said.is_empty() {
+        "empty".to_string()
+    } else {
+        said.join(", ")
+    }
+}
+
+/// One line per box, indented by depth, the biggest first.
+fn map_lines(io: &mut Io<'_>, node: &Value, whole: u64, depth: usize, above: Option<&str>) -> Result<(), Failure> {
+    let mut notes = Vec::new();
+    let skipped = node.get("skipped").and_then(Value::as_str);
+    // Said once, on the folder itself, not again on everything inside it.
+    if let Some(skipped) = skipped.filter(|said| Some(*said) != above) {
+        notes.push(format!("{skipped}, never looked through"));
+    }
+    match node.get("leftOut").and_then(Value::as_str) {
+        Some(why) if !yes(node, "madeByKeevoro") => notes.push(format!("not backed up: {why}")),
+        _ => {}
+    }
+    if b(node, "onlineOnlyBytes") > 0 {
+        notes.push(format!("{} only online", bytes(b(node, "onlineOnlyBytes"))));
+    }
+    if yes(node, "unreadable") {
+        notes.push("couldn't be read".to_string());
+    }
+    if yes(node, "notSized") {
+        notes.push("not all measured".to_string());
+    }
+    let name = match s(node, "node") {
+        "smaller" => count(n(node, "folders"), "smaller folder"),
+        "files" => format!("{} here", holds(node)),
+        _ => s(node, "name").to_string(),
+    };
+    let what = if s(node, "node") == "files" {
+        String::new()
+    } else {
+        format!("  {}", holds(node))
+    };
+    let notes = if notes.is_empty() {
+        String::new()
+    } else {
+        format!("  ({})", notes.join("; "))
+    };
+    writeln!(
+        io.out,
+        "{:>9}  {:>4}  {}{name}{what}{notes}",
+        bytes(b(node, "bytes")),
+        share(b(node, "bytes"), whole),
+        "  ".repeat(depth)
+    )?;
+    for child in each(node.get("children").unwrap_or(&Value::Null)) {
+        map_lines(io, child, whole, depth + 1, skipped)?;
+    }
+    Ok(())
+}
+
+pub fn space_map(io: &mut Io<'_>, m: &ArgMatches, view: &Value) -> Said_ {
+    let top = view.get("top").unwrap_or(&Value::Null);
+    let whole = b(top, "bytes");
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(0));
+    let when = view.get("surveyedAt").and_then(Value::as_i64).unwrap_or(0);
+    writeln!(
+        io.out,
+        "Where the space goes in {} (mapped {})",
+        s(view, "folder"),
+        keevoro_api::words::ago(when, now)
+    )?;
+    if m.get_flag("kinds") {
+        for kind in each(view.get("kinds").unwrap_or(&Value::Null)) {
+            let ending = match s(kind, "ending") {
+                "" => "(no ending)".to_string(),
+                "…" => "(other endings)".to_string(),
+                ending => ending.to_string(),
+            };
+            let what = match s(kind, "kind") {
+                "photo" => "photos",
+                "video" => "videos",
+                _ => "everything else",
+            };
+            let left_out = match kind.get("leftOut").and_then(Value::as_str) {
+                Some(why) => format!("  (not backed up: {why})"),
+                None => String::new(),
+            };
+            writeln!(
+                io.out,
+                "{:>9}  {:>4}  {ending:<10}  {}, {what}{left_out}",
+                bytes(b(kind, "bytes")),
+                share(b(kind, "bytes"), whole),
+                count(n(kind, "files"), "file")
+            )?;
+        }
+        if yes(view, "kindsShort") {
+            writeln!(io.out, "Some folders' endings were not kept, so these add up to less.")?;
+        }
+    } else {
+        map_lines(io, top, whole, 0, None)?;
+    }
+    writeln!(
+        io.out,
+        "By kind: photos {} ({}), videos {} ({}), everything else {} ({})",
+        bytes(b(top, "photoBytes")),
+        share(b(top, "photoBytes"), whole),
+        bytes(b(top, "videoBytes")),
+        share(b(top, "videoBytes"), whole),
+        bytes(b(top, "otherBytes")),
+        share(b(top, "otherBytes"), whole)
+    )?;
+    match view.get("backup").and_then(Value::as_str) {
+        Some(name) => writeln!(
+            io.out,
+            "The backup \"{name}\" would take {} of it: the photos and videos it wants.",
+            bytes(b(top, "wouldBackUp"))
+        )?,
+        None => writeln!(
+            io.out,
+            "Of it, {} is photos and videos Keevoro would back up.",
+            bytes(b(top, "wouldBackUp"))
+        )?,
+    }
+    if !yes(view, "complete") {
+        writeln!(io.out, "The survey was stopped part-way, so there may be more.")?;
+    } else if !yes(view, "sizedAll") {
+        writeln!(
+            io.out,
+            "The survey was stopped before everything was measured, so some folders may be bigger."
+        )?;
+    }
+    Ok(Code::Worked)
+}
+
 pub fn files(io: &mut Io<'_>, _: &ArgMatches, view: &Value) -> Said_ {
     let list: Vec<&Value> = each(view.get("files").unwrap_or(&Value::Null)).collect();
     writeln!(
