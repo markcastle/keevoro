@@ -840,6 +840,43 @@ fn a_folder_is_looked_inside_and_a_picture_saved_without_adding_anything() {
 }
 
 #[test]
+fn where_the_space_goes_is_said_from_the_survey_by_folder_and_by_kind() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let card = card(dir.path());
+    std::fs::create_dir_all(card.join("Games")).unwrap();
+    std::fs::write(card.join("Games").join("textures.zip"), vec![0u8; 50_000]).unwrap();
+    let at = At::new(dir.path());
+    let before = everything_written(&card);
+    let refused = at.keevoro(&["map", &text(&card)]);
+    assert_ne!(refused.code, Code::Worked);
+    assert!(refused.err.contains("Find where the photos are"), "{}", refused.err);
+    at.keevoro(&["survey", &text(&card)]);
+    let map = at.keevoro(&["map", &text(&card)]);
+    assert_eq!(map.code, Code::Worked, "{}", map.err);
+    assert!(map.out.starts_with("Where the space goes in "), "{}", map.out);
+    assert!(map.out.contains("(mapped just now)"), "{}", map.out);
+    assert!(map.out.contains("Games  1 other file"), "{}", map.out);
+    assert!(map.out.contains("By kind: photos "), "{}", map.out);
+    let kinds = at.keevoro(&["map", &text(&card), "--kinds"]);
+    assert!(kinds.out.contains("zip"), "{}", kinds.out);
+    assert!(kinds.out.contains("1 file, everything else"), "{}", kinds.out);
+    let inside = at.keevoro(&[
+        "map",
+        &text(&card),
+        "--folder",
+        &text(&card.join("Games")),
+        "--depth",
+        "1",
+        "--json",
+    ]);
+    assert_eq!(inside.json()["top"]["name"], "Games");
+    let too_deep = at.keevoro(&["map", &text(&card), "--depth", "9"]);
+    assert_ne!(too_deep.code, Code::Worked);
+    assert_eq!(everything_written(&card), before, "nothing on it was changed");
+}
+
+#[test]
 fn a_folder_is_left_out_of_a_backup_and_put_back_from_the_command_line() {
     let _turn = one_at_a_time();
     let dir = tempfile::tempdir().unwrap();

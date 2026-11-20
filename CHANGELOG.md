@@ -6,7 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **See where the space goes.** After "Find where the photos are", **See where the space goes** shows everything on the drive or folder, photos or not, as a map of boxes in the style of WinDirStat, each sized by the room it takes: photos in orange, videos striped green, everything else grey, so you can see at a glance what is filling it. Point at a box to see what it is, click it to choose it, and click again to go inside; the trail above goes back up. Beside the map, a list of the same folders and files, biggest first, with how much room each takes, how many photos, videos and other files it holds, and its share as a bar; pointing at either lights the other, and the list works with the keyboard alone. It is how to find the zip files, screen recordings or an old Keevoro library filling a Pictures folder. Folders Keevoro never looks through (system and app folders, hidden ones, a backup or library it made) are listed too and say so, and anything this backup would not take says why: a folder you left out, or videos in a backup for photos only. Choose a folder to look inside it, look through it, or leave it out. Each source has it too, beside Look inside. It comes from what the survey saw, so nothing is opened or changed; **Map again** surveys afresh. From the command line: `keevoro map PLACE`, and an AI app can ask in folders you have allowed it.
+
+### Changed
+
+- **Find where the photos are now measures everything it passes, without keeping you waiting.** It suggests folders as quickly as before, then measures what it never looks through (system and app folders, hidden ones, Keevoro's own), so where the space goes shows the whole drive. While it measures, **Show the folders now** gives you the suggestions straight away, losing none. Pause now holds a survey too.
 
 ## [0.35.0] - 2026-11-20
 

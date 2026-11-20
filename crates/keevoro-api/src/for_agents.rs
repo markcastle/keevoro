@@ -95,6 +95,15 @@ fn allowed(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: &Value) -> 
         Op::PlacesSurvey | Op::SourcesLook | Op::PlacesFolders | Op::PlacesFiles => {
             may_look_in(&access, place(request)?)
         }
+        // Both where the trail starts and the folder shown, so a remembered
+        // survey of a whole drive says nothing outside the folders allowed.
+        Op::PlacesMap => {
+            may_look_in(&access, place(request)?)?;
+            match text(request, "folder") {
+                "" => Ok(()),
+                folder => may_look_in(&access, folder),
+            }
+        }
         Op::SourcesLookAgain => {
             let one = request.get("source").and_then(Value::as_i64);
             let sources = keevoro.backups().open(backup)?.sources()?;

@@ -11,6 +11,7 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
+pub mod map;
 pub mod online;
 pub mod survey;
 pub mod video;

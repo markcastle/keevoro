@@ -93,7 +93,7 @@ const headingClearOfBand = async (where) => {
 // Waits until the page is drawn as it will stay: its typeface has loaded
 // (until then a wider stand-in draws the words, which once pushed a button
 // past the edge on a slow machine), every easing of colour or place has
-// finished, and two frames have been laid out since. Never a guess at a
+// finished (the map's too), and two frames have been laid out since. Never a guess at a
 // number of milliseconds.
 const settled = () =>
   page.evaluate(async () => {
@@ -101,6 +101,11 @@ const settled = () =>
     // Spinners and shimmers go round for ever; only easings end.
     const easing = document.getAnimations().filter((a) => a.effect?.getComputedTiming().iterations !== Infinity)
     await Promise.all(easing.map((a) => a.finished.catch(() => {})))
+    // The map eases on a canvas, marking itself while it does.
+    await new Promise((done) => {
+      const check = () => (document.querySelector('[data-easing]') ? requestAnimationFrame(check) : done())
+      check()
+    })
     await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => done())))
   })
 // Checks the screen as it is at narrow widths, then puts the window back.
@@ -976,6 +981,157 @@ try {
   await page.locator('.inside .left-out-here').waitFor({ state: 'detached' })
   await page.getByRole('button', { name: 'Put back Captures' }).click()
   await page.getByRole('button', { name: 'Leave out Captures' }).waitFor()
+
+  // --- Where the space goes: everything the survey saw, photos or not, by
+  // folder, the biggest first, with the trail back up. Nothing is changed.
+  await page.goto(`${base}/?demo=empty&fast`)
+  await page.getByRole('button', { name: /Windows \(C:\)/ }).click()
+  await page.getByRole('button', { name: 'Find the folders with photos' }).click()
+  await page.getByRole('heading', { name: '4 folders on Windows (C:) seem to hold photos and videos' }).waitFor()
+  await page.getByRole('button', { name: 'See where the space goes' }).click()
+  await page.getByRole('heading', { name: 'Where the space goes on Windows (C:)', level: 1 }).waitFor()
+  const spaceRows = () => page.locator('.space-list tbody tr .name > :first-child').allInnerTexts()
+  assert.deepEqual((await spaceRows()).slice(0, 3), ['Users', 'Games', 'Windows'], 'the biggest first')
+  const windowsRow = page.locator('.space-list tbody tr', { hasText: 'Windows' }).first()
+  assert.match(await windowsRow.innerText(), /System folder: Keevoro never looks through it/)
+  assert.match(await windowsRow.getAttribute('class'), /muted/, 'not photos or videos, so muted')
+  await page.locator('.space-list').getByRole('button', { name: 'Users', exact: true }).click()
+  await page.getByRole('navigation', { name: 'Where you are' }).getByText('Users').waitFor()
+  await page.locator('.space-list').getByRole('button', { name: 'Mark', exact: true }).click()
+  await page.locator('.space-list').getByRole('button', { name: 'Pictures', exact: true }).click()
+  await page.getByRole('grid', { name: 'What is in Pictures, the biggest first' }).waitFor()
+  assert.deepEqual(
+    await page.getByRole('navigation', { name: 'Where you are' }).locator('li').allInnerTexts(),
+    ['Windows (C:)', 'Users', 'Mark', 'Pictures'],
+    'the trail back up',
+  )
+  assert.deepEqual((await spaceRows()).slice(0, 4), ['Texture packs', 'Keevoro Library', 'Captures', 'Camera Roll'])
+  const library = page.locator('.space-list tbody tr', { hasText: 'Keevoro Library' })
+  assert.match(await library.innerText(), /A library from an older Keevoro: Keevoro never looks through it/)
+  await shot('9s-space-list')
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await shot('9s2-space-list-dark')
+  await page.emulateMedia({ colorScheme: 'light' })
+  // The map beside the list: pointing at a box says what it is and lights
+  // its row, pointing at a row outlines its box, and choosing either
+  // chooses both.
+  const map = page.locator('.map-canvas')
+  const mapBox = await map.locator('canvas.over').boundingBox()
+  await page.mouse.move(mapBox.x + 30, mapBox.y + 8)
+  await page.locator('.map-tip:not([hidden])').waitFor()
+  assert.match(await text('.map-tip'), /^Texture packs: 17\.7 GB, 160 other files$/)
+  await page.locator('.space-list tr.lit', { hasText: 'Texture packs' }).waitFor()
+  assert.equal(await map.getAttribute('data-pointed'), 'C:\\Users\\Mark\\Pictures\\Texture packs')
+  await page.locator('.space-list tbody tr', { hasText: 'Captures' }).hover()
+  await page.waitForFunction(() => document.querySelector('.map-canvas')?.dataset.lit === 'C:\\Users\\Mark\\Pictures\\Captures')
+  await page.locator('.space-list tbody tr', { hasText: 'Screenshots' }).click()
+  assert.equal(await map.getAttribute('data-selected'), 'C:\\Users\\Mark\\Pictures\\Screenshots', 'the row chosen lights its box')
+  await page.mouse.click(mapBox.x + 30, mapBox.y + 8)
+  assert.equal(await map.getAttribute('data-selected'), 'C:\\Users\\Mark\\Pictures\\Texture packs', 'a box chosen on the map')
+  assert.equal(await page.locator('.space-list tr[aria-selected="true"] .name > :first-child').innerText(), 'Texture packs', 'is chosen in the list')
+  await page.locator('.space .chosen').getByRole('button', { name: 'Leave out Texture packs' }).waitFor()
+  await shot('9t-space-map')
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await shot('9t2-space-map-dark')
+  await page.emulateMedia({ colorScheme: 'light' })
+  // Clicking a chosen folder again goes into it, easing unless motion is unwelcome.
+  await page.evaluate(() => {
+    window.keevoroEased = false
+    new MutationObserver(() => {
+      if (document.querySelector('[data-easing]')) window.keevoroEased = true
+    }).observe(document.body, { attributes: true, subtree: true, attributeFilter: ['data-easing'] })
+  })
+  await page.mouse.click(mapBox.x + 30, mapBox.y + 8)
+  await page.getByRole('grid', { name: 'What is in Texture packs, the biggest first' }).waitFor()
+  await settled()
+  assert.equal(await page.evaluate(() => window.keevoroEased), true, 'the folder grew to fill the map')
+  await page.getByRole('navigation', { name: 'Where you are' }).getByRole('button', { name: 'Pictures' }).click()
+  await page.getByRole('grid', { name: 'What is in Pictures, the biggest first' }).waitFor()
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.evaluate(() => (window.keevoroEased = false))
+  await page.mouse.dblclick(mapBox.x + 30, mapBox.y + 8)
+  await page.getByRole('grid', { name: 'What is in Texture packs, the biggest first' }).waitFor()
+  await settled()
+  assert.equal(await page.evaluate(() => window.keevoroEased), false, 'with reduced motion the new map simply appears')
+  await page.getByRole('navigation', { name: 'Where you are' }).getByRole('button', { name: 'Pictures' }).click()
+  await page.getByRole('grid', { name: 'What is in Pictures, the biggest first' }).waitFor()
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  for (const [width, name] of [
+    [700, '9t3-space-map-700'],
+    [400, '9t5-space-map-400'],
+  ]) {
+    await page.setViewportSize({ width, height: 900 })
+    await shot(name)
+    await page.emulateMedia({ colorScheme: 'dark' })
+    await shot(`${name}-dark`)
+    await page.emulateMedia({ colorScheme: 'light' })
+  }
+  // In a very narrow window the map is a strip until asked for.
+  await page.getByRole('button', { name: 'Show the map' }).click()
+  await page.getByRole('button', { name: 'Show less of the map' }).waitFor()
+  await fitsNarrow('Where the space goes, with the whole map')
+  await page.setViewportSize({ width: 400, height: 900 })
+  await shot('9t6-space-map-400-whole')
+  await page.getByRole('button', { name: 'Show less of the map' }).click()
+  await page.setViewportSize({ width: 1440, height: 900 })
+  // A folder chosen: look inside it, look through it, or leave it out.
+  await page.locator('.space-list tbody tr', { hasText: 'Camera Roll' }).click()
+  const chosen = page.locator('.space .chosen')
+  await chosen.getByRole('button', { name: 'Look inside Camera Roll' }).waitFor()
+  assert.ok(await chosen.getByRole('button', { name: 'Look through Camera Roll' }).isVisible())
+  assert.match(await chosen.innerText(), /307\.2 MB in OneDrive only, not on this computer/)
+  await chosen.getByRole('button', { name: 'Leave out Camera Roll' }).click()
+  await chosen.getByRole('button', { name: 'Put back Camera Roll' }).waitFor()
+  assert.match(await text('.space .left-out-said'), /nothing already backed up is touched/)
+  assert.match(
+    await page.locator('.space-list tbody tr', { hasText: 'Camera Roll' }).innerText(),
+    /Not backed up: you left this folder out of this backup/,
+  )
+  await chosen.getByRole('button', { name: 'Put back Camera Roll' }).click()
+  await chosen.getByRole('button', { name: 'Leave out Camera Roll' }).waitFor()
+  await chosen.getByRole('button', { name: 'Look inside Camera Roll' }).click()
+  await page.getByRole('heading', { name: 'Inside Camera Roll', level: 1 }).waitFor()
+  await page.getByRole('button', { name: '‹ Back' }).click()
+  await page.getByRole('grid', { name: 'What is in Pictures, the biggest first' }).waitFor()
+  // By keyboard alone: the arrows move down the list, Enter goes in, Backspace comes back.
+  await page.locator('.space-list tbody tr').first().focus()
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('ArrowDown')
+  assert.equal(await page.evaluate(() => document.activeElement?.dataset.key), 'C:\\Users\\Mark\\Pictures\\Captures')
+  await page.keyboard.press('Enter')
+  await page.getByRole('grid', { name: 'What is in Captures, the biggest first' }).waitFor()
+  assert.equal(await page.getByLabel('Where you are').locator('[aria-current="page"]').innerText(), 'Captures')
+  await page.locator('.space-list tbody tr').first().focus()
+  await page.keyboard.press('Backspace')
+  await page.getByRole('grid', { name: 'What is in Pictures, the biggest first' }).waitFor()
+  await fitsNarrow('Where the space goes')
+  await page.setViewportSize({ width: 400, height: 800 })
+  await shot('9s3-space-list-400')
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await shot('9s4-space-list-400-dark')
+  await page.emulateMedia({ colorScheme: 'light' })
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.getByRole('navigation', { name: 'Where you are' }).getByRole('button', { name: 'Windows (C:)' }).click()
+  await page.getByRole('grid', { name: 'What is in Windows (C:), the biggest first' }).waitFor()
+  await page.getByRole('button', { name: '‹ Back' }).click()
+  await page.getByRole('heading', { name: '4 folders on Windows (C:) seem to hold photos and videos' }).waitFor()
+  assert.equal(await page.locator('.kept li.source').count(), 0, 'nothing was added')
+  // While a survey measures what it never looks through, the folders found
+  // can be shown at once.
+  await page.goto(`${base}/?demo=empty&slow`)
+  await page.getByRole('button', { name: /Windows \(C:\)/ }).click()
+  await page.getByRole('button', { name: 'Find the folders with photos' }).click()
+  await page.getByRole('button', { name: 'Show the folders now' }).waitFor({ timeout: 15000 })
+  assert.match(await text('.searching'), /Now measuring the rest/)
+  await shot('9s6-survey-measuring')
+  // From a source's card, surveyed first when Keevoro has not seen inside it.
+  await page.goto(`${base}/?slow`)
+  await page.locator('.steps button').nth(0).click()
+  await page.getByRole('button', { name: 'Where the space goes on Family hard drive' }).click()
+  await page.getByRole('heading', { name: 'Finding what is in Family hard drive…' }).waitFor()
+  await page.getByRole('grid', { name: /^What is in / }).waitFor({ timeout: 15000 })
+  assert.ok(await page.getByRole('heading', { name: 'Where the space goes on Family hard drive', level: 1 }).isVisible())
+  await shot('9s5-space-of-a-source')
 
   // --- Every main screen fits a narrow window: the page never scrolls
   // sideways, and wide tables scroll inside their own box.

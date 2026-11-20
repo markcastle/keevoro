@@ -3657,3 +3657,354 @@ fieldset.wants [role='status'] {
   padding: var(--space-2);
   text-align: center;
 }
+
+/* ---------- where the space goes ---------- */
+
+.trail ol {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+  margin: var(--space-4) 0 var(--space-2);
+  padding: 0;
+  min-width: 0;
+}
+
+.trail li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.trail li + li::before {
+  content: '›';
+  color: var(--ink-muted);
+}
+
+.trail [aria-current] {
+  font-weight: 700;
+}
+
+.space div.chosen {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+}
+
+.space div.chosen p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.space div.chosen .choices {
+  margin-top: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.space-list {
+  margin: var(--space-3) 0 var(--space-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+}
+
+.space-list table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.space-list th,
+.space-list td {
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.space-list tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.space-list th {
+  color: var(--ink-muted);
+  font-weight: 500;
+  background: var(--surface-raised);
+  white-space: nowrap;
+}
+
+.space-list .number {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.space-list tbody tr {
+  cursor: default;
+}
+
+.space-list tbody tr:hover td,
+.space-list tr.lit td {
+  background: var(--surface-sunken);
+}
+
+.space-list tr[aria-selected='true'] td {
+  background: var(--peach-soft);
+}
+
+.space-list tbody tr:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.space-list .name {
+  min-width: 12em;
+  overflow-wrap: anywhere;
+}
+
+.space-list .name .link {
+  text-align: left;
+}
+
+.space-list .name .holds,
+.space-list .name .note {
+  display: block;
+  margin: 2px 0 0;
+  line-height: 1.35;
+}
+
+.space-list .name .holds:empty {
+  display: none;
+}
+
+.space-list .note {
+  color: var(--ink-muted);
+}
+
+/* Not a photo or video, or never looked through: there, but muted. */
+.space-list tr.muted .name > .link,
+.space-list tr.muted .name > span:first-child {
+  color: var(--ink-muted);
+}
+
+.share {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.share-bar {
+  display: flex;
+  flex: none;
+  width: 96px;
+  height: 10px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  box-shadow: inset 0 0 0 1px var(--line);
+  overflow: hidden;
+}
+
+/* The kinds, each with a pattern of its own so colour is never the only sign. */
+.share-bar .photo,
+.key .photo {
+  background: var(--sun);
+}
+
+.share-bar .video,
+.key .video {
+  background-color: var(--pine);
+  background-image: repeating-linear-gradient(135deg, transparent 0 2px, color-mix(in srgb, var(--surface) 55%, transparent) 2px 3px);
+}
+
+.share-bar .other,
+.key .other {
+  background: color-mix(in srgb, var(--line-strong) 35%, var(--surface-sunken));
+}
+
+.share-figure {
+  min-width: 3em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 640px) {
+  .share-bar {
+    width: 48px;
+  }
+
+  .space-list .name {
+    min-width: 0;
+  }
+}
+
+@media (max-width: 480px) {
+  .space-list .share-column {
+    display: none;
+  }
+}
+
+/* What can be done with the row chosen stays in sight at the foot of the window. */
+.space .chosen {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin: 0 0 var(--space-4);
+}
+
+.space p.chosen {
+  padding: var(--space-2) 0;
+  background: var(--surface);
+}
+
+.space div.chosen {
+  box-shadow: var(--shadow-md);
+}
+
+/* The map beside the list: the map the larger, held in sight as the list scrolls. */
+.space-body {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(320px, 2fr);
+  gap: var(--space-5);
+  align-items: start;
+  margin-top: var(--space-3);
+}
+
+.space-body .space-list {
+  margin-top: 0;
+}
+
+.space-body .space-list .name {
+  min-width: 0;
+}
+
+.space-body .share-bar {
+  width: 56px;
+}
+
+.space-map {
+  position: sticky;
+  top: var(--space-3);
+  min-width: 0;
+}
+
+.space-map > .button {
+  margin-bottom: var(--space-2);
+}
+
+.map-canvas {
+  position: relative;
+  height: min(64vh, 640px);
+  min-height: 280px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.map-canvas canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.map-canvas canvas.over {
+  cursor: pointer;
+}
+
+/* Beside the pointer; the list says the same in words. */
+.map-tip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  max-width: 280px;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--ink);
+  box-shadow: var(--shadow-md);
+  font-size: 12px;
+  line-height: 1.4;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.map-tip[hidden] {
+  display: none;
+}
+
+.key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  color: var(--ink-muted);
+}
+
+.key li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.key .swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+
+.key .skipped {
+  background-color: color-mix(in srgb, var(--line-strong) 35%, var(--surface-sunken));
+  background-image: radial-gradient(var(--line-strong) 1.2px, transparent 1.4px);
+  background-size: 6px 6px;
+}
+
+.key .left-out {
+  background-color: color-mix(in srgb, var(--line-strong) 35%, var(--surface-sunken));
+  background-image: repeating-linear-gradient(45deg, color-mix(in srgb, var(--ink) 50%, transparent) 0 1px, transparent 1px 5px),
+    repeating-linear-gradient(-45deg, color-mix(in srgb, var(--ink) 50%, transparent) 0 1px, transparent 1px 5px);
+}
+
+.key .online {
+  background: var(--sun);
+  box-shadow: none;
+  outline: 1px dashed var(--sun-ink);
+  outline-offset: -1px;
+}
+
+@media (max-width: 760px) {
+  .space-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .space-map {
+    position: static;
+  }
+
+  .map-canvas {
+    height: 45vh;
+    min-height: 200px;
+  }
+}
+
+@media (max-width: 480px) {
+  /* A strip of the biggest boxes, until the whole map is asked for. */
+  .space-map.strip .map-canvas {
+    height: 120px;
+    min-height: 0;
+  }
+
+  .space-map.strip .key {
+    display: none;
+  }
+}

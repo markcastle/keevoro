@@ -64,6 +64,7 @@ import { chooseTheme, savedTheme } from './theme'
 import { ClearUnfinished } from './tidy'
 import { FoundPicture, Viewer } from './pictures'
 import { LookInside } from './inside'
+import { SpaceScreen } from './map'
 import { LeaveOutButton, LeftOutByYou, LeftOutSaid, leftOutByYou } from './leaveOut'
 import { VirtualTiles } from './tiles'
 import type { Theme } from './theme'
@@ -651,6 +652,7 @@ function FindScreen(props: {
   // the folders it suggests, with a tick beside each one to look through.
   const [survey, setSurvey] = useState<{
     name: string
+    path: string
     progress: SurveyProgress | null
     found: Survey | null
     chosen: Set<string>
@@ -661,6 +663,8 @@ function FindScreen(props: {
   // one picked to look inside first. The survey stays as it was
   // underneath, to come back to. `again` when it is a source already.
   const [inside, setInside] = useState<{ place: string; name?: string; again?: boolean } | null>(null)
+  // Where the space goes in a place, under a look inside opened from it.
+  const [space, setSpace] = useState<{ place: string; name?: string; at?: string } | null>(null)
   const surveyScroll = useRef(0)
   useEffect(() => api.onSurvey((progress) => setSurvey((s) => (s && !s.found ? { ...s, progress } : s))), [api])
 
@@ -676,7 +680,7 @@ function FindScreen(props: {
 
   const findFolders = (place: { path: string; name: string }) => {
     setAsking(null)
-    setSurvey({ name: place.name, progress: null, found: null, chosen: new Set() })
+    setSurvey({ name: place.name, path: place.path, progress: null, found: null, chosen: new Set() })
     api
       .surveyPlace(place.path)
       .then((found) =>
@@ -758,6 +762,12 @@ function FindScreen(props: {
     setInside({ place, name: source?.name, again: Boolean(source) })
     requestAnimationFrame(() => scroller()?.scrollTo(0, 0))
   }
+  // Opens where the space goes in a place, noting where the page was.
+  const seeSpace = (place: string, name?: string) => {
+    surveyScroll.current = scroller()?.scrollTop ?? 0
+    setSpace({ place, name })
+    requestAnimationFrame(() => scroller()?.scrollTo(0, 0))
+  }
   // Asks for any folder, then looks inside it first.
   const pickToLookInside = () => {
     api
@@ -789,6 +799,32 @@ function FindScreen(props: {
         }}
         onLookThrough={(folder) => {
           setInside(null)
+          setSpace(null)
+          setSurvey(null)
+          setQueue([])
+          start(folder)
+        }}
+      />
+    )
+  }
+
+  if (space) {
+    return (
+      <SpaceScreen
+        api={api}
+        place={space.place}
+        name={space.name}
+        at={space.at}
+        onAt={(at) => setSpace((s) => s && { ...s, at })}
+        onChanged={props.onChanged}
+        onProblem={onProblem}
+        onBack={() => {
+          setSpace(null)
+          requestAnimationFrame(() => scroller()?.scrollTo(0, surveyScroll.current))
+        }}
+        onLookInside={(folder) => setInside({ place: folder })}
+        onLookThrough={(folder) => {
+          setSpace(null)
           setSurvey(null)
           setQueue([])
           start(folder)
@@ -857,8 +893,16 @@ function FindScreen(props: {
           <p className="quiet">
             spotted so far, by name. This only reads the list of what is in each folder. No file is opened.
           </p>
+          {survey.progress?.sizing && (
+            <p className="quiet">
+              Every folder with photos and videos is found. Now measuring the rest, such as system and app folders, so
+              you can see where the space goes.
+            </p>
+          )}
           <p className="choices stop">
-            <button onClick={() => api.stopSurvey().catch(onProblem)}>Stop and show what was found</button>
+            <button onClick={() => api.stopSurvey().catch(onProblem)}>
+              {survey.progress?.sizing ? 'Show the folders now' : 'Stop and show what was found'}
+            </button>
           </p>
           {survey.progress && (
             <p className="quiet small doing" aria-live="off">
@@ -886,6 +930,7 @@ function FindScreen(props: {
           onLookInside={(folder) => {
             lookInside(folder)
           }}
+          onSeeSpace={() => seeSpace(survey.path, survey.name)}
           onCancel={() => setSurvey(null)}
         />
       ) : asking ? (
@@ -1028,6 +1073,14 @@ function FindScreen(props: {
                       title="See its photos and videos, folder by folder. Nothing is changed."
                     >
                       Look inside
+                    </button>
+                    <button
+                      className="button small"
+                      onClick={() => seeSpace(s.root, sourceTitle(s, places))}
+                      aria-label={`Where the space goes on ${s.name}`}
+                      title="See what takes the room on it, photos or not. Nothing is changed."
+                    >
+                      Where the space goes
                     </button>
                     <button
                       className="button small"
@@ -3432,6 +3485,8 @@ function SurveyResult(props: {
   onGo: () => void
   /** Opens a grid of what is in one suggested folder, before it is chosen. */
   onLookInside: (folder: string) => void
+  /** Opens where the space goes in the place surveyed. */
+  onSeeSpace: () => void
   onCancel: () => void
 }) {
   const { found, chosen } = props
@@ -3533,6 +3588,9 @@ function SurveyResult(props: {
               : `Look through ${picked.length === 1 ? 'this folder' : `these ${picked.length} folders`}`}
           </button>
         )}
+        <button className="button" onClick={props.onSeeSpace}>
+          See where the space goes
+        </button>
         <button className="button" onClick={props.onCancel}>
           {found.hints.length > 0 ? 'Cancel' : 'Back'}
         </button>

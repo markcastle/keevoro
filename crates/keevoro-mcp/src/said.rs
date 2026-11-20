@@ -76,6 +76,29 @@ pub fn summary(op: Op, answer: &Value) -> String {
             lines.extend(folders);
             lines.join("\n")
         }
+        Op::PlacesMap => {
+            let top = answer.get("top").unwrap_or(&Value::Null);
+            let size = |v: &Value, field: &str| bytes(v.get(field).and_then(Value::as_u64).unwrap_or(0));
+            let mut lines = vec![format!(
+                "{} in {}: photos {}, videos {}, everything else {}; the backup would take {}. The biggest:",
+                size(top, "bytes"),
+                s(answer, "folder"),
+                size(top, "photoBytes"),
+                size(top, "videoBytes"),
+                size(top, "otherBytes"),
+                size(top, "wouldBackUp"),
+            )];
+            lines.extend(each(top.get("children").unwrap_or(&Value::Null)).take(12).map(|c| {
+                let why = c
+                    .get("skipped")
+                    .or_else(|| c.get("leftOut"))
+                    .and_then(Value::as_str)
+                    .map(|why| format!(" ({why})"))
+                    .unwrap_or_default();
+                format!("{}: {}{why}", s(c, "name"), size(c, "bytes"))
+            }));
+            lines.join("\n")
+        }
         Op::PlacesFiles => {
             let shown = each(answer.get("files").unwrap_or(&Value::Null)).count();
             let online = match n(answer, "onlineOnly") {
@@ -427,6 +450,18 @@ mod tests {
         assert_eq!(
             folders,
             "120 photos and 4 videos in C:\\Pictures, in 1 folder. files_in_folder lists a folder's files.\nC:\\Pictures\\2019: 120 photos and 4 videos (3 only in online storage)"
+        );
+        let map = summary(
+            Op::PlacesMap,
+            &json!({ "folder": "C:\\Pictures", "top": { "bytes": 3_u64 << 30, "photoBytes": 1_u64 << 30, "videoBytes": 0, "otherBytes": 2_u64 << 30, "wouldBackUp": 1_u64 << 30, "children": [
+                { "name": "Texture packs", "bytes": 2_u64 << 30 },
+                { "name": "Old Keevoro", "bytes": 1_u64 << 30, "skipped": "A library from an older Keevoro" }
+            ] } }),
+        );
+        assert!(map.starts_with("3.0 GB in C:\\Pictures: photos 1.0 GB"), "{map}");
+        assert!(
+            map.ends_with("Old Keevoro: 1.0 GB (A library from an older Keevoro)"),
+            "{map}"
         );
         let files = summary(
             Op::PlacesFiles,

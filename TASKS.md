@@ -36,7 +36,7 @@ Small, known, and better closed while the work is fresh.
 Two views for the step where you decide what to look through, asked for by the owner after pointing Keevoro at a Pictures folder that also held texture packs, zip files and screen recordings. Both only read the source. See "Seeing inside a source".
 
 - [ ] A look inside a folder: a grid of thumbnails of the photos and video stills in it, before it is added
-- [ ] A map of where the space goes: boxes sized by how much each folder and file takes, coloured by kind, in the style of WinDirStat
+- [x] A map of where the space goes: boxes sized by how much each folder and file takes, coloured by kind, in the style of WinDirStat (by kind of file, what is backed up, and the map growing as it surveys are still to come, under "Seeing inside a source")
 
 ### 4. Other kinds of file, carried along
 
@@ -396,19 +396,25 @@ A look inside a folder
 
 A map of where the space goes
 
-- [ ] Boxes sized by how much room each folder and file takes, drawn from folder listings alone so it stays as quick as the survey
-- [ ] Coloured by kind: photos, videos, and everything else (zip files, documents, programs), with a key
-- [ ] A list beside it, by folder and by kind of file, with sizes and counts; choosing a row lights up its boxes, and the other way round
-- [ ] Click a box to go into that folder; a trail above to come back out
-- [ ] Point at a box to see its name, size and how many photos and videos it holds
-- [ ] From a folder on the map: look through it, leave it out, or open the look inside
-- [ ] Show what is already a source, and what is already backed up, on the map
-- [ ] Usable without a mouse and by a screen reader: the list carries everything the map does
-- [ ] Remember a survey, so the map is there next time without waiting
+- [x] Where the space goes as a list first: every folder and the biggest files, photos or not, by size, with a share bar, the trail back up, and look inside, look through it or leave it out on the folder chosen; from the survey's result and each source; `keevoro map` and the agent tool where_the_space_goes
+- [x] The survey records everything it passes, within fixed bounds and with exact totals, suggesting as quickly as before and measuring what it never looks through afterwards
+- [x] Boxes sized by how much room each folder and file takes, drawn from folder listings alone so it stays as quick as the survey
+- [x] Coloured by kind: photos, videos, and everything else (zip files, documents, programs), with a key and a pattern for each, in light and dark
+- [x] A list beside it, by folder, with sizes and counts; choosing a row lights up its box, and the other way round
+- [ ] The list by kind of file too: a "By kind of file" tab with Photos, Videos and Everything else, each opening to its endings, and choosing one dims every box without it (`places.map` already gives the endings as `kinds`, and `keevoro map --kinds` lists them)
+- [x] Click a box to go into that folder; a trail above to come back out, eased unless reduced motion is asked for
+- [x] Point at a box to see its name, size and how many photos and videos it holds
+- [x] From a folder on the map: look through it, leave it out, or open the look inside
+- [ ] Show what is already a source, and what is already backed up, on the map (`safe_by_folder` from the destinations' waiting logic, rolled up the map; a green outline for a source and a tick for what is backed up, in the key)
+- [ ] The map growing while the survey walks: the top-level boxes sent with its progress at most twice a second (`SurveyEvent.top`), drawn as they grow
+- [ ] Remembered maps that stay honest: open a map over an hour old on a local disk and it is surveyed again by itself (asked first on a network drive), a search of a source marks the surveys covering it out of date, at most 8 surveys and 200 MB, and Forget remembered maps in Settings
+- [ ] Show in File Explorer (Finder, Files) from a folder on the map: `open_place` allowed inside the remembered survey
+- [x] Usable without a mouse and by a screen reader: the list carries everything the map does
+- [x] Remember a survey, so the map is there next time without waiting
 
 Decided
 
-- [ ] Whether the map shows everything on the drive or only folders that hold photos and videos (the first is more useful for finding things; the second is closer to what Keevoro is for)
+- [x] Whether the map shows everything on the drive or only folders that hold photos and videos (the first is more useful for finding things; the second is closer to what Keevoro is for): everything, with what is not a photo or video muted
 - [x] Whether these views are also offered from the command line and to AI agents (the figures yes, as lists; the pictures only through `picture`, as now): yes, `keevoro folders`, `keevoro files`, `keevoro picture --file`, and the agent tools folders_inside and files_in_folder
 
 ### Other kinds of file

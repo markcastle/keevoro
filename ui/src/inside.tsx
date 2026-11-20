@@ -14,12 +14,13 @@
 // It can be left out of the backup from here, and each folder in it;
 // whatever would not be backed up is marked, and the closer look says why.
 
-import { useEffect, useRef, useState } from 'react'
-import type { Backend, FilesShow, FilesSort, FileView, FoldersView, LeftOutFolder, SurveyProgress } from './backend'
-import { count, photosAndVideos, size, thousands } from './format'
+import { useCallback, useRef, useState } from 'react'
+import type { Backend, FilesShow, FilesSort, FileView, LeftOutFolder } from './backend'
+import { photosAndVideos, size, thousands } from './format'
 import { LeaveOutButton, LeftOutSaid } from './leaveOut'
 import { fileKey } from './pictureQueue'
 import { Picture, Viewer } from './pictures'
+import { SurveyingPanel, useAfterSurvey } from './surveyFirst'
 import { VirtualTiles } from './tiles'
 import type { TileSection } from './tiles'
 
@@ -59,9 +60,6 @@ export function LookInside(props: {
 }) {
   const { api, place, onProblem } = props
   const lookThrough = props.lookThrough ?? 'Look through this folder'
-  const [outline, setOutline] = useState<FoldersView | null>(null)
-  // Finding what is in it first, when Keevoro has not surveyed it.
-  const [surveying, setSurveying] = useState<{ progress: SurveyProgress | null; stopping: boolean } | null>(null)
   const [sort, setSort] = useState<FilesSort>('name')
   const [only, setOnly] = useState<FilesShow>('all')
   // What has been fetched, so the closer look can move to the next one.
@@ -78,34 +76,13 @@ export function LookInside(props: {
     props.onChanged?.()
   }
 
-  useEffect(() => {
-    let current = true
-    const unhear = api.onSurvey((progress) => {
-      if (current) setSurveying((s) => s && { ...s, progress })
-    })
-    api
-      .foldersInside(place)
-      .then(async (view) => {
-        if (view || !current) return view
-        setSurveying({ progress: null, stopping: false })
-        await api.surveyPlace(place)
-        return api.foldersInside(place)
-      })
-      .then((view) => {
-        if (!current) return
-        setSurveying(null)
-        setOutline(view ?? { place, surveyedAt: 0, complete: false, folders: [], photos: 0, videos: 0, bytes: 0, onlineOnly: 0 })
-      })
-      .catch((error) => {
-        if (!current) return
-        setSurveying(null)
-        onProblem(error)
-      })
-    return () => {
-      current = false
-      unhear()
-    }
-  }, [api, place, onProblem, version])
+  // Finding what is in it first, when Keevoro has not surveyed it.
+  const ask = useCallback(() => api.foldersInside(place), [api, place])
+  const { answer, surveying, stop } = useAfterSurvey(api, place, ask, String(version), onProblem)
+  const outline =
+    answer === undefined
+      ? null
+      : (answer ?? { place, surveyedAt: 0, complete: false, folders: [], photos: 0, videos: 0, bytes: 0, onlineOnly: 0 })
 
   const choose = (next: { sort?: FilesSort; only?: FilesShow }) => {
     // A new order or kind starts the grid afresh.
@@ -171,36 +148,7 @@ export function LookInside(props: {
           </button>
           <h1>Inside {name}</h1>
         </header>
-        {surveying && (
-          <div className="panel searching">
-            <span className="spinner" aria-hidden />
-            <h2>Finding what is in {name}…</h2>
-            <p className="big-count" role="status">
-              {surveying.progress ? photosAndVideos(surveying.progress.photos, surveying.progress.videos) : 'Starting…'}
-            </p>
-            <p className="quiet">
-              spotted so far, by name. This only reads the list of what is in each folder. No file is opened, and
-              nothing is added or changed.
-            </p>
-            {surveying.progress && (
-              <p className="quiet small doing" aria-live="off">
-                Looked at {count(surveying.progress.files, 'file')} in {count(surveying.progress.folders, 'folder')} so
-                far.
-              </p>
-            )}
-            <p className="choices stop">
-              <button
-                disabled={surveying.stopping}
-                onClick={() => {
-                  setSurveying((s) => s && { ...s, stopping: true })
-                  api.stopSurvey().catch(onProblem)
-                }}
-              >
-                {surveying.stopping ? 'Stopping…' : 'Stop and show what was found'}
-              </button>
-            </p>
-          </div>
-        )}
+        {surveying && <SurveyingPanel name={name} surveying={surveying} onStop={stop} />}
       </section>
     )
   }

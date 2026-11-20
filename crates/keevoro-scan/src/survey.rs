@@ -14,11 +14,18 @@
 //!
 //! The work is in two halves, kept apart so each can be tested alone:
 //!
-//! - [`survey`] walks the disk on several threads and counts what each
-//!   folder holds ([`Tally`]).
+//! - [`survey`] walks the disk on several threads and writes down what
+//!   each folder holds, every file sized, in a map of the place
+//!   ([`crate::map`]), from which what each folder holds as the
+//!   suggestions count it is worked out ([`Tally`]). The size of every
+//!   file, not only photos and videos, costs one small question per file
+//!   on a Mac or Linux (it comes with the listing on Windows), so there it
+//!   is asked for the files the suggestions do not need only once they are
+//!   final, and the survey suggests as quickly as it did before the map.
 //! - [`suggest`] is pure arithmetic on those counts: it decides which
 //!   folders to offer ([`Hint`]). It never touches the disk.
 
+use crate::map::{Builder, CountedIn, FileSeen, Limits, Listing, Map};
 use keevoro_core::{Kinds, MediaKind, SkipRules};
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -66,7 +73,7 @@ pub struct Hint {
 }
 
 /// The result of a survey.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Survey {
     /// Folders to offer, the most promising first. No hint is inside another.
     pub hints: Vec<Hint>,
@@ -81,9 +88,15 @@ pub struct Survey {
     /// Folders Keevoro made (a backup, an old library, its own data), left
     /// out and why, in order.
     pub left_out: Vec<(PathBuf, keevoro_core::SkipReason)>,
-    /// Every folder that holds photos or videos itself, with what it holds
-    /// directly, in order: the outline a look inside is drawn from.
-    pub media_folders: Vec<Tally>,
+    /// False when it was stopped before every folder Keevoro never looks
+    /// through was sized for the map; the suggestions are final either way
+    /// unless `stopped`.
+    pub sized_all: bool,
+    /// Everything it saw, folder by folder.
+    pub map: Map,
+    /// How long it took until the suggestions were final: the wait a person
+    /// has before they can choose.
+    pub suggested_in: std::time::Duration,
 }
 
 /// How far a survey has got.
@@ -93,6 +106,9 @@ pub struct SurveyProgress {
     pub files_seen: usize,
     pub photos: usize,
     pub videos: usize,
+    /// Every suggestion is final, and the folders Keevoro never looks
+    /// through are being sized for the map.
+    pub sizing: bool,
 }
 
 /// Below this average size, with no videos beside them, pictures are more
@@ -222,18 +238,63 @@ pub fn suggest(root: &Path, tallies: &[Tally]) -> Vec<Hint> {
     hints
 }
 
+/// A folder waiting to be listed.
+struct Pending {
+    folder: PathBuf,
+    /// Where what it holds is counted.
+    into: CountedIn,
+    /// It is one Keevoro never looks through, or inside one: it is listed
+    /// only to size it, once the suggestions are final.
+    passed_by: bool,
+}
+
+/// Folders waiting: those the suggestions need first, then those that are
+/// only sized for the map.
+#[derive(Default)]
+struct Queues {
+    now: VecDeque<Pending>,
+    later: VecDeque<Pending>,
+    /// Where the look for folders whose other files wait to be sized has
+    /// got to, and whether it is over.
+    unsized_from: usize,
+    unsized_done: bool,
+}
+
+/// One piece of work for a walking thread.
+enum Work {
+    List(Pending),
+    /// Sizes a listed folder's other files.
+    Size(u32, PathBuf),
+}
+
+/// On Windows the size of every file comes with the folder's listing, so
+/// everything is sized as it is listed. Elsewhere each size is a question
+/// of its own, so only photos and videos are sized at first: what the
+/// suggestions need. The rest of each folder is sized once they are final.
+const SIZES_COME_WITH_THE_LISTING: bool = cfg!(windows);
+
 /// What the walking threads share.
 struct Walk<'a> {
     rules: &'a SkipRules,
     kinds: &'a Kinds,
     online: &'a dyn crate::OnlineCheck,
+    limits: Limits,
     stop: Option<&'a AtomicBool>,
-    queue: Mutex<VecDeque<PathBuf>>,
+    queues: Mutex<Queues>,
     more: Condvar,
-    /// Folders queued or being listed. The walk is over when it reaches zero.
-    in_hand: AtomicUsize,
-    tallies: Mutex<Vec<Tally>>,
-    /// Folders Keevoro made, left out, and why.
+    /// Folders queued or being listed, of each queue. The walk is over when
+    /// both reach zero, and the second is only started on when the first is.
+    now_in_hand: AtomicUsize,
+    later_in_hand: AtomicUsize,
+    /// The suggestions are final and the folders Keevoro passes by are
+    /// being sized.
+    sizing: AtomicBool,
+    started: std::time::Instant,
+    /// When the suggestions were final.
+    suggested: std::sync::OnceLock<std::time::Duration>,
+    map: Mutex<Builder>,
+    /// Folders left out because of where they are or what is in them
+    /// (Keevoro's own, those the person left out), and why.
     left_out: Mutex<Vec<(PathBuf, keevoro_core::SkipReason)>>,
     folders: AtomicUsize,
     files: AtomicUsize,
@@ -247,123 +308,279 @@ impl Walk<'_> {
         self.stop.is_some_and(|s| s.load(Ordering::SeqCst))
     }
 
+    /// Every suggestion is final: only sizing for the map is left.
+    fn now_sizing(&self) {
+        self.sizing.store(true, Ordering::SeqCst);
+        let _ = self.suggested.set(self.started.elapsed());
+    }
+
+    fn builder(&self) -> std::sync::MutexGuard<'_, Builder> {
+        self.map.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Queues folders, counting them in hand first, so the walk never
+    /// looks finished while they wait.
+    fn queue(&self, pending: Vec<Pending>) {
+        if pending.is_empty() {
+            return;
+        }
+        let later = pending.iter().filter(|p| p.passed_by).count();
+        self.later_in_hand.fetch_add(later, Ordering::SeqCst);
+        self.now_in_hand.fetch_add(pending.len() - later, Ordering::SeqCst);
+        if let Ok(mut queues) = self.queues.lock() {
+            for p in pending {
+                if p.passed_by {
+                    queues.later.push_back(p);
+                } else {
+                    queues.now.push_back(p);
+                }
+            }
+        }
+        self.more.notify_all();
+    }
+
+    /// A folder Keevoro never looks through, found by where it is or what
+    /// is in it: said, and sized later.
+    fn pass_by(&self, p: Pending, reason: keevoro_core::SkipReason) {
+        let into = match p.into {
+            CountedIn::Own(node) => {
+                self.builder().passed_by(node, reason);
+                CountedIn::Own(node)
+            }
+            CountedIn::Above { node, .. } => CountedIn::Above { node, passed_by: true },
+        };
+        if let Ok(mut left_out) = self.left_out.lock() {
+            left_out.push((p.folder.clone(), reason));
+        }
+        self.queue(vec![Pending {
+            folder: p.folder,
+            into,
+            passed_by: true,
+        }]);
+    }
+
     /// Lists one folder: counts its files and queues its subfolders. Only
     /// the listing is read. No file is opened.
-    fn list(&self, folder: PathBuf) {
+    fn list(&self, p: Pending) {
         // A place left out by where it is (Keevoro's own, or one the
-        // person left out) is not even listed.
-        let by_place = self.rules.own_place(&folder);
-        let entries: Vec<std::fs::DirEntry> = match by_place {
-            Some(_) => Vec::new(),
-            None => {
-                let Ok(entries) = std::fs::read_dir(&folder) else {
+        // person left out) is not even listed until the suggestions are.
+        if !p.passed_by {
+            if let Some(reason) = self.rules.own_place(&p.folder) {
+                self.pass_by(p, reason);
+                return;
+            }
+        }
+        let entries: Vec<std::fs::DirEntry> = match std::fs::read_dir(&p.folder) {
+            Ok(entries) => entries.flatten().collect(),
+            Err(_) => {
+                // A folder Keevoro passes by is not one the person is told
+                // could not be read; the map marks it.
+                if !p.passed_by {
                     self.unreadable.fetch_add(1, Ordering::Relaxed);
-                    return;
-                };
-                entries.flatten().collect()
+                }
+                self.builder().unreadable(p.into);
+                return;
             }
         };
         // What Keevoro made is never a source. Looked at closely only when
         // one of the names it leaves is there, so a survey stays quick.
-        let telltale = entries
-            .iter()
-            .any(|e| e.file_name() == ".keevoro" || e.file_name() == keevoro_core::BACKUP_GUIDE);
-        let made = by_place.or_else(|| {
-            telltale
-                .then(|| keevoro_core::folder_made_by_keevoro(&folder))
+        if !p.passed_by {
+            let telltale = entries
+                .iter()
+                .any(|e| e.file_name() == ".keevoro" || e.file_name() == keevoro_core::BACKUP_GUIDE);
+            if let Some(reason) = telltale
+                .then(|| keevoro_core::folder_made_by_keevoro(&p.folder))
                 .flatten()
-        });
-        if let Some(reason) = made {
-            self.folders.fetch_add(1, Ordering::Relaxed);
-            if let Ok(mut left_out) = self.left_out.lock() {
-                left_out.push((folder, reason));
+            {
+                self.pass_by(p, reason);
+                return;
             }
-            return;
         }
-        let mut tally = Tally {
-            folder,
-            ..Tally::default()
-        };
-        let mut inside = Vec::new();
+        let mut listing = Listing::default();
+        let mut found: Vec<(String, Option<keevoro_core::SkipReason>, PathBuf)> = Vec::new();
+        let (mut photos, mut videos) = (0, 0);
         for entry in entries {
             let Ok(kind) = entry.file_type() else { continue };
             let name = entry.file_name();
             let name = name.to_string_lossy();
             if kind.is_dir() {
-                if self.rules.skip_folder(&name).is_none() {
-                    inside.push(entry.path());
-                }
+                let reason = if p.passed_by {
+                    None
+                } else {
+                    self.rules.skip_folder(&name)
+                };
+                found.push((name.into_owned(), reason, entry.path()));
             } else if kind.is_file() {
-                if self.rules.skip_file(&name).is_some() {
-                    continue;
-                }
-                let guess = name
-                    .rsplit_once('.')
-                    .and_then(|(_, ending)| self.kinds.looked_for(ending));
-                match guess {
-                    Some(found) => {
-                        // The size and attributes come with the listing on
-                        // Windows, and cost one small question elsewhere.
-                        if let Ok(listing) = entry.metadata() {
-                            tally.bytes += listing.len();
-                            if self.online.online_only(&entry.path(), &listing) {
-                                tally.online_only += 1;
-                            }
-                        }
-                        if found == MediaKind::Photo {
-                            tally.photos += 1;
-                        } else {
-                            tally.videos += 1;
-                        }
+                let on_list = name.rsplit_once('.').and_then(|(_, ending)| self.kinds.listed(ending));
+                let looked_for = on_list.is_some_and(|(_, on)| on);
+                let system = self.rules.skip_file(&name).is_some();
+                let counted = looked_for && !system;
+                if !p.passed_by && counted {
+                    match on_list.map(|(kind, _)| kind) {
+                        Some(MediaKind::Photo) => photos += 1,
+                        _ => videos += 1,
                     }
-                    None => tally.others += 1,
+                }
+                let mut file = FileSeen {
+                    name: &name,
+                    bytes: 0,
+                    listed: on_list.map(|(kind, _)| kind),
+                    looked_for,
+                    online_only: false,
+                    system,
+                };
+                // Only a folder with a node of its own can be come back to.
+                let later =
+                    !SIZES_COME_WITH_THE_LISTING && !counted && !p.passed_by && matches!(p.into, CountedIn::Own(_));
+                if later {
+                    listing.file_unsized(&file);
+                } else {
+                    (file.bytes, file.online_only) = self.size_of(&entry);
+                    listing.file(&file, &self.limits);
                 }
             }
             // Links are not followed: what they point at is counted where it is.
         }
         self.folders.fetch_add(1, Ordering::Relaxed);
-        self.files
-            .fetch_add(tally.photos + tally.videos + tally.others, Ordering::Relaxed);
-        self.photos.fetch_add(tally.photos, Ordering::Relaxed);
-        self.videos.fetch_add(tally.videos, Ordering::Relaxed);
-        if !inside.is_empty() {
-            self.in_hand.fetch_add(inside.len(), Ordering::SeqCst);
-            if let Ok(mut queue) = self.queue.lock() {
-                queue.extend(inside);
-            }
-            self.more.notify_all();
+        self.files.fetch_add(
+            usize::try_from(listing.files()).unwrap_or(usize::MAX),
+            Ordering::Relaxed,
+        );
+        self.photos.fetch_add(photos, Ordering::Relaxed);
+        self.videos.fetch_add(videos, Ordering::Relaxed);
+        let first = {
+            let mut map = self.builder();
+            let names: Vec<(&str, Option<keevoro_core::SkipReason>)> =
+                found.iter().map(|(name, reason, _)| (name.as_str(), *reason)).collect();
+            let first = map.subfolders(p.into, &names);
+            map.record(p.into, listing);
+            first
+        };
+        let above_passed_by = matches!(p.into, CountedIn::Above { passed_by: true, .. });
+        let inside = found
+            .into_iter()
+            .enumerate()
+            .map(|(i, (_, reason, folder))| {
+                let passed_by = p.passed_by || reason.is_some();
+                let into = match first {
+                    Some(first) => CountedIn::Own(first + u32::try_from(i).unwrap_or(0)),
+                    None => CountedIn::Above {
+                        node: p.into.node(),
+                        passed_by: passed_by || above_passed_by,
+                    },
+                };
+                Pending {
+                    folder,
+                    into,
+                    passed_by,
+                }
+            })
+            .collect();
+        self.queue(inside);
+    }
+
+    /// A file's size, and whether it is only online, from its listing.
+    fn size_of(&self, entry: &std::fs::DirEntry) -> (u64, bool) {
+        match entry.metadata() {
+            Ok(listed_as) => (listed_as.len(), self.online.online_only(&entry.path(), &listed_as)),
+            Err(_) => (0, false),
         }
-        if let Ok(mut tallies) = self.tallies.lock() {
-            tallies.push(tally);
+    }
+
+    /// Sizes a listed folder's files that the suggestions did not need: a
+    /// second look at its listing, once they are final.
+    fn size_rest(&self, node: u32, folder: &Path) {
+        let Ok(entries) = std::fs::read_dir(folder) else { return };
+        let mut sizes = Listing::default();
+        for entry in entries.flatten() {
+            if !entry.file_type().is_ok_and(|t| t.is_file()) {
+                continue;
+            }
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            let on_list = name.rsplit_once('.').and_then(|(_, ending)| self.kinds.listed(ending));
+            let looked_for = on_list.is_some_and(|(_, on)| on);
+            let system = self.rules.skip_file(&name).is_some();
+            if looked_for && !system {
+                continue;
+            }
+            let (bytes, online_only) = self.size_of(&entry);
+            sizes.file(
+                &FileSeen {
+                    name: &name,
+                    bytes,
+                    listed: on_list.map(|(kind, _)| kind),
+                    looked_for,
+                    online_only,
+                    system,
+                },
+                &self.limits,
+            );
+        }
+        self.builder().sized(node, sizes);
+    }
+
+    /// The next piece of work: the folders the suggestions need, and only
+    /// when they are all done, sizing what they did not need and the
+    /// folders Keevoro passes by.
+    fn next(&self) -> Option<Work> {
+        let Ok(mut queues) = self.queues.lock() else {
+            return None;
+        };
+        loop {
+            if self.stopped() {
+                return None;
+            }
+            if let Some(p) = queues.now.pop_front() {
+                return Some(Work::List(p));
+            }
+            if self.now_in_hand.load(Ordering::SeqCst) == 0 {
+                if !queues.unsized_done {
+                    match self.builder().next_unsized(queues.unsized_from) {
+                        Some((node, folder)) => {
+                            queues.unsized_from = node as usize + 1;
+                            self.now_sizing();
+                            return Some(Work::Size(node, folder));
+                        }
+                        None => queues.unsized_done = true,
+                    }
+                }
+                if let Some(p) = queues.later.pop_front() {
+                    self.now_sizing();
+                    return Some(Work::List(p));
+                }
+                if self.later_in_hand.load(Ordering::SeqCst) == 0 {
+                    return None;
+                }
+            }
+            // Another thread is still listing and may queue more.
+            let Ok((waited, _)) = self.more.wait_timeout(queues, std::time::Duration::from_millis(20)) else {
+                return None;
+            };
+            queues = waited;
         }
     }
 
     fn work(&self) {
-        loop {
-            let next = {
-                let Ok(mut queue) = self.queue.lock() else { return };
-                loop {
-                    if self.stopped() || self.in_hand.load(Ordering::SeqCst) == 0 {
-                        break None;
+        // Pause holds a survey too, between one folder and the next.
+        keevoro_core::pause::wait_while_paused();
+        while let Some(work) = self.next() {
+            match work {
+                Work::List(p) => {
+                    let later = p.passed_by;
+                    self.list(p);
+                    if later {
+                        self.later_in_hand.fetch_sub(1, Ordering::SeqCst);
+                    } else {
+                        self.now_in_hand.fetch_sub(1, Ordering::SeqCst);
                     }
-                    if let Some(folder) = queue.pop_front() {
-                        break Some(folder);
-                    }
-                    // Another thread is still listing and may queue more.
-                    let Ok((waited, _)) = self.more.wait_timeout(queue, std::time::Duration::from_millis(20)) else {
-                        return;
-                    };
-                    queue = waited;
                 }
-            };
-            let Some(folder) = next else {
-                self.more.notify_all();
-                return;
-            };
-            self.list(folder);
-            self.in_hand.fetch_sub(1, Ordering::SeqCst);
+                Work::Size(node, folder) => self.size_rest(node, &folder),
+            }
             self.more.notify_all();
+            keevoro_core::pause::wait_while_paused();
         }
+        self.more.notify_all();
     }
 
     fn progress(&self) -> SurveyProgress {
@@ -372,6 +589,7 @@ impl Walk<'_> {
             files_seen: self.files.load(Ordering::Relaxed),
             photos: self.photos.load(Ordering::Relaxed),
             videos: self.videos.load(Ordering::Relaxed),
+            sizing: self.sizing.load(Ordering::Relaxed),
         }
     }
 }
@@ -379,6 +597,13 @@ impl Walk<'_> {
 /// Surveys everything under `root` and suggests the folders worth looking
 /// through. Reads folder listings only, on several threads, and opens no
 /// file, so it goes by the endings of names: those `kinds` looks for.
+///
+/// Everything it sees goes into a map of the place, within `limits`. The
+/// folders Keevoro never looks through (system and app folders, hidden
+/// ones, its own, those left out) are listed last, only to size them for
+/// the map, once every suggestion is final: [`SurveyProgress::sizing`]
+/// says when, and stopping then loses no suggestion.
+///
 /// `on_progress` is called a few times a second from the calling thread.
 /// Setting `stop` ends it early with what it has so far.
 pub fn survey(
@@ -386,6 +611,7 @@ pub fn survey(
     rules: &SkipRules,
     kinds: &Kinds,
     online: &dyn crate::OnlineCheck,
+    limits: Limits,
     stop: Option<&AtomicBool>,
     on_progress: &mut dyn FnMut(&SurveyProgress),
 ) -> Survey {
@@ -393,11 +619,25 @@ pub fn survey(
         rules,
         kinds,
         online,
+        limits,
         stop,
-        queue: Mutex::new(VecDeque::from([root.to_path_buf()])),
+        queues: Mutex::new(Queues {
+            now: VecDeque::from([Pending {
+                folder: root.to_path_buf(),
+                into: CountedIn::Own(0),
+                passed_by: false,
+            }]),
+            later: VecDeque::new(),
+            unsized_from: 0,
+            unsized_done: false,
+        }),
         more: Condvar::new(),
-        in_hand: AtomicUsize::new(1),
-        tallies: Mutex::new(Vec::new()),
+        now_in_hand: AtomicUsize::new(1),
+        later_in_hand: AtomicUsize::new(0),
+        sizing: AtomicBool::new(false),
+        started: std::time::Instant::now(),
+        suggested: std::sync::OnceLock::new(),
+        map: Mutex::new(Builder::new(root, limits)),
         left_out: Mutex::new(Vec::new()),
         folders: AtomicUsize::new(0),
         files: AtomicUsize::new(0),
@@ -409,19 +649,38 @@ pub fn survey(
     // more threads than cores pays off, above all on a network drive.
     let threads = std::thread::available_parallelism().map_or(4, |n| n.get().clamp(4, 16));
     std::thread::scope(|scope| {
-        let workers: Vec<_> = (0..threads).map(|_| scope.spawn(|| walk.work())).collect();
-        while workers.iter().any(|w| !w.is_finished()) {
-            std::thread::sleep(std::time::Duration::from_millis(100));
+        // Each worker holds a sender until it is done, so the wait ends the
+        // moment the last one is, not at the next tick.
+        let (done, finished) = std::sync::mpsc::channel::<()>();
+        for _ in 0..threads {
+            let done = done.clone();
+            let walk = &walk;
+            scope.spawn(move || {
+                walk.work();
+                drop(done);
+            });
+        }
+        drop(done);
+        while let Err(std::sync::mpsc::RecvTimeoutError::Timeout) =
+            finished.recv_timeout(std::time::Duration::from_millis(100))
+        {
             on_progress(&walk.progress());
         }
     });
     let last = walk.progress();
     on_progress(&last);
-    let (stopped, unreadable) = (walk.stopped(), walk.unreadable.load(Ordering::Relaxed));
-    let tallies = walk.tallies.into_inner().unwrap_or_default();
+    let asked_to_stop = walk.stopped();
+    let undone_now = walk.now_in_hand.load(Ordering::SeqCst) > 0;
+    let undone_later = walk.later_in_hand.load(Ordering::SeqCst) > 0;
+    let unreadable = walk.unreadable.load(Ordering::Relaxed);
+    let map = walk
+        .map
+        .into_inner()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .finish();
+    let rest_unsized = map.nodes.iter().any(|n| n.has(crate::map::flag::REST_UNSIZED));
+    let tallies = map.tallies();
     let online_only = tallies.iter().map(|t| t.online_only).sum();
-    let mut media_folders: Vec<Tally> = tallies.iter().filter(|t| t.photos + t.videos > 0).cloned().collect();
-    media_folders.sort_by(|a, b| a.folder.cmp(&b.folder));
     let mut left_out = walk.left_out.into_inner().unwrap_or_default();
     left_out.sort_by(|a, b| a.0.cmp(&b.0));
     Survey {
@@ -430,9 +689,11 @@ pub fn survey(
         files_seen: last.files_seen,
         unreadable,
         online_only,
-        stopped,
+        stopped: asked_to_stop && undone_now,
+        sized_all: !(asked_to_stop && (undone_now || undone_later || rest_unsized)),
         left_out,
-        media_folders,
+        map,
+        suggested_in: walk.suggested.get().copied().unwrap_or_else(|| walk.started.elapsed()),
     }
 }
 
@@ -581,6 +842,7 @@ mod tests {
             &SkipRules::default(),
             &Kinds::default(),
             &crate::ByAttributes,
+            crate::map::Limits::default(),
             None,
             &mut |p| seen = *p,
         );
@@ -593,14 +855,34 @@ mod tests {
         assert_eq!((seen.photos, seen.videos), (30, 1));
         // The outline: only folders holding photos or videos themselves.
         let outline: Vec<(PathBuf, usize, usize)> = found
-            .media_folders
+            .map
+            .media_folders(0)
             .iter()
             .map(|t| (t.folder.clone(), t.photos, t.videos))
             .collect();
         assert_eq!(outline, [(root.join("Pictures").join("2019"), 30, 1)]);
-        // Skipped folders are not even listed.
-        assert_eq!(found.files_seen, 41);
-        assert!(!found.stopped);
+        // Folders Keevoro never looks through are never suggested, but they
+        // are sized for the map once the suggestions are final, and marked.
+        assert_eq!(found.files_seen, 44, "every file, the system ones too");
+        assert!(!found.stopped && found.sized_all);
+        assert!(seen.sizing);
+        let totals = found.map.totals();
+        let developer = found.map.find(&root.join("node_modules")).unwrap();
+        assert_eq!(
+            found.map.nodes[developer as usize].skipped,
+            Some(keevoro_core::SkipReason::DeveloperFolder)
+        );
+        assert_eq!(
+            totals[developer as usize].kinds[0],
+            crate::map::KindSum { files: 1, bytes: 10 }
+        );
+        let hidden = found.map.find(&root.join(".hidden")).unwrap();
+        assert_eq!(totals[hidden as usize].bytes(), 10);
+        assert_eq!(
+            totals[0].bytes(),
+            30 * 200_000 + 900_000 + 10 * 10 + 10 + 10 + 10,
+            "everything, photos or not"
+        );
     }
 
     #[test]
@@ -624,6 +906,7 @@ mod tests {
             &SkipRules::default(),
             &Kinds::default(),
             &crate::ByAttributes,
+            crate::map::Limits::default(),
             None,
             &mut |_| {},
         );
@@ -641,6 +924,7 @@ mod tests {
             &SkipRules::default(),
             &kinds.lookup(),
             &crate::ByAttributes,
+            crate::map::Limits::default(),
             None,
             &mut |_| {},
         );
@@ -684,6 +968,7 @@ mod tests {
             &rules,
             &Kinds::default(),
             &crate::ByAttributes,
+            crate::map::Limits::default(),
             None,
             &mut |_| {},
         );
@@ -691,8 +976,17 @@ mod tests {
         // Pictures is offered whole, counting only the person's own photos;
         // a search of it leaves Keevoro's folders out in the same way.
         assert_eq!(offered, [root.join("Pictures")]);
-        assert_eq!((found.hints[0].photos, found.files_seen), (30, 40));
         use keevoro_core::SkipReason::{KeevoroBackup, OldLibrary};
+        assert_eq!(found.hints[0].photos, 30);
+        // Their files are still sized for the map, after the suggestions.
+        assert_eq!(found.files_seen, 40 + 61 + 32 + 30);
+        let library = found.map.find(&root.join("Pictures").join("Keevoro Library")).unwrap();
+        assert_eq!(found.map.nodes[library as usize].skipped, Some(OldLibrary));
+        assert_eq!(
+            found.map.totals()[library as usize].kinds[0].files,
+            60,
+            "its copies and previews"
+        );
         assert_eq!(
             found.left_out,
             [
@@ -730,6 +1024,7 @@ mod tests {
             &rules,
             &Kinds::default(),
             &crate::ByAttributes,
+            crate::map::Limits::default(),
             None,
             &mut |_| {},
         );
@@ -747,6 +1042,150 @@ mod tests {
         );
     }
 
+    /// How long the walk takes over a made-up tree of 200,000 files. Run by
+    /// hand: `cargo test -p keevoro-scan how_long -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "a measurement, run by hand"]
+    fn how_long_a_survey_of_200_000_files_takes() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let endings = ["jpg", "jpg", "jpg", "jpg", "mp4", "txt", "zip", "dat", "png", "docx"];
+        for f in 0..2_000 {
+            let folder = root.join(format!("{}", f % 20)).join(format!("folder {f}"));
+            fs::create_dir_all(&folder).unwrap();
+            for n in 0..100 {
+                fs::write(folder.join(format!("file {n}.{}", endings[n % endings.len()])), b"").unwrap();
+            }
+        }
+        let mut times = Vec::new();
+        let mut suggested = Vec::new();
+        for _ in 0..5 {
+            let started = std::time::Instant::now();
+            let found = survey(
+                root,
+                &SkipRules::default(),
+                &Kinds::default(),
+                &crate::ByAttributes,
+                crate::map::Limits::default(),
+                None,
+                &mut |_| {},
+            );
+            times.push(started.elapsed().as_secs_f64());
+            suggested.push(found.suggested_in.as_secs_f64());
+            assert_eq!(found.files_seen, 200_000);
+        }
+        times.sort_by(f64::total_cmp);
+        suggested.sort_by(f64::total_cmp);
+        eprintln!(
+            "200,000 files: suggestions final in {:.3} s (median of five; fastest {:.3} s); whole map {:.3} s \
+             (fastest {:.3} s)",
+            suggested[2], suggested[0], times[2], times[0]
+        );
+    }
+
+    /// Stops the survey the first time it is asked about a file whose path
+    /// holds `at`.
+    #[derive(Debug)]
+    struct StopAt<'a> {
+        at: &'static str,
+        stop: &'a AtomicBool,
+    }
+
+    impl crate::OnlineCheck for StopAt<'_> {
+        fn online_only(&self, file: &Path, _: &std::fs::Metadata) -> bool {
+            if file.to_string_lossy().contains(self.at) {
+                self.stop.store(true, Ordering::SeqCst);
+            }
+            false
+        }
+    }
+
+    #[test]
+    fn folders_keevoro_passes_by_are_sized_after_the_suggestions_and_stopping_then_loses_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(dir.path()).unwrap();
+        let put = |rel: &str, bytes: usize| {
+            let file = root.join(rel);
+            fs::create_dir_all(file.parent().unwrap()).unwrap();
+            fs::write(file, vec![0u8; bytes]).unwrap();
+        };
+        for n in 0..20 {
+            put(&format!("Pictures/IMG_{n}.jpg"), 1_000);
+            put(&format!("Work/{n}.docx"), 10);
+            put(&format!("node_modules/pkg/deep/{n}.png"), 10);
+        }
+        put("node_modules/logo.png", 10);
+        let whole = survey(
+            &root,
+            &SkipRules::default(),
+            &Kinds::default(),
+            &crate::ByAttributes,
+            crate::map::Limits::default(),
+            None,
+            &mut |_| {},
+        );
+        assert!(whole.sized_all && !whole.stopped);
+        assert!(!whole.map.totals()[0].not_sized);
+
+        let stop = AtomicBool::new(false);
+        let stopping = StopAt {
+            at: "node_modules",
+            stop: &stop,
+        };
+        let cut_short = survey(
+            &root,
+            &SkipRules::default(),
+            &Kinds::default(),
+            &stopping,
+            crate::map::Limits::default(),
+            Some(&stop),
+            &mut |_| {},
+        );
+        assert!(stop.load(Ordering::SeqCst), "it was stopped while sizing");
+        assert!(!cut_short.stopped, "every suggestion was already final");
+        assert_eq!(cut_short.hints, whole.hints);
+        assert!(!cut_short.sized_all);
+        assert!(cut_short.map.totals()[0].not_sized, "the map says what was not sized");
+    }
+
+    #[test]
+    fn a_link_or_junction_is_not_followed_so_nothing_is_counted_twice() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(dir.path()).unwrap();
+        let photos = root.join("Photos");
+        fs::create_dir_all(&photos).unwrap();
+        for n in 0..5 {
+            fs::write(photos.join(format!("IMG_{n}.jpg")), [0u8; 100]).unwrap();
+        }
+        let link = root.join("Shortcut to Photos");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&photos, &link).unwrap();
+        #[cfg(windows)]
+        {
+            // A junction, which needs no special permission to make.
+            let made = std::process::Command::new("cmd")
+                .args(["/C", "mklink", "/J"])
+                .arg(&link)
+                .arg(&photos)
+                .output()
+                .unwrap();
+            assert!(made.status.success(), "{made:?}");
+        }
+        let found = survey(
+            &root,
+            &SkipRules::default(),
+            &Kinds::default(),
+            &crate::ByAttributes,
+            crate::map::Limits::default(),
+            None,
+            &mut |_| {},
+        );
+        let totals = found.map.totals();
+        assert_eq!(totals[0].kinds[0], crate::map::KindSum { files: 5, bytes: 500 });
+        assert_eq!(found.map.find(&link), None, "the link is not a folder of the map");
+        assert_eq!(found.hints.iter().map(|h| h.photos).sum::<usize>(), 5);
+    }
+
     #[test]
     fn a_survey_can_be_stopped() {
         let dir = tempfile::tempdir().unwrap();
@@ -757,6 +1196,7 @@ mod tests {
             &SkipRules::default(),
             &Kinds::default(),
             &crate::ByAttributes,
+            crate::map::Limits::default(),
             Some(&stop),
             &mut |_| {},
         );

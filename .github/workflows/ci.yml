@@ -85,6 +85,9 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # The pure parts of the screens, such as the map's layout, tested by
+      # Node on its own.
+      - run: npm run ui:unit
       - run: npm run ui:build
       # The system packages are fonts and libraries the runner mostly has
       # already; when its package mirror is unreachable the browser alone

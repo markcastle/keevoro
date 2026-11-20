@@ -1,5 +1,5 @@
 //! Looking inside a place before it is added: `places.folders` (which
-//! folders in it hold photos and videos, from the remembered survey) and
+//! folders in it hold photos and videos, from the remembered survey's map) and
 //! `places.files` (the photos and videos in one folder, a page at a time).
 //!
 //! Both only read. Nothing is added to a backup, nothing on the place is
@@ -215,7 +215,7 @@ const LISTINGS_KEPT: usize = 4;
 impl Keevoro {
     /// Every choice the backup in hand made about what is offered; none
     /// when there is no backup, so everything is.
-    fn choices_for(backup: Option<&Named>) -> keevoro_core::Choices {
+    pub(crate) fn choices_for(backup: Option<&Named>) -> keevoro_core::Choices {
         backup
             .and_then(|b| crate::backup::Backup::open_existing(&b.home))
             .and_then(|b| b.catalog().choices().ok())
@@ -238,12 +238,19 @@ impl Keevoro {
     /// covers the place, so the app can survey it first and then look.
     pub fn folders_inside_if_surveyed(&self, place: &Path, backup: Option<&Named>) -> Result<Option<FoldersView>> {
         let real = existing_folder(place)?;
-        let Some(survey) = keevoro_engine::surveys::covering(&self.cache_folder(), &real) else {
+        let Some(loaded) = keevoro_engine::surveys::covering(&self.cache_folder(), &real) else {
+            return Ok(None);
+        };
+        // Only what is inside the place asked about is said. A folder the
+        // survey did not reach on its own (made since, or past its bounds)
+        // is surveyed afresh.
+        let map = &loaded.survey.map;
+        let Some(top) = map.find(&real) else {
             return Ok(None);
         };
         let choices = Self::choices_for(backup);
-        let folders: Vec<FolderView> = survey
-            .folders
+        let folders: Vec<FolderView> = map
+            .media_folders(top)
             .iter()
             .map(|f| FolderView {
                 folder: friendly_path(&f.folder),
@@ -263,13 +270,12 @@ impl Keevoro {
                 online_only: f.online_only,
                 left_out: choices.left_out_folder(&f.folder).is_some(),
             })
-            .filter(|f| f.photos + f.videos > 0)
             .collect();
         Ok(Some(FoldersView {
             left_out: choices.left_out_folder(&real).map(friendly_path),
             place: friendly_path(place),
-            surveyed_at: survey.surveyed_at,
-            complete: survey.complete,
+            surveyed_at: loaded.survey.surveyed_at,
+            complete: loaded.survey.complete,
             photos: folders.iter().map(|f| f.photos).sum(),
             videos: folders.iter().map(|f| f.videos).sum(),
             bytes: folders.iter().map(|f| f.bytes).sum(),
@@ -374,7 +380,7 @@ impl Keevoro {
 }
 
 /// The folder in its full form, or a plain sentence if it is not there.
-fn existing_folder(place: &Path) -> Result<PathBuf> {
+pub(crate) fn existing_folder(place: &Path) -> Result<PathBuf> {
     match std::fs::canonicalize(place) {
         Ok(real) if real.is_dir() => Ok(real),
         _ => Err(Error::not_found(format!(

@@ -1,8 +1,9 @@
 //! `places.survey`: finding which folders in a drive or folder hold photos
 //! and videos, by reading folder listings only. No file is opened. The
-//! answer is a list of suggestions for the person to choose from, and
-//! which folders hold photos and videos is remembered in Keevoro's cache
-//! (`keevoro_engine::surveys`), so a look inside one opens at once.
+//! answer is a list of suggestions for the person to choose from, and the
+//! whole map of what the place holds is remembered in Keevoro's cache
+//! (`keevoro_engine::surveys`), so a look inside a folder, and where the
+//! space goes, open at once.
 
 use super::{spawn, Context, HintView, JobHandle, JobKind, Listener, Said, SurveyEvent, SurveyView};
 use crate::backups::Named;
@@ -45,6 +46,7 @@ pub(super) fn start(
                 &skip,
                 &kinds,
                 &keevoro_scan::ByAttributes,
+                keevoro_scan::map::Limits::default(),
                 Some(&stop),
                 &mut |p| {
                     ctx.jobs.heard(
@@ -54,6 +56,7 @@ pub(super) fn start(
                             files: p.files_seen,
                             photos: p.photos,
                             videos: p.videos,
+                            sizing: p.sizing,
                         }),
                         true,
                     );
@@ -61,36 +64,37 @@ pub(super) fn start(
             )
         };
         let seconds = started.elapsed().as_secs_f32();
+        let suggested_in = found.suggested_in.as_secs_f32();
+        ctx.log.say(&format!(
+            "Looked at {} files in {} folders in {seconds:.1} seconds without opening any: {} folders suggested \
+             after {suggested_in:.1} seconds{}",
+            found.files_seen,
+            found.folders_seen,
+            found.hints.len(),
+            if found.stopped {
+                " (stopped early)"
+            } else if !found.sized_all {
+                " (stopped before everything was measured for the map)"
+            } else {
+                ""
+            }
+        ));
         let remembered = keevoro_engine::surveys::Remembered {
-            root: root.clone(),
             surveyed_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(0)),
             complete: !found.stopped,
-            folders: found
-                .media_folders
-                .iter()
-                .map(|t| keevoro_engine::surveys::FolderCount {
-                    folder: t.folder.clone(),
-                    photos: t.photos,
-                    videos: t.videos,
-                    bytes: t.bytes,
-                    online_only: t.online_only,
-                })
-                .collect(),
+            sized_all: found.sized_all,
+            map: found.map,
         };
         if let Err(e) = keevoro_engine::surveys::save(&ctx.cache, &remembered) {
             ctx.log.say(&format!(
                 "Couldn't remember what the survey found ({e}); it will be found again when needed"
             ));
         }
-        ctx.log.say(&format!(
-            "Looked at {} files in {} folders in {seconds:.1} seconds without opening any: {} folders suggested{}",
-            found.files_seen,
-            found.folders_seen,
-            found.hints.len(),
-            if found.stopped { " (stopped early)" } else { "" }
-        ));
+        // The map is freed here: it is in the cache now, and read back from
+        // there when it is looked at.
+        drop(remembered);
         let view = SurveyView {
             hints: found
                 .hints

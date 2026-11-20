@@ -8,6 +8,7 @@
 // Add ?demo=new to the address to start as a first-time user with no
 // backup, or ?demo=empty for a backup with nothing found yet.
 
+import { demoMap } from './demoMap'
 import type {
   AppState,
   FileKind,
@@ -715,9 +716,10 @@ export function demoBackend(): Backend {
     async surveyPlace(path) {
       const drive = path.replace(/[\\/]+$/, '')
       surveyed.add(drive)
-      for (let step = 1; step <= 4; step++) {
+      for (let step = 1; step <= 5; step++) {
         surveyListeners.forEach((tell) =>
-          tell({ folders: step * 9_000, files: step * 120_000, photos: step * 3_100, videos: step * 90 }),
+          // The last steps measure what Keevoro never looks through, for the map.
+          tell({ folders: step * 9_000, files: step * 120_000, photos: Math.min(step, 3) * 3_100, videos: Math.min(step, 3) * 90, ...(step > 3 ? { sizing: true } : {}) }),
         )
         await new Promise((r) => setTimeout(r, new URLSearchParams(window.location.search).has('slow') ? 400 : 60))
       }
@@ -919,6 +921,13 @@ export function demoBackend(): Backend {
         bytes: folders.reduce((n, f) => n + f.bytes, 0),
         onlineOnly: folders.reduce((n, f) => n + f.onlineOnly, 0),
       }
+    },
+    // Where the space goes: the owner's own disk, or any other place.
+    spaceMap: async (request) => {
+      const { place } = request
+      if (![...surveyed].some((root) => place === root || place.startsWith(`${root}\\`))) return null
+      await later(40 * pace)
+      return demoMap(request, leftOutOf, Math.floor(Date.now() / 1000) - 120)
     },
     folderFiles: async ({ place, from, count, sort, only }) => {
       await later(80 * pace)

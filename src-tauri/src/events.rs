@@ -126,6 +126,7 @@ pub(crate) mod tests {
             files: 2,
             photos: 3,
             videos: 4,
+            sizing: true,
         };
         assert_eq!(keys(&survey), fields_of("SurveyProgress"));
         let hint = HintView {
