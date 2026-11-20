@@ -775,7 +775,9 @@ impl Estimator {
         } else {
             Sureness::Fair
         };
-        let all_done = self.stages.iter().all(|s| s.left() == 0);
+        // With no stages yet there is nothing done, not everything: before
+        // the plan is laid the answer must not read as finished.
+        let all_done = !self.stages.is_empty() && self.stages.iter().all(|s| s.left() == 0);
         let due = match &self.published {
             None => true,
             Some(p) => {
@@ -811,7 +813,9 @@ impl Estimator {
                 if gone + left > 0.0 {
                     gone / (gone + left)
                 } else {
-                    1.0
+                    // No time has gone and none is thought to be left:
+                    // nothing has begun, so go by the stages, not "done".
+                    published.fraction_at
                 }
             }
             _ => published.fraction_at,
@@ -1494,6 +1498,14 @@ mod tests {
         e.progress(Kind::SendingOriginals, Some("the folder N:"), 121 * 10 * MB, 1001.0);
         let after = e.estimate(1001.0);
         assert!(after.seconds_left.unwrap() + 2 >= before - 1);
+    }
+
+    #[test]
+    fn before_any_stage_is_known_nothing_is_done() {
+        let mut e = Estimator::new(Remembered::default());
+        let est = e.estimate(0.0);
+        assert_eq!(est.fraction_done, 0.0, "an empty plan is not a finished backup");
+        assert_eq!(e.estimate(5.0).fraction_done, 0.0);
     }
 
     #[test]

@@ -6,7 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **The progress bar of a backup no longer sits at full from the start.** For an instant before a backup had worked out what it had to do, it reported itself as finished, and the bar then held that. It now starts empty and follows the work, and a wrong reading can no longer pin it.
 
 ## [0.36.0] - 2026-11-20
 
