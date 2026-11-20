@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.32.0] - 2026-11-20
+
 ### Added
 
 - **A backup now says how long the whole of it has left, and how long it has been running.** The backup screen leads with one line, such as "Running for 5 hours 12 minutes, about 3 hours left", and one bar for the whole backup, which no longer fills up and then starts again for the previews. Beneath it is a short list of every stage, the one in hand and those still to come ("Then: Backing up the previews"), so nothing comes as a surprise at the end. The time left is worked out afresh on a schedule that suits the backup (about five times an hour on a two-hour backup, at least once an hour on a day-long one, and at once when the speed really changes or a stage ends) and counts down smoothly in between. It is said roughly ("Roughly 6 hours left") when part of it is a guess, and not at all ("Working out how long this will take") until there is something to go on. Each backup remembers how fast things went on this computer, so the next one has a better first guess. Paused time does not eat into the time left, and "Running for" says how much of it was paused. `keevoro status`, `keevoro follow`, `keevoro run` and an AI app all give the same words.
@@ -522,7 +526,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.31.0...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.32.0...HEAD
+[0.32.0]: https://github.com/markcastle/keevoro/compare/v0.31.0...v0.32.0
 [0.31.0]: https://github.com/markcastle/keevoro/compare/v0.30.1...v0.31.0
 [0.30.1]: https://github.com/markcastle/keevoro/compare/v0.30.0...v0.30.1
 [0.30.0]: https://github.com/markcastle/keevoro/compare/v0.29.3...v0.30.0
