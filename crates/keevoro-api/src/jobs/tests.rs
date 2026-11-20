@@ -1372,3 +1372,43 @@ fn a_backup_folder_inside_a_source_is_left_out_by_where_it_is_even_before_its_fi
     assert_eq!(view.left_out.len(), 1);
     assert!(view.left_out[0].folder.ends_with("Backup for Mum"));
 }
+
+/// Windows once limited a path to 260 characters. A photo whose full path
+/// is longer is found, pictured and backed up to a folder whose own path
+/// is longer too.
+#[cfg(windows)]
+#[test]
+fn a_photo_with_a_path_longer_than_260_characters_is_found_pictured_and_backed_up() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro(dir.path());
+    let long = "A folder with quite a long name for testing";
+    let deep = (0..8).fold(dir.path().join("Card"), |p, n| p.join(format!("{long} {n}")));
+    let photo = deep.join("IMG_20190601_120000 a photo with a long name too.jpg");
+    assert!(photo.as_os_str().len() > 300, "{}", photo.display());
+    std::fs::create_dir_all(&deep).unwrap();
+    std::fs::write(&photo, crate::backup::tests::large_photo(40)).unwrap();
+    let named = keevoro.start_backup("Long").unwrap();
+    let found = look_and_wait(&keevoro, &named, &dir.path().join("Card"));
+    assert_eq!((found.photos, found.unreadable), (1, 0), "{found:?}");
+
+    let backup = Backup::open(&named.home).unwrap();
+    let id = backup.catalog().load_reports().unwrap()[0].items[0]
+        .id()
+        .unwrap()
+        .to_string();
+    let picture = keevoro.picture(&backup, &id, crate::PictureSize::Small).unwrap();
+    assert_eq!(&picture[..4], b"RIFF");
+
+    let usb = (0..6).fold(dir.path().join("USB"), |p, n| p.join(format!("{long} {n}")));
+    keevoro.add_destination(&backup, &folder(&usb)).unwrap();
+    let job = keevoro.run_backup(&named, None).unwrap();
+    let Some(Said::Send(last)) = keevoro.wait(job.id) else {
+        panic!()
+    };
+    keevoro.wait_for_jobs();
+    assert_eq!(last.outcome, Some(Outcome::Worked), "{last:?}");
+    let sent = files_under(&usb.join("originals"));
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].1, std::fs::read(&photo).unwrap(), "exact");
+}

@@ -674,3 +674,108 @@ fn a_raw_file_is_never_judged_by_the_small_preview_in_its_header() {
         "an ordinary tiny picture still is"
     );
 }
+
+mod how_deep {
+    use super::*;
+
+    #[test]
+    fn files_only_in_online_storage_are_known_by_their_attributes() {
+        // A OneDrive placeholder: recall on data access, as Windows lists it.
+        assert!(crate::online_only(0x0040_0000 | 0x20));
+        assert!(crate::online_only(0x1000), "offline");
+        assert!(crate::online_only(0x0004_0000), "recall on open");
+        assert!(!crate::online_only(0x20), "an ordinary file");
+        assert!(!crate::online_only(0x0008_0000 | 0x20), "pinned, so on this computer");
+    }
+    use crate::survey::survey;
+    use keevoro_core::Kinds;
+
+    fn survey_of(root: &Path) -> crate::survey::Survey {
+        survey(root, &SkipRules::default(), &Kinds::default(), None, &mut |_| {})
+    }
+
+    fn photos_found_by_survey(root: &Path) -> usize {
+        survey_of(root).hints.iter().map(|h| h.photos).sum()
+    }
+
+    #[test]
+    fn a_photo_forty_five_folders_deep_is_found_by_the_search_and_the_survey() {
+        let t = Tree::new();
+        let deep: Vec<String> = (0..45).map(|n| format!("d{n}")).collect();
+        let rel = format!("{}/IMG_0001.jpg", deep.join("/"));
+        t.add(&rel, &plain_jpeg(1));
+        let r = t.scan();
+        assert_eq!(r.items.len(), 1);
+        assert_eq!(r.items[0].path.components().count(), t.root().components().count() + 46);
+        assert_eq!(photos_found_by_survey(t.root()), 1);
+    }
+
+    #[test]
+    fn long_names_and_names_in_any_language_do_not_stop_the_walk() {
+        let t = Tree::new();
+        let long = "a".repeat(200);
+        for rel in [
+            format!("{long}/{long}.jpg"),
+            "Fotos de la familia/Año nuevo/IMG_ñ.jpg".to_string(),
+            "家族の写真/旅行/写真.jpg".to_string(),
+            "Ελλάδα 2009/παραλία.jpg".to_string(),
+            "Emoji 🎉/party 🥳.jpg".to_string(),
+        ] {
+            t.add(&rel, &plain_jpeg(2));
+        }
+        assert_eq!(t.scan().items.len(), 5);
+        assert_eq!(photos_found_by_survey(t.root()), 5);
+    }
+
+    /// Windows will not make these, but a drive from another computer may
+    /// hold them.
+    #[cfg(unix)]
+    #[test]
+    fn names_ending_in_dots_or_spaces_do_not_stop_the_walk() {
+        let t = Tree::new();
+        t.add("Holiday. /IMG_1.jpg.", &plain_jpeg(3));
+        t.add("Holiday /IMG_2 .jpg", &plain_jpeg(4));
+        t.add("Holiday./IMG_3.jpg", &plain_jpeg(5));
+        assert_eq!(t.scan().items.len(), 3);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_back_up_the_tree_is_not_followed_so_nothing_loops_or_counts_twice() {
+        let t = Tree::new();
+        t.add("Photos/IMG_1.jpg", &plain_jpeg(1));
+        std::os::unix::fs::symlink(t.root(), t.root().join("Photos/back to the top")).unwrap();
+        std::os::unix::fs::symlink(t.root().join("Photos/IMG_1.jpg"), t.root().join("Photos/shortcut.jpg")).unwrap();
+        let r = t.scan();
+        assert_eq!(r.items.len(), 1, "found once, where it really is");
+        assert_eq!(photos_found_by_survey(t.root()), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_that_cannot_be_opened_is_reported_and_the_walk_carries_on() {
+        use std::os::unix::fs::PermissionsExt;
+        let t = Tree::new();
+        t.add("A/IMG_1.jpg", &plain_jpeg(1));
+        t.add("Locked/IMG_2.jpg", &plain_jpeg(2));
+        t.add("Z/IMG_3.jpg", &plain_jpeg(3));
+        let locked = t.root().join("Locked");
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+        // Someone allowed everything (the root account) can open it anyway.
+        let can_open = fs::read_dir(&locked).is_ok();
+        let r = t.scan();
+        let found = survey_of(t.root());
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        if can_open {
+            return;
+        }
+        assert_eq!(r.items.len(), 2, "the folders either side are still looked through");
+        assert!(
+            r.unreadable.iter().any(|u| u.path.ends_with("Locked")),
+            "{:?}",
+            r.unreadable
+        );
+        assert_eq!(found.unreadable, 1);
+        assert_eq!(found.hints.iter().map(|h| h.photos).sum::<usize>(), 2);
+    }
+}

@@ -40,7 +40,7 @@ use keevoro_core::MediaKind;
 use keevoro_media::VideoTools;
 use keevoro_scan::{scan, FoundItem, ScanOptions, ScanProgress, ScanReport};
 pub use keevoro_storage_folder::{sweep_working_files, Swept, ABANDONED_AFTER};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Does the person want this file backed up?
@@ -100,7 +100,9 @@ pub fn scan_into_with(
 }
 
 /// Keeps what was found on this source before whose kind is no longer
-/// looked for, as long as it is still there, the same size. Switching a
+/// looked for, as long as it is still there, the same size, and what was
+/// found before and is now only in online storage (not opened, so as not
+/// to download it). Switching a
 /// kind off, or removing one, changes what is looked for from now on; it
 /// never takes away a file already found, which may already be backed up
 /// and in the backup's index. A file of a kind still looked for that was
@@ -110,15 +112,21 @@ fn keep_found_before(catalog: &Catalog, report: &mut ScanReport, kinds: &keevoro
         return Ok(());
     };
     let found_now: std::collections::HashSet<&Path> = report.items.iter().map(|i| i.path.as_path()).collect();
+    let online: std::collections::HashSet<&Path> = report.online_only.iter().map(PathBuf::as_path).collect();
     let kept: Vec<FoundItem> = before
         .items
         .into_iter()
         .filter(|item| !found_now.contains(item.path.as_path()))
         .filter(|item| {
+            // Moved to online storage since: still there, only not on this
+            // computer, so still found.
+            if online.contains(item.path.as_path()) {
+                return true;
+            }
             let ending = item.path.extension().map(|e| e.to_string_lossy()).unwrap_or_default();
             kinds.looked_for(&ending).is_none()
+                && std::fs::metadata(&item.path).is_ok_and(|m| m.is_file() && m.len() == item.bytes)
         })
-        .filter(|item| std::fs::metadata(&item.path).is_ok_and(|m| m.is_file() && m.len() == item.bytes))
         .collect();
     if !kept.is_empty() {
         report.other_files = report.other_files.saturating_sub(kept.len() as u64);

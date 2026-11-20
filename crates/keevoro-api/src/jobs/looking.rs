@@ -193,6 +193,15 @@ fn look_through(
                 report.skipped.len(),
                 report.unreadable.len()
             ));
+            if !report.online_only.is_empty() {
+                log.say(&format!(
+                    "Passed over {} in {} that {} only in online storage (such as OneDrive), not on this computer, rather than download {}. Files found there before are still offered. To include the others, make them available on this computer and look again",
+                    keevoro_engine::summary::count(report.online_only.len(), "file"),
+                    friendly_path(source),
+                    if report.online_only.len() == 1 { "is" } else { "are" },
+                    if report.online_only.len() == 1 { "it" } else { "them all" },
+                ));
+            }
             for left in &left_out_of(report, &found_before) {
                 log.say(&left.said);
             }

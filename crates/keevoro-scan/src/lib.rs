@@ -121,6 +121,10 @@ pub struct ScanReport {
     pub unreadable: Vec<Unreadable>,
     /// Files looked at that were not photos or videos.
     pub other_files: u64,
+    /// Files only in online storage (OneDrive's "files on demand", say),
+    /// not on this computer. They are passed over unopened, as opening one
+    /// downloads it.
+    pub online_only: Vec<PathBuf>,
     /// True when the search was stopped before it had looked everywhere,
     /// so this is only part of what is there.
     #[serde(skip)]
@@ -145,10 +149,37 @@ pub struct ScanProgress {
 /// Files at least this big are announced before they are read.
 const WORTH_ANNOUNCING: u64 = 64 * 1024 * 1024;
 
+/// Windows marks a file whose contents are in online storage, not on the
+/// disk, with these attributes: recall on data access, recall on open, and
+/// offline. Opening such a file downloads it.
+const ONLINE_ONLY: u32 = 0x0040_0000 | 0x0004_0000 | 0x0000_1000;
+
+/// True for a file whose attributes say it is only in online storage.
+pub fn online_only(attributes: u32) -> bool {
+    attributes & ONLINE_ONLY != 0
+}
+
+/// Is this file only in online storage? Read from the folder listing, so
+/// asking does not download it.
+fn is_online_only(entry: &walkdir::DirEntry) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        entry.metadata().is_ok_and(|m| online_only(m.file_attributes()))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = entry;
+        false
+    }
+}
+
 /// What became of one thing the walk came across.
 enum Looked {
     Media(Box<FoundItem>),
     Other,
+    /// Only in online storage: not opened.
+    OnlineOnly,
     Unreadable(String),
     Skipped(SkipReason),
     /// A reader is about to start on a large file of this many bytes.
@@ -182,6 +213,7 @@ pub fn scan(root: &Path, opts: &ScanOptions, on_progress: &mut dyn FnMut(&ScanPr
     let mut found: Vec<(u64, FoundItem)> = Vec::new();
     let mut skipped: Vec<(u64, SkippedFolder)> = Vec::new();
     let mut unreadable: Vec<(u64, Unreadable)> = Vec::new();
+    let mut online: Vec<(u64, PathBuf)> = Vec::new();
 
     std::thread::scope(|threads| {
         for _ in 0..readers() {
@@ -244,6 +276,7 @@ pub fn scan(root: &Path, opts: &ScanOptions, on_progress: &mut dyn FnMut(&ScanPr
                     },
                 )),
                 Looked::Other => report.other_files += 1,
+                Looked::OnlineOnly => online.push((order, path.clone())),
                 Looked::Media(item) => {
                     match item.kind {
                         MediaKind::Photo => progress.photos += 1,
@@ -270,6 +303,8 @@ pub fn scan(root: &Path, opts: &ScanOptions, on_progress: &mut dyn FnMut(&ScanPr
     report.items = found.into_iter().map(|(_, item)| item).collect();
     report.skipped = skipped.into_iter().map(|(_, s)| s).collect();
     report.unreadable = unreadable.into_iter().map(|(_, u)| u).collect();
+    online.sort_by_key(|(order, _)| *order);
+    report.online_only = online.into_iter().map(|(_, p)| p).collect();
     report.stopped = opts.stopped();
     report
 }
@@ -327,6 +362,12 @@ fn walk(
             continue;
         }
         if !entry.file_type().is_file() || opts.skip.skip_file(&name).is_some() {
+            continue;
+        }
+        if is_online_only(&entry) {
+            if done.send((order, entry.into_path(), Looked::OnlineOnly)).is_err() {
+                break;
+            }
             continue;
         }
         let path = entry.into_path();

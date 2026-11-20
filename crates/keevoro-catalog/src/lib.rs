@@ -499,6 +499,8 @@ impl Catalog {
                     skipped: self.skipped_of(id)?,
                     unreadable: self.unreadable_of(id)?,
                     other_files: u64::try_from(other).unwrap_or(0),
+                    // Known only while a search runs.
+                    online_only: Vec::new(),
                     stopped: false,
                 })
             })
