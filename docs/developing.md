@@ -109,6 +109,10 @@ A kind Keevoro cannot open goes through everything else like any other file: it 
 
 The guard on what may be added is small: an ending is letters and numbers only (no spaces, dots or path characters, at most ten), compared without case or the leading dot, never twice, and never one of the endings Keevoro passes over as programs, documents, music or archives (`never_media_extension`), which would make no sense to look inside. An AI agent may read the list (`list_file_kinds`) but not change it, like Keevoro's other settings.
 
+### Photos only, or videos only
+
+Which found files are offered is decided at three levels, in one order, by one pure function, `keevoro_core::wants::offered`: the kinds of file Keevoro looks for at all (above; a file of a kind not looked for is never found), then photos or videos (a source's own choice if it has one, otherwise its backup's), then each ending on a source (`sources.include_type`). When a file is not offered it says at which level (`LeftOutBy`), and the "File types" list says it in words ("left out: this backup is for photos only"). The backup's choice is the catalog setting `wants`, a source's is `wants:<its place>`, and both are applied in `Catalog::load_reports`, the one place everything reads what was found, so it counts at once with no new search, and every count, the plan of a backup, the estimate and the room check follow it. Nothing already backed up is touched. A survey for a backup that wants one kind counts only that kind (`Kinds::only`).
+
 ### What a search and a survey leave out
 
 `keevoro_core::SkipRules` decides which folders are never looked in: system and app folders, recycle bins, hidden folders and developer folders, by name, and Keevoro's own folders, by what is in them. The search (`keevoro-scan/src/lib.rs`) and the survey (`survey.rs`) both use it, and every folder left out is in the report with its `SkipReason`.

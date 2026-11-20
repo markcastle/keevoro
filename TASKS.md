@@ -270,7 +270,7 @@ Separate, remembered jobs ("Drone footage to R2", "Family photos to a folder"), 
 - [x] More than one destination per backup
 - [x] Reset to factory settings from Settings (only ever removes Keevoro's own data)
 - [ ] Rename and remove a backup
-- [ ] A backup that only looks for videos, or only photos
+- [x] A backup that only looks for videos, or only photos, and one source that differs from its backup
 - [x] Verify a folder destination by reading it back automatically after sending
 - [x] Backups on the command line
 

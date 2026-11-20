@@ -280,6 +280,39 @@ pub fn set_agent_access(
     shared.keevoro.set_agent_access(change).map_err(say)
 }
 
+/// Whether this backup is for photos and videos, photos only, or videos only.
+#[tauri::command]
+pub fn backup_wants(shared: State<'_, Shared>) -> Said<keevoro_api::wants::WantsView> {
+    backup(&shared)?.wants().map_err(say)
+}
+
+/// Makes this backup for photos and videos, photos only, or videos only.
+#[tauri::command]
+pub fn set_backup_wants(
+    shared: State<'_, Shared>,
+    wants: keevoro_api::wants::WantsChoice,
+) -> Said<keevoro_api::wants::WantsView> {
+    let backup = backup(&shared)?;
+    shared.keevoro.set_backup_wants(&backup, wants.into()).map_err(say)
+}
+
+/// Whether one source follows its backup's choice of photos or videos.
+#[tauri::command]
+pub fn source_wants(shared: State<'_, Shared>, id: i64) -> Said<keevoro_api::wants::WantsView> {
+    backup(&shared)?.source_wants(id).map_err(say)
+}
+
+/// Gives one source its own choice of photos or videos, or the backup's.
+#[tauri::command]
+pub fn set_source_wants(
+    shared: State<'_, Shared>,
+    id: i64,
+    wants: keevoro_api::wants::SourceWantsChoice,
+) -> Said<keevoro_api::wants::WantsView> {
+    let backup = backup(&shared)?;
+    shared.keevoro.set_source_wants(&backup, id, wants.into()).map_err(say)
+}
+
 /// The kinds of file Keevoro looks for, the built-in ones first.
 #[tauri::command]
 pub fn file_kinds(shared: State<'_, Shared>) -> Vec<keevoro_api::FileKind> {

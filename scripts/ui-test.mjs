@@ -79,6 +79,16 @@ try {
   assert.match(await page.locator('.types li').nth(1).innerText(), /left out/)
   await shot('3b-file-types')
   await dng.click()
+  // One source can be photos only, whatever the backup is for, and each
+  // ending says which level left it out.
+  const sourceWants = page.getByRole('group', { name: /^From .*, back up$/ })
+  assert.equal(await sourceWants.getByRole('radio', { name: 'The same as the backup' }).isChecked(), true)
+  await sourceWants.getByRole('radio', { name: 'Photos only' }).check()
+  await sourceWants.getByRole('status').getByText(/This source is set to photos only\. Anything already backed up stays backed up/).waitFor()
+  assert.match(await page.locator('.types li').nth(2).innerText(), /left out: this source is set to photos only/)
+  await shot('3c-source-photos-only')
+  await sourceWants.getByRole('radio', { name: 'The same as the backup' }).check()
+  await page.locator('.types li').nth(2).getByText(/left out/).waitFor({ state: 'detached' })
   await page.getByRole('button', { name: /^File types on / }).click()
   assert.equal(await page.locator('.types').count(), 0)
   // The bar is part of the window: on its bottom edge, full width.
@@ -487,9 +497,19 @@ try {
   await page.getByText('That is the newest version.').waitFor()
   await shot('9e-settings')
 
+  // --- A whole backup can be photos only, or videos only, behind its own Advanced door.
+  await page.locator('.setting').filter({ hasText: 'This backup' }).getByText('Advanced', { exact: true }).click()
+  const backupWants = page.getByRole('group', { name: 'This backup is for' })
+  assert.equal(await backupWants.getByRole('radio', { name: 'Photos and videos' }).isChecked(), true)
+  await backupWants.getByRole('radio', { name: 'Videos only' }).check()
+  await backupWants.getByRole('status').getByText(/This backup is for videos only\. Anything already backed up stays backed up; it is just no longer kept/).waitFor()
+  await backupWants.scrollIntoViewIfNeeded()
+  await shot('9y-settings-videos-only')
+  await backupWants.getByRole('radio', { name: 'Photos and videos' }).check()
+
   // --- Advanced: the kinds of file looked for, behind a door of their own.
   assert.equal(await page.getByRole('heading', { name: 'Kinds of file Keevoro looks for' }).isVisible(), false, 'folded away')
-  await page.getByText('Advanced', { exact: true }).click()
+  await page.locator('details.advanced').last().getByText('Advanced', { exact: true }).click()
   await page.getByRole('heading', { name: 'Kinds of file Keevoro looks for', level: 3 }).waitFor()
   const kindsTable = page.locator('.kinds-table')
   const row = (ending) => kindsTable.getByRole('row').filter({ has: page.getByRole('cell', { name: ending, exact: true }) })

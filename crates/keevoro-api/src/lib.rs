@@ -42,6 +42,7 @@ pub mod places;
 mod rates;
 pub mod register;
 pub mod reset;
+pub mod wants;
 pub mod words;
 
 pub use agents::{AgentAccess, AgentsAccessRequest};
@@ -285,7 +286,11 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
         }
         Op::BackupsStart => {
             let r: StartBackupRequest = read(request)?;
-            answer(keevoro.start_backup(&r.name)?)
+            let started = keevoro.start_backup(&r.name)?;
+            if let Some(choice) = r.wants {
+                keevoro.set_backup_wants(&Backup::open(&started.home)?, choice.into())?;
+            }
+            answer(started)
         }
         Op::BackupsRename => {
             let r: RenameBackupRequest = read(request)?;
@@ -399,6 +404,22 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
         Op::BackupLastSummary => {
             read::<Nothing>(request)?;
             answer(open()?.last_summary()?)
+        }
+        Op::BackupPhotosOrVideos => {
+            let r: wants::BackupWantsRequest = read(request)?;
+            let backup = open()?;
+            match r.wants {
+                Some(choice) => answer(keevoro.set_backup_wants(&backup, choice.into())?),
+                None => answer(backup.wants()?),
+            }
+        }
+        Op::SourcesPhotosOrVideos => {
+            let r: wants::SourceWantsRequest = read(request)?;
+            let backup = open()?;
+            match r.wants {
+                Some(choice) => answer(keevoro.set_source_wants(&backup, r.source, choice.into())?),
+                None => answer(backup.source_wants(r.source)?),
+            }
         }
         Op::BackupPreviews => {
             let r: PreviewsRequest = read(request)?;

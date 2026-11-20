@@ -174,8 +174,21 @@ pub struct FileType {
     pub ending: String,
     pub files: u64,
     pub bytes: u64,
+    /// Photo or video, as the first file with this ending was found.
+    pub kind: keevoro_core::MediaKind,
     /// False when the person has left this kind out of this source.
     pub included: bool,
+    /// When files with this ending are not offered, at which level they
+    /// were left out: the backup's or the source's choice of photos or
+    /// videos, or this ending's own.
+    pub left_out_by: Option<keevoro_core::LeftOutBy>,
+}
+
+/// What a backup wants, kept in its settings.
+const WANTS: &str = "wants";
+
+fn wants_key(root: &str) -> String {
+    format!("wants:{root}")
 }
 
 fn left_out_key(root: &str) -> String {
@@ -424,19 +437,26 @@ impl Catalog {
             .optional()?;
         let Some(root) = root else { return Ok(Vec::new()) };
         let left_out = self.left_out_types(&root)?;
-        let mut kinds: std::collections::BTreeMap<String, (u64, u64)> = std::collections::BTreeMap::new();
+        let (backup, own) = (self.wants()?, self.source_wants_at(&root)?);
+        let mut kinds: std::collections::BTreeMap<String, (u64, u64, keevoro_core::MediaKind)> =
+            std::collections::BTreeMap::new();
         for item in self.items_of(source)? {
-            let kind = kinds.entry(ending_of(&item.path)).or_default();
+            let kind = kinds.entry(ending_of(&item.path)).or_insert((0, 0, item.kind));
             kind.0 += 1;
             kind.1 += item.bytes;
         }
         let mut list: Vec<FileType> = kinds
             .into_iter()
-            .map(|(ending, (files, bytes))| FileType {
-                included: !left_out.contains(&ending),
-                ending,
-                files,
-                bytes,
+            .map(|(ending, (files, bytes, kind))| {
+                let included = !left_out.contains(&ending);
+                FileType {
+                    left_out_by: keevoro_core::offered(kind, backup, own, included).err(),
+                    kind,
+                    included,
+                    ending,
+                    files,
+                    bytes,
+                }
             })
             .collect();
         list.sort_by(|a, b| b.files.cmp(&a.files).then_with(|| a.ending.cmp(&b.ending)));
@@ -463,6 +483,57 @@ impl Catalog {
         self.set_setting(&left_out_key(&root), &serde_json::to_string(&list).map_err(damaged)?)
     }
 
+    /// Whether this backup wants photos and videos, or only one of them.
+    pub fn wants(&self) -> Result<keevoro_core::Wants> {
+        Ok(self
+            .setting(WANTS)?
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or_default())
+    }
+
+    pub fn set_wants(&self, wants: keevoro_core::Wants) -> Result<()> {
+        self.set_setting(WANTS, &serde_json::to_string(&wants).unwrap_or_default())
+    }
+
+    /// A source's own choice of photos or videos; `None` when it follows
+    /// the backup's.
+    pub fn source_wants(&self, source: i64) -> Result<Option<keevoro_core::Wants>> {
+        match self.root_of(source)? {
+            Some(root) => self.source_wants_at(&root),
+            None => Ok(None),
+        }
+    }
+
+    /// Sets a source's own choice, or with `None` makes it follow the
+    /// backup's. Kept by the source's place, so it is still there after the
+    /// source is looked through again. False if there is no such source.
+    pub fn set_source_wants(&self, source: i64, wants: Option<keevoro_core::Wants>) -> Result<bool> {
+        let Some(root) = self.root_of(source)? else {
+            return Ok(false);
+        };
+        match wants {
+            Some(wants) => self.set_setting(&wants_key(&root), &serde_json::to_string(&wants).unwrap_or_default())?,
+            None => {
+                self.conn
+                    .execute("DELETE FROM settings WHERE key = ?1", [wants_key(&root)])?;
+            }
+        }
+        Ok(true)
+    }
+
+    fn source_wants_at(&self, root: &str) -> Result<Option<keevoro_core::Wants>> {
+        Ok(self
+            .setting(&wants_key(root))?
+            .and_then(|text| serde_json::from_str(&text).ok()))
+    }
+
+    fn root_of(&self, source: i64) -> Result<Option<String>> {
+        Ok(self
+            .conn
+            .query_row("SELECT root FROM sources WHERE id = ?1", [source], |r| r.get(0))
+            .optional()?)
+    }
+
     fn left_out_types(&self, root: &str) -> Result<std::collections::BTreeSet<String>> {
         Ok(match self.setting(&left_out_key(root))? {
             Some(text) => serde_json::from_str(&text).unwrap_or_default(),
@@ -472,9 +543,13 @@ impl Catalog {
 
     /// Everything known about every source, in the same shape a fresh scan
     /// gives, so the rest of keevoro does not care which one it is given.
-    /// Kinds of file the person has left out of a source are not in it, so
-    /// to everything else they are simply not there.
+    /// What the person has left out (photos or videos, for the backup or a
+    /// source, and endings on a source; see `keevoro_core::wants`) is not
+    /// in it, so to everything else, counts and backups alike, it is simply
+    /// not there. Nothing found is forgotten: changing a choice back brings
+    /// it straight back.
     pub fn load_reports(&self) -> Result<Vec<ScanReport>> {
+        let backup = self.wants()?;
         let mut sources = self
             .conn
             .prepare("SELECT id, root, other_files FROM sources ORDER BY id")?;
@@ -490,10 +565,12 @@ impl Catalog {
                     root: PathBuf::from(&root),
                     items: {
                         let left_out = self.left_out_types(&root)?;
+                        let own = self.source_wants_at(&root)?;
                         let mut items = self.items_of(id)?;
-                        if !left_out.is_empty() {
-                            items.retain(|item| !left_out.contains(&ending_of(&item.path)));
-                        }
+                        items.retain(|item| {
+                            let included = !left_out.contains(&ending_of(&item.path));
+                            keevoro_core::offered(item.kind, backup, own, included).is_ok()
+                        });
                         items
                     },
                     skipped: self.skipped_of(id)?,

@@ -1210,14 +1210,16 @@ impl Keevoro {
     /// which of them are already its sources; nothing is changed.
     pub fn survey(&self, place: &Path, backup: Option<&Named>, listener: Option<Listener>) -> Result<JobHandle> {
         must_be_there(place)?;
-        surveying::start(
-            &self.context(),
-            place,
-            backup,
-            self.kinds_to_look_for(),
-            self.skip_rules(),
-            listener,
-        )
+        // A backup for photos only, or videos only, is offered only those.
+        let mut kinds = self.kinds_to_look_for();
+        let only = backup
+            .and_then(|b| crate::backup::Backup::open_existing(&b.home))
+            .and_then(|b| b.catalog().wants().ok())
+            .and_then(keevoro_core::Wants::only);
+        if let Some(kind) = only {
+            kinds = kinds.only(kind);
+        }
+        surveying::start(&self.context(), place, backup, kinds, self.skip_rules(), listener)
     }
 
     /// `sources.look`: looks through a drive or folder quickly and adds it

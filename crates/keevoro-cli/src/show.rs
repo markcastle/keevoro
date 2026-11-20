@@ -175,7 +175,11 @@ pub fn file_types(io: &mut Io<'_>, m: &ArgMatches, answer: &Value) -> Said_ {
             "{ending:<12} {:>14}  {:>9}  {}",
             count(n(kind, "files"), "file"),
             bytes(b(kind, "bytes")),
-            if yes(kind, "included") { "included" } else { "left out" }
+            match kind.get("why").and_then(Value::as_str) {
+                Some(why) => format!("left out: {why}"),
+                None if yes(kind, "included") => "included".to_string(),
+                None => "left out".to_string(),
+            }
         )?;
     }
     Ok(Code::Worked)
@@ -453,6 +457,11 @@ pub fn last_backup(io: &mut Io<'_>, _: &ArgMatches, said: &Value) -> Said_ {
     if let Some(problem) = said.get("problem").and_then(Value::as_str) {
         writeln!(io.out, "{problem}")?;
     }
+    Ok(Code::Worked)
+}
+
+pub fn wants(io: &mut Io<'_>, _: &ArgMatches, view: &Value) -> Said_ {
+    writeln!(io.out, "{}", s(view, "said"))?;
     Ok(Code::Worked)
 }
 

@@ -3305,3 +3305,38 @@ main > section > :nth-last-child(2) {
 .left-out li + li {
   margin-top: var(--space-3);
 }
+
+/* Photos and videos, photos only, or videos only: plain radio buttons. */
+fieldset.wants {
+  margin: var(--space-3) 0;
+  padding: 0;
+  border: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  align-items: center;
+}
+
+fieldset.wants legend {
+  padding: 0;
+  margin-bottom: var(--space-2);
+  font-weight: 500;
+  font-size: 14px;
+}
+
+fieldset.wants label {
+  display: inline-flex;
+  gap: var(--space-2);
+  align-items: center;
+  font-size: 14px;
+}
+
+fieldset.wants input {
+  height: auto;
+  box-shadow: none;
+}
+
+fieldset.wants [role='status'] {
+  flex-basis: 100%;
+  margin: 0;
+}

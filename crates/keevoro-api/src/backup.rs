@@ -56,6 +56,14 @@ pub struct FileTypeView {
     pub bytes: u64,
     /// False when the person has left this kind out of this source.
     pub included: bool,
+    /// When these files are not offered: `backup` (the backup is for the
+    /// other kind only), `source` (this source is), or `ending` (this
+    /// ending is left out of this source).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub left_out_by: Option<keevoro_core::LeftOutBy>,
+    /// The same, in words: "this backup is for photos only".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub why: Option<String>,
 }
 
 impl Backup {
@@ -125,6 +133,8 @@ impl Backup {
             .file_types(source)?
             .into_iter()
             .map(|kind| FileTypeView {
+                why: kind.left_out_by.map(|by| by.why(kind.kind).to_string()),
+                left_out_by: kind.left_out_by,
                 ending: kind.ending,
                 files: kind.files,
                 bytes: kind.bytes,

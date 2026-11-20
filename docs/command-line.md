@@ -224,7 +224,7 @@ The words each command shows in `keevoro --help` come from the same list the app
 | Command | What it does |
 | --- | --- |
 | `keevoro backups` | Every backup, with its sources, destinations, and how many files are safe and waiting. |
-| `keevoro backups start NAME` | Starts a new, empty backup. |
+| `keevoro backups start NAME` | Starts a new, empty backup; `--photos-only` or `--videos-only` for a backup of one kind. |
 | `keevoro backups rename NAME NEW` | Gives a backup a new name. |
 | `keevoro backups forget NAME` | Takes a backup off Keevoro's list. Nothing at any source or destination is touched. |
 
@@ -240,6 +240,7 @@ The words each command shows in `keevoro --help` come from the same list the app
 | `keevoro sources forget SOURCE` | Takes a source off the backup. Nothing on it is touched. |
 | `keevoro sources types SOURCE` | The kinds of file on a source, and which are included. |
 | `keevoro sources types SOURCE --leave-out png` | Leaves out one kind of file; `--include png` brings it back. |
+| `keevoro sources photos-or-videos SOURCE [backup, both, photos or videos]` | Whether one source follows its backup's choice of photos or videos, or has its own. |
 
 A source is named by its number, its place or its name, as `keevoro sources` lists them.
 
@@ -295,6 +296,7 @@ A collection is named by its whole name, such as "Holidays / Cornwall", or by it
 | `keevoro history` | How earlier backups went: when, where, how much, how long, numbered from the newest. |
 | `keevoro history N` | Everything recorded about one of them, by its number. |
 | `keevoro last-backup` | What the last backup said when it ended. |
+| `keevoro photos-or-videos [both, photos or videos]` | Whether the backup is for photos and videos, photos only or videos only. It counts at once on what was found; nothing already backed up is touched. |
 | `keevoro previews [on or off]` | Whether the backup also makes previews for a gallery, or sends the originals alone. |
 
 `look`, `survey`, `run` and `check` each take `--detach`.

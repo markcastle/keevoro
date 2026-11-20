@@ -107,6 +107,9 @@ pub struct BackupCounts {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StartBackupRequest {
     pub name: String,
+    /// `both` (photos and videos, as when left out), `photos` or `videos`.
+    #[serde(default)]
+    pub wants: Option<crate::wants::WantsChoice>,
 }
 
 /// `backups.rename`
@@ -338,6 +341,35 @@ impl Keevoro {
         let started = self.backups.start(name)?;
         self.log.say(&format!("Started backup \"{}\"", started.name));
         Ok(started)
+    }
+
+    /// `backup.photos_or_videos`, set, and said in the log.
+    pub fn set_backup_wants(&self, backup: &Backup, wants: keevoro_core::Wants) -> Result<crate::wants::WantsView> {
+        let view = backup.set_wants(wants)?;
+        self.log.say(&format!(
+            "This backup is now for {}. Nothing already backed up was changed",
+            wants.words()
+        ));
+        Ok(view)
+    }
+
+    /// `sources.photos_or_videos`, set, and said in the log.
+    pub fn set_source_wants(
+        &self,
+        backup: &Backup,
+        source: i64,
+        wants: Option<keevoro_core::Wants>,
+    ) -> Result<crate::wants::WantsView> {
+        let view = backup.set_source_wants(source, wants)?;
+        self.log.say(&format!(
+            "{} Nothing already backed up was changed",
+            view.said
+                .split(". Anything")
+                .next()
+                .unwrap_or_default()
+                .trim_end_matches('.')
+        ));
+        Ok(view)
     }
 
     /// `backups.rename`

@@ -248,8 +248,21 @@ pub static ROWS: &[Row] = &[
         words: &["backups", "start"],
         ops: &[Op::BackupsStart],
         about: None,
-        args: |c| c.arg(arg("name", "What to call it, such as \"Drone footage\"").required(true)),
-        ask: |_, m, _| Ok((Op::BackupsStart, json!({ "name": required(m, "name") }))),
+        args: |c| {
+            c.arg(arg("name", "What to call it, such as \"Drone footage\"").required(true))
+                .arg(flag("photos-only", "A backup of photos only, leaving videos out").conflicts_with("videos-only"))
+                .arg(flag("videos-only", "A backup of videos only, leaving photos out"))
+        },
+        ask: |_, m, _| {
+            let wants = if m.get_flag("photos-only") {
+                Some("photos")
+            } else if m.get_flag("videos-only") {
+                Some("videos")
+            } else {
+                None
+            };
+            Ok((Op::BackupsStart, json!({ "name": required(m, "name"), "wants": wants })))
+        },
         show: show::started,
     },
     Row {
@@ -367,6 +380,22 @@ pub static ROWS: &[Row] = &[
             })
         },
         show: show::file_types,
+    },
+    Row {
+        words: &["sources", "photos-or-videos"],
+        ops: &[Op::SourcesPhotosOrVideos],
+        about: Some(
+            "Whether one source follows its backup's choice of photos or videos, or has its own. Give backup, both, photos or videos to change it.",
+        ),
+        args: |c| {
+            c.arg(arg("source", "The source's number, place or name").required(true))
+                .arg(arg("wants", "backup, both, photos or videos").value_parser(["backup", "both", "photos", "videos"]))
+        },
+        ask: |c, m, _| {
+            let source = source(c, &required(m, "source"))?;
+            Ok((Op::SourcesPhotosOrVideos, json!({ "source": source, "wants": text(m, "wants") })))
+        },
+        show: show::wants,
     },
     // Choosing
     Row {
@@ -576,6 +605,16 @@ pub static ROWS: &[Row] = &[
             Ok((Op::BackupPreviews, json!({ "wanted": wanted })))
         },
         show: show::previews,
+    },
+    Row {
+        words: &["photos-or-videos"],
+        ops: &[Op::BackupPhotosOrVideos],
+        about: Some(
+            "Whether this backup is for photos and videos, photos only, or videos only. Give both, photos or videos to change it; it counts at once, and nothing already backed up is touched.",
+        ),
+        args: |c| c.arg(arg("wants", "both, photos or videos").value_parser(["both", "photos", "videos"])),
+        ask: |_, m, _| Ok((Op::BackupPhotosOrVideos, json!({ "wants": text(m, "wants") }))),
+        show: show::wants,
     },
     // Jobs
     Row {

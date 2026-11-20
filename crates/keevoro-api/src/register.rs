@@ -129,6 +129,9 @@ register! {
     SourcesForget = "sources.forget",
         "Takes a source off the backup. Nothing on it is touched",
         changes: Always, job: false, command_line: true, agents: Agents::Yes, implemented: true;
+    SourcesPhotosOrVideos = "sources.photos_or_videos",
+        "Whether one source follows its backup's choice of photos or videos, or has its own",
+        changes: OnlyWhenAsked, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     SourcesFileTypes = "sources.file_types",
         "The kinds of file on a source, and which are included",
         changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
@@ -195,6 +198,9 @@ register! {
     BackupLastSummary = "backup.last_summary",
         "What the last backup said when it ended",
         changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
+    BackupPhotosOrVideos = "backup.photos_or_videos",
+        "Whether a backup is for photos and videos, photos only or videos only, and changing it",
+        changes: OnlyWhenAsked, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     BackupPreviews = "backup.previews",
         "Whether previews are made, and switching that on or off",
         changes: OnlyWhenAsked, job: false, command_line: true, agents: Agents::Yes, implemented: true;
@@ -335,6 +341,7 @@ impl Op {
             Changes::Always => true,
             Changes::OnlyWhenAsked => match self {
                 Op::BackupPreviews => given("wanted"),
+                Op::BackupPhotosOrVideos | Op::SourcesPhotosOrVideos => given("wants"),
                 Op::KeevoroSettings => given("ownCodecs"),
                 Op::AgentsAccess => given("lookIn") || given("backUpTo") || given("mayChange"),
                 // Through the API, only the check: installing is the app's.
@@ -380,6 +387,8 @@ impl Op {
             Op::KeevoroSettings => schema::<SettingsRequest>(),
             Op::AgentsAccess => schema::<Agents>(),
             Op::BackupHistory => schema::<HistoryRequest>(),
+            Op::BackupPhotosOrVideos => schema::<crate::wants::BackupWantsRequest>(),
+            Op::SourcesPhotosOrVideos => schema::<crate::wants::SourceWantsRequest>(),
             Op::DestinationsTidy => schema::<crate::keevoro::TidyRequest>(),
             Op::FileKindsAdd => schema::<AddFileKindRequest>(),
             Op::FileKindsChange => schema::<ChangeFileKindRequest>(),
@@ -461,6 +470,13 @@ impl Op {
                 "forget_source",
                 "Takes a source off a backup, by the id list_sources gives. Nothing on the source is changed or \
                  deleted, and what has already been backed up stays where it is.",
+            ),
+            Op::SourcesPhotosOrVideos => (
+                "source_photos_or_videos",
+                "Says whether one source, by the id list_sources gives, follows its backup's choice of photos and \
+                 videos, photos only or videos only, or has its own. Give wants (backup, both, photos or videos) to \
+                 change it. It counts at once on what was found, with no new search. Leaving photos or videos out \
+                 only means they are not offered or backed up from now on; nothing already backed up is touched.",
             ),
             Op::SourcesFileTypes => (
                 "list_file_types",
@@ -564,6 +580,12 @@ impl Op {
                 "last_summary",
                 "Gives back what the last backup said when it finished, in the words the person would have seen, or \
                  nothing if it has never run. Changes nothing.",
+            ),
+            Op::BackupPhotosOrVideos => (
+                "backup_photos_or_videos",
+                "Says whether a backup is for photos and videos, photos only, or videos only. Give wants (both, \
+                 photos or videos) to change it. It counts at once on what was found, with no new search, and a \
+                 source can have its own choice (see source_photos_or_videos). Nothing already backed up is touched.",
             ),
             Op::BackupPreviews => (
                 "set_previews",
@@ -681,7 +703,7 @@ mod tests {
 
     #[test]
     fn the_register_has_every_operation_in_the_plan() {
-        assert_eq!(Op::ALL.len(), 48);
+        assert_eq!(Op::ALL.len(), 50);
         // Each entry is the one for its own operation.
         for op in Op::ALL {
             assert_eq!(op.entry().op, *op);
@@ -806,6 +828,7 @@ mod tests {
         "look_through",
         "look_again",
         "forget_source",
+        "source_photos_or_videos",
         "list_file_types",
         "include_file_type",
         "summarise_backup",
@@ -825,6 +848,7 @@ mod tests {
         "check_arrived",
         "backup_history",
         "last_summary",
+        "backup_photos_or_videos",
         "set_previews",
         "job_status",
         "pause_jobs",

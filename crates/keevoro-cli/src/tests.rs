@@ -568,6 +568,32 @@ fn smaller_things_a_backup_can_be_asked() {
         "it says where"
     );
 
+    let ran = at.keevoro(&["photos-or-videos", "videos"]);
+    assert!(
+        ran.out
+            .starts_with("This backup is for videos only. Anything already backed up stays backed up"),
+        "{}",
+        ran.out
+    );
+    let ran = at.keevoro(&["sources", "types", "1"]);
+    assert!(
+        ran.out.contains("left out: this backup is for videos only"),
+        "{}",
+        ran.out
+    );
+    let ran = at.keevoro(&["sources", "photos-or-videos", "1", "both"]);
+    assert!(
+        ran.out.starts_with("This source is set to photos and videos."),
+        "{}",
+        ran.out
+    );
+    at.keevoro(&["sources", "photos-or-videos", "1", "backup"]);
+    let ran = at.keevoro(&["photos-or-videos", "both"]);
+    assert_eq!(ran.out.trim(), "This backup is for photos and videos.");
+    let ran = at.keevoro(&["backups", "start", "Drone", "--videos-only", "--json"]);
+    assert_eq!(ran.code, Code::Worked, "{}", ran.err);
+    let ran = at.keevoro(&["-b", "Drone", "photos-or-videos"]);
+    assert_eq!(ran.out.trim(), "This backup is for videos only.");
     let ran = at.keevoro(&["previews", "off"]);
     assert!(ran.out.contains("originals alone"), "{}", ran.out);
     let ran = at.keevoro(&["settings", "set", "own-codecs", "off"]);

@@ -11,6 +11,7 @@
 import type {
   AppState,
   FileKind,
+  Wants,
   SendEvent,
   Backend,
   CheckEvent,
@@ -151,6 +152,27 @@ export function demoBackend(): Backend {
   let systemCodecs = true
   let agents = { lookIn: [] as string[], backUpTo: [] as string[], mayChange: false }
   let previews = true
+  // Photos and videos, photos only or videos only: the backup's, and each source's own.
+  let backupWants: Wants = 'both'
+  const sourceChoices = new Map<number, Wants>()
+  const words = { both: 'photos and videos', photos: 'photos only', videos: 'videos only' }
+  const safe = ' Anything already backed up stays backed up; it is just no longer kept in what this backup chooses.'
+  const wantsView = (wants: Wants, own?: boolean, changed = false) => ({
+    wants,
+    own,
+    said: `This backup is for ${words[wants]}.${changed && wants !== 'both' ? safe : ''}`,
+  })
+  const sourceView = (id: number, changed = false) => {
+    const own = sourceChoices.get(id)
+    const wants = own ?? backupWants
+    return {
+      wants,
+      own: own !== undefined,
+      said:
+        (own ? `This source is set to ${words[own]}.` : `This source follows the backup: ${words[wants]}.`) +
+        (changed && wants !== 'both' ? safe : ''),
+    }
+  }
   // The kinds of file looked for, as Keevoro comes with them, and one added.
   const builtInKinds = (): FileKind[] => [
     ...'jpg jpeg jpe png heic heif tif tiff webp bmp avif jxl dng cr2 cr3 crw nef nrw arw srf sr2 orf rw2 raf pef srw x3f 3fr erf kdc mrw raw iiq dcr mef mos rwl'
@@ -693,7 +715,30 @@ export function demoBackend(): Backend {
           ],
     setAside: async () => junk.map((file) => ({ ...file })),
     // Every source in the stand-in has the same made-up mix of kinds.
-    fileTypes: async () => kinds.map((k) => ({ ...k })),
+    backupWants: async () => wantsView(backupWants),
+    setBackupWants: async (wants) => {
+      backupWants = wants
+      return wantsView(wants, undefined, true)
+    },
+    sourceWants: async (id) => sourceView(id),
+    setSourceWants: async (id, wants) => {
+      if (wants === 'backup') sourceChoices.delete(id)
+      else sourceChoices.set(id, wants)
+      return sourceView(id, true)
+    },
+    fileTypes: async (id) =>
+      kinds.map((k) => {
+        const isVideo = ['mov', 'mp4', 'mts', 'avi'].includes(k.ending)
+        const own = sourceChoices.get(id)
+        const wants = own ?? backupWants
+        const left = (wants === 'photos' && isVideo) || (wants === 'videos' && !isVideo)
+        if (left) {
+          const level = own ? 'source' : 'backup'
+          const other = isVideo ? 'photos only' : 'videos only'
+          return { ...k, leftOutBy: level, why: `this ${level} is ${level === 'backup' ? 'for' : 'set to'} ${other}` }
+        }
+        return k.included ? { ...k } : { ...k, leftOutBy: 'ending' as const, why: 'files with this ending are left out of this source' }
+      }),
     includeFileType: async (_id, ending, included) => {
       const kind = kinds.find((k) => k.ending === ending)
       if (kind) kind.included = included

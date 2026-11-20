@@ -420,6 +420,18 @@ impl Kinds {
         }
     }
 
+    /// The same list, looking for one kind only: for a survey for a backup
+    /// that wants photos only, or videos only.
+    #[must_use]
+    pub fn only(mut self, kind: MediaKind) -> Kinds {
+        for looked in self.by_ending.values_mut() {
+            if looked.kind != kind {
+                looked.on = false;
+            }
+        }
+        self
+    }
+
     /// The kind a file with this ending is looked for as, or `None` if it
     /// is not on the list or switched off. This is all a survey, which
     /// never opens a file, goes by.
@@ -651,6 +663,13 @@ mod tests {
         assert!(!lookup.switched_off("dat"));
         assert_eq!(lookup.looked_for("dat"), None);
         assert_eq!(lookup.by_name(""), None);
+    }
+
+    #[test]
+    fn a_list_for_one_kind_only_looks_for_that_kind() {
+        let photos = Kinds::default().only(MediaKind::Photo);
+        assert_eq!(photos.looked_for("jpg"), Some(MediaKind::Photo));
+        assert_eq!(photos.looked_for("mov"), None);
     }
 
     #[test]

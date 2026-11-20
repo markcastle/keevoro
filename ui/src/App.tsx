@@ -31,6 +31,8 @@ import type {
   Activity,
   AgentAccess,
   FileKind,
+  Wants,
+  WantsView,
   LeftOut,
   StageRecord,
   Sending,
@@ -1009,6 +1011,61 @@ function PlaceCard(props: { place: Place; added: boolean; onClick: () => void })
 }
 
 /**
+ * Photos and videos, photos only, or videos only, as ordinary radio
+ * buttons. What the choice means is said once it is made, including that
+ * nothing already backed up is touched.
+ */
+function WantsChoice<T extends string>(props: {
+  legend: string
+  load: () => Promise<WantsView>
+  choose: (wants: T) => Promise<WantsView>
+  options: [T, string][]
+  selected: (view: WantsView) => T
+  onChanged?: () => void
+  onProblem: (error: unknown) => void
+}) {
+  const { load, onProblem } = props
+  const [view, setView] = useState<WantsView | null>(null)
+  const [said, setSaid] = useState<string | null>(null)
+  useEffect(() => {
+    load().then(setView).catch(onProblem)
+    // Asked once, when it is first shown.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  if (!view) return null
+  return (
+    <fieldset className="wants">
+      <legend>{props.legend}</legend>
+      {props.options.map(([value, label]) => (
+        <label key={value}>
+          <input
+            type="radio"
+            name={props.legend}
+            checked={props.selected(view) === value}
+            onChange={() =>
+              props
+                .choose(value)
+                .then((changed) => {
+                  setView(changed)
+                  setSaid(changed.said)
+                  props.onChanged?.()
+                })
+                .catch(onProblem)
+            }
+          />
+          {label}
+        </label>
+      ))}
+      {said && (
+        <p className="quiet small" role="status">
+          {said} This counts at once, with no need to look again.
+        </p>
+      )}
+    </fieldset>
+  )
+}
+
+/**
  * For people who want it: the kinds of file found on one source, each with
  * a switch. It stays folded away, so adding a source is still one click
  * for everyone else.
@@ -1019,9 +1076,27 @@ function FileTypes(props: { api: Backend; source: Source; onChanged: () => void;
   useEffect(() => {
     api.fileTypes(source.id).then(setKinds).catch(onProblem)
   }, [api, source.id, onProblem])
+  const reload = () => api.fileTypes(source.id).then(setKinds).catch(onProblem)
   if (!kinds) return null
   return (
     <div className="types explain">
+      <WantsChoice
+        legend={`From ${source.name}, back up`}
+        load={() => api.sourceWants(source.id)}
+        choose={(wants) => api.setSourceWants(source.id, wants)}
+        options={[
+          ['backup', 'The same as the backup'],
+          ['both', 'Photos and videos'],
+          ['photos', 'Photos only'],
+          ['videos', 'Videos only'],
+        ]}
+        selected={(view) => (view.own ? view.wants : 'backup')}
+        onChanged={() => {
+          void reload()
+          props.onChanged()
+        }}
+        onProblem={onProblem}
+      />
       <p className="quiet small">
         Everything Keevoro found on {source.name} is included. Switch off a kind of file to leave all of those out of
         this backup; nothing on the source is changed, and you can switch it back on at any time.
@@ -1045,7 +1120,7 @@ function FileTypes(props: { api: Backend; source: Source; onChanged: () => void;
             <b>{kind.ending ? kind.ending.toUpperCase() : 'No ending'}</b>
             <span className="quiet">
               {count(kind.files, 'file')} · {size(kind.bytes)}
-              {!kind.included && ' · left out'}
+              {kind.why ? ` · left out: ${kind.why}` : !kind.included && ' · left out'}
             </span>
           </li>
         ))}
@@ -1485,6 +1560,25 @@ function SettingsScreen(props: {
           {state.library && <FolderLink api={api} path={state.library} onProblem={onProblem} />}. Your photos themselves
           are not copied there.
         </p>
+        <details className="advanced">
+          <summary>Advanced</summary>
+          <WantsChoice<Wants>
+            legend="This backup is for"
+            load={() => api.backupWants()}
+            choose={(wants) => api.setBackupWants(wants)}
+            options={[
+              ['both', 'Photos and videos'],
+              ['photos', 'Photos only'],
+              ['videos', 'Videos only'],
+            ]}
+            selected={(view) => view.wants}
+            onChanged={() => props.onLibrary(state)}
+            onProblem={onProblem}
+          />
+          <p className="quiet small">
+            A source can have its own choice, under Kinds of file beside it on the first step.
+          </p>
+        </details>
       </div>
 
       <div className="setting">

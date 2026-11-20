@@ -89,7 +89,28 @@ export type Place = {
  * One kind of file found on a source, by the ending of its name (`jpg`,
  * `dng`, `mp4`), and whether the person is including it.
  */
-export type FileType = { ending: string; files: number; bytes: number; included: boolean }
+export type FileType = {
+  ending: string
+  files: number
+  bytes: number
+  /** False when this ending is left out of this source. */
+  included: boolean
+  /** When these files are not offered, the level they were left out at. */
+  leftOutBy?: 'backup' | 'source' | 'ending'
+  /** The same, in words: "this backup is for photos only". */
+  why?: string
+}
+
+/** Photos and videos, photos only, or videos only. */
+export type Wants = 'both' | 'photos' | 'videos'
+
+/** What a backup or a source wants, and what that means, in words. */
+export type WantsView = {
+  wants: Wants
+  /** For a source: true when it has its own choice rather than the backup's. */
+  own?: boolean
+  said: string
+}
 
 export type Source = {
   id: number
@@ -417,6 +438,12 @@ export interface Backend {
   agentAccess(): Promise<AgentAccess>
   /** Changes what an AI agent may do. Each part given replaces what was there. */
   setAgentAccess(change: Partial<AgentAccess>): Promise<AgentAccess>
+  /** Whether this backup is for photos and videos, photos only, or videos only. */
+  backupWants(): Promise<WantsView>
+  setBackupWants(wants: Wants): Promise<WantsView>
+  /** Whether one source follows its backup's choice ('backup') or has its own. */
+  sourceWants(id: number): Promise<WantsView>
+  setSourceWants(id: number, wants: Wants | 'backup'): Promise<WantsView>
   /** The kinds of file Keevoro looks for, the built-in ones first. */
   fileKinds(): Promise<FileKind[]>
   /** Adds an ending to look for, as photos or videos. */
@@ -537,6 +564,10 @@ async function tauriBackend(): Promise<Backend> {
     setAcceleration: (on) => invoke('set_acceleration', { on }),
     agentAccess: () => invoke('agent_access'),
     setAgentAccess: (change) => invoke('set_agent_access', { change }),
+    backupWants: () => invoke('backup_wants'),
+    setBackupWants: (wants) => invoke('set_backup_wants', { wants }),
+    sourceWants: (id) => invoke('source_wants', { id }),
+    setSourceWants: (id, wants) => invoke('set_source_wants', { id, wants }),
     fileKinds: () => invoke('file_kinds'),
     addFileKind: (ending, kind) => invoke('add_file_kind', { ending, kind }),
     changeFileKind: (ending, change) =>
