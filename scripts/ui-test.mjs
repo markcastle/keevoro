@@ -977,6 +977,87 @@ try {
   await page.getByRole('button', { name: 'Put back Captures' }).click()
   await page.getByRole('button', { name: 'Leave out Captures' }).waitFor()
 
+  // --- Where the space goes: everything the survey saw, photos or not, by
+  // folder, the biggest first, with the trail back up. Nothing is changed.
+  await page.goto(`${base}/?demo=empty&fast`)
+  await page.getByRole('button', { name: /Windows \(C:\)/ }).click()
+  await page.getByRole('button', { name: 'Find the folders with photos' }).click()
+  await page.getByRole('heading', { name: '4 folders on Windows (C:) seem to hold photos and videos' }).waitFor()
+  await page.getByRole('button', { name: 'See where the space goes' }).click()
+  await page.getByRole('heading', { name: 'Where the space goes on Windows (C:)', level: 1 }).waitFor()
+  const spaceRows = () => page.locator('.space-list tbody tr .name > :first-child').allInnerTexts()
+  assert.deepEqual((await spaceRows()).slice(0, 3), ['Users', 'Games', 'Windows'], 'the biggest first')
+  const windowsRow = page.locator('.space-list tbody tr', { hasText: 'Windows' }).first()
+  assert.match(await windowsRow.innerText(), /System folder: Keevoro never looks through it/)
+  assert.match(await windowsRow.getAttribute('class'), /muted/, 'not photos or videos, so muted')
+  await page.locator('.space-list').getByRole('button', { name: 'Users', exact: true }).click()
+  await page.getByRole('navigation', { name: 'Where you are' }).getByText('Users').waitFor()
+  await page.locator('.space-list').getByRole('button', { name: 'Mark', exact: true }).click()
+  await page.locator('.space-list').getByRole('button', { name: 'Pictures', exact: true }).click()
+  await page.getByRole('grid', { name: 'What is in Pictures, the biggest first' }).waitFor()
+  assert.deepEqual(
+    await page.getByRole('navigation', { name: 'Where you are' }).locator('li').allInnerTexts(),
+    ['Windows (C:)', 'Users', 'Mark', 'Pictures'],
+    'the trail back up',
+  )
+  assert.deepEqual((await spaceRows()).slice(0, 4), ['Texture packs', 'Keevoro Library', 'Captures', 'Camera Roll'])
+  const library = page.locator('.space-list tbody tr', { hasText: 'Keevoro Library' })
+  assert.match(await library.innerText(), /A library from an older Keevoro: Keevoro never looks through it/)
+  await shot('9s-space-list')
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await shot('9s2-space-list-dark')
+  await page.emulateMedia({ colorScheme: 'light' })
+  // A folder chosen: look inside it, look through it, or leave it out.
+  await page.locator('.space-list tbody tr', { hasText: 'Camera Roll' }).click()
+  const chosen = page.locator('.space .chosen')
+  await chosen.getByRole('button', { name: 'Look inside Camera Roll' }).waitFor()
+  assert.ok(await chosen.getByRole('button', { name: 'Look through Camera Roll' }).isVisible())
+  assert.match(await chosen.innerText(), /307\.2 MB in OneDrive only, not on this computer/)
+  await chosen.getByRole('button', { name: 'Leave out Camera Roll' }).click()
+  await chosen.getByRole('button', { name: 'Put back Camera Roll' }).waitFor()
+  assert.match(await text('.space .left-out-said'), /nothing already backed up is touched/)
+  assert.match(
+    await page.locator('.space-list tbody tr', { hasText: 'Camera Roll' }).innerText(),
+    /Not backed up: you left this folder out of this backup/,
+  )
+  await chosen.getByRole('button', { name: 'Put back Camera Roll' }).click()
+  await chosen.getByRole('button', { name: 'Leave out Camera Roll' }).waitFor()
+  await chosen.getByRole('button', { name: 'Look inside Camera Roll' }).click()
+  await page.getByRole('heading', { name: 'Inside Camera Roll', level: 1 }).waitFor()
+  await page.getByRole('button', { name: '‹ Back' }).click()
+  await page.getByRole('grid', { name: 'What is in Pictures, the biggest first' }).waitFor()
+  // By keyboard alone: the arrows move down the list, Enter goes in, Backspace comes back.
+  await page.locator('.space-list tbody tr').first().focus()
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('ArrowDown')
+  assert.equal(await page.evaluate(() => document.activeElement?.dataset.key), 'C:\\Users\\Mark\\Pictures\\Captures')
+  await page.keyboard.press('Enter')
+  await page.getByRole('grid', { name: 'What is in Captures, the biggest first' }).waitFor()
+  assert.equal(await page.getByLabel('Where you are').locator('[aria-current="page"]').innerText(), 'Captures')
+  await page.locator('.space-list tbody tr').first().focus()
+  await page.keyboard.press('Backspace')
+  await page.getByRole('grid', { name: 'What is in Pictures, the biggest first' }).waitFor()
+  await fitsNarrow('Where the space goes')
+  await page.setViewportSize({ width: 400, height: 800 })
+  await shot('9s3-space-list-400')
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await shot('9s4-space-list-400-dark')
+  await page.emulateMedia({ colorScheme: 'light' })
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.getByRole('navigation', { name: 'Where you are' }).getByRole('button', { name: 'Windows (C:)' }).click()
+  await page.getByRole('grid', { name: 'What is in Windows (C:), the biggest first' }).waitFor()
+  await page.getByRole('button', { name: '‹ Back' }).click()
+  await page.getByRole('heading', { name: '4 folders on Windows (C:) seem to hold photos and videos' }).waitFor()
+  assert.equal(await page.locator('.kept li.source').count(), 0, 'nothing was added')
+  // From a source's card, surveyed first when Keevoro has not seen inside it.
+  await page.goto(`${base}/?slow`)
+  await page.locator('.steps button').nth(0).click()
+  await page.getByRole('button', { name: 'Where the space goes on Family hard drive' }).click()
+  await page.getByRole('heading', { name: 'Finding what is in Family hard drive…' }).waitFor()
+  await page.getByRole('grid', { name: /^What is in / }).waitFor({ timeout: 15000 })
+  assert.ok(await page.getByRole('heading', { name: 'Where the space goes on Family hard drive', level: 1 }).isVisible())
+  await shot('9s5-space-of-a-source')
+
   // --- Every main screen fits a narrow window: the page never scrolls
   // sideways, and wide tables scroll inside their own box.
   await page.goto(`${base}/?fast`)

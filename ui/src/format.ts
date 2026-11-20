@@ -66,3 +66,20 @@ export function length(seconds: number) {
   const two = (n: number) => String(n).padStart(2, '0')
   return h > 0 ? `${h}:${two(m)}:${two(s)}` : `${m}:${two(s)}`
 }
+
+/** How long ago a moment was, in seconds since 1970: "just now", "5 minutes ago", "3 days ago". */
+export function ago(then: number, now = Date.now() / 1000) {
+  const gone = Math.max(0, now - then)
+  if (gone < 60) return 'just now'
+  if (gone < 3_600) return `${count(Math.floor(gone / 60), 'minute')} ago`
+  if (gone < 86_400) return `${count(Math.floor(gone / 3_600), 'hour')} ago`
+  if (gone < 2_592_000) return `${count(Math.floor(gone / 86_400), 'day')} ago`
+  return `on ${new Date(then * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}`
+}
+
+/** A part of a whole as a person reads it: "40%", or "<1%" for a sliver. */
+export function share(part: number, whole: number) {
+  if (whole <= 0) return '0%'
+  const percent = (part * 100) / whole
+  return part > 0 && percent < 1 ? '<1%' : `${Math.round(percent)}%`
+}

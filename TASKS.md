@@ -396,6 +396,8 @@ A look inside a folder
 
 A map of where the space goes
 
+- [x] Where the space goes as a list first: every folder and the biggest files, photos or not, by size, with a share bar, the trail back up, and look inside, look through it or leave it out on the folder chosen; from the survey's result and each source; `keevoro map` and the agent tool where_the_space_goes
+- [x] The survey records everything it passes, within fixed bounds and with exact totals, suggesting as quickly as before and measuring what it never looks through afterwards
 - [ ] Boxes sized by how much room each folder and file takes, drawn from folder listings alone so it stays as quick as the survey
 - [ ] Coloured by kind: photos, videos, and everything else (zip files, documents, programs), with a key
 - [ ] A list beside it, by folder and by kind of file, with sizes and counts; choosing a row lights up its boxes, and the other way round
@@ -403,12 +405,12 @@ A map of where the space goes
 - [ ] Point at a box to see its name, size and how many photos and videos it holds
 - [ ] From a folder on the map: look through it, leave it out, or open the look inside
 - [ ] Show what is already a source, and what is already backed up, on the map
-- [ ] Usable without a mouse and by a screen reader: the list carries everything the map does
-- [ ] Remember a survey, so the map is there next time without waiting
+- [x] Usable without a mouse and by a screen reader: the list carries everything the map does
+- [x] Remember a survey, so the map is there next time without waiting
 
 Decided
 
-- [ ] Whether the map shows everything on the drive or only folders that hold photos and videos (the first is more useful for finding things; the second is closer to what Keevoro is for)
+- [x] Whether the map shows everything on the drive or only folders that hold photos and videos (the first is more useful for finding things; the second is closer to what Keevoro is for): everything, with what is not a photo or video muted
 - [x] Whether these views are also offered from the command line and to AI agents (the figures yes, as lists; the pictures only through `picture`, as now): yes, `keevoro folders`, `keevoro files`, `keevoro picture --file`, and the agent tools folders_inside and files_in_folder
 
 ### Other kinds of file
