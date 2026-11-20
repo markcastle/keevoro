@@ -1,13 +1,17 @@
-//! `photos.picture`: a small or screen-sized picture of one found file.
+//! `photos.picture`: a small or screen-sized picture of one found file, or
+//! of any photo or video in a folder being looked inside.
 //!
-//! Pictures are WebP, made from the file where it was found (or taken from
-//! the previews a backup made of it) and kept in Keevoro's cache folder so
-//! the same picture is quick the second time. A video gives a still.
+//! Pictures are WebP, made from the file where it is (or taken from the
+//! previews a backup made of it) and kept in Keevoro's cache folder so the
+//! same picture is quick the second time. A video gives a still. A file
+//! only in online storage is never opened.
 //!
 //! Only a few are made at once, whoever asks. A screen of pictures asks for
 //! all of its previews together, and an agent could ask for many; making a
 //! few at a time keeps the computer responsive, above all for videos, where
-//! each picture runs a separate program.
+//! each picture runs a separate program. Each drive has turns of its own
+//! as well, taken first: one at a time on a network folder, two on a disk,
+//! so a slow drive is never asked for many files at once.
 
 use crate::backup::Backup;
 use crate::error::Result;
@@ -32,8 +36,14 @@ pub enum PictureSize {
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PictureRequest {
-    /// The photo's short id, as `collections.photos` gives it.
-    pub photo: String,
+    /// A found photo's short id, as `collections.photos` gives it. Give
+    /// this or `file`, not both.
+    #[serde(default)]
+    pub photo: Option<String>,
+    /// Any photo or video, by its path, as `places.files` gives it: a
+    /// picture of a file not yet found by a search. Give this or `photo`.
+    #[serde(default)]
+    pub file: Option<String>,
     /// `small`, for a grid of many, or `screen`, for a closer look. Small
     /// when left out.
     #[serde(default)]
@@ -121,6 +131,146 @@ impl Drop for Turn<'_> {
 }
 
 static PICTURES: Turns = Turns::new(3);
+
+/// Which drive a file is on, for its drive's turns: on Windows its drive
+/// letter or network share, elsewhere the device it is on.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) enum DriveKey {
+    #[cfg_attr(not(windows), allow(dead_code))]
+    Named(String),
+    #[cfg_attr(not(unix), allow(dead_code))]
+    Device(u64),
+    Unknown,
+}
+
+pub(crate) fn drive_key(file: &Path) -> DriveKey {
+    #[cfg(windows)]
+    {
+        match file.components().next() {
+            Some(std::path::Component::Prefix(prefix)) => {
+                DriveKey::Named(prefix.as_os_str().to_string_lossy().to_lowercase())
+            }
+            _ => DriveKey::Unknown,
+        }
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        std::fs::metadata(file).map_or(DriveKey::Unknown, |m| DriveKey::Device(m.dev()))
+    }
+    #[cfg(not(any(windows, unix)))]
+    {
+        let _ = file;
+        DriveKey::Unknown
+    }
+}
+
+/// How many pictures one drive is asked for at once: one across a
+/// network, two on a disk of this computer. As with a search, a drive is
+/// never asked for many files at the same moment.
+pub(crate) const fn at_once_on(across_a_network: bool) -> usize {
+    if across_a_network {
+        1
+    } else {
+        2
+    }
+}
+
+/// A turn on one drive, kept while it is held.
+pub(crate) struct DriveTurn(std::sync::Arc<Turns>);
+
+impl Drop for DriveTurn {
+    fn drop(&mut self) {
+        *self.0.free.lock().unwrap_or_else(PoisonError::into_inner) += 1;
+        self.0.freed.notify_one();
+    }
+}
+
+/// Each drive's turns.
+#[derive(Default)]
+pub(crate) struct DriveTurns(Mutex<std::collections::HashMap<DriveKey, std::sync::Arc<Turns>>>);
+
+impl DriveTurns {
+    /// Waits for a turn on the drive `key`, which allows `at_once` (asked
+    /// only the first time the drive is seen).
+    pub(crate) fn wait_for_a_turn(&self, key: DriveKey, at_once: impl FnOnce() -> usize) -> DriveTurn {
+        let turns = self
+            .0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .entry(key)
+            .or_insert_with(|| std::sync::Arc::new(Turns::new(at_once())))
+            .clone();
+        std::mem::forget(turns.wait_for_a_turn());
+        DriveTurn(turns)
+    }
+}
+
+static DRIVES: std::sync::LazyLock<DriveTurns> = std::sync::LazyLock::new(DriveTurns::default);
+
+/// Pictures of files made since Keevoro started, so the cache is kept
+/// within its limit every so often, not only at start-up.
+static MADE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// After this many pictures of files, the cache is trimmed again.
+const TRIM_EVERY: usize = 500;
+
+/// Makes (or finds in `cache`) a picture of any photo or video, by its
+/// path, as WebP bytes. Only kinds of file looked for (`kinds`) are
+/// pictured. `found` is a backup whose search may know the file already.
+pub fn picture_of_file(
+    cache: &Path,
+    file: &Path,
+    kinds: &keevoro_core::Kinds,
+    size: PictureSize,
+    found: Option<&Backup>,
+) -> Result<Vec<u8>> {
+    let not_there = || {
+        crate::Error::not_found(format!(
+            "Keevoro can't find {}. Is its drive plugged in?",
+            keevoro_engine::friendly_path(file)
+        ))
+    };
+    let real = std::fs::canonicalize(file).map_err(|_| not_there())?;
+    let ending = real
+        .extension()
+        .map(|e| e.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let Some(kind) = kinds.looked_for(&ending) else {
+        return Err(crate::Error::refused(
+            "Keevoro doesn't look for that kind of file here, so it makes no picture of it.",
+        ));
+    };
+    let look = match size {
+        PictureSize::Small => Look::Small,
+        PictureSize::Screen => Look::Closer,
+    };
+    let drive = real.parent().unwrap_or(&real).to_path_buf();
+    let _drive = DRIVES.wait_for_a_turn(drive_key(&real), || {
+        at_once_on(keevoro_engine::reach::is_across_a_network(&drive))
+    });
+    let _turn = PICTURES.wait_for_a_turn();
+    let bytes = keevoro_engine::look::picture_of_file(
+        cache,
+        &real,
+        kind,
+        look,
+        VideoTools::find().as_ref(),
+        &keevoro_scan::ByAttributes,
+        found.map(|b| keevoro_engine::look::Found {
+            home: b.home(),
+            catalog: b.catalog(),
+        }),
+    )
+    .map_err(|e| crate::Error::refused(e.to_string()))?;
+    if MADE.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % TRIM_EVERY == TRIM_EVERY - 1 {
+        let cache = cache.to_path_buf();
+        let _ = std::thread::Builder::new()
+            .name("keevoro cache".into())
+            .spawn(move || trim_cache(&cache, CACHE_LIMIT));
+    }
+    Ok(bytes)
+}
 
 /// The most room pictures kept for quick showing may take. Past it the
 /// ones not looked at for longest are removed; any can be made again.
@@ -254,6 +404,66 @@ mod tests {
 
         let e = picture(&backup, &cache, "0000", PictureSize::Small).unwrap_err();
         assert_eq!(e.message, "That photo isn't known to this backup.");
+    }
+
+    #[test]
+    fn a_file_in_no_backup_is_pictured_by_its_path_and_only_kinds_looked_for() {
+        let (dir, card, _backup) = one_backup();
+        let cache = dir.path().join("cache");
+        let photo = walk(&card)
+            .into_iter()
+            .find(|p| p.extension().is_some_and(|x| x == "jpg"))
+            .unwrap();
+        let kinds = keevoro_core::Kinds::default();
+        let small = picture_of_file(&cache, &photo, &kinds, PictureSize::Small, None).unwrap();
+        assert_eq!(&small[8..12], b"WEBP");
+        let videos_only = kinds.clone().only(keevoro_core::MediaKind::Video);
+        let e = picture_of_file(&cache, &photo, &videos_only, PictureSize::Small, None).unwrap_err();
+        assert_eq!(e.kind, crate::Kind::Refused);
+        let e = picture_of_file(&cache, &card.join("gone.jpg"), &kinds, PictureSize::Small, None).unwrap_err();
+        assert_eq!(e.kind, crate::Kind::NotFound);
+    }
+
+    fn walk(dir: &Path) -> Vec<std::path::PathBuf> {
+        let mut out = Vec::new();
+        for entry in std::fs::read_dir(dir).unwrap().flatten() {
+            if entry.path().is_dir() {
+                out.extend(walk(&entry.path()));
+            } else {
+                out.push(entry.path());
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn a_network_drive_is_asked_for_one_picture_at_a_time_and_a_disk_for_two() {
+        assert_eq!(at_once_on(true), 1);
+        assert_eq!(at_once_on(false), 2);
+        let drives = std::sync::Arc::new(DriveTurns::default());
+        for (key, network, expected) in [
+            (DriveKey::Named("\\\\nas\\photos".into()), true, 1),
+            (DriveKey::Device(7), false, 2),
+        ] {
+            let running = std::sync::Arc::new(AtomicUsize::new(0));
+            let most = std::sync::Arc::new(AtomicUsize::new(0));
+            let jobs: Vec<_> = (0..8)
+                .map(|_| {
+                    let (drives, key, running, most) = (drives.clone(), key.clone(), running.clone(), most.clone());
+                    std::thread::spawn(move || {
+                        let _turn = drives.wait_for_a_turn(key, || at_once_on(network));
+                        let now = running.fetch_add(1, Ordering::SeqCst) + 1;
+                        most.fetch_max(now, Ordering::SeqCst);
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                        running.fetch_sub(1, Ordering::SeqCst);
+                    })
+                })
+                .collect();
+            for job in jobs {
+                job.join().unwrap();
+            }
+            assert_eq!(most.load(Ordering::SeqCst), expected, "{key:?}");
+        }
     }
 
     #[test]

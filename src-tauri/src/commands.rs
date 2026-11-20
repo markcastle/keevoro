@@ -234,6 +234,56 @@ async fn picture<R: Runtime>(
     Ok(tauri::ipc::Response::new(bytes))
 }
 
+/// The folders inside a surveyed place that hold photos or videos, from
+/// the survey Keevoro remembers: the outline of a look inside.
+#[tauri::command]
+pub fn folders_inside(shared: State<'_, Shared>, place: String) -> Said<keevoro_api::inside::FoldersView> {
+    let backup = shared.keevoro.backups().current();
+    shared
+        .keevoro
+        .folders_inside(Path::new(&place), backup.as_ref())
+        .map_err(say)
+}
+
+/// One page of the photos and videos directly in a folder, by name.
+#[tauri::command]
+pub async fn folder_files<R: Runtime>(
+    app: AppHandle<R>,
+    place: String,
+    from: usize,
+    count: usize,
+) -> Said<keevoro_api::inside::FilesView> {
+    // A folder on a slow drive can take a moment to list.
+    tauri::async_runtime::spawn_blocking(move || {
+        let keevoro = &app.state::<Shared>().keevoro;
+        let backup = keevoro.backups().current();
+        keevoro.files_in(Path::new(&place), backup.as_ref(), from, count)
+    })
+    .await
+    .map_err(say)?
+    .map_err(say)
+}
+
+/// A small or screen-sized picture of any photo or video in a folder being
+/// looked inside, as raw WebP bytes. Only Keevoro's cache is written.
+#[tauri::command]
+pub async fn file_picture<R: Runtime>(app: AppHandle<R>, path: String, large: bool) -> Said<tauri::ipc::Response> {
+    let size = if large {
+        keevoro_api::PictureSize::Screen
+    } else {
+        keevoro_api::PictureSize::Small
+    };
+    let bytes = tauri::async_runtime::spawn_blocking(move || {
+        let keevoro = &app.state::<Shared>().keevoro;
+        let backup = keevoro.backups().current();
+        keevoro.picture_of_file(Path::new(&path), size, backup.as_ref())
+    })
+    .await
+    .map_err(say)?
+    .map_err(say)?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
 /// Reads, in the background, the files a quick search only sampled, so
 /// that true duplicates are known and a backup has less to do. Does
 /// nothing if a pass is already running. It gives way to a search or a
@@ -278,6 +328,39 @@ pub fn set_agent_access(
     change: keevoro_api::AgentsAccessRequest,
 ) -> Said<keevoro_api::AgentAccess> {
     shared.keevoro.set_agent_access(change).map_err(say)
+}
+
+/// Whether this backup is for photos and videos, photos only, or videos only.
+#[tauri::command]
+pub fn backup_wants(shared: State<'_, Shared>) -> Said<keevoro_api::wants::WantsView> {
+    backup(&shared)?.wants().map_err(say)
+}
+
+/// Makes this backup for photos and videos, photos only, or videos only.
+#[tauri::command]
+pub fn set_backup_wants(
+    shared: State<'_, Shared>,
+    wants: keevoro_api::wants::WantsChoice,
+) -> Said<keevoro_api::wants::WantsView> {
+    let backup = backup(&shared)?;
+    shared.keevoro.set_backup_wants(&backup, wants.into()).map_err(say)
+}
+
+/// Whether one source follows its backup's choice of photos or videos.
+#[tauri::command]
+pub fn source_wants(shared: State<'_, Shared>, id: i64) -> Said<keevoro_api::wants::WantsView> {
+    backup(&shared)?.source_wants(id).map_err(say)
+}
+
+/// Gives one source its own choice of photos or videos, or the backup's.
+#[tauri::command]
+pub fn set_source_wants(
+    shared: State<'_, Shared>,
+    id: i64,
+    wants: keevoro_api::wants::SourceWantsChoice,
+) -> Said<keevoro_api::wants::WantsView> {
+    let backup = backup(&shared)?;
+    shared.keevoro.set_source_wants(&backup, id, wants.into()).map_err(say)
 }
 
 /// The kinds of file Keevoro looks for, the built-in ones first.
@@ -469,6 +552,21 @@ pub fn set_previews_wanted(shared: State<'_, Shared>, wanted: bool) -> Said<()> 
 #[tauri::command]
 pub fn room(shared: State<'_, Shared>) -> Said<keevoro_api::RoomAtAGlance> {
     Ok(backup(&shared)?.room().map_err(say)?.at_a_glance)
+}
+
+/// Clears Keevoro's unfinished copies from a folder, or with `dry_run`
+/// only says what it would clear. Any folder the person chooses: one no
+/// backup goes to any more is the case it is for.
+#[tauri::command]
+pub async fn tidy_folder<R: Runtime>(
+    app: AppHandle<R>,
+    folder: String,
+    dry_run: bool,
+) -> Said<keevoro_api::keevoro::Tidied> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<Shared>().keevoro.tidy_folder(Path::new(&folder), dry_run))
+        .await
+        .map_err(say)?
+        .map_err(say)
 }
 
 /// Shows a folder Keevoro has mentioned in the computer's file manager.

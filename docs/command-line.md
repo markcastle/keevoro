@@ -38,7 +38,15 @@ Looked at 481,907 files in 36,412 folders in 6.2 seconds, without opening any of
    9.0 MB  1,840 photos and 0 videos  D:\Games\Launcher\assets  (small pictures, probably not photos)
 ```
 
-It goes by file names, so it is a good guess and not a promise.
+It goes by file names, so it is a good guess and not a promise. Keevoro remembers what it found, so you can look inside a suggestion before choosing it, without waiting again. Nothing is added or changed:
+
+```sh
+keevoro folders "D:\Users\Mark\Pictures"
+keevoro files "D:\Users\Mark\Pictures\Camera Roll" --count 20
+keevoro picture --file "D:\Users\Mark\Pictures\Camera Roll\IMG_0001.jpg" --to look.webp
+```
+
+`folders` lists the folders inside that hold photos or videos, with how many each holds; `files` lists one folder's photos and videos by name, a page at a time (`--from` and `--count`, at most 500); `picture --file` saves a picture of any of them. The picture is kept in Keevoro's own cache, and a file only in OneDrive (or iCloud) is never opened.
 
 ### Look through a source
 
@@ -224,7 +232,7 @@ The words each command shows in `keevoro --help` come from the same list the app
 | Command | What it does |
 | --- | --- |
 | `keevoro backups` | Every backup, with its sources, destinations, and how many files are safe and waiting. |
-| `keevoro backups start NAME` | Starts a new, empty backup. |
+| `keevoro backups start NAME` | Starts a new, empty backup; `--photos-only` or `--videos-only` for a backup of one kind. |
 | `keevoro backups rename NAME NEW` | Gives a backup a new name. |
 | `keevoro backups forget NAME` | Takes a backup off Keevoro's list. Nothing at any source or destination is touched. |
 
@@ -234,12 +242,15 @@ The words each command shows in `keevoro --help` come from the same list the app
 | --- | --- |
 | `keevoro places` | The drives plugged into this computer. |
 | `keevoro survey PLACE` | Finds the folders in a drive or folder that hold photos and videos, reading listings only. |
+| `keevoro folders PLACE` | The folders inside a surveyed place that hold photos or videos, with how many each holds. |
+| `keevoro files FOLDER [--from N] [--count N]` | The photos and videos directly in one folder, by name, a page at a time. Nothing is added. |
 | `keevoro look PLACE` | Looks through a drive or folder and adds it as a source. |
 | `keevoro look --again [SOURCE]` | Looks through one source, or all of them, for what is new. |
 | `keevoro sources` | The backup's sources, each with its number. |
 | `keevoro sources forget SOURCE` | Takes a source off the backup. Nothing on it is touched. |
 | `keevoro sources types SOURCE` | The kinds of file on a source, and which are included. |
 | `keevoro sources types SOURCE --leave-out png` | Leaves out one kind of file; `--include png` brings it back. |
+| `keevoro sources photos-or-videos SOURCE [backup, both, photos or videos]` | Whether one source follows its backup's choice of photos or videos, or has its own. |
 
 A source is named by its number, its place or its name, as `keevoro sources` lists them.
 
@@ -271,6 +282,7 @@ An ending is typed with or without its dot, in any case: `.HEIF` and `heif` are 
 | `keevoro set-aside` | Pictures set aside as probably not photos, each with the reason. |
 | `keevoro duplicates` | Files found more than once: the copy kept, and the copies left out. |
 | `keevoro picture CODE --to FILE` | Saves a small picture of one file; `--large` for a screen-sized one. |
+| `keevoro picture --file PATH --to FILE` | The same for any photo or video, by its path, found or not. Only Keevoro's cache is written. |
 
 A collection is named by its whole name, such as "Holidays / Cornwall", or by its last part, "Cornwall", when only one has it.
 
@@ -283,7 +295,7 @@ A collection is named by its whole name, such as "Holidays / Cornwall", or by it
 | `keevoro destinations add --r2 ACCOUNT --bucket NAME` | The same for cloud storage, with `--s3 REGION` or `--endpoint URL` for others. |
 | `keevoro destinations remove DESTINATION` | Stops backing up there, by its number, folder or name; `--all` for every one. Nothing backed up there is touched; Keevoro's own unfinished copies there are cleared. |
 | `keevoro room` | What is waiting for each place, and whether it has the room. |
-| `keevoro tidy FOLDER` | Clears away the unfinished copies a stopped backup left in a backup folder's working folder (`.keevoro-uploads`), whether or not a backup still goes there. Nothing that was backed up is touched; anything written to in the last hour is left, in case it is in use. |
+| `keevoro tidy FOLDER [--dry-run]` | Clears away the unfinished copies a stopped backup left in a backup folder's working folder (`.keevoro-uploads`), whether or not a backup still goes there, and says what was cleared and what was left and why. Nothing that was backed up is touched; anything written to in the last hour is left, in case it is in use. `--dry-run` only says what it would clear. The app has the same as a button beside a folder destination, and in Settings, Advanced. |
 
 ### Backing up
 
@@ -295,6 +307,7 @@ A collection is named by its whole name, such as "Holidays / Cornwall", or by it
 | `keevoro history` | How earlier backups went: when, where, how much, how long, numbered from the newest. |
 | `keevoro history N` | Everything recorded about one of them, by its number. |
 | `keevoro last-backup` | What the last backup said when it ended. |
+| `keevoro photos-or-videos [both, photos or videos]` | Whether the backup is for photos and videos, photos only or videos only. It counts at once on what was found; nothing already backed up is touched. |
 | `keevoro previews [on or off]` | Whether the backup also makes previews for a gallery, or sends the originals alone. |
 
 `look`, `survey`, `run` and `check` each take `--detach`.

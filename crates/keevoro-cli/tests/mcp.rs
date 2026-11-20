@@ -243,7 +243,7 @@ fn a_first_backup_by_an_agent_with_a_person_allowing_each_step() {
 
     let mut app = App::start(&home);
     let tools = app.ask("tools/list", json!({}));
-    assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 39);
+    assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 43);
 
     // Out of the box the agent may only look.
     let access = app.works("my_access", json!({}));

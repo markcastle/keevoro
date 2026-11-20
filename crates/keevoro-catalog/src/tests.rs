@@ -49,6 +49,7 @@ fn report(root: &str) -> ScanReport {
             error: "Input/output error".into(),
         }],
         other_files: 41,
+        online_only: Vec::new(),
         stopped: false,
     }
 }
@@ -650,4 +651,75 @@ fn raw_files_wrongly_set_aside_by_an_earlier_version_are_put_back() {
         assert_eq!(item.junk.is_none(), raw, "{}", item.path.display());
         assert_eq!(item.width.is_none(), raw, "{}", item.path.display());
     }
+}
+
+#[test]
+fn photos_only_or_videos_only_is_a_filter_over_what_was_found_for_a_backup_or_one_source() {
+    use keevoro_core::{LeftOutBy, Wants};
+    let mut c = Catalog::in_memory().unwrap();
+    let id = c.save_scan("Card", &drone_report(), 1).unwrap();
+    let kinds = |c: &Catalog| -> Vec<MediaKind> { c.load_reports().unwrap()[0].items.iter().map(|i| i.kind).collect() };
+    assert_eq!(c.wants().unwrap(), Wants::Both);
+
+    c.set_wants(Wants::Photos).unwrap();
+    assert!(kinds(&c).iter().all(|k| *k == MediaKind::Photo) && kinds(&c).len() == 4);
+    let why = |c: &Catalog, ending: &str| {
+        c.file_types(id)
+            .unwrap()
+            .into_iter()
+            .find(|k| k.ending == ending)
+            .unwrap()
+            .left_out_by
+    };
+    assert_eq!(why(&c, "mp4"), Some(LeftOutBy::Backup));
+    assert_eq!(why(&c, "jpg"), None);
+
+    // This source differs: everything.
+    assert!(c.set_source_wants(id, Some(Wants::Both)).unwrap());
+    assert_eq!(kinds(&c).len(), 5);
+    assert_eq!(c.source_wants(id).unwrap(), Some(Wants::Both));
+    c.set_source_wants(id, Some(Wants::Videos)).unwrap();
+    assert_eq!(kinds(&c), [MediaKind::Video]);
+    assert_eq!(why(&c, "jpg"), Some(LeftOutBy::Source));
+
+    // Back to the backup's choice, and the choice is the place's, so it
+    // outlasts the source being looked through again.
+    c.set_source_wants(id, None).unwrap();
+    assert_eq!(c.source_wants(id).unwrap(), None);
+    c.set_source_wants(id, Some(Wants::Videos)).unwrap();
+    let again = c.save_scan("Card", &drone_report(), 2).unwrap();
+    assert_eq!(c.source_wants(again).unwrap(), Some(Wants::Videos));
+    assert!(!c.set_source_wants(9999, None).unwrap(), "no such source");
+
+    // Nothing found was forgotten.
+    c.set_wants(Wants::Both).unwrap();
+    c.set_source_wants(again, None).unwrap();
+    assert_eq!(kinds(&c).len(), 5);
+}
+
+#[test]
+fn how_many_files_were_only_online_is_kept_with_the_source_until_it_is_looked_through_again_or_forgotten() {
+    let mut c = Catalog::in_memory().unwrap();
+    let mut first = report("/media/onedrive");
+    first.online_only = vec![
+        PathBuf::from("/media/onedrive/a.jpg"),
+        PathBuf::from("/media/onedrive/b.mov"),
+    ];
+    c.save_scan("OneDrive", &first, 100).unwrap();
+    assert_eq!(c.sources().unwrap()[0].online_only, 2);
+    // Made available on this computer, then looked through again.
+    let id = c.save_scan("OneDrive", &report("/media/onedrive"), 200).unwrap();
+    assert_eq!(c.sources().unwrap()[0].online_only, 0);
+    c.save_scan("OneDrive", &first, 300).unwrap();
+    let id = c.sources().unwrap()[0].id.max(id);
+    assert!(c.forget_source(id).unwrap());
+    let left: i64 = c
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM settings WHERE key LIKE 'online_only:%'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(left, 0, "nothing is kept about a source forgotten");
 }

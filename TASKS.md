@@ -277,7 +277,7 @@ Separate, remembered jobs ("Drone footage to R2", "Family photos to a folder"), 
 - [x] More than one destination per backup
 - [x] Reset to factory settings from Settings (only ever removes Keevoro's own data)
 - [ ] Rename and remove a backup
-- [ ] A backup that only looks for videos, or only photos
+- [x] A backup that only looks for videos, or only photos, and one source that differs from its backup
 - [x] Verify a folder destination by reading it back automatically after sending
 - [x] Backups on the command line
 
@@ -363,20 +363,29 @@ Before building
 - [ ] When cloud storage is taken off a backup, abort the unfinished uploads in parts this backup started there. Not done yet: taking it off forgets its keys at once, so the storage cannot be asked; doing it needs the removal to open the storage first, which may be offline. Until then they are aborted only while the destination is still part of the backup
 - [ ] List and clear uploads in parts at cloud storage that this backup started but its record no longer knows (ListMultipartUploads under its own keys). Its record saves each upload before any part is sent, so this only matters for a record that was lost or reset
 
+### Keevoro's own folders are never a source
+
+- [x] Leave out backups, old libraries, a backup's own folder, Keevoro's own folders and every folder a backup goes to, in the survey and the search, and say so
+- [x] Describe an old library (how big, how much is copies of photos) and offer to show it; never remove it
+- [ ] Prove, as a job the person starts, whether every photo in an old library is already in one of this computer's backups (by fingerprint against each catalog), so they can remove it knowing nothing is lost. Not done yet: it reads every copy in full, gigabytes, so it must be a job with progress and a stop, not something done unasked
+- [x] Say on screen, not only in the log, how many files a search passed over because they are only in online storage (OneDrive's "files on demand"), with how to include them: after a search, on each survey suggestion and on the source, at the command line and to an agent
+- [ ] Check the online-only count against a real OneDrive folder on Windows and a real iCloud Drive on a Mac, which CI cannot do: the attributes are read from the folder listing, and should not download anything
+- [ ] Recognise Keevoro's previews copied out of a backup by hand (loose `.webp` thumbnails). Nothing marks them as Keevoro's yet
+
 ### Seeing inside a source
 
 Finding photos is hard when you do not know what a folder holds. "Find where the photos are" names the folders; these two views show what is in them, so the choice is made by looking, not by guessing from a name.
 
 A look inside a folder
 
-- [ ] Each folder the survey suggests opens to a grid of thumbnails: photos, and a still from each video with its length
+- [x] Each folder the survey suggests opens to a grid of thumbnails: photos, and a still from each video (its length comes in the next step)
 - [ ] The same look for any folder you pick yourself, and for a source already added
-- [ ] Thumbnails are made as you look and kept in Keevoro's own cache, never beside the originals; the source is only read
-- [ ] Only what is on screen is fetched, so a folder of ten thousand opens at once
+- [x] Thumbnails are made as you look and kept in Keevoro's own cache, never beside the originals; the source is only read
+- [x] Only what is on screen is fetched, so a folder of ten thousand opens at once
 - [ ] Sort by date or name, and show photos only or videos only
-- [ ] Open one in the closer look, and play a video there
+- [ ] Open one in the closer look (done), and play a video there (decided against for now: a still and its length instead)
 - [ ] From the grid: look through this folder, or leave it out
-- [ ] Say plainly when a picture cannot be opened, with a placeholder, and carry on
+- [x] Say plainly when a picture cannot be opened, with a placeholder, and carry on
 
 A map of where the space goes
 
@@ -393,7 +402,7 @@ A map of where the space goes
 Decided
 
 - [ ] Whether the map shows everything on the drive or only folders that hold photos and videos (the first is more useful for finding things; the second is closer to what Keevoro is for)
-- [ ] Whether these views are also offered from the command line and to AI agents (the figures yes, as lists; the pictures only through `picture`, as now)
+- [x] Whether these views are also offered from the command line and to AI agents (the figures yes, as lists; the pictures only through `picture`, as now): yes, `keevoro folders`, `keevoro files`, `keevoro picture --file`, and the agent tools folders_inside and files_in_folder
 
 ### Scheduled and repeat backups
 

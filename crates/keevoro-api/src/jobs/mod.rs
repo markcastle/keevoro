@@ -45,6 +45,7 @@ pub(crate) mod across;
 mod backing_up;
 mod duplicates;
 mod looking;
+pub mod own;
 pub mod said;
 mod surveying;
 #[cfg(test)]
@@ -1118,6 +1119,8 @@ pub(crate) struct Context {
     pub(crate) secrets: Arc<dyn SecretStore + Send + Sync>,
     /// Where the rates measured in backups are remembered.
     pub(crate) rates: std::path::PathBuf,
+    /// Keevoro's cache folder, where surveys are remembered.
+    pub(crate) cache: std::path::PathBuf,
 }
 
 /// Ends a job however its thread ends, even by a panic, so its slot is
@@ -1180,6 +1183,7 @@ impl Keevoro {
             log: self.log_shared(),
             secrets: self.secrets_shared(),
             rates: self.rates_file(),
+            cache: self.cache_folder(),
         }
     }
 
@@ -1209,7 +1213,16 @@ impl Keevoro {
     /// which of them are already its sources; nothing is changed.
     pub fn survey(&self, place: &Path, backup: Option<&Named>, listener: Option<Listener>) -> Result<JobHandle> {
         must_be_there(place)?;
-        surveying::start(&self.context(), place, backup, self.kinds_to_look_for(), listener)
+        // A backup for photos only, or videos only, is offered only those.
+        let mut kinds = self.kinds_to_look_for();
+        let only = backup
+            .and_then(|b| crate::backup::Backup::open_existing(&b.home))
+            .and_then(|b| b.catalog().wants().ok())
+            .and_then(keevoro_core::Wants::only);
+        if let Some(kind) = only {
+            kinds = kinds.only(kind);
+        }
+        surveying::start(&self.context(), place, backup, kinds, self.skip_rules(), listener)
     }
 
     /// `sources.look`: looks through a drive or folder quickly and adds it
@@ -1222,6 +1235,7 @@ impl Keevoro {
             vec![place.to_path_buf()],
             JobKind::Look,
             self.kinds_to_look_for(),
+            self.skip_rules(),
             listener,
         )
     }
@@ -1236,6 +1250,7 @@ impl Keevoro {
             places,
             JobKind::LookAgain,
             self.kinds_to_look_for(),
+            self.skip_rules(),
             listener,
         )
     }

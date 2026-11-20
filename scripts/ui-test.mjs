@@ -38,6 +38,65 @@ const shot = (name) => page.screenshot({ path: join(shots, `${name}.png`) })
 const text = (selector) => page.locator(selector).first().innerText()
 // The step the list down the side says we are on.
 const currentStep = () => page.locator('.steps li.now').innerText()
+// Nothing on the page reaches past the window's right edge, or past the
+// page's own column, except inside a box that scrolls sideways by itself
+// (a wide table). The window itself never scrolls sideways.
+const spills = () =>
+  page.evaluate(() => {
+    const found = []
+    if (document.documentElement.scrollWidth > window.innerWidth) found.push(`the page is ${document.documentElement.scrollWidth} wide`)
+    const main = document.querySelector('main')
+    const edge = Math.min(window.innerWidth, main ? main.getBoundingClientRect().right : window.innerWidth)
+    const scrollsItself = (el) => {
+      for (let up = el.parentElement; up && up !== main; up = up.parentElement) {
+        const x = getComputedStyle(up).overflowX
+        if ((x === 'auto' || x === 'scroll') && up.getBoundingClientRect().right <= edge + 1) return true
+      }
+      return false
+    }
+    for (const el of document.querySelectorAll('body *')) {
+      const box = el.getBoundingClientRect()
+      if (box.width === 0 || box.right <= edge + 1 || getComputedStyle(el).position === 'fixed') continue
+      if (scrollsItself(el)) continue
+      found.push(`${el.tagName.toLowerCase()}.${String(el.className).split(' ')[0]} reaches ${Math.round(box.right)} of ${Math.round(edge)}`)
+    }
+    return found.slice(0, 5)
+  })
+// In a narrow window the side bar is a band across the top. Says how the
+// page's first heading is covered by it, if it is: their boxes overlap.
+// A heading scrolled away above the window is not covered.
+const headingUnderBand = () =>
+  page.evaluate(() => {
+    const band = document.querySelector('.sidebar')?.getBoundingClientRect()
+    const heading = document.querySelector('main h1, main h2')?.getBoundingClientRect()
+    if (!band || !heading) return null
+    const overlap = heading.top < band.bottom && heading.bottom > band.top && heading.left < band.right && heading.right > band.left
+    return overlap ? `the heading (${Math.round(heading.top)} to ${Math.round(heading.bottom)}) is under the band (to ${Math.round(band.bottom)})` : null
+  })
+// The same, with the page as it is and scrolled a little way down, which is
+// where a heading would slide under a band that stayed put.
+const headingClearOfBand = async (where) => {
+  assert.equal(await headingUnderBand(), null, where)
+  const scrolled = await page.evaluate(() =>
+    [document.scrollingElement, ...document.querySelectorAll('.app, main')].map((el) => {
+      const was = el.scrollTop
+      el.scrollTop = was + 60
+      return was
+    }),
+  )
+  assert.equal(await headingUnderBand(), null, `${where}, scrolled down a little`)
+  await page.evaluate((was) => [document.scrollingElement, ...document.querySelectorAll('.app, main')].forEach((el, n) => (el.scrollTop = was[n])), scrolled)
+}
+// Checks the screen as it is at narrow widths, then puts the window back.
+const fitsNarrow = async (screen) => {
+  for (const width of [400, 560]) {
+    await page.setViewportSize({ width, height: 800 })
+    await page.waitForTimeout(50)
+    assert.deepEqual(await spills(), [], `${screen} at ${width} pixels wide spills sideways`)
+    await headingClearOfBand(`${screen} at ${width} pixels wide`)
+  }
+  await page.setViewportSize({ width: 1440, height: 900 })
+}
 
 try {
   // --- A first-time user is asked one thing they can answer: what to call this.
@@ -79,6 +138,16 @@ try {
   assert.match(await page.locator('.types li').nth(1).innerText(), /left out/)
   await shot('3b-file-types')
   await dng.click()
+  // One source can be photos only, whatever the backup is for, and each
+  // ending says which level left it out.
+  const sourceWants = page.getByRole('group', { name: /^From .*, back up$/ })
+  assert.equal(await sourceWants.getByRole('radio', { name: 'The same as the backup' }).isChecked(), true)
+  await sourceWants.getByRole('radio', { name: 'Photos only' }).check()
+  await sourceWants.getByRole('status').getByText(/This source is set to photos only\. Anything already backed up stays backed up/).waitFor()
+  assert.match(await page.locator('.types li').nth(2).innerText(), /left out: this source is set to photos only/)
+  await shot('3c-source-photos-only')
+  await sourceWants.getByRole('radio', { name: 'The same as the backup' }).check()
+  await page.locator('.types li').nth(2).getByText(/left out/).waitFor({ state: 'detached' })
   await page.getByRole('button', { name: /^File types on / }).click()
   assert.equal(await page.locator('.types').count(), 0)
   // The bar is part of the window: on its bottom edge, full width.
@@ -266,6 +335,16 @@ try {
   await details.click()
   await page.getByText(/^Everything you are keeping is there: [\d,]+ files\.$/).waitFor()
   assert.ok(await page.getByRole('button', { name: 'Show me the folder' }).isVisible())
+  // Beside it, clearing what a stopped backup left there: said first, cleared on a yes.
+  await page.getByRole('button', { name: 'Clear unfinished copies…' }).click()
+  const unfinished = page.getByRole('group', { name: 'Unfinished copies in F:\\Family Backup' })
+  assert.match(await unfinished.innerText(), /^There are 320\.4 MB of unfinished copies \(12 files\) in F:\\Family Backup/)
+  await unfinished.getByRole('button', { name: 'Cancel' }).click()
+  assert.equal(await unfinished.count(), 0, 'cancelling clears nothing and puts the question away')
+  await page.getByRole('button', { name: 'Clear unfinished copies…' }).click()
+  await unfinished.getByRole('button', { name: 'Clear them' }).click()
+  await unfinished.getByText(/^Cleared 320\.4 MB of unfinished copies \(12 files\) from F:\\Family Backup\./).waitFor()
+  await unfinished.getByRole('button', { name: 'Done' }).click()
   await page.getByRole('button', { name: 'Check they all arrived' }).click()
   await page.getByText(/^Your backup: all [\d,]+ originals are there\.$/).waitFor()
   assert.equal(await page.locator('.steps li.done').count(), 2, 'finding and choosing are ticked off')
@@ -374,6 +453,19 @@ try {
   )
   assert.match(await page.locator('.survey .hints li').last().innerText(), /Small pictures, probably not photos/)
   await shot('9q-survey')
+  // Files only in OneDrive are never opened, and never left out silently: each suggestion says so.
+  const onlineSaid = /^412 files here are in OneDrive only, not on this computer, so Keevoro did not open them\. To include them, make them available offline in OneDrive first, then look again\.$/
+  assert.match(await page.locator('.survey .hints li').nth(1).locator('.online-only').innerText(), onlineSaid)
+  // A library an older Keevoro left is never offered, and is said quietly, on one line that opens.
+  const leftOut = page.locator('.survey .left-out')
+  assert.equal(await leftOut.locator('summary').innerText(), 'Left out a folder Keevoro made, as it is not a source')
+  assert.equal(await leftOut.getByRole('button', { name: 'Show me the folder' }).isVisible(), false, 'folded away')
+  await leftOut.locator('summary').click()
+  assert.match(await leftOut.innerText(), /a folder an older version of Keevoro made, which it no longer uses\. It takes 9\.2 GB: 8\.4 GB of copies of your photos/)
+  assert.match(await leftOut.innerText(), /never removes it/)
+  await leftOut.getByRole('button', { name: 'Show me the folder' }).click()
+  await leftOut.scrollIntoViewIfNeeded()
+  await shot('9x-survey-old-library')
   // Unticking one leaves two, and the button says so.
   await ticks.nth(2).uncheck()
   await page.getByRole('button', { name: 'Look through these 2 folders' }).click()
@@ -381,6 +473,14 @@ try {
   await page.locator('.kept li.source').nth(1).waitFor()
   assert.equal(await page.locator('.kept li.source').count(), 2, 'each ticked folder became a source')
   assert.equal(await page.locator('.survey').count(), 0)
+  // After the search, on screen, not only in the log; and kept with the source.
+  await page.locator('.found-it .online-only').getByText(onlineSaid).waitFor()
+  assert.match(await page.locator('.kept li.source').nth(1).locator('.online-only').innerText(), onlineSaid)
+  await page.locator('.kept li.source').nth(1).scrollIntoViewIfNeeded()
+  await shot('9q2-online-only')
+  await page.locator('.steps button').nth(1).click()
+  await page.locator('.steps button').nth(0).click()
+  assert.match(await page.locator('.kept li.source').nth(1).locator('.online-only').innerText(), onlineSaid, 'still said after going elsewhere')
 
   // One button looks through every source again for anything new.
   await page.getByRole('button', { name: 'Look through all 2 again for new photos' }).click()
@@ -477,10 +577,34 @@ try {
   await page.getByText('That is the newest version.').waitFor()
   await shot('9e-settings')
 
+  // --- A whole backup can be photos only, or videos only, behind its own Advanced door.
+  await page.locator('.setting').filter({ hasText: 'This backup' }).getByText('Advanced', { exact: true }).click()
+  const backupWants = page.getByRole('group', { name: 'This backup is for' })
+  assert.equal(await backupWants.getByRole('radio', { name: 'Photos and videos' }).isChecked(), true)
+  await backupWants.getByRole('radio', { name: 'Videos only' }).check()
+  await backupWants.getByRole('status').getByText(/This backup is for videos only\. Anything already backed up stays backed up; it is just no longer kept/).waitFor()
+  await backupWants.scrollIntoViewIfNeeded()
+  await shot('9y-settings-videos-only')
+  await backupWants.getByRole('radio', { name: 'Photos and videos' }).check()
+
   // --- Advanced: the kinds of file looked for, behind a door of their own.
   assert.equal(await page.getByRole('heading', { name: 'Kinds of file Keevoro looks for' }).isVisible(), false, 'folded away')
-  await page.getByText('Advanced', { exact: true }).click()
+  await page.locator('details.advanced').last().getByText('Advanced', { exact: true }).click()
   await page.getByRole('heading', { name: 'Kinds of file Keevoro looks for', level: 3 }).waitFor()
+  // A folder no backup goes to any more can still be cleared of a stopped
+  // backup's working files: chosen, then said, then cleared, in the page.
+  await page.getByRole('button', { name: 'Clear unfinished copies from a folder…' }).click()
+  const oldFolder = page.getByRole('group', { name: 'Unfinished copies in G:\\Old Keevoro backup' })
+  assert.match(await oldFolder.innerText(), /^There are 15\.2 GB of unfinished copies \(583 files\) in G:\\Old Keevoro backup, left by a backup that was stopped part-way\. Clearing them touches nothing that was backed up\./)
+  await oldFolder.scrollIntoViewIfNeeded()
+  await shot('9z-settings-clear-unfinished')
+  await oldFolder.getByRole('button', { name: 'Clear them' }).click()
+  await oldFolder.getByText(/^Cleared 15\.2 GB of unfinished copies \(583 files\) from G:\\Old Keevoro backup\./).waitFor()
+  assert.match(await oldFolder.innerText(), /Left 1 thing written to in the last hour, as a backup may be using it right now\. Try again later\./)
+  await oldFolder.getByRole('button', { name: 'Done' }).click()
+  await page.getByRole('button', { name: 'Clear unfinished copies from a folder…' }).click()
+  await oldFolder.getByText('There are no unfinished copies to clear in G:\\Old Keevoro backup.').waitFor()
+  await oldFolder.getByRole('button', { name: 'Done' }).click()
   const kindsTable = page.locator('.kinds-table')
   const row = (ending) => kindsTable.getByRole('row').filter({ has: page.getByRole('cell', { name: ending, exact: true }) })
   assert.match(await row('.jpg').innerText(), /Photo\s+Built in/)
@@ -687,6 +811,107 @@ try {
   await page.getByRole('button', { name: 'Remove from Keevoro' }).click()
   await page.locator('.kept li.source').waitFor({ state: 'detached' })
   assert.ok(await page.locator('.searching').isVisible(), 'and the search carries on')
+
+  // --- Look inside a folder the survey suggests, before choosing it. Only
+  // what is near the screen is fetched, pictures shimmer until they come,
+  // and nothing is added until the person says so.
+  await page.goto(`${base}/?demo=empty&fast&slowpictures`)
+  await page.getByRole('button', { name: /Windows \(C:\)/ }).click()
+  await page.getByRole('button', { name: 'Find the folders with photos' }).click()
+  await page.getByRole('heading', { name: '4 folders on Windows (C:) seem to hold photos and videos' }).waitFor()
+  await page.locator('.survey .hints input').nth(2).uncheck()
+  await page.getByRole('button', { name: 'Look inside C:\\Users\\Mark\\Pictures' }).click()
+  await page.getByRole('heading', { name: 'Inside Pictures', level: 1 }).waitFor()
+  assert.match(await text('.inside .status'), /^1,630 photos and 82 videos, [\d.]+ GB\. Nothing here is added or changed until you choose\.$/)
+  assert.match(await text('.inside header .online-only'), /^32 files are in OneDrive only, not on this computer, so Keevoro does not open them/)
+  await page.locator('.inside .tile .picture.loading').first().waitFor()
+  assert.ok((await page.locator('.inside .tile .picture.loading').count()) > 0, 'a shimmer before the pictures arrive')
+  await shot('9q3-look-inside-waiting')
+  await page.locator('.inside .tile img').first().waitFor({ timeout: 15000 })
+  const tilesShown = await page.locator('.inside .tile').count()
+  assert.ok(tilesShown > 0 && tilesShown < 1_712, `only the tiles near the screen are in the page (${tilesShown} of 1,712)`)
+  assert.deepEqual(
+    await page.locator('.inside .tiles-heading b').allInnerTexts(),
+    ['Pictures', 'Camera Roll', 'Captures', '2019 › Cornwall', 'Screenshots'].slice(0, await page.locator('.inside .tiles-heading').count()),
+    'the person’s own folders, in order, as sections',
+  )
+  // Scrolled into the camera roll: its tiles come, and those passed by are dropped.
+  await page.getByRole('button', { name: 'Look at IMG_0013.jpg' }).first().scrollIntoViewIfNeeded()
+  await page.getByRole('button', { name: 'Look at IMG_0013.jpg' }).first().getByText('Can’t be shown').waitFor({ timeout: 15000 })
+  await page.locator('main').evaluate((main) => main.scrollBy(0, 1200))
+  await page.getByRole('button', { name: 'Look at IMG_0050.jpg' }).first().waitFor()
+  assert.equal(await page.getByRole('button', { name: 'Look at IMG_0050.jpg' }).first().innerText(), 'In OneDrive only, not on this computer')
+  await page.getByRole('button', { name: 'Look at IMG_0050.jpg' }).first().scrollIntoViewIfNeeded()
+  const made = await page.evaluate(() => window.keevoroPicturesMade())
+  assert.ok(made < 400, `pictures are made only for what was near the screen (${made})`)
+  await shot('9q4-look-inside-scrolled')
+  // A closer look, with the way to look through the folder beside it.
+  await page.getByRole('button', { name: 'Look at IMG_0048.jpg' }).first().click()
+  const closer = page.getByRole('dialog', { name: 'IMG_0048.jpg' })
+  await closer.locator('img').waitFor()
+  assert.ok(await closer.getByRole('button', { name: 'Look through this folder' }).isVisible())
+  await page.keyboard.press('ArrowRight')
+  await page.getByRole('dialog', { name: 'IMG_0049.jpg' }).waitFor()
+  await page.keyboard.press('ArrowRight')
+  // One only in OneDrive is never opened, there either.
+  await page.getByRole('dialog', { name: 'IMG_0050.jpg' }).getByText('In OneDrive only, not on this computer').waitFor()
+  await shot('9q5-look-inside-closer')
+  await page.keyboard.press('Escape')
+  // Back is the survey as it was, ticks and all.
+  await page.getByRole('button', { name: '‹ Back' }).click()
+  await page.getByRole('heading', { name: '4 folders on Windows (C:) seem to hold photos and videos' }).waitFor()
+  assert.deepEqual(await page.locator('.survey .hints input').evaluateAll((boxes) => boxes.map((b) => b.checked)), [true, true, false, false])
+  assert.equal(await page.locator('.kept li.source').count(), 0, 'looking inside added nothing')
+  // As it looks once the pictures have come.
+  await page.goto(`${base}/?demo=empty&fast`)
+  await page.getByRole('button', { name: /Windows \(C:\)/ }).click()
+  await page.getByRole('button', { name: 'Find the folders with photos' }).click()
+  await page.getByRole('button', { name: 'Look inside C:\\Users\\Mark\\Pictures' }).click()
+  await page.getByRole('heading', { name: 'Inside Pictures', level: 1 }).waitFor()
+  await page.waitForFunction(() => document.querySelectorAll('.inside .tile img').length >= 12)
+  await page.waitForTimeout(400)
+  await shot('9q4-look-inside')
+  await fitsNarrow('Looking inside')
+  await page.getByRole('button', { name: '‹ Back' }).click()
+  // And from inside, one button looks through it properly.
+  await page.getByRole('button', { name: 'Look inside C:\\Users\\Mark\\Pictures' }).click()
+  await page.getByRole('heading', { name: 'Inside Pictures', level: 1 }).waitFor()
+  await page.locator('.inside header').getByRole('button', { name: 'Look through this folder' }).click()
+  await page.locator('.kept li.source').first().waitFor()
+  assert.match(await text('.kept li.source .what .folder'), /^C:\\Users\\Mark\\Pictures$/)
+
+  // --- Every main screen fits a narrow window: the page never scrolls
+  // sideways, and wide tables scroll inside their own box.
+  await page.goto(`${base}/?fast`)
+  await page.getByRole('heading', { name: 'Which of these should we keep?', level: 1 }).waitFor()
+  await fitsNarrow('Choosing')
+  await page.locator('.steps button').nth(0).click()
+  await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
+  await page.getByRole('button', { name: /^File types on / }).first().click()
+  await fitsNarrow('Finding')
+  await page.locator('.steps button').nth(2).click()
+  await page.getByRole('button', { name: /A folder/ }).click()
+  await page.getByRole('heading', { name: /^Backing up to the folder/ }).waitFor()
+  await page.getByText('How earlier backups went').click()
+  await page.getByText('What is in the backup', { exact: true }).click()
+  await page.getByRole('button', { name: 'Clear unfinished copies…' }).click()
+  await page.getByRole('group', { name: /^Unfinished copies in/ }).waitFor()
+  await fitsNarrow('Backing up')
+  await page.setViewportSize({ width: 400, height: 800 })
+  await page.getByRole('heading', { name: /^Backing up to the folder/ }).scrollIntoViewIfNeeded()
+  assert.equal(await headingUnderBand(), null, 'the backup screen’s heading is not under the band')
+  await shot('11b-backup-400')
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.getByRole('button', { name: 'Settings' }).click()
+  for (const door of await page.locator('details.advanced').all()) await door.locator('summary').click()
+  await fitsNarrow('Settings')
+  await page.getByRole('button', { name: '‹ Back' }).click()
+  await page.getByRole('button', { name: 'What Keevoro is doing' }).click()
+  await fitsNarrow('What Keevoro is doing')
+  await page.getByRole('button', { name: '‹ Back' }).click()
+  await page.getByRole('button', { name: 'About Keevoro' }).click()
+  await fitsNarrow('About')
+  await page.getByRole('button', { name: '‹ Back' }).click()
 
   // --- An existing library opens on the step that still needs doing, in dark mode too.
   await page.emulateMedia({ colorScheme: 'dark' })

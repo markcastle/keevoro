@@ -568,6 +568,32 @@ fn smaller_things_a_backup_can_be_asked() {
         "it says where"
     );
 
+    let ran = at.keevoro(&["photos-or-videos", "videos"]);
+    assert!(
+        ran.out
+            .starts_with("This backup is for videos only. Anything already backed up stays backed up"),
+        "{}",
+        ran.out
+    );
+    let ran = at.keevoro(&["sources", "types", "1"]);
+    assert!(
+        ran.out.contains("left out: this backup is for videos only"),
+        "{}",
+        ran.out
+    );
+    let ran = at.keevoro(&["sources", "photos-or-videos", "1", "both"]);
+    assert!(
+        ran.out.starts_with("This source is set to photos and videos."),
+        "{}",
+        ran.out
+    );
+    at.keevoro(&["sources", "photos-or-videos", "1", "backup"]);
+    let ran = at.keevoro(&["photos-or-videos", "both"]);
+    assert_eq!(ran.out.trim(), "This backup is for photos and videos.");
+    let ran = at.keevoro(&["backups", "start", "Drone", "--videos-only", "--json"]);
+    assert_eq!(ran.code, Code::Worked, "{}", ran.err);
+    let ran = at.keevoro(&["-b", "Drone", "photos-or-videos"]);
+    assert_eq!(ran.out.trim(), "This backup is for videos only.");
     let ran = at.keevoro(&["previews", "off"]);
     assert!(ran.out.contains("originals alone"), "{}", ran.out);
     let ran = at.keevoro(&["settings", "set", "own-codecs", "off"]);
@@ -728,4 +754,82 @@ fn a_key_given_is_never_shown_logged_or_written_down() {
         .render_long_help()
         .to_string();
     assert!(help.contains("kept in your shell's history"), "{help}");
+}
+
+#[test]
+fn tidy_says_first_what_it_would_clear_then_clears_it_in_the_apps_own_words() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join("Old backup");
+    let work = folder.join(".keevoro-uploads");
+    std::fs::create_dir_all(&work).unwrap();
+    let old = work.join("tmp-abandoned");
+    std::fs::write(&old, [0u8; 2048]).unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&old)
+        .unwrap()
+        .set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(2 * 3600))
+        .unwrap();
+    let at = At::new(dir.path());
+    let first = at.keevoro(&["tidy", &text(&folder), "--dry-run"]);
+    assert_eq!(first.code, Code::Worked, "{}", first.err);
+    assert!(
+        first
+            .out
+            .starts_with("There are 2.0 KB of unfinished copies (1 file) in"),
+        "{}",
+        first.out
+    );
+    assert!(old.is_file(), "a dry run clears nothing");
+    let api = keevoro_in(dir.path(), FrontEnd::App);
+    let ran = at.keevoro(&["tidy", &text(&folder)]);
+    assert!(
+        ran.out.starts_with("Cleared 2.0 KB of unfinished copies (1 file) from"),
+        "{}",
+        ran.out
+    );
+    assert!(!old.exists());
+    let again = call(&api, Op::DestinationsTidy, None, json!({ "place": text(&folder) })).unwrap();
+    let words: Vec<String> = again["said"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|l| format!("{}\n", l.as_str().unwrap()))
+        .collect();
+    assert_eq!(
+        at.keevoro(&["tidy", &text(&folder)]).out,
+        words.concat(),
+        "the same words as the API"
+    );
+}
+
+#[test]
+fn a_folder_is_looked_inside_and_a_picture_saved_without_adding_anything() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let card = card(dir.path());
+    let at = At::new(dir.path());
+    let before = everything_written(&card);
+    let refused = at.keevoro(&["folders", &text(&card)]);
+    assert_ne!(refused.code, Code::Worked);
+    assert!(refused.err.contains("Find where the photos are"), "{}", refused.err);
+    at.keevoro(&["survey", &text(&card)]);
+    let folders = at.keevoro(&["folders", &text(&card)]);
+    assert_eq!(folders.code, Code::Worked, "{}", folders.err);
+    assert!(folders.out.contains("Cornwall"), "{}", folders.out);
+    let cornwall = card.join("Holidays").join("Cornwall");
+    let files = at.keevoro(&["files", &text(&cornwall), "--count", "1"]);
+    assert_eq!(files.code, Code::Worked, "{}", files.err);
+    assert!(files.out.contains(", 1 of them here:"), "{}", files.out);
+    let first = at.keevoro(&["files", &text(&cornwall), "--json"]).json()["files"][0]["path"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let to = dir.path().join("look.webp");
+    let saved = at.keevoro(&["picture", "--file", &first, "--to", &text(&to)]);
+    assert_eq!(saved.code, Code::Worked, "{}", saved.err);
+    assert_eq!(&std::fs::read(&to).unwrap()[8..12], b"WEBP");
+    assert_eq!(everything_written(&card), before, "the folder is exactly as it was");
+    let api = keevoro_in(dir.path(), FrontEnd::App);
+    assert!(api.backups().all().is_empty(), "nothing was added to any backup");
 }

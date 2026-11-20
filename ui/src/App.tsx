@@ -19,9 +19,9 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { createPortal } from 'react-dom'
 
 import { backend } from './backend'
+import { scrollerOf } from './scroller'
 import type {
   Acceleration,
   Destination,
@@ -31,6 +31,9 @@ import type {
   Activity,
   AgentAccess,
   FileKind,
+  Wants,
+  WantsView,
+  LeftOut,
   StageRecord,
   Sending,
   AppState,
@@ -40,7 +43,6 @@ import type {
   ConnectRequest,
   Discover,
   FileType,
-  Photo,
   PhotoChoice,
   Place,
   CheckEvent,
@@ -58,6 +60,10 @@ import lockupShadowUrl from './assets/keevoro-lockup-shadow.png'
 import lockupDarkUrl from './assets/keevoro-lockup-reversed.png'
 import lockupUrl from './assets/keevoro-lockup.png'
 import { chooseTheme, savedTheme } from './theme'
+import { ClearUnfinished } from './tidy'
+import { FoundPicture, Viewer } from './pictures'
+import { LookInside } from './inside'
+import { VirtualTiles } from './tiles'
 import type { Theme } from './theme'
 
 type Step = 'find' | 'choose' | 'send'
@@ -121,12 +127,13 @@ export function App() {
   const main = useRef<HTMLElement>(null)
   const wasAt = useRef(0)
   const show = (next: Overlay) => {
-    if (overlay === null) wasAt.current = main.current?.scrollTop ?? 0
+    if (overlay === null) wasAt.current = scrollerOf(main.current)?.scrollTop ?? 0
     setOverlay(next)
   }
   useLayoutEffect(() => {
-    if (!main.current) return
-    main.current.scrollTop = overlay === null ? wasAt.current : 0
+    const scroller = scrollerOf(main.current)
+    if (!scroller) return
+    scroller.scrollTop = overlay === null ? wasAt.current : 0
   }, [overlay])
 
   const refresh = useCallback((from: Backend) => from.discover().then(setFound).catch(report), [report])
@@ -642,6 +649,10 @@ function FindScreen(props: {
   } | null>(null)
   // Folders waiting their turn to be looked through, one after another.
   const [queue, setQueue] = useState<string[]>([])
+  // A folder the survey suggested, being looked inside before it is chosen.
+  // The survey stays as it was underneath, to come back to.
+  const [inside, setInside] = useState<string | null>(null)
+  const surveyScroll = useRef(0)
   useEffect(() => api.onSurvey((progress) => setSurvey((s) => (s && !s.found ? { ...s, progress } : s))), [api])
 
   const look = useCallback(() => {
@@ -739,6 +750,27 @@ function FindScreen(props: {
   const done = new Set(found?.sources.map((s) => s.root.replace(/[\\/]+$/, '')))
   const removable = places?.filter((p) => p.removable) ?? []
   const fixed = places?.filter((p) => !p.removable) ?? []
+  const scroller = () => scrollerOf(document.querySelector('main'))
+
+  if (inside) {
+    return (
+      <LookInside
+        api={api}
+        place={inside}
+        onProblem={onProblem}
+        onBack={() => {
+          setInside(null)
+          requestAnimationFrame(() => scroller()?.scrollTo(0, surveyScroll.current))
+        }}
+        onLookThrough={(folder) => {
+          setInside(null)
+          setSurvey(null)
+          setQueue([])
+          start(folder)
+        }}
+      />
+    )
+  }
 
   return (
     <section className="find">
@@ -811,6 +843,8 @@ function FindScreen(props: {
         </div>
       ) : survey?.found ? (
         <SurveyResult
+          api={api}
+          onProblem={onProblem}
           name={survey.name}
           found={survey.found}
           chosen={survey.chosen}
@@ -824,6 +858,11 @@ function FindScreen(props: {
             )
           }
           onGo={lookThroughChosen}
+          onLookInside={(folder) => {
+            surveyScroll.current = scroller()?.scrollTop ?? 0
+            setInside(folder)
+            requestAnimationFrame(() => scroller()?.scrollTo(0, 0))
+          }}
           onCancel={() => setSurvey(null)}
         />
       ) : asking ? (
@@ -877,6 +916,8 @@ function FindScreen(props: {
                       list is in the log, in Settings.
                     </p>
                   )}
+                  {justFound.onlineOnlySaid && <p className="online-only">{justFound.onlineOnlySaid}</p>}
+                  <LeftOutNote api={api} leftOut={justFound.leftOut} onProblem={onProblem} />
                 </>
               )}
             </div>
@@ -956,6 +997,7 @@ function FindScreen(props: {
                     </button>
                   </span>
                 )}
+                {s.onlineOnlySaid && <p className="online-only small">{s.onlineOnlySaid}</p>}
                 {typesOf === s.id && removing !== s.id && (
                   <FileTypes api={api} source={s} onChanged={props.onChanged} onProblem={onProblem} />
                 )}
@@ -1005,6 +1047,61 @@ function PlaceCard(props: { place: Place; added: boolean; onClick: () => void })
 }
 
 /**
+ * Photos and videos, photos only, or videos only, as ordinary radio
+ * buttons. What the choice means is said once it is made, including that
+ * nothing already backed up is touched.
+ */
+function WantsChoice<T extends string>(props: {
+  legend: string
+  load: () => Promise<WantsView>
+  choose: (wants: T) => Promise<WantsView>
+  options: [T, string][]
+  selected: (view: WantsView) => T
+  onChanged?: () => void
+  onProblem: (error: unknown) => void
+}) {
+  const { load, onProblem } = props
+  const [view, setView] = useState<WantsView | null>(null)
+  const [said, setSaid] = useState<string | null>(null)
+  useEffect(() => {
+    load().then(setView).catch(onProblem)
+    // Asked once, when it is first shown.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  if (!view) return null
+  return (
+    <fieldset className="wants">
+      <legend>{props.legend}</legend>
+      {props.options.map(([value, label]) => (
+        <label key={value}>
+          <input
+            type="radio"
+            name={props.legend}
+            checked={props.selected(view) === value}
+            onChange={() =>
+              props
+                .choose(value)
+                .then((changed) => {
+                  setView(changed)
+                  setSaid(changed.said)
+                  props.onChanged?.()
+                })
+                .catch(onProblem)
+            }
+          />
+          {label}
+        </label>
+      ))}
+      {said && (
+        <p className="quiet small" role="status">
+          {said} This counts at once, with no need to look again.
+        </p>
+      )}
+    </fieldset>
+  )
+}
+
+/**
  * For people who want it: the kinds of file found on one source, each with
  * a switch. It stays folded away, so adding a source is still one click
  * for everyone else.
@@ -1015,9 +1112,27 @@ function FileTypes(props: { api: Backend; source: Source; onChanged: () => void;
   useEffect(() => {
     api.fileTypes(source.id).then(setKinds).catch(onProblem)
   }, [api, source.id, onProblem])
+  const reload = () => api.fileTypes(source.id).then(setKinds).catch(onProblem)
   if (!kinds) return null
   return (
     <div className="types explain">
+      <WantsChoice
+        legend={`From ${source.name}, back up`}
+        load={() => api.sourceWants(source.id)}
+        choose={(wants) => api.setSourceWants(source.id, wants)}
+        options={[
+          ['backup', 'The same as the backup'],
+          ['both', 'Photos and videos'],
+          ['photos', 'Photos only'],
+          ['videos', 'Videos only'],
+        ]}
+        selected={(view) => (view.own ? view.wants : 'backup')}
+        onChanged={() => {
+          void reload()
+          props.onChanged()
+        }}
+        onProblem={onProblem}
+      />
       <p className="quiet small">
         Everything Keevoro found on {source.name} is included. Switch off a kind of file to leave all of those out of
         this backup; nothing on the source is changed, and you can switch it back on at any time.
@@ -1041,7 +1156,7 @@ function FileTypes(props: { api: Backend; source: Source; onChanged: () => void;
             <b>{kind.ending ? kind.ending.toUpperCase() : 'No ending'}</b>
             <span className="quiet">
               {count(kind.files, 'file')} · {size(kind.bytes)}
-              {!kind.included && ' · left out'}
+              {kind.why ? ` · left out: ${kind.why}` : !kind.included && ' · left out'}
             </span>
           </li>
         ))}
@@ -1481,6 +1596,25 @@ function SettingsScreen(props: {
           {state.library && <FolderLink api={api} path={state.library} onProblem={onProblem} />}. Your photos themselves
           are not copied there.
         </p>
+        <details className="advanced">
+          <summary>Advanced</summary>
+          <WantsChoice<Wants>
+            legend="This backup is for"
+            load={() => api.backupWants()}
+            choose={(wants) => api.setBackupWants(wants)}
+            options={[
+              ['both', 'Photos and videos'],
+              ['photos', 'Photos only'],
+              ['videos', 'Videos only'],
+            ]}
+            selected={(view) => view.wants}
+            onChanged={() => props.onLibrary(state)}
+            onProblem={onProblem}
+          />
+          <p className="quiet small">
+            A source can have its own choice, under Kinds of file beside it on the first step.
+          </p>
+        </details>
       </div>
 
       <div className="setting">
@@ -1607,6 +1741,17 @@ function SettingsScreen(props: {
       <details className="advanced">
         <summary>Advanced</summary>
         <FileKindsSetting api={api} onSources={props.onSources} onProblem={onProblem} />
+        <div className="setting">
+          <h3>Unfinished copies</h3>
+          <p className="quiet">
+            A backup that is stopped part-way can leave unfinished copies in a working folder where it was going. Each
+            backup clears its own as it starts and ends. For a folder no backup goes to any more, clear them here.
+            Nothing that was backed up is touched, and Keevoro says how much there is first.
+          </p>
+          <div className="choices">
+            <ClearUnfinished api={api} label="Clear unfinished copies from a folder…" onProblem={onProblem} />
+          </div>
+        </div>
       </details>
 
       <div className="setting">
@@ -2020,7 +2165,7 @@ function ChooseScreen(props: {
             onKeyDown={(e) => e.key === 'Enter' && props.onOpen(hero)}
           >
             {hero.previews.slice(0, 3).map((p) => (
-              <Picture key={p.id} api={props.api} photo={p} />
+              <FoundPicture key={p.id} api={props.api} photo={p} />
             ))}
           </div>
           <div className="caption">
@@ -2041,7 +2186,7 @@ function ChooseScreen(props: {
           {rest.map((c) => (
             <article className={c.kept ? 'card' : 'card skipped'} key={c.key}>
               <button className="open" onClick={() => props.onOpen(c)} aria-label={`Open ${c.title}`}>
-                <Picture key={c.cover.id} api={props.api} photo={c.cover} />
+                <FoundPicture key={c.cover.id} api={props.api} photo={c.cover} />
               </button>
               <h4>{c.title}</h4>
               <p>{c.summary}</p>
@@ -2511,6 +2656,9 @@ function SendPanel(props: {
                       ? `All ${thousands(to.there)} there`
                       : `${thousands(to.there)} there · ${thousands(to.waiting)} waiting (${size(to.waitingBytes)})`}
                   </span>
+                  {!running && to.folder && (
+                    <ClearUnfinished api={api} folder={to.folder} label="Clear unfinished copies…" small onProblem={onProblem} />
+                  )}
                   {!running && (
                     <button
                       className="button small"
@@ -2663,6 +2811,14 @@ function SendPanel(props: {
                 <button className="button" onClick={() => api.openDestination().catch(onProblem)}>
                   Show me the folder
                 </button>
+              )}
+              {destinations.length <= 1 && destinations[0]?.folder && (
+                <ClearUnfinished
+                  api={api}
+                  folder={destinations[0].folder}
+                  label="Clear unfinished copies…"
+                  onProblem={onProblem}
+                />
               )}
               <button className="button" onClick={() => setAdding(true)}>
                 Add another destination
@@ -3115,37 +3271,53 @@ function PhotosScreen(props: {
       {photos && photos.length === 0 && (
         <div className="empty quiet">{collection ? 'Nothing here.' : 'Nothing is set aside.'}</div>
       )}
-      <div className="tiles">
-        {photos?.map((photo) => (
-          <div key={photo.id} className={photo.kept ? 'tile' : 'tile out'}>
-            <button
-              className="look"
-              onClick={() => clicked(photo.id)}
-              onDoubleClick={() => doubleClicked(photo)}
-              aria-label={`Look at ${photo.name}`}
-            >
-              <Picture api={api} photo={photo} />
-            </button>
-            <button
-              className="tick"
-              role="switch"
-              aria-checked={photo.kept}
-              aria-label={`Keep ${photo.name}`}
-              title={photo.kept ? 'Keeping. Click to leave it out.' : 'Left out. Click to keep it.'}
-              onClick={() => toggle(photo)}
-            >
-              {photo.kept ? '✓' : ''}
-            </button>
-            {photo.junkReason && <span className="why">{photo.junkReason}</span>}
-          </div>
-        ))}
-      </div>
+      {photos && photos.length > 0 && (
+        <VirtualTiles
+          label={collection ? `Photos and videos in ${collection.title}` : 'Pictures set aside'}
+          sections={[
+            {
+              key: collection?.key ?? 'set aside',
+              count: photos.length,
+              load: async (from, count) => ({ total: photos.length, items: photos.slice(from, from + count) }),
+            },
+          ]}
+          // The list in hand is the truth: a tick changes it, not the page fetched.
+          tile={(_, index) => {
+            const photo = photos[index]
+            if (!photo) return null
+            return (
+              <div className={photo.kept ? 'tile' : 'tile out'}>
+                <button
+                  className="look"
+                  onClick={() => clicked(photo.id)}
+                  onDoubleClick={() => doubleClicked(photo)}
+                  aria-label={`Look at ${photo.name}`}
+                >
+                  <FoundPicture key={photo.id} api={api} photo={photo} />
+                </button>
+                <button
+                  className="tick"
+                  role="switch"
+                  aria-checked={photo.kept}
+                  aria-label={`Keep ${photo.name}`}
+                  title={photo.kept ? 'Keeping. Click to leave it out.' : 'Left out. Click to keep it.'}
+                  onClick={() => toggle(photo)}
+                >
+                  {photo.kept ? '✓' : ''}
+                </button>
+                {photo.junkReason && <span className="why">{photo.junkReason}</span>}
+              </div>
+            )
+          }}
+        />
+      )}
       {photos && at >= 0 && (
         <Viewer
-          api={api}
-          photo={photos[at]}
+          item={{ key: photos[at].id, name: photos[at].name, isVideo: photos[at].isVideo, where: photos[at].sourcePath }}
+          small={() => api.preview(photos[at].id)}
+          large={() => api.closerLook(photos[at].id)}
           place={`${thousands(at + 1)} of ${thousands(photos.length)}`}
-          onKeep={() => toggle(photos[at])}
+          keep={{ kept: photos[at].kept, onKeep: () => toggle(photos[at]) }}
           onMove={(by) => {
             const next = photos[at + by]
             if (next) setLooking(next.id)
@@ -3165,112 +3337,48 @@ function PhotosScreen(props: {
 const DOUBLE_CLICK_WAIT = 260
 
 /**
- * One photo or video still, as large as the window allows, over the grid.
- * Opened by clicking a tile. It shows the picture, where it is on
- * the source and whether it is being kept, and lets that be changed here
- * too. Arrow keys move to the next and previous; Escape closes.
- */
-function Viewer(props: {
-  api: Backend
-  photo: PhotoChoice
-  place: string
-  onKeep: () => void
-  onMove: (by: 1 | -1) => void
-  onClose: () => void
-}) {
-  const { api, photo, onMove, onClose } = props
-  const [shown, setShown] = useState<{ id: string; url: string } | null>(null)
-  const [missing, setMissing] = useState<string | null>(null)
-  const box = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    let current = true
-    let made: string | null = null
-    // The small picture is already on screen, so show it at once and swap
-    // in the large one when it arrives.
-    api
-      .preview(photo.id)
-      .then((url) => current && setShown((now) => (now?.id === photo.id ? now : { id: photo.id, url })))
-      .catch(() => {})
-    api
-      .closerLook(photo.id)
-      .then((url) => {
-        made = url
-        if (current) setShown({ id: photo.id, url })
-      })
-      .catch(() => current && setMissing(photo.id))
-    return () => {
-      current = false
-      // The large picture is only held while it is being looked at.
-      if (made?.startsWith('blob:')) URL.revokeObjectURL(made)
-    }
-  }, [api, photo.id])
-
-  useEffect(() => {
-    box.current?.focus()
-    const keys = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-      else if (e.key === 'ArrowRight') onMove(1)
-      else if (e.key === 'ArrowLeft') onMove(-1)
-      else return
-      e.preventDefault()
-    }
-    window.addEventListener('keydown', keys)
-    return () => window.removeEventListener('keydown', keys)
-  }, [onClose, onMove])
-
-  const url = shown?.id === photo.id ? shown.url : null
-  // Drawn on the page itself, not inside the screen that opened it, so it
-  // covers the whole window whatever that screen is nested in.
-  return createPortal(
-    <div className="viewer" role="dialog" aria-modal="true" aria-label={photo.name} tabIndex={-1} ref={box} onClick={onClose}>
-      <figure onClick={(e) => e.stopPropagation()}>
-        <div className="stage">
-          {url ? (
-            <img src={url} alt={photo.name} draggable={false} />
-          ) : (
-            <span className="quiet">{missing === photo.id ? 'This one can’t be shown.' : <Spinner />}</span>
-          )}
-        </div>
-        <figcaption>
-          <div>
-            <b>{photo.name}</b>
-            {photo.isVideo && <span className="badge">Video: this is a still from it</span>}
-            <span className="quiet small where">{photo.sourcePath}</span>
-          </div>
-          <div className="choices">
-            <span className="quiet small">{props.place}</span>
-            <button className="button" onClick={() => onMove(-1)} aria-label="Previous">
-              ‹
-            </button>
-            <button className="button" onClick={() => onMove(1)} aria-label="Next">
-              ›
-            </button>
-            <button className="button" role="switch" aria-checked={photo.kept} onClick={props.onKeep}>
-              {photo.kept ? '✓ Keeping' : 'Left out'}
-            </button>
-            <button className="primary" onClick={onClose}>
-              Close
-            </button>
-          </div>
-        </figcaption>
-      </figure>
-    </div>,
-    document.body,
-  )
-}
-
-/**
  * What a survey of a drive found: the folders that seem to hold photos
  * and videos, each with a tick. The person chooses, then Keevoro looks
  * through the ticked ones properly, one after another.
  */
+/**
+ * Folders Keevoro made (a backup, a library from an older version, its own
+ * files) that a search or survey left out: one quiet line that opens to
+ * say what each is, with a way to see it. Keevoro never removes them.
+ */
+function LeftOutNote(props: { api: Backend; leftOut?: LeftOut[]; onProblem: (error: unknown) => void }) {
+  const leftOut = props.leftOut ?? []
+  if (leftOut.length === 0) return null
+  return (
+    <details className="left-out">
+      <summary>
+        Left out {leftOut.length === 1 ? 'a folder' : `${leftOut.length} folders`} Keevoro made, as{' '}
+        {leftOut.length === 1 ? 'it is' : 'they are'} not a source
+      </summary>
+      <ul>
+        {leftOut.map((left) => (
+          <li key={left.folder}>
+            <p>{left.said}</p>
+            <button className="button small" onClick={() => props.api.openPlace(left.folder).catch(props.onProblem)}>
+              Show me the folder
+            </button>
+          </li>
+        ))}
+      </ul>
+    </details>
+  )
+}
+
 function SurveyResult(props: {
+  api: Backend
+  onProblem: (error: unknown) => void
   name: string
   found: Survey
   chosen: Set<string>
   onToggle: (folder: string) => void
   onGo: () => void
+  /** Opens a grid of what is in one suggested folder, before it is chosen. */
+  onLookInside: (folder: string) => void
   onCancel: () => void
 }) {
   const { found, chosen } = props
@@ -3307,16 +3415,26 @@ function SurveyResult(props: {
               <span className="quiet small">
                 {photosAndVideos(hint.photos, hint.videos)} · {size(hint.bytes)}
               </span>
+              <button
+                className="button small"
+                onClick={() => props.onLookInside(hint.folder)}
+                aria-label={`Look inside ${hint.folder}`}
+                title="See its photos and videos first. Nothing is added or changed."
+              >
+                Look inside
+              </button>
               {hint.alreadyASource && <span className="badge">Already a source</span>}
               {!hint.likelyPhotos && !hint.alreadyASource && (
                 <span className="badge" title="The pictures here are very small and there are no videos">
                   Small pictures, probably not photos
                 </span>
               )}
+              {hint.onlineOnlySaid && <p className="online-only small">{hint.onlineOnlySaid}</p>}
             </li>
           ))}
         </ul>
       )}
+      <LeftOutNote api={props.api} leftOut={found.leftOut} onProblem={props.onProblem} />
       {found.unreadable > 0 && (
         <p className="quiet small">
           {count(found.unreadable, 'folder')} could not be listed, usually because this account is not allowed to
@@ -3405,7 +3523,7 @@ function DuplicatesScreen(props: { api: Backend; onBack: () => void; onProblem: 
       <ul className="groups">
         {found?.slice(0, DUPLICATES_SHOWN).map((d) => (
           <li key={d.id}>
-            <Picture api={api} photo={d} />
+            <FoundPicture key={d.id} api={api} photo={d} />
             <div>
               <p className="name">
                 <b>{d.name}</b> <span className="quiet">{size(d.bytes)}</span>
@@ -3436,38 +3554,6 @@ function DuplicatesScreen(props: { api: Backend; onBack: () => void; onProblem: 
         </p>
       )}
     </section>
-  )
-}
-
-/** One picture, fetched when first shown. A gentle placeholder until then. */
-function Picture(props: { api: Backend; photo: Photo }) {
-  const { api, photo } = props
-  const [url, setUrl] = useState<string | null>(null)
-  const [missing, setMissing] = useState(false)
-
-  // Callers give each Picture a key of its photo's id, so a different photo
-  // is a fresh component and this runs once per picture.
-  useEffect(() => {
-    let current = true
-    api
-      .preview(photo.id)
-      .then((address) => current && setUrl(address))
-      .catch(() => current && setMissing(true))
-    return () => {
-      current = false
-    }
-  }, [api, photo.id])
-
-  return (
-    <div
-      className={missing ? 'picture missing' : url ? 'picture' : 'picture loading'}
-      title={photo.name}
-      aria-busy={!url && !missing}
-    >
-      {url && <img src={url} alt="" draggable={false} />}
-      {missing && <span>{photo.isVideo ? 'Video' : 'No preview'}</span>}
-      {photo.isVideo && url && <span className="play" aria-label="Video" />}
-    </div>
   )
 }
 

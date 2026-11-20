@@ -5,6 +5,58 @@
 pub use keevoro_engine::history::duration;
 pub use keevoro_engine::summary::{bytes, count, thousands};
 
+/// What clearing Keevoro's unfinished copies from a folder did (`cleared`)
+/// or, asked first, would do: what goes, and what stays and why.
+pub fn tidied(folder: &str, swept: &keevoro_engine::Swept, cleared: bool) -> Vec<String> {
+    let mut said = Vec::new();
+    let files = |n: u64| count(usize::try_from(n).unwrap_or(usize::MAX), "file");
+    let things = |n: u64| count(usize::try_from(n).unwrap_or(usize::MAX), "thing");
+    let one = |n: u64, it: &'static str, them: &'static str| if n == 1 { it } else { them };
+    match (swept.files, cleared) {
+        (0, true) => said.push(format!("There were no unfinished copies to clear in {folder}.")),
+        (0, false) => said.push(format!("There are no unfinished copies to clear in {folder}.")),
+        (n, true) => said.push(format!(
+            "Cleared {} of unfinished copies ({}) from {folder}. They were Keevoro's working files; nothing that was \
+             backed up was touched.",
+            bytes(swept.bytes),
+            files(n)
+        )),
+        (n, false) => said.push(format!(
+            "There {} {} of unfinished copies ({}) in {folder}, left by a backup that was stopped part-way. \
+             Clearing them touches nothing that was backed up.",
+            one(swept.bytes.max(n), "is", "are"),
+            bytes(swept.bytes),
+            files(n)
+        )),
+    }
+    if swept.in_use > 0 {
+        let n = things(swept.in_use);
+        said.push(if cleared {
+            format!(
+                "Left {n} written to in the last hour, as a backup may be using {} right now. Try again later.",
+                one(swept.in_use, "it", "them")
+            )
+        } else {
+            format!(
+                "{n} written to in the last hour will be left, as a backup may be using {} right now.",
+                one(swept.in_use, "it", "them")
+            )
+        });
+    }
+    if swept.not_ours > 0 {
+        let n = things(swept.not_ours);
+        said.push(if cleared {
+            format!("Left {n} in its working folder that Keevoro did not put there.")
+        } else {
+            format!(
+                "{n} in its working folder that Keevoro did not put there will be left as {}.",
+                one(swept.not_ours, "it is", "they are")
+            )
+        });
+    }
+    said
+}
+
 /// A moment, given in seconds since 1970, as `2026-11-16 14:02:11` in UTC,
 /// the same way the log writes it.
 pub fn date_and_time(seconds: i64) -> String {
@@ -214,6 +266,42 @@ mod tests {
         assert!(!duration(200).is_empty());
         assert_eq!(date_and_time(0), "1970-01-01 00:00:00");
         assert_eq!(date_and_time(-5), "1970-01-01 00:00:00");
+    }
+
+    #[test]
+    fn clearing_unfinished_copies_says_what_goes_and_what_stays_and_why_before_and_after() {
+        let swept = keevoro_engine::Swept {
+            files: 583,
+            bytes: 15 * 1024 * 1024 * 1024,
+            in_use: 1,
+            not_ours: 2,
+        };
+        let before = tidied("D:\\Backup", &swept, false);
+        assert_eq!(
+            before,
+            [
+                "There are 15.0 GB of unfinished copies (583 files) in D:\\Backup, left by a backup that was stopped \
+                 part-way. Clearing them touches nothing that was backed up.",
+                "1 thing written to in the last hour will be left, as a backup may be using it right now.",
+                "2 things in its working folder that Keevoro did not put there will be left as they are.",
+            ]
+        );
+        let after = tidied("D:\\Backup", &swept, true);
+        assert!(after[0].starts_with("Cleared 15.0 GB of unfinished copies (583 files) from D:\\Backup."));
+        assert!(after[1].starts_with("Left 1 thing written to in the last hour"));
+        assert!(after[2].starts_with("Left 2 things"));
+        let none = keevoro_engine::Swept::default();
+        assert_eq!(
+            tidied("E:\\", &none, false),
+            ["There are no unfinished copies to clear in E:\\."]
+        );
+        assert_eq!(
+            tidied("E:\\", &none, true),
+            ["There were no unfinished copies to clear in E:\\."]
+        );
+        for line in before.iter().chain(&after) {
+            assert!(!line.contains('\u{2014}') && !line.contains("  "), "{line}");
+        }
     }
 }
 

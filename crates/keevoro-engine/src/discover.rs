@@ -30,6 +30,17 @@ pub struct SourceView {
     pub items: u64,
     /// The size of everything found on it, in bytes.
     pub bytes: u64,
+    /// Files there that could be photos or videos but were only in online
+    /// storage when it was last looked through, so were not opened.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub online_only: u64,
+    /// The same in words, with how to include them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub online_only_said: Option<String>,
+}
+
+fn is_zero(n: &u64) -> bool {
+    *n == 0
 }
 
 /// A path as a person would write it. Windows gives long paths back as
@@ -294,6 +305,8 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
             root: friendly_path(&s.root),
             items: s.items,
             bytes: s.bytes,
+            online_only: s.online_only,
+            online_only_said: crate::summary::online_only(usize::try_from(s.online_only).unwrap_or(usize::MAX)),
         })
         .collect();
     Ok(Discover {

@@ -27,7 +27,7 @@ pub struct CheckEvent {
 }
 
 /// Progress looking through a drive, and a last one when it is done.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ScanEvent {
     /// The drive's friendly name.
     pub name: String,
@@ -58,6 +58,17 @@ pub struct ScanEvent {
     pub unreadable: usize,
     #[serde(rename = "unreadableNames", default, skip_serializing_if = "Vec::is_empty")]
     pub unreadable_names: Vec<String>,
+    /// On the last event: folders Keevoro made (a backup, an old library)
+    /// that were left out, each with what is said about it.
+    #[serde(rename = "leftOut", default, skip_serializing_if = "Vec::is_empty")]
+    pub left_out: Vec<super::own::LeftOut>,
+    /// On the last event: files that could be photos or videos but were
+    /// only in online storage, so were passed over unopened, and that said
+    /// with how to include them.
+    #[serde(rename = "onlineOnly", default, skip_serializing_if = "is_zero")]
+    pub online_only: usize,
+    #[serde(rename = "onlineOnlySaid", default, skip_serializing_if = "Option::is_none")]
+    pub online_only_said: Option<String>,
 }
 
 fn is_zero(n: &usize) -> bool {
@@ -142,6 +153,12 @@ pub struct HintView {
     pub likely_photos: bool,
     /// True when this folder is already one of the backup's sources.
     pub already_a_source: bool,
+    /// Of its photos and videos, those only in online storage, which a
+    /// search will pass over unopened, and that said.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub online_only: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub online_only_said: Option<String>,
 }
 
 /// What a survey of a drive found: its last word.
@@ -154,6 +171,15 @@ pub struct SurveyView {
     pub unreadable: usize,
     pub seconds: f32,
     pub stopped: bool,
+    /// Folders Keevoro made that were left out, each with what is said.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub left_out: Vec<super::own::LeftOut>,
+    /// Photos and videos only in online storage, everywhere it looked, and
+    /// that said.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub online_only: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub online_only_said: Option<String>,
 }
 
 /// One thing a job said. It is written out as the shape inside it, with
@@ -238,6 +264,8 @@ mod tests {
             bytes: 3,
             likely_photos: true,
             already_a_source: false,
+            online_only: 2,
+            online_only_said: keevoro_engine::summary::online_only(2),
         };
         let all = [
             Said::Scan(ScanEvent {
@@ -253,6 +281,9 @@ mod tests {
                 problem: None,
                 unreadable: 0,
                 unreadable_names: Vec::new(),
+                left_out: Vec::new(),
+                online_only: 412,
+                online_only_said: keevoro_engine::summary::online_only(412),
             }),
             Said::Survey(SurveyEvent {
                 folders: 1,
@@ -267,6 +298,9 @@ mod tests {
                 unreadable: 0,
                 seconds: 0.5,
                 stopped: false,
+                left_out: Vec::new(),
+                online_only: 2,
+                online_only_said: keevoro_engine::summary::online_only(2),
             }),
             Said::Send(SendEvent::progress("Getting ready")),
             Said::Send(SendEvent::finished(b"Done.\n", Some("x".into()), Outcome::Unreachable)),
@@ -332,7 +366,7 @@ mod tests {
             finished: false,
             problem: None,
             unreadable: 0,
-            unreadable_names: Vec::new(),
+            ..ScanEvent::default()
         };
         assert_eq!(
             serde_json::to_value(&scan).unwrap(),
@@ -375,6 +409,7 @@ mod tests {
                 problem: Some("x".into()),
                 unreadable: 1,
                 unreadable_names: vec!["b".into()],
+                ..ScanEvent::default()
             }),
             Said::Survey(survey),
             Said::Send(SendEvent::progress("x")),

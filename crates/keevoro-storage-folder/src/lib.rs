@@ -565,16 +565,25 @@ fn invalid(key: &ObjectKey, reason: &'static str) -> StorageError {
 /// another one using the same folder.
 pub const ABANDONED_AFTER: std::time::Duration = std::time::Duration::from_secs(60 * 60);
 
-/// What tidying a folder's working files did.
+/// What tidying a folder's working files did, or would do.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Swept {
-    /// Abandoned working files removed, and their size.
+    /// Abandoned working files removed (or that would be), and their size.
     pub files: u64,
     pub bytes: u64,
-    /// Things left in the working folder: written to within the last hour
-    /// (someone may be using them), links, or anything Keevoro does not
-    /// recognise as its own.
-    pub left: u64,
+    /// Left in the working folder because they were written to within
+    /// [`ABANDONED_AFTER`]: a backup may be using them right now.
+    pub in_use: u64,
+    /// Left in the working folder because Keevoro does not recognise them
+    /// as its own: anything it did not name, and links.
+    pub not_ours: u64,
+}
+
+impl Swept {
+    /// Everything left in the working folder, whatever the reason.
+    pub fn left(&self) -> u64 {
+        self.in_use + self.not_ours
+    }
 }
 
 /// Removes the working files under `root`'s `.keevoro-uploads` folder that
@@ -593,7 +602,7 @@ pub struct Swept {
 ///   did for folders. Folders are now always sent whole files, so no
 ///   version that still runs resumes these; once nothing in one has
 ///   changed for [`ABANDONED_AFTER`], it is removed.
-/// - anything else, or a link: left alone, and counted in [`Swept::left`].
+/// - anything else, or a link: left alone, and counted in [`Swept::not_ours`].
 ///
 /// The age rule is what keeps a live copy safe when another program, or
 /// another computer, is backing up to the same folder at this moment: its
@@ -601,6 +610,17 @@ pub struct Swept {
 /// lie inside the working folder, by where it really leads, before it is
 /// removed, and links are never followed.
 pub fn sweep_working_files(root: &Path, abandoned_after: std::time::Duration) -> std::io::Result<Swept> {
+    sweep(root, abandoned_after, true)
+}
+
+/// What [`sweep_working_files`] would clear from `root`, by the same rules,
+/// without removing anything. It reads one small folder's listing, so it
+/// is quick enough to ask before a person decides.
+pub fn working_files_to_clear(root: &Path, abandoned_after: std::time::Duration) -> std::io::Result<Swept> {
+    sweep(root, abandoned_after, false)
+}
+
+fn sweep(root: &Path, abandoned_after: std::time::Duration, clear: bool) -> std::io::Result<Swept> {
     let mut swept = Swept::default();
     let work = root.join(WORK_DIR);
     let meta = match std::fs::symlink_metadata(&work) {
@@ -610,7 +630,7 @@ pub fn sweep_working_files(root: &Path, abandoned_after: std::time::Duration) ->
     };
     if !meta.is_dir() || meta.file_type().is_symlink() {
         // Not a folder Keevoro made: it is somebody else's.
-        swept.left += 1;
+        swept.not_ours += 1;
         return Ok(swept);
     }
     let inside = std::fs::canonicalize(&work)?;
@@ -626,24 +646,28 @@ pub fn sweep_working_files(root: &Path, abandoned_after: std::time::Duration) ->
         let meta = std::fs::symlink_metadata(&path)?;
         let ours = std::fs::canonicalize(&path).is_ok_and(|real| real.parent() == Some(inside.as_path()));
         if meta.file_type().is_symlink() || !ours {
-            swept.left += 1;
+            swept.not_ours += 1;
         } else if meta.is_file() && name.starts_with("tmp-") {
             if old_enough(meta.modified()?) {
-                std::fs::remove_file(&path)?;
+                if clear {
+                    std::fs::remove_file(&path)?;
+                }
                 swept.files += 1;
                 swept.bytes += meta.len();
             } else {
-                swept.left += 1;
+                swept.in_use += 1;
             }
         } else if meta.is_dir() && !name.is_empty() && name.chars().all(|c| c.is_ascii_hexdigit()) {
-            sweep_upload_in_parts(&path, &inside, &old_enough, &mut swept)?;
+            sweep_upload_in_parts(&path, &inside, &old_enough, clear, &mut swept)?;
         } else {
-            swept.left += 1;
+            swept.not_ours += 1;
         }
     }
-    // Empty now: the working folder goes too. A copy starting this moment
-    // makes it again.
-    let _ = std::fs::remove_dir(&work);
+    if clear {
+        // Empty now: the working folder goes too. A copy starting this
+        // moment makes it again.
+        let _ = std::fs::remove_dir(&work);
+    }
     Ok(swept)
 }
 
@@ -653,6 +677,7 @@ fn sweep_upload_in_parts(
     dir: &Path,
     inside: &Path,
     old_enough: &dyn Fn(SystemTime) -> bool,
+    clear: bool,
     swept: &mut Swept,
 ) -> std::io::Result<()> {
     let mut files = Vec::new();
@@ -660,19 +685,29 @@ fn sweep_upload_in_parts(
         let path = entry?.path();
         let meta = std::fs::symlink_metadata(&path)?;
         let ours = std::fs::canonicalize(&path).is_ok_and(|real| real.parent().and_then(Path::parent) == Some(inside));
-        if !meta.is_file() || !ours || !old_enough(meta.modified()?) {
-            // A link, a folder, or a part written within the hour.
-            swept.left += 1;
+        if !meta.is_file() || !ours {
+            // A link or a folder: not something Keevoro put there.
+            swept.not_ours += 1;
+            return Ok(());
+        }
+        if !old_enough(meta.modified()?) {
+            // A part written within the hour.
+            swept.in_use += 1;
             return Ok(());
         }
         files.push((path, meta.len()));
     }
     for (path, bytes) in files {
-        std::fs::remove_file(&path)?;
+        if clear {
+            std::fs::remove_file(&path)?;
+        }
         swept.files += 1;
         swept.bytes += bytes;
     }
-    std::fs::remove_dir(dir)
+    if clear {
+        std::fs::remove_dir(dir)?;
+    }
+    Ok(())
 }
 
 fn not_found_or(e: std::io::Error, key: &ObjectKey) -> StorageError {
@@ -1026,7 +1061,7 @@ mod tests {
                 Swept {
                     files: 4,
                     bytes: 1000 + 3000 + 500 + 19,
-                    left: 0
+                    ..Swept::default()
                 }
             );
             assert!(!work.exists(), "the empty working folder is removed");
@@ -1036,6 +1071,41 @@ mod tests {
                 Swept::default(),
                 "nothing twice"
             );
+        }
+
+        #[test]
+        fn what_would_be_cleared_is_said_first_and_nothing_is_removed_until_asked() {
+            let (_dir, root) = backup();
+            let work = root.join(WORK_DIR);
+            write_aged(&work.join("tmp-old"), &[1u8; 1000], HOURS_AGO);
+            write_aged(&work.join("abc123/part-00001"), &[2u8; 3000], HOURS_AGO);
+            write_aged(&work.join("tmp-live"), &[1u8; 10], Duration::ZERO);
+            write_aged(&work.join("notes.txt"), b"someone's", HOURS_AGO);
+
+            let first = working_files_to_clear(&root, ABANDONED_AFTER).unwrap();
+            assert_eq!(
+                first,
+                Swept {
+                    files: 2,
+                    bytes: 4000,
+                    in_use: 1,
+                    not_ours: 1
+                }
+            );
+            assert!(work.join("tmp-old").is_file() && work.join("abc123/part-00001").is_file());
+            assert_eq!(
+                working_files_to_clear(&root, ABANDONED_AFTER).unwrap(),
+                first,
+                "asking twice changes nothing"
+            );
+            assert_eq!(
+                sweep_working_files(&root, ABANDONED_AFTER).unwrap(),
+                first,
+                "it does what it said"
+            );
+            assert!(!work.join("tmp-old").exists());
+            assert_eq!(first.left(), 2);
+            backed_up_untouched(&root);
         }
 
         #[test]
@@ -1050,7 +1120,7 @@ mod tests {
             write_aged(&work.join("tmp-old"), &[1u8; 50], HOURS_AGO);
 
             let swept = sweep_working_files(&root, ABANDONED_AFTER).unwrap();
-            assert_eq!((swept.files, swept.bytes, swept.left), (1, 50, 2));
+            assert_eq!((swept.files, swept.bytes, swept.in_use, swept.not_ours), (1, 50, 2, 0));
             assert!(work.join("tmp-live").is_file());
             assert!(
                 work.join("abc123/part-00001").is_file(),
@@ -1066,7 +1136,7 @@ mod tests {
             write_aged(&work.join("notes.txt"), b"someone's", HOURS_AGO);
             write_aged(&work.join("Holiday/IMG_1.jpg"), b"someone's", HOURS_AGO);
             let swept = sweep_working_files(&root, ABANDONED_AFTER).unwrap();
-            assert_eq!((swept.files, swept.left), (0, 2));
+            assert_eq!((swept.files, swept.in_use, swept.not_ours), (0, 0, 2));
             assert!(work.join("notes.txt").is_file() && work.join("Holiday/IMG_1.jpg").is_file());
         }
 
@@ -1092,7 +1162,7 @@ mod tests {
             std::os::unix::fs::symlink(elsewhere.join("tmp-precious"), work.join("tmp-link")).unwrap();
             std::os::unix::fs::symlink(&elsewhere, work.join("abcdef")).unwrap();
             let swept = sweep_working_files(&root, ABANDONED_AFTER).unwrap();
-            assert_eq!((swept.files, swept.left), (0, 2));
+            assert_eq!((swept.files, swept.left()), (0, 2));
             assert_eq!(fs::read(elsewhere.join("tmp-precious")).unwrap(), b"keep");
             assert_eq!(fs::read(elsewhere.join("part-00001")).unwrap(), b"keep");
 
@@ -1101,7 +1171,7 @@ mod tests {
             fs::remove_dir_all(&work).unwrap();
             std::os::unix::fs::symlink(&elsewhere, &work).unwrap();
             let swept = sweep_working_files(&root, ABANDONED_AFTER).unwrap();
-            assert_eq!((swept.files, swept.left), (0, 1));
+            assert_eq!((swept.files, swept.left()), (0, 1));
             assert!(elsewhere.join("tmp-precious").is_file());
         }
 
@@ -1115,7 +1185,7 @@ mod tests {
             write_aged(&work.join("abc/target"), b"1\nx", HOURS_AGO);
             std::os::unix::fs::symlink(&outside, work.join("abc/part-00001")).unwrap();
             let swept = sweep_working_files(&root, ABANDONED_AFTER).unwrap();
-            assert_eq!((swept.files, swept.left), (0, 1));
+            assert_eq!((swept.files, swept.left()), (0, 1));
             assert_eq!(fs::read(&outside).unwrap(), b"keep");
             assert!(work.join("abc/target").is_file());
         }

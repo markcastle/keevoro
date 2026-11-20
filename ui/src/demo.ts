@@ -11,6 +11,7 @@
 import type {
   AppState,
   FileKind,
+  Wants,
   SendEvent,
   Backend,
   CheckEvent,
@@ -26,7 +27,11 @@ import type {
   Backup,
   BackupEstimate,
   BackupStage,
+  FileView,
+  FolderView,
 } from './backend'
+import { count, size } from './format'
+import { PictureQueue, fileKey } from './pictureQueue'
 
 const SCENES: [string, string, string][] = [
   ['#7ec8e3', '#f6d365', '#2e7d6b'], // beach
@@ -96,6 +101,48 @@ const FOUND: (() => Collection)[] = [
   () => collection('Undated', '', 9, 0),
 ]
 
+/** As Keevoro says it of files only in OneDrive, passed over unopened. */
+const onlineOnlySaid = (n: number) =>
+  `${count(n, 'file')} here ${n === 1 ? 'is' : 'are'} in OneDrive only, not on this computer, so Keevoro did not open ${n === 1 ? 'it' : 'them'}. To include ${n === 1 ? 'it' : 'them'}, make ${n === 1 ? 'it' : 'them'} available offline in OneDrive first, then look again.`
+
+/**
+ * The owner's own case, made up: a Pictures folder that holds a camera roll
+ * big enough to need a grid that only draws what is on screen, screen
+ * recordings, and a holiday, with a few files only in OneDrive.
+ */
+const INSIDE: { relative: string; photos: number; videos: number }[] = [
+  { relative: '', photos: 6, videos: 0 },
+  { relative: 'Camera Roll', photos: 1_204, videos: 37 },
+  { relative: 'Captures', photos: 0, videos: 41 },
+  { relative: '2019 › Cornwall', photos: 120, videos: 4 },
+  { relative: 'Screenshots', photos: 300, videos: 0 },
+]
+
+/** The files in one made-up folder, by name: photos, then videos, every 50th only in OneDrive. */
+function demoFiles(folder: string, photos: number, videos: number): FileView[] {
+  const files: FileView[] = []
+  for (let i = 0; i < photos; i++) {
+    files.push({
+      path: `${folder}\\IMG_${String(i + 1).padStart(4, '0')}.jpg`,
+      name: `IMG_${String(i + 1).padStart(4, '0')}.jpg`,
+      isVideo: false,
+      bytes: 3.1 * 1024 ** 2,
+      modified: 1_560_000_000 + i * 600,
+      ...(i % 50 === 49 ? { onlineOnly: true } : {}),
+    })
+  }
+  for (let i = 0; i < videos; i++) {
+    files.push({
+      path: `${folder}\\VID_${String(i + 1).padStart(4, '0')}.mp4`,
+      name: `VID_${String(i + 1).padStart(4, '0')}.mp4`,
+      isVideo: true,
+      bytes: 88 * 1024 ** 2,
+      modified: 1_560_000_000 + i * 900,
+    })
+  }
+  return files
+}
+
 export function demoBackend(): Backend {
   const mode = new URLSearchParams(window.location.search).get('demo')
   const firstHome = 'C:\\Users\\You\\AppData\\Keevoro\\backups\\s1'
@@ -148,9 +195,40 @@ export function demoBackend(): Backend {
   }
   let stopAsked = false
   let stopLooking = false
+  // Pictures of files in a folder being looked inside, a few at a time.
+  const looks = new PictureQueue()
+  // How many have been made, so a test can see that only what is on screen was fetched.
+  let looked = 0
+  ;(window as unknown as { keevoroPicturesMade: () => number }).keevoroPicturesMade = () => looked
+  // Folders holding a stopped backup's working files, and how many.
+  const untidy = new Map<string, number>([
+    ['F:\\Family Backup', 12],
+    ['G:\\Old Keevoro backup', 583],
+  ])
   let systemCodecs = true
   let agents = { lookIn: [] as string[], backUpTo: [] as string[], mayChange: false }
   let previews = true
+  // Photos and videos, photos only or videos only: the backup's, and each source's own.
+  let backupWants: Wants = 'both'
+  const sourceChoices = new Map<number, Wants>()
+  const words = { both: 'photos and videos', photos: 'photos only', videos: 'videos only' }
+  const safe = ' Anything already backed up stays backed up; it is just no longer kept in what this backup chooses.'
+  const wantsView = (wants: Wants, own?: boolean, changed = false) => ({
+    wants,
+    own,
+    said: `This backup is for ${words[wants]}.${changed && wants !== 'both' ? safe : ''}`,
+  })
+  const sourceView = (id: number, changed = false) => {
+    const own = sourceChoices.get(id)
+    const wants = own ?? backupWants
+    return {
+      wants,
+      own: own !== undefined,
+      said:
+        (own ? `This source is set to ${words[own]}.` : `This source follows the backup: ${words[wants]}.`) +
+        (changed && wants !== 'both' ? safe : ''),
+    }
+  }
   // The kinds of file looked for, as Keevoro comes with them, and one added.
   const builtInKinds = (): FileKind[] => [
     ...'jpg jpeg jpe png heic heif tif tiff webp bmp avif jxl dng cr2 cr3 crw nef nrw arw srf sr2 orf rw2 raf pef srw x3f 3fr erf kdc mrw raw iiq dcr mef mos rwl'
@@ -421,10 +499,12 @@ export function demoBackend(): Backend {
         if (junk.length === 0) junk.push(...junkFound())
         // Looking through a source again replaces what was known about it.
         const known = sources.findIndex((s) => s.root === root)
-        const entry = { id: known >= 0 ? sources[known].id : Date.now(), name: known >= 0 ? sources[known].name : name, root, items: photos + videos, bytes: (photos * 3.2 + videos * 48) * 1024 * 1024 }
+        // The owner's Pictures folder is kept in OneDrive, part of it online only.
+        const online = root.endsWith('\\Pictures') ? { onlineOnly: 412, onlineOnlySaid: onlineOnlySaid(412) } : {}
+        const entry = { id: known >= 0 ? sources[known].id : Date.now(), name: known >= 0 ? sources[known].name : name, root, items: photos + videos, bytes: (photos * 3.2 + videos * 48) * 1024 * 1024, ...online }
         if (known >= 0) sources[known] = entry
         else sources.push(entry)
-        scanListeners.forEach((l) => l({ name, photos, videos, finished: true }))
+        scanListeners.forEach((l) => l({ name, photos, videos, finished: true, ...online }))
         // Then, as the real app does, the careful checking carries on behind.
         const total = Math.max(1, Math.round((photos + videos) / 6))
         for (let done = 0; done < total; done += Math.ceil(total / 5)) {
@@ -567,6 +647,27 @@ export function demoBackend(): Backend {
       return lookedFor.map((k) => ({ ...k }))
     },
     chooseAgentFolder: async () => (agents.lookIn.includes('D:\\Photos') ? 'F:\\Family Backup' : 'D:\\Photos'),
+    // The owner's case: an old backup folder full of a stopped backup's working files.
+    tidyFolder: async (folder, dryRun) => {
+      const files = untidy.get(folder) ?? 0
+      const bytes = files * 26.7 * 1024 ** 2
+      const inUse = files > 0 ? 1 : 0
+      if (!dryRun) untidy.delete(folder)
+      const said =
+        files === 0
+          ? [`There ${dryRun ? 'are' : 'were'} no unfinished copies to clear in ${folder}.`]
+          : dryRun
+            ? [
+                `There are ${size(bytes)} of unfinished copies (${count(files, 'file')}) in ${folder}, left by a backup that was stopped part-way. Clearing them touches nothing that was backed up.`,
+                '1 thing written to in the last hour will be left, as a backup may be using it right now.',
+              ]
+            : [
+                `Cleared ${size(bytes)} of unfinished copies (${count(files, 'file')}) from ${folder}. They were Keevoro's working files; nothing that was backed up was touched.`,
+                'Left 1 thing written to in the last hour, as a backup may be using it right now. Try again later.',
+              ]
+      return { folder, cleared: !dryRun, files, bytes, inUse, notOurs: 0, said }
+    },
+    chooseFolderToTidy: async () => 'G:\\Old Keevoro backup',
     setAcceleration: async (on) => {
       systemCodecs = on
       return speed()
@@ -606,7 +707,7 @@ export function demoBackend(): Backend {
       return {
         hints: [
           { folder: `${drive}\\Users\\Mark\\Videos\\Drone`, photos: 333, videos: 26, bytes: 94 * 1024 ** 3, likelyPhotos: true, alreadyASource: false },
-          { folder: `${drive}\\Users\\Mark\\Pictures`, photos: 11_204, videos: 310, bytes: 61 * 1024 ** 3, likelyPhotos: true, alreadyASource: false },
+          { folder: `${drive}\\Users\\Mark\\Pictures`, photos: 11_204, videos: 310, bytes: 61 * 1024 ** 3, likelyPhotos: true, alreadyASource: false, onlineOnly: 412, onlineOnlySaid: onlineOnlySaid(412) },
           { folder: `${drive}\\Old laptop backup\\Photos`, photos: 902, videos: 12, bytes: 3.4 * 1024 ** 3, likelyPhotos: true, alreadyASource: false },
           { folder: `${drive}\\Games\\Launcher\\assets`, photos: 1_840, videos: 0, bytes: 9 * 1024 ** 2, likelyPhotos: false, alreadyASource: false },
         ],
@@ -615,6 +716,15 @@ export function demoBackend(): Backend {
         unreadable: 3,
         seconds: 6.2,
         stopped: false,
+        onlineOnly: 412,
+        onlineOnlySaid: onlineOnlySaid(412),
+        leftOut: [
+          {
+            folder: `${drive}\\Users\\Mark\\Pictures\\Keevoro Library`,
+            what: 'oldLibrary',
+            said: `Left out ${drive}\\Users\\Mark\\Pictures\\Keevoro Library: a folder an older version of Keevoro made, which it no longer uses. It takes 9.2 GB: 8.4 GB of copies of your photos it gathered there (2,310 files), and 0.8 GB of previews and working files it made. Keevoro has not checked that every copy is also in one of your backups, so it leaves the folder for you to decide about and never removes it.`,
+          },
+        ],
       }
     },
     stopSurvey: async () => {},
@@ -686,7 +796,30 @@ export function demoBackend(): Backend {
           ],
     setAside: async () => junk.map((file) => ({ ...file })),
     // Every source in the stand-in has the same made-up mix of kinds.
-    fileTypes: async () => kinds.map((k) => ({ ...k })),
+    backupWants: async () => wantsView(backupWants),
+    setBackupWants: async (wants) => {
+      backupWants = wants
+      return wantsView(wants, undefined, true)
+    },
+    sourceWants: async (id) => sourceView(id),
+    setSourceWants: async (id, wants) => {
+      if (wants === 'backup') sourceChoices.delete(id)
+      else sourceChoices.set(id, wants)
+      return sourceView(id, true)
+    },
+    fileTypes: async (id) =>
+      kinds.map((k) => {
+        const isVideo = ['mov', 'mp4', 'mts', 'avi'].includes(k.ending)
+        const own = sourceChoices.get(id)
+        const wants = own ?? backupWants
+        const left = (wants === 'photos' && isVideo) || (wants === 'videos' && !isVideo)
+        if (left) {
+          const level = own ? 'source' : 'backup'
+          const other = isVideo ? 'photos only' : 'videos only'
+          return { ...k, leftOutBy: level, why: `this ${level} is ${level === 'backup' ? 'for' : 'set to'} ${other}` }
+        }
+        return k.included ? { ...k } : { ...k, leftOutBy: 'ending' as const, why: 'files with this ending are left out of this source' }
+      }),
     includeFileType: async (_id, ending, included) => {
       const kind = kinds.find((k) => k.ending === ending)
       if (kind) kind.included = included
@@ -719,6 +852,53 @@ export function demoBackend(): Backend {
       return pictures.get(id) ?? Promise.reject(new Error('This one can\u2019t be previewed'))
     },
     closerLook: async (id) => pictures.get(id) ?? Promise.reject(new Error('This one can\u2019t be previewed')),
+    notNeeded: (key) => looks.drop(key),
+    // Looking inside a folder: a Pictures folder like the owner's, or any
+    // other with a few photos in it.
+    foldersInside: async (place) => {
+      const plan = /\\Pictures$/.test(place) ? INSIDE : [{ relative: '', photos: 40, videos: 2 }]
+      const folders: FolderView[] = plan.map((f) => ({
+        folder: f.relative ? `${place}\\${f.relative.replace(/ › /g, '\\')}` : place,
+        relative: f.relative,
+        photos: f.photos,
+        videos: f.videos,
+        bytes: (f.photos * 3.1 + f.videos * 88) * 1024 ** 2,
+        onlineOnly: Math.floor(f.photos / 50),
+      }))
+      return {
+        place,
+        surveyedAt: Math.floor(Date.now() / 1000) - 120,
+        complete: true,
+        folders,
+        photos: folders.reduce((n, f) => n + f.photos, 0),
+        videos: folders.reduce((n, f) => n + f.videos, 0),
+        bytes: folders.reduce((n, f) => n + f.bytes, 0),
+        onlineOnly: folders.reduce((n, f) => n + f.onlineOnly, 0),
+      }
+    },
+    folderFiles: async (place, from, count) => {
+      await later(80 * pace)
+      const known = INSIDE.find((f) => (f.relative ? place.endsWith(`\\${f.relative.replace(/ › /g, '\\')}`) : /\\Pictures$/.test(place)))
+      const files = demoFiles(place, known?.photos ?? 40, known?.videos ?? 2)
+      return {
+        folder: place,
+        total: files.length,
+        photos: files.filter((f) => !f.isVideo).length,
+        videos: files.filter((f) => f.isVideo).length,
+        onlineOnly: files.filter((f) => f.onlineOnly).length,
+        files: files.slice(from, from + Math.min(count, 500)),
+      }
+    },
+    // Each picture takes a moment, a few at a time, as the real ones do.
+    // `?slowpictures` makes them take a while, to show the placeholders.
+    filePicture: (path) =>
+      looks.want(fileKey(path), async () => {
+        looked += 1
+        await later(new URLSearchParams(window.location.search).has('slowpictures') ? 1500 : 40)
+        if (path.endsWith('IMG_0013.jpg')) throw new Error('This one can\u2019t be shown.')
+        return scene([...path].reduce((n, c) => n + c.charCodeAt(0), 0), /\.mp4$/.test(path))
+      }),
+    closerLookAtFile: async (path) => scene([...path].reduce((n, c) => n + c.charCodeAt(0), 0), /\.mp4$/.test(path)),
     destination: async () => sendingTo,
     chooseDestinationFolder: async () => 'F:\\Family Backup',
     async connectDestination(request) {

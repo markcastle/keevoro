@@ -164,6 +164,9 @@ pub struct Source {
     pub bytes: u64,
     /// Seconds since 1970, UTC.
     pub scanned_at: i64,
+    /// Files there that could be photos or videos but were only in online
+    /// storage the last time it was looked through, so were passed over.
+    pub online_only: u64,
 }
 
 /// One kind of file found on a source, by the ending of its name.
@@ -174,8 +177,27 @@ pub struct FileType {
     pub ending: String,
     pub files: u64,
     pub bytes: u64,
+    /// Photo or video, as the first file with this ending was found.
+    pub kind: keevoro_core::MediaKind,
     /// False when the person has left this kind out of this source.
     pub included: bool,
+    /// When files with this ending are not offered, at which level they
+    /// were left out: the backup's or the source's choice of photos or
+    /// videos, or this ending's own.
+    pub left_out_by: Option<keevoro_core::LeftOutBy>,
+}
+
+/// What a backup wants, kept in its settings.
+const WANTS: &str = "wants";
+
+fn wants_key(root: &str) -> String {
+    format!("wants:{root}")
+}
+
+/// How many files the last look through a source passed over as only in
+/// online storage, kept beside it so it is still said after the search.
+fn online_only_key(root: &str) -> String {
+    format!("online_only:{root}")
 }
 
 fn left_out_key(root: &str) -> String {
@@ -271,6 +293,13 @@ impl Catalog {
             }
         }
         tx.execute("DELETE FROM sources WHERE root = ?1", [&root])?;
+        tx.execute("DELETE FROM settings WHERE key = ?1", [online_only_key(&root)])?;
+        if !report.online_only.is_empty() {
+            tx.execute(
+                "INSERT INTO settings (key, value) VALUES (?1, ?2)",
+                params![online_only_key(&root), report.online_only.len().to_string()],
+            )?;
+        }
         tx.execute(
             "INSERT INTO sources (name, root, other_files, scanned_at) VALUES (?1, ?2, ?3, ?4)",
             params![name, root, to_i64(report.other_files), scanned_at],
@@ -327,7 +356,8 @@ impl Catalog {
         let mut q = self.conn.prepare(
             "SELECT s.id, s.name, s.root, s.scanned_at,
                     (SELECT COUNT(*) FROM items i WHERE i.source_id = s.id),
-                    (SELECT COALESCE(SUM(i.bytes), 0) FROM items i WHERE i.source_id = s.id)
+                    (SELECT COALESCE(SUM(i.bytes), 0) FROM items i WHERE i.source_id = s.id),
+                    (SELECT CAST(value AS INTEGER) FROM settings WHERE key = 'online_only:' || s.root)
              FROM sources s ORDER BY s.id",
         )?;
         let rows = q.query_map([], |r| {
@@ -338,6 +368,10 @@ impl Catalog {
                 scanned_at: r.get(3)?,
                 items: u64::try_from(r.get::<_, i64>(4)?).unwrap_or(0),
                 bytes: u64::try_from(r.get::<_, i64>(5)?).unwrap_or(0),
+                online_only: r
+                    .get::<_, Option<i64>>(6)?
+                    .and_then(|n| u64::try_from(n).ok())
+                    .unwrap_or(0),
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -412,6 +446,14 @@ impl Catalog {
     /// Forgets a source and everything found on it. Keep choices stay.
     /// Returns false when there was no such source.
     pub fn forget_source(&mut self, id: i64) -> Result<bool> {
+        let root: Option<String> = self
+            .conn
+            .query_row("SELECT root FROM sources WHERE id = ?1", [id], |r| r.get(0))
+            .optional()?;
+        if let Some(root) = &root {
+            self.conn
+                .execute("DELETE FROM settings WHERE key = ?1", [online_only_key(root)])?;
+        }
         Ok(self.conn.execute("DELETE FROM sources WHERE id = ?1", [id])? > 0)
     }
 
@@ -424,19 +466,26 @@ impl Catalog {
             .optional()?;
         let Some(root) = root else { return Ok(Vec::new()) };
         let left_out = self.left_out_types(&root)?;
-        let mut kinds: std::collections::BTreeMap<String, (u64, u64)> = std::collections::BTreeMap::new();
+        let (backup, own) = (self.wants()?, self.source_wants_at(&root)?);
+        let mut kinds: std::collections::BTreeMap<String, (u64, u64, keevoro_core::MediaKind)> =
+            std::collections::BTreeMap::new();
         for item in self.items_of(source)? {
-            let kind = kinds.entry(ending_of(&item.path)).or_default();
+            let kind = kinds.entry(ending_of(&item.path)).or_insert((0, 0, item.kind));
             kind.0 += 1;
             kind.1 += item.bytes;
         }
         let mut list: Vec<FileType> = kinds
             .into_iter()
-            .map(|(ending, (files, bytes))| FileType {
-                included: !left_out.contains(&ending),
-                ending,
-                files,
-                bytes,
+            .map(|(ending, (files, bytes, kind))| {
+                let included = !left_out.contains(&ending);
+                FileType {
+                    left_out_by: keevoro_core::offered(kind, backup, own, included).err(),
+                    kind,
+                    included,
+                    ending,
+                    files,
+                    bytes,
+                }
             })
             .collect();
         list.sort_by(|a, b| b.files.cmp(&a.files).then_with(|| a.ending.cmp(&b.ending)));
@@ -463,6 +512,57 @@ impl Catalog {
         self.set_setting(&left_out_key(&root), &serde_json::to_string(&list).map_err(damaged)?)
     }
 
+    /// Whether this backup wants photos and videos, or only one of them.
+    pub fn wants(&self) -> Result<keevoro_core::Wants> {
+        Ok(self
+            .setting(WANTS)?
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or_default())
+    }
+
+    pub fn set_wants(&self, wants: keevoro_core::Wants) -> Result<()> {
+        self.set_setting(WANTS, &serde_json::to_string(&wants).unwrap_or_default())
+    }
+
+    /// A source's own choice of photos or videos; `None` when it follows
+    /// the backup's.
+    pub fn source_wants(&self, source: i64) -> Result<Option<keevoro_core::Wants>> {
+        match self.root_of(source)? {
+            Some(root) => self.source_wants_at(&root),
+            None => Ok(None),
+        }
+    }
+
+    /// Sets a source's own choice, or with `None` makes it follow the
+    /// backup's. Kept by the source's place, so it is still there after the
+    /// source is looked through again. False if there is no such source.
+    pub fn set_source_wants(&self, source: i64, wants: Option<keevoro_core::Wants>) -> Result<bool> {
+        let Some(root) = self.root_of(source)? else {
+            return Ok(false);
+        };
+        match wants {
+            Some(wants) => self.set_setting(&wants_key(&root), &serde_json::to_string(&wants).unwrap_or_default())?,
+            None => {
+                self.conn
+                    .execute("DELETE FROM settings WHERE key = ?1", [wants_key(&root)])?;
+            }
+        }
+        Ok(true)
+    }
+
+    fn source_wants_at(&self, root: &str) -> Result<Option<keevoro_core::Wants>> {
+        Ok(self
+            .setting(&wants_key(root))?
+            .and_then(|text| serde_json::from_str(&text).ok()))
+    }
+
+    fn root_of(&self, source: i64) -> Result<Option<String>> {
+        Ok(self
+            .conn
+            .query_row("SELECT root FROM sources WHERE id = ?1", [source], |r| r.get(0))
+            .optional()?)
+    }
+
     fn left_out_types(&self, root: &str) -> Result<std::collections::BTreeSet<String>> {
         Ok(match self.setting(&left_out_key(root))? {
             Some(text) => serde_json::from_str(&text).unwrap_or_default(),
@@ -472,9 +572,13 @@ impl Catalog {
 
     /// Everything known about every source, in the same shape a fresh scan
     /// gives, so the rest of keevoro does not care which one it is given.
-    /// Kinds of file the person has left out of a source are not in it, so
-    /// to everything else they are simply not there.
+    /// What the person has left out (photos or videos, for the backup or a
+    /// source, and endings on a source; see `keevoro_core::wants`) is not
+    /// in it, so to everything else, counts and backups alike, it is simply
+    /// not there. Nothing found is forgotten: changing a choice back brings
+    /// it straight back.
     pub fn load_reports(&self) -> Result<Vec<ScanReport>> {
+        let backup = self.wants()?;
         let mut sources = self
             .conn
             .prepare("SELECT id, root, other_files FROM sources ORDER BY id")?;
@@ -490,15 +594,19 @@ impl Catalog {
                     root: PathBuf::from(&root),
                     items: {
                         let left_out = self.left_out_types(&root)?;
+                        let own = self.source_wants_at(&root)?;
                         let mut items = self.items_of(id)?;
-                        if !left_out.is_empty() {
-                            items.retain(|item| !left_out.contains(&ending_of(&item.path)));
-                        }
+                        items.retain(|item| {
+                            let included = !left_out.contains(&ending_of(&item.path));
+                            keevoro_core::offered(item.kind, backup, own, included).is_ok()
+                        });
                         items
                     },
                     skipped: self.skipped_of(id)?,
                     unreadable: self.unreadable_of(id)?,
                     other_files: u64::try_from(other).unwrap_or(0),
+                    // Known only while a search runs.
+                    online_only: Vec::new(),
                     stopped: false,
                 })
             })
@@ -603,6 +711,19 @@ impl Catalog {
             Some((path, kind, hash)) => Ok(Some((PathBuf::from(path), from_name(&kind)?, hash))),
             None => Ok(None),
         }
+    }
+
+    /// The fingerprint a search gave the file at `path` (its full form, as
+    /// a search records it), if one found it there at this size.
+    pub fn id_at(&self, path: &Path, bytes: u64) -> Result<Option<String>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT blake3 FROM items WHERE path = ?1 AND bytes = ?2 AND blake3 IS NOT NULL ORDER BY id LIMIT 1",
+                params![path_text(path), to_i64(bytes)],
+                |r| r.get(0),
+            )
+            .optional()?)
     }
 
     /// Remembers whether the user wants a file kept. `blake3` is the file's

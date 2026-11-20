@@ -9,7 +9,7 @@
 
 /// The guide's name in the backup. Plain words, so it explains itself in a
 /// file listing and sorts near the folders it describes.
-pub const GUIDE_NAME: &str = "What is in this backup.txt";
+pub const GUIDE_NAME: &str = keevoro_core::BACKUP_GUIDE;
 
 /// One part of a backup: the folder's name, and what a person needs to know.
 pub struct Part {

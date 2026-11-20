@@ -2242,7 +2242,7 @@ main > section > :nth-last-child(2) {
 
 .usage {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr));
   gap: var(--space-5);
   margin: var(--space-5) 0 var(--space-3);
 }
@@ -3284,6 +3284,97 @@ main > section > :nth-last-child(2) {
   white-space: pre-wrap;
 }
 
+/* Folders Keevoro made, left out of a search: one quiet line that opens. */
+.left-out {
+  margin-top: var(--space-3);
+  font-size: 13px;
+  color: var(--ink-muted);
+}
+
+.left-out summary {
+  cursor: pointer;
+}
+
+.left-out ul {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-4);
+}
+
+.left-out li p {
+  margin: 0 0 var(--space-1);
+  max-width: 720px;
+}
+
+.left-out li + li {
+  margin-top: var(--space-3);
+}
+
+/* Photos and videos, photos only, or videos only: plain radio buttons. */
+fieldset.wants {
+  margin: var(--space-3) 0;
+  padding: 0;
+  border: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  align-items: center;
+}
+
+fieldset.wants legend {
+  padding: 0;
+  margin-bottom: var(--space-2);
+  font-weight: 500;
+  font-size: 14px;
+}
+
+fieldset.wants label {
+  display: inline-flex;
+  gap: var(--space-2);
+  align-items: center;
+  font-size: 14px;
+}
+
+fieldset.wants input {
+  height: auto;
+  box-shadow: none;
+}
+
+fieldset.wants [role='status'] {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+/* Clearing unfinished copies: the question and its answer, in the page beside the button. */
+.tidying {
+  flex-basis: 100%;
+  grid-column: 1 / -1;
+  max-width: 720px;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+}
+
+.tidying p + p {
+  margin-top: var(--space-2);
+}
+
+/* Files only in online storage, passed over unopened: said plainly, never only in the log. */
+.online-only {
+  flex-basis: 100%;
+  grid-column: 1 / -1;
+  max-width: 720px;
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--sun-ink);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--sun-ink) 8%, transparent);
+  color: var(--ink);
+}
+
+.online-only.small {
+  font-size: 13px;
+}
+
 /* The history of backups never sets the width of the page: its table
    scrolls inside its own box. */
 .sends {
@@ -3297,4 +3388,130 @@ main > section > :nth-last-child(2) {
   /* Holds the hidden labels for screen readers inside the scrolling box;
      left to the page, they stretch it sideways. */
   position: relative;
+}
+
+/* ---------- a narrow window ----------
+   Below this width the side bar would leave the page too little room, so
+   it becomes a band across the top: the logo and the backup's name, the
+   three steps side by side, and the links below them. Nothing changes
+   order or name, so a person who knows the wide window knows this one.
+   The band scrolls away with the page rather than staying put: held at
+   the top it would take a third of a small window, and the page's
+   heading would slide under it as soon as the page moved. */
+@media (max-width: 640px) {
+  .app {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .sidebar {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+    padding: var(--space-3) 16px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    overflow: visible;
+  }
+
+  .brand img {
+    height: 26px;
+  }
+
+  .sidebar .backup {
+    flex: 1 1 160px;
+    min-width: 0;
+  }
+
+  .steps {
+    flex: 1 1 100%;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+  }
+
+  .steps button {
+    gap: var(--space-2);
+    padding: 6px 8px;
+    font-size: 13px;
+    line-height: 16px;
+  }
+
+  .steps .num {
+    width: 22px;
+    height: 22px;
+    font-size: 12px;
+  }
+
+  .steps small {
+    display: none;
+  }
+
+  .foot {
+    flex: 1 1 100%;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) var(--space-4);
+  }
+
+  main {
+    padding: var(--space-5) 16px 0;
+    overflow-y: visible;
+  }
+}
+
+/* ---------- the look inside a folder ---------- */
+
+/* A grid that only draws what is near the screen: each section and its
+   rows are placed where they would be if every tile were there. */
+.virtual-tiles {
+  position: relative;
+  margin-top: var(--space-4);
+}
+
+.inside .virtual-tiles {
+  margin-top: 0;
+}
+
+.tiles-section {
+  position: absolute;
+  left: 0;
+  right: 0;
+}
+
+.tiles-section > .tiles {
+  position: absolute;
+  left: 0;
+  right: 0;
+}
+
+.tiles-heading {
+  height: 56px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.tiles-heading b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inside header .online-only {
+  margin-top: var(--space-3);
+}
+
+.tiles-heading {
+  align-items: baseline;
+  padding-top: var(--space-5);
+}
+
+.picture.missing span {
+  padding: var(--space-2);
+  text-align: center;
 }

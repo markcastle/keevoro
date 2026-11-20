@@ -11,13 +11,16 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
+pub mod online;
 pub mod survey;
 mod video;
 
+pub use online::{ByAttributes, OnlineCheck};
+
 use keevoro_core::{
-    best_date, date_from_filename, folder_hints, holds_originals, is_raw_extension, junk_hint, kind_from_mime,
-    library_album_segments, never_media_extension, photo_library, DateGuess, DateSource, FolderHints, JunkInput,
-    JunkReason, Kinds, MediaKind, PartialDate, SkipReason, SkipRules,
+    best_date, date_from_filename, folder_hints, folder_made_by_keevoro, holds_originals, is_raw_extension, junk_hint,
+    kind_from_mime, library_album_segments, never_media_extension, photo_library, DateGuess, DateSource, FolderHints,
+    JunkInput, JunkReason, Kinds, MediaKind, PartialDate, SkipReason, SkipRules,
 };
 use serde::Serialize;
 use std::fs::File;
@@ -49,6 +52,9 @@ pub struct ScanOptions {
     /// The kinds of file looked for, read once from the settings before
     /// the search starts. The built-in list unless told otherwise.
     pub kinds: Kinds,
+    /// How a file only in online storage is told apart, so it is never
+    /// opened. The file's own attributes unless told otherwise.
+    pub online: Arc<dyn OnlineCheck>,
 }
 
 impl ScanOptions {
@@ -65,6 +71,7 @@ impl Default for ScanOptions {
             quick: false,
             stop: None,
             kinds: Kinds::default(),
+            online: Arc::new(ByAttributes),
         }
     }
 }
@@ -121,6 +128,10 @@ pub struct ScanReport {
     pub unreadable: Vec<Unreadable>,
     /// Files looked at that were not photos or videos.
     pub other_files: u64,
+    /// Files that could be photos or videos but are only in online storage
+    /// (OneDrive's "files on demand", say), not on this computer. They are
+    /// passed over unopened, as opening one downloads it.
+    pub online_only: Vec<PathBuf>,
     /// True when the search was stopped before it had looked everywhere,
     /// so this is only part of what is there.
     #[serde(skip)]
@@ -149,6 +160,8 @@ const WORTH_ANNOUNCING: u64 = 64 * 1024 * 1024;
 enum Looked {
     Media(Box<FoundItem>),
     Other,
+    /// Only in online storage: not opened.
+    OnlineOnly,
     Unreadable(String),
     Skipped(SkipReason),
     /// A reader is about to start on a large file of this many bytes.
@@ -182,6 +195,7 @@ pub fn scan(root: &Path, opts: &ScanOptions, on_progress: &mut dyn FnMut(&ScanPr
     let mut found: Vec<(u64, FoundItem)> = Vec::new();
     let mut skipped: Vec<(u64, SkippedFolder)> = Vec::new();
     let mut unreadable: Vec<(u64, Unreadable)> = Vec::new();
+    let mut online: Vec<(u64, PathBuf)> = Vec::new();
 
     std::thread::scope(|threads| {
         for _ in 0..readers() {
@@ -244,6 +258,7 @@ pub fn scan(root: &Path, opts: &ScanOptions, on_progress: &mut dyn FnMut(&ScanPr
                     },
                 )),
                 Looked::Other => report.other_files += 1,
+                Looked::OnlineOnly => online.push((order, path.clone())),
                 Looked::Media(item) => {
                     match item.kind {
                         MediaKind::Photo => progress.photos += 1,
@@ -270,6 +285,8 @@ pub fn scan(root: &Path, opts: &ScanOptions, on_progress: &mut dyn FnMut(&ScanPr
     report.items = found.into_iter().map(|(_, item)| item).collect();
     report.skipped = skipped.into_iter().map(|(_, s)| s).collect();
     report.unreadable = unreadable.into_iter().map(|(_, u)| u).collect();
+    online.sort_by_key(|(order, _)| *order);
+    report.online_only = online.into_iter().map(|(_, p)| p).collect();
     report.stopped = opts.stopped();
     report
 }
@@ -300,6 +317,18 @@ fn walk(
         };
         let name = entry.file_name().to_string_lossy();
         if entry.file_type().is_dir() {
+            // What Keevoro made is never a source: a backup, a backup's own
+            // folder, an old library, Keevoro's own data. Judged by what is
+            // in it, or by being one of Keevoro's places on this computer.
+            let made = opts
+                .skip
+                .own_place(entry.path())
+                .or_else(|| folder_made_by_keevoro(entry.path()));
+            if let Some(reason) = made {
+                let _ = done.send((order, entry.path().to_path_buf(), Looked::Skipped(reason)));
+                walk.skip_current_dir();
+                continue;
+            }
             if inside_library_package(entry.path()) && !holds_originals(&name) {
                 // Thumbnails, previews and databases: copies of what is in
                 // the originals folder, so not worth reporting as skipped.
@@ -317,18 +346,26 @@ fn walk(
         if !entry.file_type().is_file() || opts.skip.skip_file(&name).is_some() {
             continue;
         }
-        let path = entry.into_path();
-        let passed_over = path.extension().is_some_and(|ext| {
+        let passed_over = entry.path().extension().is_some_and(|ext| {
             let ext = ext.to_string_lossy();
             match opts.kinds.looked_for(&ext) {
                 Some(_) => false,
                 None => opts.kinds.switched_off(&ext) || never_media_extension(&ext),
             }
         });
+        // Only in online storage: opening it would download it. Asked of
+        // what the listing says, and only of files that could be photos.
+        let online = !passed_over
+            && entry
+                .metadata()
+                .is_ok_and(|listing| opts.online.online_only(entry.path(), &listing));
+        let path = entry.into_path();
         let sent = if passed_over {
             // Programs, documents and music, and kinds the person switched
             // off, are not opened at all.
             done.send((order, path, Looked::Other)).is_ok()
+        } else if online {
+            done.send((order, path, Looked::OnlineOnly)).is_ok()
         } else {
             to_read.send((order, path)).is_ok()
         };
@@ -528,6 +565,20 @@ fn quick_fingerprint(file: &mut File, size: u64) -> std::io::Result<String> {
         hasher.update(&buf[..n]);
     }
     Ok(hasher.finalize().to_hex().to_string())
+}
+
+/// The fingerprint a search gives a file, worked out the same way: from a
+/// few samples for a large file when `quick` (as the app's searches are),
+/// otherwise from every byte. A picture made of a file before it is found
+/// is named by this, so the search finds that picture already made.
+pub fn fingerprint(path: &Path, quick: bool) -> std::io::Result<String> {
+    let mut file = File::open(path)?;
+    let size = file.metadata()?.len();
+    if quick && size > QUICK_ABOVE {
+        quick_fingerprint(&mut file, size)
+    } else {
+        hash_rest(&mut file, &[])
+    }
 }
 
 /// The BLAKE3 hash of every byte of a file: the fingerprint that proves two

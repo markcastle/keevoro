@@ -98,6 +98,13 @@ pub(crate) mod tests {
             problem: Some("x".into()),
             unreadable: 1,
             unreadable_names: vec!["b.jpg".into()],
+            left_out: vec![keevoro_api::jobs::own::LeftOut {
+                folder: "D:\\Keevoro Library".into(),
+                what: "oldLibrary".into(),
+                said: "Left out D:\\Keevoro Library.".into(),
+            }],
+            online_only: 412,
+            online_only_said: Some("412 files here are in OneDrive only.".into()),
         };
         assert_eq!(keys(&scan), fields_of("ScanEvent"), "every field, filled in");
         let send = SendEvent {
@@ -128,6 +135,8 @@ pub(crate) mod tests {
             bytes: 3,
             likely_photos: true,
             already_a_source: false,
+            online_only: 4,
+            online_only_said: Some("4 files here are in OneDrive only.".into()),
         };
         assert_eq!(keys(&hint), fields_of("Hint"));
         let found = SurveyView {
@@ -137,6 +146,13 @@ pub(crate) mod tests {
             unreadable: 3,
             seconds: 0.5,
             stopped: false,
+            left_out: vec![keevoro_api::jobs::own::LeftOut {
+                folder: "D:\\Backups".into(),
+                what: "keevoroBackup".into(),
+                said: "Left out a Keevoro backup at D:\\Backups.".into(),
+            }],
+            online_only: 4,
+            online_only_said: Some("4 files here are in OneDrive only.".into()),
         };
         assert_eq!(keys(&found), fields_of("Survey"));
 

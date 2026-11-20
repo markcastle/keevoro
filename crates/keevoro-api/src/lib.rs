@@ -34,6 +34,7 @@ pub mod destinations;
 pub mod error;
 pub mod file_kinds;
 pub mod for_agents;
+pub mod inside;
 pub mod jobs;
 pub mod keevoro;
 pub mod log;
@@ -42,6 +43,7 @@ pub mod places;
 mod rates;
 pub mod register;
 pub mod reset;
+pub mod wants;
 pub mod words;
 
 pub use agents::{AgentAccess, AgentsAccessRequest};
@@ -278,6 +280,14 @@ fn answer(value: impl Serialize) -> Result<Value> {
 pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> Result<Value> {
     let open = || keevoro.backups().open(backup);
     let named = || keevoro.backups().named_or_open(backup);
+    // A backup used only for its choices (photos or videos only) and what
+    // its searches know: the one named, else the open one, if any.
+    let any_backup = || -> Result<Option<Named>> {
+        match backup {
+            Some(_) => Ok(Some(keevoro.backups().named_or_open(backup)?)),
+            None => Ok(keevoro.backups().current()),
+        }
+    };
     match op {
         Op::BackupsList => {
             read::<Nothing>(request)?;
@@ -285,7 +295,11 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
         }
         Op::BackupsStart => {
             let r: StartBackupRequest = read(request)?;
-            answer(keevoro.start_backup(&r.name)?)
+            let started = keevoro.start_backup(&r.name)?;
+            if let Some(choice) = r.wants {
+                keevoro.set_backup_wants(&Backup::open(&started.home)?, choice.into())?;
+            }
+            answer(started)
         }
         Op::BackupsRename => {
             let r: RenameBackupRequest = read(request)?;
@@ -345,8 +359,20 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
         }
         Op::PhotosPicture => {
             let r: PictureRequest = read(request)?;
-            let bytes = keevoro.picture(&open()?, &r.photo, r.size)?;
+            let bytes = match (r.photo, r.file) {
+                (Some(photo), None) => keevoro.picture(&open()?, &photo, r.size)?,
+                (None, Some(file)) => keevoro.picture_of_file(Path::new(&file), r.size, any_backup()?.as_ref())?,
+                _ => return Err(Error::not_understood("give a photo or a file, not both")),
+            };
             answer(Picture::webp(&bytes))
+        }
+        Op::PlacesFolders => {
+            let r: PlaceRequest = read(request)?;
+            answer(keevoro.folders_inside(Path::new(&r.place), any_backup()?.as_ref())?)
+        }
+        Op::PlacesFiles => {
+            let r: inside::FilesRequest = read(request)?;
+            answer(keevoro.files_in(Path::new(&r.place), any_backup()?.as_ref(), r.from, r.count)?)
         }
         Op::DestinationsList => {
             read::<Nothing>(request)?;
@@ -371,7 +397,7 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
         }
         Op::DestinationsTidy => {
             let r: keevoro::TidyRequest = read(request)?;
-            answer(keevoro.tidy_folder(Path::new(&r.place))?)
+            answer(keevoro.tidy_folder(Path::new(&r.place), r.dry_run)?)
         }
         Op::DestinationsRoom => {
             read::<Nothing>(request)?;
@@ -399,6 +425,22 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
         Op::BackupLastSummary => {
             read::<Nothing>(request)?;
             answer(open()?.last_summary()?)
+        }
+        Op::BackupPhotosOrVideos => {
+            let r: wants::BackupWantsRequest = read(request)?;
+            let backup = open()?;
+            match r.wants {
+                Some(choice) => answer(keevoro.set_backup_wants(&backup, choice.into())?),
+                None => answer(backup.wants()?),
+            }
+        }
+        Op::SourcesPhotosOrVideos => {
+            let r: wants::SourceWantsRequest = read(request)?;
+            let backup = open()?;
+            match r.wants {
+                Some(choice) => answer(keevoro.set_source_wants(&backup, r.source, choice.into())?),
+                None => answer(backup.source_wants(r.source)?),
+            }
         }
         Op::BackupPreviews => {
             let r: PreviewsRequest = read(request)?;
@@ -636,6 +678,69 @@ mod tests {
                 entry.name, entry.implemented
             );
         }
+    }
+
+    #[test]
+    fn unfinished_copies_are_said_first_then_cleared_and_what_stays_is_said_with_why() {
+        let dir = tempfile::tempdir().unwrap();
+        let keevoro = keevoro(dir.path());
+        let folder = dir.path().join("Old backup");
+        let work = folder.join(".keevoro-uploads");
+        std::fs::create_dir_all(&work).unwrap();
+        std::fs::create_dir_all(folder.join("originals")).unwrap();
+        std::fs::write(folder.join("originals/IMG_1.jpg"), b"a photo").unwrap();
+        let old = work.join("tmp-abandoned");
+        std::fs::write(&old, [0u8; 4096]).unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&old)
+            .unwrap()
+            .set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(3 * 3600))
+            .unwrap();
+        std::fs::write(work.join("tmp-live"), b"being written").unwrap();
+        let place = folder.display().to_string();
+
+        let first = call(
+            &keevoro,
+            Op::DestinationsTidy,
+            None,
+            json!({ "place": place, "dryRun": true }),
+        )
+        .unwrap();
+        assert_eq!(first["cleared"], false);
+        assert_eq!(
+            (first["files"].as_u64(), first["bytes"].as_u64()),
+            (Some(1), Some(4096))
+        );
+        assert_eq!(first["inUse"], 1);
+        assert!(old.is_file(), "asking first clears nothing");
+        assert!(first["said"][0]
+            .as_str()
+            .unwrap()
+            .starts_with("There are 4.0 KB of unfinished copies (1 file) in"));
+        assert!(!Op::DestinationsTidy.changes_with(&json!({ "place": place, "dryRun": true })));
+        assert!(Op::DestinationsTidy.changes_with(&json!({ "place": place })));
+
+        let done = call(&keevoro, Op::DestinationsTidy, None, json!({ "place": place })).unwrap();
+        assert_eq!(done["cleared"], true);
+        assert_eq!(done["files"], 1);
+        assert!(!old.exists());
+        assert!(work.join("tmp-live").is_file(), "a copy being made now is left");
+        assert_eq!(std::fs::read(folder.join("originals/IMG_1.jpg")).unwrap(), b"a photo");
+        let said: Vec<&str> = done["said"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_str)
+            .collect();
+        assert!(
+            said[0].starts_with("Cleared 4.0 KB of unfinished copies (1 file) from"),
+            "{said:?}"
+        );
+        assert!(
+            said[1].starts_with("Left 1 thing written to in the last hour"),
+            "{said:?}"
+        );
     }
 
     #[test]

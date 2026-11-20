@@ -10,6 +10,7 @@
 // (discover.rs) and src-tauri/src/commands.rs. If one changes, change both.
 
 import { demoBackend } from './demo'
+import { PictureQueue, fileKey, photoKey } from './pictureQueue'
 
 export type Photo = {
   id: string
@@ -56,6 +57,10 @@ export type Hint = {
   /** False when the pictures are so small they are probably icons, not photos. */
   likelyPhotos: boolean
   alreadyASource: boolean
+  /** Of its photos and videos, those only in online storage (OneDrive), which a search passes over unopened. */
+  onlineOnly?: number
+  /** The same in words, with how to include them. */
+  onlineOnlySaid?: string
 }
 
 /** What a survey of a drive found. Counts are by file name alone. */
@@ -66,7 +71,15 @@ export type Survey = {
   unreadable: number
   seconds: number
   stopped: boolean
+  /** Folders Keevoro made that were left out, each with what is said. */
+  leftOut?: LeftOut[]
+  /** Photos and videos only in online storage, everywhere it looked, and that in words. */
+  onlineOnly?: number
+  onlineOnlySaid?: string
 }
+
+/** A folder Keevoro made (a backup, an old library, its own files), left out of a search or survey. */
+export type LeftOut = { folder: string; what: 'keevoroBackup' | 'keevoroOwn' | 'oldLibrary'; said: string }
 
 export type SurveyProgress = { folders: number; files: number; photos: number; videos: number }
 
@@ -84,7 +97,28 @@ export type Place = {
  * One kind of file found on a source, by the ending of its name (`jpg`,
  * `dng`, `mp4`), and whether the person is including it.
  */
-export type FileType = { ending: string; files: number; bytes: number; included: boolean }
+export type FileType = {
+  ending: string
+  files: number
+  bytes: number
+  /** False when this ending is left out of this source. */
+  included: boolean
+  /** When these files are not offered, the level they were left out at. */
+  leftOutBy?: 'backup' | 'source' | 'ending'
+  /** The same, in words: "this backup is for photos only". */
+  why?: string
+}
+
+/** Photos and videos, photos only, or videos only. */
+export type Wants = 'both' | 'photos' | 'videos'
+
+/** What a backup or a source wants, and what that means, in words. */
+export type WantsView = {
+  wants: Wants
+  /** For a source: true when it has its own choice rather than the backup's. */
+  own?: boolean
+  said: string
+}
 
 export type Source = {
   id: number
@@ -93,6 +127,13 @@ export type Source = {
   items: number
   /** The size of everything found on it, in bytes. */
   bytes: number
+  /**
+   * Files there that could be photos or videos but were only in online
+   * storage (OneDrive) when it was last looked through, so were not opened,
+   * and that in words with how to include them.
+   */
+  onlineOnly?: number
+  onlineOnlySaid?: string
 }
 
 export type Discover = {
@@ -162,6 +203,11 @@ export type ScanEvent = {
   /** On the last event: how many files could not be read, and the first few by name. */
   unreadable?: number
   unreadableNames?: string[]
+  /** On the last event: folders Keevoro made that were left out, each with what is said. */
+  leftOut?: LeftOut[]
+  /** On the last event: files only in online storage (OneDrive), passed over unopened, and that in words. */
+  onlineOnly?: number
+  onlineOnlySaid?: string
 }
 
 /** Sent while files a quick search only sampled are read in the background. */
@@ -378,6 +424,71 @@ export type FileKind = {
 /** A change to one kind of file. Anything left out stays as it is. */
 export type FileKindChange = { kind?: 'photo' | 'video'; on?: boolean; to?: string }
 
+/**
+ * What clearing Keevoro's unfinished copies from a folder did or, asked
+ * first (`cleared` false), would do. `said` is the same sentences the
+ * command line prints.
+ */
+export type Tidied = {
+  folder: string
+  cleared: boolean
+  files: number
+  bytes: number
+  /** Left: written to in the last hour, so perhaps in use right now. */
+  inUse: number
+  /** Left: not something Keevoro put there. */
+  notOurs: number
+  said: string[]
+}
+
+/** One folder inside a surveyed place that holds photos or videos itself. */
+export type FolderView = {
+  folder: string
+  /** Where it is inside the place, such as "2019 › Cornwall"; empty for the place itself. */
+  relative: string
+  photos: number
+  videos: number
+  bytes: number
+  /** Of them, how many are only in online storage (OneDrive), never opened. */
+  onlineOnly: number
+}
+
+/** The folders inside a place that hold photos or videos, from the survey Keevoro remembers. */
+export type FoldersView = {
+  place: string
+  /** When that survey was made, in seconds since 1970. */
+  surveyedAt: number
+  /** False when the survey was stopped part-way, so there may be more. */
+  complete: boolean
+  folders: FolderView[]
+  photos: number
+  videos: number
+  bytes: number
+  onlineOnly: number
+}
+
+/** One photo or video in a folder being looked inside. */
+export type FileView = {
+  path: string
+  name: string
+  isVideo: boolean
+  bytes: number
+  /** When it was last changed (not taken), in seconds since 1970. */
+  modified: number
+  /** Only in online storage: no picture is made, as that would download it. */
+  onlineOnly?: boolean
+}
+
+/** One page of the photos and videos in a folder. */
+export type FilesView = {
+  folder: string
+  total: number
+  photos: number
+  videos: number
+  onlineOnly: number
+  files: FileView[]
+}
+
 /** A newer version of Keevoro that is ready to install. */
 export type Update = { version: string; page: string }
 
@@ -410,6 +521,12 @@ export interface Backend {
   agentAccess(): Promise<AgentAccess>
   /** Changes what an AI agent may do. Each part given replaces what was there. */
   setAgentAccess(change: Partial<AgentAccess>): Promise<AgentAccess>
+  /** Whether this backup is for photos and videos, photos only, or videos only. */
+  backupWants(): Promise<WantsView>
+  setBackupWants(wants: Wants): Promise<WantsView>
+  /** Whether one source follows its backup's choice ('backup') or has its own. */
+  sourceWants(id: number): Promise<WantsView>
+  setSourceWants(id: number, wants: Wants | 'backup'): Promise<WantsView>
   /** The kinds of file Keevoro looks for, the built-in ones first. */
   fileKinds(): Promise<FileKind[]>
   /** Adds an ending to look for, as photos or videos. */
@@ -420,6 +537,14 @@ export interface Backend {
   removeFileKind(ending: string): Promise<FileKind>
   /** Puts back the kinds Keevoro comes with, all on. Your own stay. */
   resetFileKinds(): Promise<FileKind[]>
+  /**
+   * Clears Keevoro's unfinished copies (its `.keevoro-uploads` working
+   * files) from a folder, or with `dryRun` only says what it would clear.
+   * Nothing that was backed up is touched.
+   */
+  tidyFolder(folder: string, dryRun: boolean): Promise<Tidied>
+  /** Asks for a folder to clear unfinished copies from. Null if they cancel. */
+  chooseFolderToTidy(): Promise<string | null>
   /** Asks for a folder an AI agent may use. Null if they cancel. */
   chooseAgentFolder(): Promise<string | null>
   /** Asks a running search to stop. Nothing from it is kept. */
@@ -477,6 +602,20 @@ export interface Backend {
   keepPhoto(id: string, keep: boolean): Promise<void>
   /** An address for a small picture of this file, usable in an <img>. */
   preview(id: string): Promise<string>
+  /**
+   * Stops waiting for a small picture asked for with `preview` or
+   * `filePicture` that has not been fetched yet, by its key (`photoKey`,
+   * `fileKey`): its tile has left the screen.
+   */
+  notNeeded(key: string): void
+  /** The folders inside a surveyed place that hold photos or videos. Nothing is added. */
+  foldersInside(place: string): Promise<FoldersView>
+  /** A page of the photos and videos directly in one folder, by name. Nothing is added. */
+  folderFiles(place: string, from: number, count: number): Promise<FilesView>
+  /** An address for a small picture of any photo or video, by its path. Only Keevoro's cache is written. */
+  filePicture(path: string): Promise<string>
+  /** A screen-sized picture of any photo or video, by its path. Fetched afresh each time. */
+  closerLookAtFile(path: string): Promise<string>
   /** A screen-sized picture of one file, for looking at it closely. Fetched afresh each time. */
   closerLook(id: string): Promise<string>
   /** Where this backup goes, in words, or null if nowhere yet. */
@@ -516,7 +655,10 @@ async function tauriBackend(): Promise<Backend> {
     const picked = await open({ directory: true, multiple: false, title })
     return typeof picked === 'string' ? picked : null
   }
-  const previews = new Map<string, Promise<string>>()
+  // Every small picture goes through one queue: a few at a time, dropped
+  // when its tile leaves the screen, and let go of when long unused.
+  const pictures = new PictureQueue()
+  const webp = (bytes: ArrayBuffer) => URL.createObjectURL(new Blob([bytes], { type: 'image/webp' }))
 
   return {
     state: () => invoke('app_state'),
@@ -530,6 +672,10 @@ async function tauriBackend(): Promise<Backend> {
     setAcceleration: (on) => invoke('set_acceleration', { on }),
     agentAccess: () => invoke('agent_access'),
     setAgentAccess: (change) => invoke('set_agent_access', { change }),
+    backupWants: () => invoke('backup_wants'),
+    setBackupWants: (wants) => invoke('set_backup_wants', { wants }),
+    sourceWants: (id) => invoke('source_wants', { id }),
+    setSourceWants: (id, wants) => invoke('set_source_wants', { id, wants }),
     fileKinds: () => invoke('file_kinds'),
     addFileKind: (ending, kind) => invoke('add_file_kind', { ending, kind }),
     changeFileKind: (ending, change) =>
@@ -542,6 +688,8 @@ async function tauriBackend(): Promise<Backend> {
     removeFileKind: (ending) => invoke('remove_file_kind', { ending }),
     resetFileKinds: () => invoke('reset_file_kinds'),
     chooseAgentFolder: () => pickFolder('Choose a folder an AI agent may use'),
+    tidyFolder: (folder, dryRun) => invoke('tidy_folder', { folder, dryRun }),
+    chooseFolderToTidy: () => pickFolder('Choose a folder to clear unfinished copies from'),
     activity: () => invoke('activity'),
     sendProgress: () => invoke('send_progress'),
     sendHistory: () => invoke('send_history'),
@@ -571,22 +719,15 @@ async function tauriBackend(): Promise<Backend> {
     fileTypes: (id) => invoke('file_types', { id }),
     includeFileType: (id, ending, included) => invoke('include_file_type', { id, ending, included }),
     keepPhoto: (id, keep) => invoke('keep_photo', { id, keep }),
-    preview(id) {
-      // Each picture is fetched once and reused; the bytes come back raw.
-      let url = previews.get(id)
-      if (!url) {
-        url = invoke<ArrayBuffer>('preview', { id }).then((bytes) =>
-          URL.createObjectURL(new Blob([bytes], { type: 'image/webp' })),
-        )
-        url.catch(() => previews.delete(id))
-        previews.set(id, url)
-      }
-      return url
-    },
-    closerLook: (id) =>
-      invoke<ArrayBuffer>('closer_look', { id }).then((bytes) =>
-        URL.createObjectURL(new Blob([bytes], { type: 'image/webp' })),
-      ),
+    preview: (id) =>
+      pictures.want(photoKey(id), () => invoke<ArrayBuffer>('preview', { id }).then(webp)),
+    notNeeded: (key) => pictures.drop(key),
+    closerLook: (id) => invoke<ArrayBuffer>('closer_look', { id }).then(webp),
+    foldersInside: (place) => invoke('folders_inside', { place }),
+    folderFiles: (place, from, count) => invoke('folder_files', { place, from, count }),
+    filePicture: (path) =>
+      pictures.want(fileKey(path), () => invoke<ArrayBuffer>('file_picture', { path, large: false }).then(webp)),
+    closerLookAtFile: (path) => invoke<ArrayBuffer>('file_picture', { path, large: true }).then(webp),
     destination: () => invoke('destination'),
     chooseDestinationFolder: () => pickFolder('Choose a folder to back up to'),
     connectDestination: (request) => invoke('connect_destination', { request }),

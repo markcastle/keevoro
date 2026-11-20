@@ -40,14 +40,60 @@ pub fn summary(op: Op, answer: &Value) -> String {
         ),
         Op::BackupsRename => format!("It is now called \"{}\".", s(answer, "name")),
         Op::SourcesList => listed(answer, "source", |source| {
+            let online = source
+                .get("onlineOnlySaid")
+                .and_then(Value::as_str)
+                .map(|said| format!(" {said}"))
+                .unwrap_or_default();
             format!(
-                "{} (id {}, {}): {} files",
+                "{} (id {}, {}): {} files.{online}",
                 s(source, "name"),
                 source.get("id").cloned().unwrap_or_default(),
                 s(source, "root"),
                 thousands(n(source, "items"))
             )
         }),
+        Op::PlacesFolders => {
+            let folders: Vec<String> = each(answer.get("folders").unwrap_or(&Value::Null))
+                .map(|f| {
+                    let online = match n(f, "onlineOnly") {
+                        0 => String::new(),
+                        many => format!(" ({} only in online storage)", thousands(many)),
+                    };
+                    format!(
+                        "{}: {}{online}",
+                        s(f, "folder"),
+                        photos_and_videos(n(f, "photos"), n(f, "videos"))
+                    )
+                })
+                .collect();
+            let mut lines = vec![format!(
+                "{} in {}, in {}. files_in_folder lists a folder's files.",
+                photos_and_videos(n(answer, "photos"), n(answer, "videos")),
+                s(answer, "place"),
+                count(folders.len(), "folder")
+            )];
+            lines.extend(folders);
+            lines.join("\n")
+        }
+        Op::PlacesFiles => {
+            let shown = each(answer.get("files").unwrap_or(&Value::Null)).count();
+            let online = match n(answer, "onlineOnly") {
+                0 => String::new(),
+                many => format!(
+                    " {} {} only in online storage, so Keevoro won't open {}.",
+                    count(many, "file"),
+                    if many == 1 { "is" } else { "are" },
+                    if many == 1 { "it" } else { "them" }
+                ),
+            };
+            format!(
+                "{} in {}; {} given here. show_picture with a file's path shows it.{online}",
+                photos_and_videos(n(answer, "photos"), n(answer, "videos")),
+                s(answer, "folder"),
+                thousands(shown)
+            )
+        }
         Op::FoundSummary => format!(
             "Found {}, {} in all. {} left out, {} set aside as probably not photos.",
             photos_and_videos(n(answer, "photos"), n(answer, "videos")),
@@ -271,6 +317,8 @@ fn last_word(last: Option<&Said>) -> Vec<String> {
             if e.unreadable > 0 {
                 lines.push(format!("{} couldn't be read.", count(e.unreadable, "file")));
             }
+            lines.extend(e.online_only_said.clone());
+            lines.extend(e.left_out.iter().map(|left| left.said.clone()));
             lines.extend(e.problem.clone());
             lines
         }
@@ -296,7 +344,9 @@ fn last_word(last: Option<&Said>) -> Vec<String> {
                         ""
                     }
                 ));
+                lines.extend(hint.online_only_said.clone());
             }
+            lines.extend(found.left_out.iter().map(|left| left.said.clone()));
             lines
         }
         Some(_) => Vec::new(),
@@ -342,6 +392,52 @@ mod tests {
         assert_eq!(
             summary(Op::FileKindsList, &list),
             "Keevoro looks for these photos: .jpg, .heix. And these videos: none. Switched off: .avi."
+        );
+    }
+
+    #[test]
+    fn files_only_online_are_said_in_the_summaries_not_only_the_log() {
+        let said = "412 files here are in OneDrive only, not on this computer, so Keevoro did not open them.";
+        let sources = summary(
+            Op::SourcesList,
+            &json!([{ "id": 1, "name": "OneDrive", "root": "C:\\Users\\Mark\\OneDrive", "items": 30, "onlineOnly": 412, "onlineOnlySaid": said }]),
+        );
+        assert!(sources.ends_with(&format!("30 files. {said}")), "{sources}");
+        let looked = summary(
+            Op::JobsStatus,
+            &json!([{ "id": 3, "ended": true, "last": { "name": "OneDrive", "photos": 30, "videos": 0, "files": 99, "finished": true, "onlineOnly": 412, "onlineOnlySaid": said } }]),
+        );
+        assert!(looked.contains(said), "{looked}");
+        let surveyed = summary(
+            Op::JobsStatus,
+            &json!([{ "id": 4, "ended": true, "last": { "hints": [{ "folder": "C:\\Users\\Mark\\OneDrive\\Pictures", "photos": 500, "videos": 0, "bytes": 1, "likelyPhotos": true, "alreadyASource": false, "onlineOnly": 412, "onlineOnlySaid": said }], "folders": 1, "files": 2, "unreadable": 0, "seconds": 0.1, "stopped": false } }]),
+        );
+        assert!(surveyed.contains(said), "{surveyed}");
+    }
+
+    #[test]
+    fn looking_inside_is_summed_up_in_words() {
+        let folders = summary(
+            Op::PlacesFolders,
+            &json!({ "place": "C:\\Pictures", "photos": 120, "videos": 4, "folders": [
+                { "folder": "C:\\Pictures\\2019", "photos": 120, "videos": 4, "onlineOnly": 3 }
+            ] }),
+        );
+        assert_eq!(
+            folders,
+            "120 photos and 4 videos in C:\\Pictures, in 1 folder. files_in_folder lists a folder's files.\nC:\\Pictures\\2019: 120 photos and 4 videos (3 only in online storage)"
+        );
+        let files = summary(
+            Op::PlacesFiles,
+            &json!({ "folder": "C:\\Pictures\\2019", "photos": 120, "videos": 4, "onlineOnly": 1, "files": [{}, {}] }),
+        );
+        assert!(
+            files.starts_with("120 photos and 4 videos in C:\\Pictures\\2019; 2 given here."),
+            "{files}"
+        );
+        assert!(
+            files.ends_with("1 file is only in online storage, so Keevoro won't open it."),
+            "{files}"
         );
     }
 

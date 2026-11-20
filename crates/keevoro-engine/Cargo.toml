@@ -9,6 +9,7 @@ repository.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+blake3.workspace = true
 keevoro-catalog.workspace = true
 keevoro-collect.workspace = true
 keevoro-core.workspace = true
@@ -20,6 +21,7 @@ keevoro-storage.workspace = true
 keevoro-storage-folder.workspace = true
 keevoro-storage-s3.workspace = true
 keyring.workspace = true
+rusqlite.workspace = true
 getrandom.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = ["time"] }

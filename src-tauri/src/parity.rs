@@ -44,6 +44,10 @@ const BACKED: &[(&str, &[Op])] = &[
     ("duplicates", &[Op::DuplicatesList]),
     ("preview", &[Op::PhotosPicture]),
     ("closer_look", &[Op::PhotosPicture]),
+    // Looking inside a folder before it is added.
+    ("folders_inside", &[Op::PlacesFolders]),
+    ("folder_files", &[Op::PlacesFiles]),
+    ("file_picture", &[Op::PhotosPicture]),
     // The one-line summary names the places without counting what has
     // reached each, which the API does quickly.
     ("destination", &[Op::DestinationsList]),
@@ -61,6 +65,11 @@ const BACKED: &[(&str, &[Op])] = &[
     // What an AI agent may do: for the person, never the agent.
     ("agent_access", &[Op::AgentsAccess]),
     ("set_agent_access", &[Op::AgentsAccess]),
+    // Photos and videos, photos only, or videos only: a backup's and a source's.
+    ("backup_wants", &[Op::BackupPhotosOrVideos]),
+    ("set_backup_wants", &[Op::BackupPhotosOrVideos]),
+    ("source_wants", &[Op::SourcesPhotosOrVideos]),
+    ("set_source_wants", &[Op::SourcesPhotosOrVideos]),
     // The kinds of file looked for: one list for the whole of Keevoro.
     ("file_kinds", &[Op::FileKindsList]),
     ("add_file_kind", &[Op::FileKindsAdd]),
@@ -69,6 +78,8 @@ const BACKED: &[(&str, &[Op])] = &[
     ("reset_file_kinds", &[Op::FileKindsReset]),
     ("check_update", &[Op::KeevoroUpdate]),
     ("reset_everything", &[Op::KeevoroReset]),
+    // Clearing unfinished copies from a folder, first saying how much.
+    ("tidy_folder", &[Op::DestinationsTidy]),
     // Jobs. Each command starts, asks after or stops one in the API, and
     // what the job says reaches the window through `jobs.follow`'s stream,
     // the listener set up in lib.rs.

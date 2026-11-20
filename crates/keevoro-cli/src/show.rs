@@ -135,6 +135,9 @@ pub fn sources(io: &mut Io<'_>, _: &ArgMatches, list: &Value) -> Said_ {
             many => format!("{} photos and videos", thousands(many)),
         };
         writeln!(io.out, "   {items} ({})", bytes(b(source, "bytes")))?;
+        if let Some(online) = source.get("onlineOnlySaid").and_then(Value::as_str) {
+            writeln!(io.out, "   {online}")?;
+        }
     }
     Ok(Code::Worked)
 }
@@ -175,7 +178,11 @@ pub fn file_types(io: &mut Io<'_>, m: &ArgMatches, answer: &Value) -> Said_ {
             "{ending:<12} {:>14}  {:>9}  {}",
             count(n(kind, "files"), "file"),
             bytes(b(kind, "bytes")),
-            if yes(kind, "included") { "included" } else { "left out" }
+            match kind.get("why").and_then(Value::as_str) {
+                Some(why) => format!("left out: {why}"),
+                None if yes(kind, "included") => "included".to_string(),
+                None => "left out".to_string(),
+            }
         )?;
     }
     Ok(Code::Worked)
@@ -325,6 +332,63 @@ pub fn picture(io: &mut Io<'_>, m: &ArgMatches, answer: &Value) -> Said_ {
     Ok(Code::Worked)
 }
 
+pub fn folders(io: &mut Io<'_>, _: &ArgMatches, view: &Value) -> Said_ {
+    writeln!(
+        io.out,
+        "{} in {}, in {}:",
+        photos_and_videos(n(view, "photos"), n(view, "videos")),
+        s(view, "place"),
+        count(each(view.get("folders").unwrap_or(&Value::Null)).count(), "folder")
+    )?;
+    for folder in each(view.get("folders").unwrap_or(&Value::Null)) {
+        let online = match n(folder, "onlineOnly") {
+            0 => String::new(),
+            many => format!(", {} only online", thousands(many)),
+        };
+        writeln!(
+            io.out,
+            "{:>9}  {}{online}  {}",
+            bytes(b(folder, "bytes")),
+            photos_and_videos(n(folder, "photos"), n(folder, "videos")),
+            s(folder, "folder")
+        )?;
+    }
+    if view.get("complete").and_then(Value::as_bool) == Some(false) {
+        writeln!(io.out, "The survey was stopped part-way, so there may be more.")?;
+    }
+    Ok(Code::Worked)
+}
+
+pub fn files(io: &mut Io<'_>, _: &ArgMatches, view: &Value) -> Said_ {
+    let list: Vec<&Value> = each(view.get("files").unwrap_or(&Value::Null)).collect();
+    writeln!(
+        io.out,
+        "{} in {}{}",
+        photos_and_videos(n(view, "photos"), n(view, "videos")),
+        s(view, "folder"),
+        if list.len() < n(view, "total") {
+            format!(", {} of them here:", thousands(list.len()))
+        } else {
+            ":".to_string()
+        }
+    )?;
+    for file in list {
+        let what = if yes(file, "isVideo") { "video" } else { "photo" };
+        let online = if yes(file, "onlineOnly") {
+            "  (only online, so not opened)"
+        } else {
+            ""
+        };
+        writeln!(
+            io.out,
+            "{:>9}  {what}  {}{online}",
+            bytes(b(file, "bytes")),
+            s(file, "path")
+        )?;
+    }
+    Ok(Code::Worked)
+}
+
 pub fn destinations(io: &mut Io<'_>, _: &ArgMatches, list: &Value) -> Said_ {
     if each(list).next().is_none() {
         writeln!(
@@ -453,6 +517,11 @@ pub fn last_backup(io: &mut Io<'_>, _: &ArgMatches, said: &Value) -> Said_ {
     if let Some(problem) = said.get("problem").and_then(Value::as_str) {
         writeln!(io.out, "{problem}")?;
     }
+    Ok(Code::Worked)
+}
+
+pub fn wants(io: &mut Io<'_>, _: &ArgMatches, view: &Value) -> Said_ {
+    writeln!(io.out, "{}", s(view, "said"))?;
     Ok(Code::Worked)
 }
 
@@ -728,27 +797,9 @@ pub fn kind_removed(io: &mut Io<'_>, _: &ArgMatches, kind: &Value) -> Said_ {
 }
 
 pub fn tidied(io: &mut Io<'_>, _: &ArgMatches, tidied: &Value) -> Said_ {
-    let freed = b(tidied, "bytes");
-    if freed > 0 {
-        writeln!(
-            io.out,
-            "Cleared {} of unfinished copies from {}. They were Keevoro's working files; nothing that was backed up was touched.",
-            bytes(freed),
-            s(tidied, "folder")
-        )?;
-    } else {
-        writeln!(
-            io.out,
-            "There were no unfinished copies to clear in {}.",
-            s(tidied, "folder")
-        )?;
-    }
-    if n(tidied, "left") > 0 {
-        writeln!(
-            io.out,
-            "Left {} in its working folder: written to in the last hour, so perhaps still in use, or not Keevoro's. Try again later.",
-            count(n(tidied, "left"), "thing")
-        )?;
+    // The API's own sentences, so the app says exactly the same.
+    for line in each(tidied.get("said").unwrap_or(&Value::Null)).filter_map(Value::as_str) {
+        writeln!(io.out, "{line}")?;
     }
     Ok(Code::Worked)
 }
@@ -821,6 +872,12 @@ pub fn last_word(io: &mut Io<'_>, last: Option<&Said>) -> std::io::Result<()> {
                     e.unreadable_names.join(", ")
                 )?;
             }
+            if let Some(online) = &e.online_only_said {
+                writeln!(io.out, "{online}")?;
+            }
+            for left in &e.left_out {
+                writeln!(io.out, "{}", left.said)?;
+            }
             if let Some(problem) = &e.problem {
                 writeln!(io.err, "{problem}")?;
             }
@@ -849,6 +906,9 @@ pub fn last_word(io: &mut Io<'_>, last: Option<&Said>) -> std::io::Result<()> {
                     photos_and_videos(hint.photos, hint.videos),
                     hint.folder
                 )?;
+                if let Some(online) = &hint.online_only_said {
+                    writeln!(io.out, "{:>9}  {online}", "")?;
+                }
             }
             if found.unreadable > 0 {
                 writeln!(
@@ -856,6 +916,9 @@ pub fn last_word(io: &mut Io<'_>, last: Option<&Said>) -> std::io::Result<()> {
                     "{} could not be listed, usually for want of permission.",
                     count(found.unreadable, "folder")
                 )?;
+            }
+            for left in &found.left_out {
+                writeln!(io.out, "{}", left.said)?;
             }
             if found.stopped {
                 writeln!(io.out, "Stopped early, so there may be more.")?;

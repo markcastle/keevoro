@@ -165,6 +165,62 @@ fn a_kind_switched_off_is_passed_over_without_being_opened() {
 }
 
 #[test]
+fn what_keevoro_made_is_never_searched_and_the_report_says_why() {
+    let t = Tree::new();
+    t.add("Holiday/IMG_1.jpg", &plain_jpeg(1));
+    t.add("Keevoro Library/.keevoro/catalog.sqlite", b"x");
+    t.add("Keevoro Library/originals/Holiday/IMG_1.jpg", &plain_jpeg(1));
+    t.add("Keevoro Library/renditions/display/abc.webp", &plain_jpeg(2));
+    t.add("Backup/What is in this backup.txt", b"x");
+    t.add("Backup/index/gallery.json", b"{}");
+    t.add("Backup/originals/Holiday/IMG_1.jpg", &plain_jpeg(1));
+    t.add("Destination/IMG_9.jpg", &plain_jpeg(3));
+    // A backup's originals folder chosen as the source itself: the
+    // person meant it, so it is looked through.
+    let root = std::fs::canonicalize(t.root()).unwrap();
+    let opts = ScanOptions {
+        skip: SkipRules::default().with_own_places(vec![(root.join("Destination"), SkipReason::KeevoroBackup)]),
+        ..ScanOptions::default()
+    };
+    let r = scan(&root, &opts, &mut |_| {});
+    let names: Vec<_> = r
+        .items
+        .iter()
+        .map(|i| i.path.strip_prefix(&root).unwrap().to_path_buf())
+        .collect();
+    assert_eq!(names, [PathBuf::from("Holiday").join("IMG_1.jpg")]);
+    let left: Vec<_> = r
+        .skipped
+        .iter()
+        .filter(|s| s.reason.keevoro_made())
+        .map(|s| (s.path.clone(), s.reason))
+        .collect();
+    assert_eq!(
+        left,
+        [
+            (root.join("Backup"), SkipReason::KeevoroBackup),
+            (root.join("Destination"), SkipReason::KeevoroBackup),
+            (root.join("Keevoro Library"), SkipReason::OldLibrary),
+        ]
+    );
+    let originals = scan(
+        &root.join("Backup").join("originals"),
+        &ScanOptions::default(),
+        &mut |_| {},
+    );
+    assert_eq!(
+        originals.items.len(),
+        1,
+        "a backup's originals, chosen on purpose, are looked through"
+    );
+    let whole = scan(&root.join("Backup"), &ScanOptions::default(), &mut |_| {});
+    assert!(
+        whole.items.is_empty() && whole.skipped[0].reason == SkipReason::KeevoroBackup,
+        "even chosen whole"
+    );
+}
+
+#[test]
 fn camera_date_beats_file_name_and_modified_time() {
     let t = Tree::new();
     t.add("IMG_20200101_000000.jpg", &jpeg_with_exif("2009:07:14 21:03:11"));
@@ -617,4 +673,202 @@ fn a_raw_file_is_never_judged_by_the_small_preview_in_its_header() {
         Some(JunkReason::TinyImage),
         "an ordinary tiny picture still is"
     );
+}
+
+mod how_deep {
+    use super::*;
+
+    /// Says a file is only online when its name says so, on any computer,
+    /// the way Windows' attributes or a Mac's flags say it for real.
+    #[derive(Debug)]
+    pub(crate) struct NamedOnline;
+
+    impl crate::OnlineCheck for NamedOnline {
+        fn online_only(&self, file: &Path, _: &std::fs::Metadata) -> bool {
+            file.file_name()
+                .is_some_and(|n| n.to_string_lossy().contains("(online)"))
+        }
+    }
+
+    #[test]
+    fn files_only_in_online_storage_are_counted_and_never_opened() {
+        let t = Tree::new();
+        t.add("OneDrive/Pictures/here.jpg", &plain_jpeg(1));
+        let away = t.add("OneDrive/Pictures/away (online).jpg", &plain_jpeg(2));
+        t.add("OneDrive/Pictures/clip (online).mp4", &mp4());
+        // Not a photo by its name, so not counted as a photo left out.
+        t.add("OneDrive/Documents/report (online).docx", b"words");
+        #[cfg(unix)]
+        {
+            // Opening it would fail, and say so: it must not be opened.
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&away, fs::Permissions::from_mode(0o000)).unwrap();
+        }
+        let opts = ScanOptions {
+            online: std::sync::Arc::new(NamedOnline),
+            ..ScanOptions::default()
+        };
+        let r = scan(t.root(), &opts, &mut |_| {});
+        assert_eq!(r.items.len(), 1, "only the photo on this computer is found");
+        let names: Vec<String> = r
+            .online_only
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, ["away (online).jpg", "clip (online).mp4"]);
+        assert!(r.unreadable.is_empty(), "nothing online was opened: {:?}", r.unreadable);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&away, fs::Permissions::from_mode(0o644)).unwrap();
+        }
+    }
+
+    #[test]
+    fn a_survey_counts_what_is_only_online_beside_each_suggestion() {
+        let t = Tree::new();
+        for n in 0..6 {
+            t.add(&format!("OneDrive/Pictures/IMG_{n}.jpg"), &[0u8; 100]);
+        }
+        for n in 0..4 {
+            t.add(&format!("OneDrive/Pictures/IMG_{n} (online).jpg"), &[0u8; 100]);
+        }
+        t.add("Work/report (online).docx", &[0u8; 10]);
+        for n in 0..10 {
+            t.add(&format!("Work/{n}.docx"), &[0u8; 10]);
+        }
+        let found = survey(
+            t.root(),
+            &SkipRules::default(),
+            &Kinds::default(),
+            &NamedOnline,
+            None,
+            &mut |_| {},
+        );
+        assert_eq!(found.hints.len(), 1);
+        assert_eq!((found.hints[0].photos, found.hints[0].online_only), (10, 4));
+        assert_eq!(found.online_only, 4, "a document only online is not a photo left out");
+    }
+    use crate::survey::survey;
+    use keevoro_core::Kinds;
+
+    fn survey_of(root: &Path) -> crate::survey::Survey {
+        survey(
+            root,
+            &SkipRules::default(),
+            &Kinds::default(),
+            &crate::ByAttributes,
+            None,
+            &mut |_| {},
+        )
+    }
+
+    fn photos_found_by_survey(root: &Path) -> usize {
+        survey_of(root).hints.iter().map(|h| h.photos).sum()
+    }
+
+    #[test]
+    fn a_photo_forty_five_folders_deep_is_found_by_the_search_and_the_survey() {
+        let t = Tree::new();
+        let deep: Vec<String> = (0..45).map(|n| format!("d{n}")).collect();
+        let rel = format!("{}/IMG_0001.jpg", deep.join("/"));
+        t.add(&rel, &plain_jpeg(1));
+        let r = t.scan();
+        assert_eq!(r.items.len(), 1);
+        assert_eq!(r.items[0].path.components().count(), t.root().components().count() + 46);
+        assert_eq!(photos_found_by_survey(t.root()), 1);
+    }
+
+    #[test]
+    fn long_names_and_names_in_any_language_do_not_stop_the_walk() {
+        let t = Tree::new();
+        let long = "a".repeat(200);
+        for rel in [
+            format!("{long}/{long}.jpg"),
+            "Fotos de la familia/Año nuevo/IMG_ñ.jpg".to_string(),
+            "家族の写真/旅行/写真.jpg".to_string(),
+            "Ελλάδα 2009/παραλία.jpg".to_string(),
+            "Emoji 🎉/party 🥳.jpg".to_string(),
+        ] {
+            t.add(&rel, &plain_jpeg(2));
+        }
+        assert_eq!(t.scan().items.len(), 5);
+        assert_eq!(photos_found_by_survey(t.root()), 5);
+    }
+
+    /// Windows will not make these, but a drive from another computer may
+    /// hold them.
+    #[cfg(unix)]
+    #[test]
+    fn names_ending_in_dots_or_spaces_do_not_stop_the_walk() {
+        let t = Tree::new();
+        t.add("Holiday. /IMG_1.jpg.", &plain_jpeg(3));
+        t.add("Holiday /IMG_2 .jpg", &plain_jpeg(4));
+        t.add("Holiday./IMG_3.jpg", &plain_jpeg(5));
+        assert_eq!(t.scan().items.len(), 3);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_back_up_the_tree_is_not_followed_so_nothing_loops_or_counts_twice() {
+        let t = Tree::new();
+        t.add("Photos/IMG_1.jpg", &plain_jpeg(1));
+        std::os::unix::fs::symlink(t.root(), t.root().join("Photos/back to the top")).unwrap();
+        std::os::unix::fs::symlink(t.root().join("Photos/IMG_1.jpg"), t.root().join("Photos/shortcut.jpg")).unwrap();
+        let r = t.scan();
+        assert_eq!(r.items.len(), 1, "found once, where it really is");
+        assert_eq!(photos_found_by_survey(t.root()), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_that_cannot_be_opened_is_reported_and_the_walk_carries_on() {
+        use std::os::unix::fs::PermissionsExt;
+        let t = Tree::new();
+        t.add("A/IMG_1.jpg", &plain_jpeg(1));
+        t.add("Locked/IMG_2.jpg", &plain_jpeg(2));
+        t.add("Z/IMG_3.jpg", &plain_jpeg(3));
+        let locked = t.root().join("Locked");
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+        // Someone allowed everything (the root account) can open it anyway.
+        let can_open = fs::read_dir(&locked).is_ok();
+        let r = t.scan();
+        let found = survey_of(t.root());
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        if can_open {
+            return;
+        }
+        assert_eq!(r.items.len(), 2, "the folders either side are still looked through");
+        assert!(
+            r.unreadable.iter().any(|u| u.path.ends_with("Locked")),
+            "{:?}",
+            r.unreadable
+        );
+        assert_eq!(found.unreadable, 1);
+        assert_eq!(found.hints.iter().map(|h| h.photos).sum::<usize>(), 2);
+    }
+}
+
+#[test]
+fn a_file_is_fingerprinted_on_its_own_exactly_as_a_search_does() {
+    let t = Tree::new();
+    let small = t.add("small.jpg", &plain_jpeg(3));
+    let mut big = plain_jpeg(4);
+    big.resize(600 * 1024, 7);
+    let large = t.add("large.jpg", &big);
+    for quick in [true, false] {
+        let opts = ScanOptions {
+            quick,
+            ..ScanOptions::default()
+        };
+        let r = scan(t.root(), &opts, &mut |_| {});
+        for path in [&small, &large] {
+            let found = r.items.iter().find(|i| &i.path == path).unwrap();
+            assert_eq!(
+                found.blake3.as_deref(),
+                Some(fingerprint(path, quick).unwrap().as_str()),
+                "{path:?}, quick {quick}"
+            );
+        }
+    }
 }
