@@ -37,6 +37,7 @@ pub mod for_agents;
 pub mod inside;
 pub mod jobs;
 pub mod keevoro;
+pub mod leave_out;
 pub mod log;
 pub mod picture;
 pub mod places;
@@ -329,6 +330,10 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
             let r: IncludeTypeRequest = read(request)?;
             answer(open()?.include_type(r.source, &r.ending, r.included)?)
         }
+        Op::SourcesLeaveOut => {
+            let r: leave_out::LeaveOutRequest = read(request)?;
+            answer(open()?.leave_out(Path::new(&r.folder), r.left_out)?)
+        }
         Op::FoundSummary => {
             read::<Nothing>(request)?;
             answer(open()?.found()?)
@@ -372,7 +377,7 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
         }
         Op::PlacesFiles => {
             let r: inside::FilesRequest = read(request)?;
-            answer(keevoro.files_in(Path::new(&r.place), any_backup()?.as_ref(), r.from, r.count)?)
+            answer(keevoro.files_in(&r, any_backup()?.as_ref())?)
         }
         Op::DestinationsList => {
             read::<Nothing>(request)?;

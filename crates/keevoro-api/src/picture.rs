@@ -84,14 +84,16 @@ pub fn picture(backup: &Backup, cache: &Path, photo: &str, size: PictureSize) ->
         PictureSize::Screen => Look::Closer,
     };
     let _turn = PICTURES.wait_for_a_turn();
-    Ok(keevoro_engine::preview_at(
+    let bytes = keevoro_engine::preview_at(
         backup.home(),
         backup.catalog(),
         cache,
         photo,
         VideoTools::find().as_ref(),
         look,
-    )?)
+    )?;
+    pictured(cache);
+    Ok(bytes)
 }
 
 /// Lets only a few slow jobs run at once; the rest wait their turn.
@@ -208,16 +210,16 @@ impl DriveTurns {
 
 static DRIVES: std::sync::LazyLock<DriveTurns> = std::sync::LazyLock::new(DriveTurns::default);
 
-/// Pictures of files made since Keevoro started, so the cache is kept
-/// within its limit every so often, not only at start-up.
+/// Pictures given since Keevoro started, so the cache is kept within its
+/// limit every so often, not only at start-up.
 static MADE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
-/// After this many pictures of files, the cache is trimmed again.
+/// After this many pictures, the cache is trimmed again.
 const TRIM_EVERY: usize = 500;
 
 /// Makes (or finds in `cache`) a picture of any photo or video, by its
-/// path, as WebP bytes. Only kinds of file looked for (`kinds`) are
-/// pictured. `found` is a backup whose search may know the file already.
+/// path, as WebP bytes. Only kinds of file on the list (`kinds`) are
+/// pictured, switched on or off. `found` is a backup whose search may know the file already.
 pub fn picture_of_file(
     cache: &Path,
     file: &Path,
@@ -236,7 +238,7 @@ pub fn picture_of_file(
         .extension()
         .map(|e| e.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let Some(kind) = kinds.looked_for(&ending) else {
+    let Some((kind, _)) = kinds.listed(&ending) else {
         return Err(crate::Error::refused(
             "Keevoro doesn't look for that kind of file here, so it makes no picture of it.",
         ));
@@ -263,49 +265,16 @@ pub fn picture_of_file(
         }),
     )
     .map_err(|e| crate::Error::refused(e.to_string()))?;
-    if MADE.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % TRIM_EVERY == TRIM_EVERY - 1 {
-        let cache = cache.to_path_buf();
-        let _ = std::thread::Builder::new()
-            .name("keevoro cache".into())
-            .spawn(move || trim_cache(&cache, CACHE_LIMIT));
-    }
+    pictured(cache);
     Ok(bytes)
 }
 
-/// The most room pictures kept for quick showing may take. Past it the
-/// ones not looked at for longest are removed; any can be made again.
-pub const CACHE_LIMIT: u64 = 1024 * 1024 * 1024;
-
-/// Keeps the pictures in `cache` within `limit`, removing those not
-/// written for longest first. Only plain `.webp` files directly in the
-/// cache folder, which Keevoro made, are ever removed. Answers the bytes
-/// freed.
-pub fn trim_cache(cache: &Path, limit: u64) -> u64 {
-    let Ok(entries) = std::fs::read_dir(cache) else {
-        return 0;
-    };
-    let mut pictures: Vec<(std::time::SystemTime, u64, std::path::PathBuf)> = entries
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().is_some_and(|x| x == "webp"))
-        .filter_map(|e| {
-            let meta = std::fs::symlink_metadata(e.path()).ok()?;
-            meta.is_file()
-                .then(|| (meta.modified().unwrap_or(std::time::UNIX_EPOCH), meta.len(), e.path()))
-        })
-        .collect();
-    let mut total: u64 = pictures.iter().map(|p| p.1).sum();
-    pictures.sort();
-    let mut freed = 0;
-    for (_, bytes, path) in pictures {
-        if total <= limit {
-            break;
-        }
-        if std::fs::remove_file(&path).is_ok() {
-            total -= bytes;
-            freed += bytes;
-        }
+/// One more picture was given. Every [`TRIM_EVERY`] the cache is trimmed
+/// to its limit, so even a long look at thousands of files stays within it.
+fn pictured(cache: &Path) {
+    if MADE.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % TRIM_EVERY == TRIM_EVERY - 1 {
+        keevoro_engine::look::trim_cache_quietly(cache);
     }
-    freed
 }
 
 /// Standard Base64 with padding. A few lines here rather than a crate for
@@ -368,26 +337,6 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]
-    fn the_cache_is_kept_within_its_limit_oldest_first_and_only_pictures_are_removed() {
-        let dir = tempfile::tempdir().unwrap();
-        let cache = dir.path().join("previews");
-        std::fs::create_dir_all(&cache).unwrap();
-        for (n, age) in [(1, 300), (2, 200), (3, 100)] {
-            let path = cache.join(format!("{n}.webp"));
-            std::fs::write(&path, vec![0u8; 1000]).unwrap();
-            let file = std::fs::File::options().write(true).open(&path).unwrap();
-            file.set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(age))
-                .unwrap();
-        }
-        std::fs::write(cache.join("notes.txt"), vec![0u8; 5000]).unwrap();
-        assert_eq!(trim_cache(&cache, 2500), 1000);
-        assert!(!cache.join("1.webp").exists() && cache.join("2.webp").is_file() && cache.join("3.webp").is_file());
-        assert!(cache.join("notes.txt").is_file(), "only Keevoro's pictures");
-        assert_eq!(trim_cache(&cache, 2500), 0);
-        assert_eq!(trim_cache(&dir.path().join("none"), 0), 0);
-    }
-
-    #[test]
     fn a_picture_is_made_once_and_kept_in_the_cache() {
         let (dir, _card, backup) = one_backup();
         let cache = dir.path().join("cache");
@@ -407,7 +356,7 @@ mod tests {
     }
 
     #[test]
-    fn a_file_in_no_backup_is_pictured_by_its_path_and_only_kinds_looked_for() {
+    fn a_file_in_no_backup_is_pictured_by_its_path_and_only_kinds_on_the_list() {
         let (dir, card, _backup) = one_backup();
         let cache = dir.path().join("cache");
         let photo = walk(&card)
@@ -417,9 +366,15 @@ mod tests {
         let kinds = keevoro_core::Kinds::default();
         let small = picture_of_file(&cache, &photo, &kinds, PictureSize::Small, None).unwrap();
         assert_eq!(&small[8..12], b"WEBP");
+        // A kind switched off is still pictured, so the look inside can show
+        // it and say it is left out; one not on the list at all is not.
         let videos_only = kinds.clone().only(keevoro_core::MediaKind::Video);
-        let e = picture_of_file(&cache, &photo, &videos_only, PictureSize::Small, None).unwrap_err();
+        assert!(picture_of_file(&cache, &photo, &videos_only, PictureSize::Small, None).is_ok());
+        let text = card.join("notes.txt");
+        std::fs::write(&text, b"words").unwrap();
+        let e = picture_of_file(&cache, &text, &kinds, PictureSize::Small, None).unwrap_err();
         assert_eq!(e.kind, crate::Kind::Refused);
+        std::fs::remove_file(&text).unwrap();
         let e = picture_of_file(&cache, &card.join("gone.jpg"), &kinds, PictureSize::Small, None).unwrap_err();
         assert_eq!(e.kind, crate::Kind::NotFound);
     }

@@ -177,6 +177,19 @@ pub fn include_file_type(shared: State<'_, Shared>, id: i64, ending: String, inc
     Ok(())
 }
 
+/// Leaves a folder out of the open backup, or puts it back, and says what
+/// that means. Nothing in the folder, or already backed up, is touched.
+#[tauri::command]
+pub fn leave_out_folder(
+    shared: State<'_, Shared>,
+    folder: String,
+    left_out: bool,
+) -> Said<keevoro_api::leave_out::LeftOutFolder> {
+    let done = backup(&shared)?.leave_out(Path::new(&folder), left_out).map_err(say)?;
+    shared.keevoro.log().say(&done.said);
+    Ok(done)
+}
+
 /// Every file found more than once: which copy is kept, which are left out.
 #[tauri::command]
 pub fn duplicates(shared: State<'_, Shared>) -> Said<Vec<keevoro_engine::DuplicateGroup>> {
@@ -237,27 +250,27 @@ async fn picture<R: Runtime>(
 /// The folders inside a surveyed place that hold photos or videos, from
 /// the survey Keevoro remembers: the outline of a look inside.
 #[tauri::command]
-pub fn folders_inside(shared: State<'_, Shared>, place: String) -> Said<keevoro_api::inside::FoldersView> {
+pub fn folders_inside(shared: State<'_, Shared>, place: String) -> Said<Option<keevoro_api::inside::FoldersView>> {
+    // `None` when no survey covers it yet: the screen surveys it first.
     let backup = shared.keevoro.backups().current();
     shared
         .keevoro
-        .folders_inside(Path::new(&place), backup.as_ref())
+        .folders_inside_if_surveyed(Path::new(&place), backup.as_ref())
         .map_err(say)
 }
 
-/// One page of the photos and videos directly in a folder, by name.
+/// One page of the photos and videos directly in a folder, sorted and
+/// shown as asked.
 #[tauri::command]
 pub async fn folder_files<R: Runtime>(
     app: AppHandle<R>,
-    place: String,
-    from: usize,
-    count: usize,
+    request: keevoro_api::inside::FilesRequest,
 ) -> Said<keevoro_api::inside::FilesView> {
     // A folder on a slow drive can take a moment to list.
     tauri::async_runtime::spawn_blocking(move || {
         let keevoro = &app.state::<Shared>().keevoro;
         let backup = keevoro.backups().current();
-        keevoro.files_in(Path::new(&place), backup.as_ref(), from, count)
+        keevoro.files_in(&request, backup.as_ref())
     })
     .await
     .map_err(say)?

@@ -63,6 +63,19 @@ pub fn date_and_time(seconds: i64) -> String {
     crate::log::stamp(u64::try_from(seconds).unwrap_or(0))
 }
 
+/// How long a video lasts, as a video player shows it: `0:07`, `1:42`,
+/// `1:02:05`. Rounded to the nearest second.
+pub fn length(seconds: f64) -> String {
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let all = seconds.max(0.0).round() as u64;
+    let (hours, minutes, seconds) = (all / 3600, all / 60 % 60, all % 60);
+    if hours > 0 {
+        format!("{hours}:{minutes:02}:{seconds:02}")
+    } else {
+        format!("{minutes}:{seconds:02}")
+    }
+}
+
 use keevoro_core::estimate::{Kind, StageRecord, Unit};
 use keevoro_engine::history::{Ended, Sending, Sent};
 
@@ -256,6 +269,15 @@ pub fn run_in_full(sent: &Sent) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_videos_length_reads_as_a_player_shows_it() {
+        assert_eq!(length(7.4), "0:07");
+        assert_eq!(length(102.0), "1:42");
+        assert_eq!(length(3725.0), "1:02:05");
+        assert_eq!(length(59.6), "1:00");
+        assert_eq!(length(-1.0), "0:00");
+    }
 
     #[test]
     fn numbers_read_as_a_person_would_say_them() {

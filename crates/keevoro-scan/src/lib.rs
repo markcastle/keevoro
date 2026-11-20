@@ -13,7 +13,7 @@
 
 pub mod online;
 pub mod survey;
-mod video;
+pub mod video;
 
 pub use online::{ByAttributes, OnlineCheck};
 
@@ -444,7 +444,7 @@ fn examine(root: &Path, path: &Path, opts: &ScanOptions) -> std::io::Result<Opti
             }
         }
         MediaKind::Video => {
-            if let Some(d) = video::recording_date(&mut file) {
+            if let Some(d) = video::movie_header(&mut file).and_then(|h| h.recorded) {
                 guesses.push(DateGuess {
                     date: d,
                     source: DateSource::Video,

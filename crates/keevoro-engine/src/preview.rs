@@ -75,7 +75,7 @@ pub fn preview_at(
     } else {
         format!("{id}.webp")
     });
-    if let Ok(bytes) = std::fs::read(&cached) {
+    if let Some(bytes) = crate::look::read_and_use(&cached) {
         return Ok(bytes);
     }
 

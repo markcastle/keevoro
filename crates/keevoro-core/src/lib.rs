@@ -19,6 +19,7 @@ pub mod libraries;
 pub mod media;
 pub mod meter;
 pub mod pause;
+pub mod places;
 pub mod skip;
 pub mod wants;
 
@@ -31,4 +32,4 @@ pub use layout::{library_folder, numbered_name, safe_name};
 pub use libraries::{holds_originals, library_album_segments, photo_library, PhotoLibrary};
 pub use media::{is_raw_extension, kind_from_mime, never_media_extension, MediaKind};
 pub use skip::{folder_made_by_keevoro, made_by_keevoro, SkipReason, SkipRules, BACKUP_GUIDE, RECORD};
-pub use wants::{offered, LeftOutBy, Wants};
+pub use wants::{Choices, FileFacts, LeftOutBy, SourceChoices, Wants};

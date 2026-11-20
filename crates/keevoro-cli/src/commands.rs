@@ -320,7 +320,7 @@ pub static ROWS: &[Row] = &[
         words: &["files"],
         ops: &[Op::PlacesFiles],
         about: Some(
-            "The photos and videos directly in one folder, by name, a page at a time, without adding anything. Save a picture of one with `keevoro picture --file`.",
+            "The photos and videos directly in one folder, a page at a time, without adding anything, with how long each video lasts when it says. Save a picture of one with `keevoro picture --file`.",
         ),
         args: |c| {
             c.arg(arg("folder", "The folder").required(true))
@@ -338,14 +338,32 @@ pub static ROWS: &[Row] = &[
                         .help("How many to list, at most 500; 100 when left out")
                         .value_parser(clap::value_parser!(usize)),
                 )
+                .arg(
+                    Arg::new("sort")
+                        .long("sort")
+                        .value_name("ORDER")
+                        .help("name (the default), or newest or oldest by the file's date, which is when it was last changed, not when it was taken")
+                        .value_parser(["name", "newest", "oldest"]),
+                )
+                .arg(flag("photos", "Only the photos").conflicts_with("videos"))
+                .arg(flag("videos", "Only the videos"))
         },
         ask: |_, m, _| {
+            let only = if m.get_flag("photos") {
+                "photos"
+            } else if m.get_flag("videos") {
+                "videos"
+            } else {
+                "all"
+            };
             Ok((
                 Op::PlacesFiles,
                 json!({
                     "place": required(m, "folder"),
                     "from": m.get_one::<usize>("from").copied().unwrap_or(0),
                     "count": m.get_one::<usize>("count").copied().unwrap_or(100),
+                    "sort": m.get_one::<String>("sort").map_or("name", String::as_str),
+                    "only": only,
                 }),
             ))
         },
@@ -425,6 +443,24 @@ pub static ROWS: &[Row] = &[
             })
         },
         show: show::file_types,
+    },
+    Row {
+        words: &["sources", "leave-out"],
+        ops: &[Op::SourcesLeaveOut],
+        about: Some(
+            "Leaves a folder out of this backup: it is not looked through, and what was found in it is no longer offered. With --put-back, includes it again. Nothing in the folder, and nothing already backed up, is touched.",
+        ),
+        args: |c| {
+            c.arg(arg("folder", "The folder, which need not be in a source yet").required(true))
+                .arg(flag("put-back", "Put the folder back, so it is looked through again"))
+        },
+        ask: |_, m, _| {
+            Ok((
+                Op::SourcesLeaveOut,
+                json!({ "folder": required(m, "folder"), "leftOut": !m.get_flag("put-back") }),
+            ))
+        },
+        show: show::said,
     },
     Row {
         words: &["sources", "photos-or-videos"],

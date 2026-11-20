@@ -259,8 +259,11 @@ pub fn check_and_place(
     let reports = if to_check.is_empty() {
         reports
     } else {
+        // Only files that look alike are checked here, and a picture made
+        // while looking cannot be told apart between them, so none is renamed.
         deep::deep_look(
             catalog,
+            None,
             Some(&to_check),
             &mut |p| {
                 on_step(ReadyStep::Checking {

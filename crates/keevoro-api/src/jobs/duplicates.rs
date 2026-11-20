@@ -71,6 +71,7 @@ pub(crate) fn start(ctx: &Context, backup: &Named) -> Option<JobHandle> {
             .and_then(|catalog| {
                 keevoro_engine::deep::deep_look(
                     &catalog,
+                    Some(&ctx.cache),
                     None,
                     &mut |p| {
                         total = p.total;

@@ -654,6 +654,46 @@ fn raw_files_wrongly_set_aside_by_an_earlier_version_are_put_back() {
 }
 
 #[test]
+fn a_folder_left_out_takes_what_was_found_beneath_it_away_and_put_back_brings_it_back() {
+    use keevoro_core::LeftOutBy;
+    let mut c = Catalog::in_memory().unwrap();
+    let mut report = drone_report();
+    let mut twin = photo("/mnt/card/DCIM 2/DJI_0009.JPG", "9");
+    twin.kind = MediaKind::Photo;
+    report.items.push(twin);
+    let id = c.save_scan("Card", &report, 1).unwrap();
+    let count = |c: &Catalog| c.load_reports().unwrap()[0].items.len();
+    assert_eq!(count(&c), 6);
+
+    // It need not be a source, and saying it twice changes nothing.
+    let dcim = PathBuf::from("/mnt/card/DCIM");
+    assert!(c.set_folder_left_out(&dcim, true).unwrap());
+    assert!(!c.set_folder_left_out(&dcim, true).unwrap());
+    assert_eq!(c.left_out_folders().unwrap(), std::slice::from_ref(&dcim));
+    assert_eq!(count(&c), 1, "only the photo in DCIM 2, beside it, is left");
+    assert_eq!(
+        c.load_reports().unwrap()[0].items[0].path,
+        PathBuf::from("/mnt/card/DCIM 2/DJI_0009.JPG")
+    );
+    let choices = c.choices().unwrap();
+    let facts = keevoro_core::FileFacts {
+        path: Path::new("/mnt/card/DCIM/DJI_0001.JPG"),
+        kind: MediaKind::Photo,
+        looked_for: true,
+        made_by_keevoro: false,
+    };
+    assert_eq!(choices.offered(&facts), Err(LeftOutBy::Folder));
+    // The found files themselves are kept, only not offered.
+    assert_eq!(c.file_types(id).unwrap().iter().map(|t| t.files).sum::<u64>(), 6);
+
+    // Put back, all of it is offered again, with no new search.
+    assert!(c.set_folder_left_out(&dcim, false).unwrap());
+    assert!(!c.set_folder_left_out(&dcim, false).unwrap(), "nothing to put back");
+    assert_eq!(count(&c), 6);
+    assert!(c.left_out_folders().unwrap().is_empty());
+}
+
+#[test]
 fn photos_only_or_videos_only_is_a_filter_over_what_was_found_for_a_backup_or_one_source() {
     use keevoro_core::{LeftOutBy, Wants};
     let mut c = Catalog::in_memory().unwrap();

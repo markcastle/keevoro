@@ -43,10 +43,11 @@ It goes by file names, so it is a good guess and not a promise. Keevoro remember
 ```sh
 keevoro folders "D:\Users\Mark\Pictures"
 keevoro files "D:\Users\Mark\Pictures\Camera Roll" --count 20
+keevoro files "D:\Users\Mark\Pictures\Camera Roll" --videos --sort newest
 keevoro picture --file "D:\Users\Mark\Pictures\Camera Roll\IMG_0001.jpg" --to look.webp
 ```
 
-`folders` lists the folders inside that hold photos or videos, with how many each holds; `files` lists one folder's photos and videos by name, a page at a time (`--from` and `--count`, at most 500); `picture --file` saves a picture of any of them. The picture is kept in Keevoro's own cache, and a file only in OneDrive (or iCloud) is never opened.
+`folders` lists the folders inside that hold photos or videos, with how many each holds; `files` lists one folder's photos and videos a page at a time (`--from` and `--count`, at most 500), by name or with `--sort newest` or `--sort oldest` by each file's date (when it was last changed or copied, which is not always when it was taken), all of them or only `--photos` or `--videos`, with how long each video lasts when its file says (MP4, MOV, M4V and 3GP); `picture --file` saves a picture of any of them. The picture is kept in Keevoro's own cache, and a file only in OneDrive (or iCloud) is never opened.
 
 ### Look through a source
 
@@ -243,7 +244,7 @@ The words each command shows in `keevoro --help` come from the same list the app
 | `keevoro places` | The drives plugged into this computer. |
 | `keevoro survey PLACE` | Finds the folders in a drive or folder that hold photos and videos, reading listings only. |
 | `keevoro folders PLACE` | The folders inside a surveyed place that hold photos or videos, with how many each holds. |
-| `keevoro files FOLDER [--from N] [--count N]` | The photos and videos directly in one folder, by name, a page at a time. Nothing is added. |
+| `keevoro files FOLDER [--from N] [--count N] [--sort name\|newest\|oldest] [--photos\|--videos]` | The photos and videos directly in one folder, a page at a time, by name or by the file's date, with each video's length. Nothing is added. |
 | `keevoro look PLACE` | Looks through a drive or folder and adds it as a source. |
 | `keevoro look --again [SOURCE]` | Looks through one source, or all of them, for what is new. |
 | `keevoro sources` | The backup's sources, each with its number. |
@@ -251,6 +252,7 @@ The words each command shows in `keevoro --help` come from the same list the app
 | `keevoro sources types SOURCE` | The kinds of file on a source, and which are included. |
 | `keevoro sources types SOURCE --leave-out png` | Leaves out one kind of file; `--include png` brings it back. |
 | `keevoro sources photos-or-videos SOURCE [backup, both, photos or videos]` | Whether one source follows its backup's choice of photos or videos, or has its own. |
+| `keevoro sources leave-out FOLDER [--put-back]` | Leaves a folder out of this backup, so it is not looked through and what was found in it is no longer offered; `--put-back` includes it again. It need not be in a source yet. Nothing in it, or already backed up, is touched. |
 
 A source is named by its number, its place or its name, as `keevoro sources` lists them.
 

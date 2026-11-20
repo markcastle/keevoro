@@ -6,7 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Look inside any folder, sorted as you like, with each video's length.** Each source now has **Look inside** beside File types, and the first step has "Not sure what is in a folder? Look inside one first", which lets you pick any folder. If Keevoro has not looked at the folder's listings before, it does that first, quickly, and you can stop it. Show all, only photos or only videos, and sort by name, newest first or oldest first. The dates are each file's own (when it was last changed or copied), and the screen says so, since that is not always when a photo was taken. A video shows how long it lasts, read from the file without playing it, and never for one only in OneDrive. From the command line: `keevoro files FOLDER --videos --sort newest`.
+- **Leave a folder out of a backup, and put it back.** Beside each folder "Find where the photos are" suggests, in the look inside a folder (the whole of it, or one folder in it), there is **Leave out**. A folder left out is not looked through for this backup, and what was found in it before is no longer offered, at once. It is said under the source it is in, and in what a search or survey passed by, each with **Put back**. Nothing in the folder is changed, and nothing already backed up is touched, and Keevoro says so the moment you choose. The look inside now shows everything Keevoro could find and marks what would not be backed up, saying why: a folder you left out, a backup or source for photos only or videos only, a kind of file left out of a source, or a kind Keevoro does not look for. From the command line: `keevoro sources leave-out FOLDER` and `--put-back`; an AI app can do it in folders you have allowed it, when you allow changes.
+
+### Fixed
+
+- **A pause asked for by another Keevoro program no longer outlasts the work it paused.** If the command line or an AI app asked Keevoro to pause just as the app's search or backup was ending, the app could stay paused afterwards, with its check for duplicates waiting where nothing else could see it or tell it to carry on. Now such a pause ends with the work it was for, and the log says so. A pause you press in the app still lasts until you press Carry on, and the app now says "Keevoro is paused" at the foot of every screen whenever it is, whoever paused it.
+- **The bar at the foot of a narrow window no longer pushes its button off the side.** If the window is very narrow and Keevoro's typeface is slow to load, the words wrap and the button moves to a line of its own.
 
 ## [0.34.0] - 2026-11-20
 

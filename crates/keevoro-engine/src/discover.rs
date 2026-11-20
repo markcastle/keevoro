@@ -37,6 +37,10 @@ pub struct SourceView {
     /// The same in words, with how to include them.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub online_only_said: Option<String>,
+    /// Folders left out of this backup that are in it, or that it is in,
+    /// as a person would write them, each with Put back beside it.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub left_out: Vec<String>,
 }
 
 fn is_zero(n: &u64) -> bool {
@@ -296,10 +300,16 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
         });
     }
 
+    let left_out = catalog.left_out_folders()?;
     let sources = catalog
         .sources()?
         .into_iter()
         .map(|s| SourceView {
+            left_out: left_out
+                .iter()
+                .filter(|f| keevoro_core::places::within(f, &s.root) || keevoro_core::places::within(&s.root, f))
+                .map(|f| friendly_path(f))
+                .collect(),
             id: s.id,
             name: s.name,
             root: friendly_path(&s.root),

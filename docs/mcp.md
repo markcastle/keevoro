@@ -10,12 +10,13 @@ Keevoro treats every source (a drive, a memory card or a folder it looks through
 
 Out of the box, an agent can only look. It can list your backups, what each one found, its sources, collections, duplicates and destinations, how earlier backups went, and what Keevoro is doing now. It cannot change anything, and it cannot look in any folder, until you say so.
 
-In a folder you have named it can also look inside before anything is added: `folders_inside` lists the folders in a place it surveyed that hold photos or videos, `files_in_folder` lists one folder's photos and videos a page at a time, and `show_picture` with a `file` gives a picture of any of them. None of that adds anything to a backup or changes anything; the pictures are kept only in Keevoro's own cache, and a file only in online storage (OneDrive, iCloud) is never opened, since that would download it.
+In a folder you have named it can also look inside before anything is added: `folders_inside` lists the folders in a place it surveyed that hold photos or videos, `files_in_folder` lists one folder's photos and videos a page at a time (by name, or newest or oldest by the file's date, all or only photos or videos, with how many seconds each video lasts), and `show_picture` with a `file` gives a picture of any of them. None of that adds anything to a backup or changes anything; the pictures are kept only in Keevoro's own cache, and a file only in online storage (OneDrive, iCloud) is never opened, since that would download it.
 
 When you allow it, it can also:
 
 - look through folders you have named, and add them to a backup as sources;
 - start and rename backups, keep or leave out collections and photos, and choose kinds of file;
+- leave a folder you have named out of a backup, or put it back (`leave_out_folder`), so it is not looked through and what was found in it is no longer offered. Nothing in the folder, and nothing already backed up, is touched;
 - add a folder you have named as a destination, or cloud storage with its keys;
 - back up, check what arrived, pause, carry on and stop.
 

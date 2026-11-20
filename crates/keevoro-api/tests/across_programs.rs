@@ -35,7 +35,7 @@ struct CarryOnAfter;
 
 impl Drop for CarryOnAfter {
     fn drop(&mut self) {
-        keevoro_core::pause::set_paused(false);
+        keevoro_core::pause::carry_on();
     }
 }
 

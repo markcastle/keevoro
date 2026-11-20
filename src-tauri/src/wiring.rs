@@ -271,11 +271,9 @@ fn a_folder_is_looked_inside_by_the_names_and_shapes_the_screens_use_and_nothing
     let before = snapshot(&card);
     let place = card.display().to_string();
     invoke(&window, "start_backup", json!({ "name": "Card photos" })).unwrap();
-    let refused = invoke(&window, "folders_inside", json!({ "place": place })).unwrap_err();
-    assert!(
-        refused.as_str().unwrap().contains("Find where the photos are"),
-        "{refused}"
-    );
+    // Not surveyed yet: no outline, so the screen surveys it first.
+    let none = invoke(&window, "folders_inside", json!({ "place": place })).unwrap();
+    assert_eq!(none, Value::Null);
     invoke(&window, "survey_place", json!({ "path": place })).unwrap();
     let outline = invoke(&window, "folders_inside", json!({ "place": place })).unwrap();
     fits(&outline, "FoldersView");
@@ -284,7 +282,7 @@ fn a_folder_is_looked_inside_by_the_names_and_shapes_the_screens_use_and_nothing
     let page = invoke(
         &window,
         "folder_files",
-        json!({ "place": folder, "from": 0, "count": 100 }),
+        json!({ "request": { "place": folder, "from": 0, "count": 100, "sort": "newest", "only": "photos" } }),
     )
     .unwrap();
     fits(&page, "FilesView");

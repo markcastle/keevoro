@@ -34,7 +34,10 @@ const page = await browser.newPage({ viewport: { width: 1440, height: 900 } })
 const problems = []
 page.on('pageerror', (error) => problems.push(String(error)))
 page.on('console', (message) => message.type() === 'error' && problems.push(message.text()))
-const shot = (name) => page.screenshot({ path: join(shots, `${name}.png`) })
+const shot = async (name) => {
+  await settled()
+  await page.screenshot({ path: join(shots, `${name}.png`) })
+}
 const text = (selector) => page.locator(selector).first().innerText()
 // The step the list down the side says we are on.
 const currentStep = () => page.locator('.steps li.now').innerText()
@@ -87,11 +90,24 @@ const headingClearOfBand = async (where) => {
   assert.equal(await headingUnderBand(), null, `${where}, scrolled down a little`)
   await page.evaluate((was) => [document.scrollingElement, ...document.querySelectorAll('.app, main')].forEach((el, n) => (el.scrollTop = was[n])), scrolled)
 }
+// Waits until the page is drawn as it will stay: its typeface has loaded
+// (until then a wider stand-in draws the words, which once pushed a button
+// past the edge on a slow machine), every easing of colour or place has
+// finished, and two frames have been laid out since. Never a guess at a
+// number of milliseconds.
+const settled = () =>
+  page.evaluate(async () => {
+    await document.fonts.ready
+    // Spinners and shimmers go round for ever; only easings end.
+    const easing = document.getAnimations().filter((a) => a.effect?.getComputedTiming().iterations !== Infinity)
+    await Promise.all(easing.map((a) => a.finished.catch(() => {})))
+    await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => done())))
+  })
 // Checks the screen as it is at narrow widths, then puts the window back.
 const fitsNarrow = async (screen) => {
   for (const width of [400, 560]) {
     await page.setViewportSize({ width, height: 800 })
-    await page.waitForTimeout(50)
+    await settled()
     assert.deepEqual(await spills(), [], `${screen} at ${width} pixels wide spills sideways`)
     await headingClearOfBand(`${screen} at ${width} pixels wide`)
   }
@@ -562,7 +578,6 @@ try {
   await page.getByRole('button', { name: 'Dark', exact: true }).click()
   assert.equal(await ground(), 'rgb(16, 39, 37)', 'the deep teal ground of the dark theme')
   assert.match(await page.locator('.brand img:visible').getAttribute('src'), /lockup-reversed/, 'the logo for dark grounds')
-  await page.waitForTimeout(400) // let the colours finish easing across
   await shot('9f-settings-dark')
   await page.getByRole('button', { name: 'Light', exact: true }).click()
   assert.equal(await ground(), 'rgb(255, 254, 251)')
@@ -869,9 +884,27 @@ try {
   await page.getByRole('button', { name: 'Look inside C:\\Users\\Mark\\Pictures' }).click()
   await page.getByRole('heading', { name: 'Inside Pictures', level: 1 }).waitFor()
   await page.waitForFunction(() => document.querySelectorAll('.inside .tile img').length >= 12)
-  await page.waitForTimeout(400)
   await shot('9q4-look-inside')
   await fitsNarrow('Looking inside')
+  // Only the videos, newest first by the file's date, each with its length.
+  await page.getByRole('radiogroup', { name: 'Show' }).getByRole('radio', { name: 'Videos' }).click()
+  await page.getByLabel('Sort by').selectOption({ label: 'Newest first (by file date)' })
+  assert.match(await text('.inside header'), /not always when it was taken/)
+  await page.getByRole('button', { name: 'Look at VID_0037.mp4' }).first().waitFor()
+  assert.deepEqual(
+    await page.locator('.inside .tiles-heading b').allInnerTexts(),
+    ['Camera Roll', 'Captures', '2019 › Cornwall'],
+    'folders with no videos are not shown',
+  )
+  assert.equal(await page.locator('.inside .tile .look').first().getAttribute('aria-label'), 'Look at VID_0037.mp4', 'the newest first')
+  await page.locator('.inside .tile img').first().waitFor()
+  assert.equal(await page.getByRole('button', { name: 'Look at VID_0001.mp4' }).first().locator('.length').innerText(), '1:42')
+  assert.equal(await page.getByRole('button', { name: 'Look at VID_0005.mp4' }).first().locator('.length').count(), 0, 'one that does not say shows none')
+  await shot('9q6-look-inside-videos')
+  await page.getByRole('button', { name: 'Look at VID_0001.mp4' }).first().click()
+  await page.getByRole('dialog', { name: 'VID_0001.mp4' }).getByText('Video, 1:42 long: this is a still from it').waitFor()
+  await page.keyboard.press('Escape')
+  await fitsNarrow('Looking inside, videos only')
   await page.getByRole('button', { name: '‹ Back' }).click()
   // And from inside, one button looks through it properly.
   await page.getByRole('button', { name: 'Look inside C:\\Users\\Mark\\Pictures' }).click()
@@ -879,6 +912,70 @@ try {
   await page.locator('.inside header').getByRole('button', { name: 'Look through this folder' }).click()
   await page.locator('.kept li.source').first().waitFor()
   assert.match(await text('.kept li.source .what .folder'), /^C:\\Users\\Mark\\Pictures$/)
+
+  // --- Any folder can be looked inside: a source, surveyed first when
+  // Keevoro has not seen inside it, and one picked from the first step.
+  await page.goto(`${base}/?demo=empty&fast`)
+  await page.getByRole('button', { name: 'Look inside one first' }).click()
+  await page.getByRole('heading', { name: 'Inside Photos', level: 1 }).waitFor()
+  await page.locator('.inside .tile').first().waitFor()
+  assert.equal(await page.locator('.kept li.source').count(), 0, 'looking inside added nothing')
+  await page.getByRole('button', { name: '‹ Back' }).click()
+  await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
+  await shot('9q7-look-inside-first')
+  await page.goto(`${base}/?slow`)
+  await page.locator('.steps button').nth(0).click()
+  await page.getByRole('button', { name: 'Look inside Family hard drive' }).click()
+  await page.getByRole('heading', { name: 'Finding what is in Family hard drive…' }).waitFor()
+  assert.ok(await page.getByRole('button', { name: 'Stop and show what was found' }).isVisible())
+  await shot('9q8-look-inside-a-source-surveying')
+  await page.locator('.inside .tile').first().waitFor({ timeout: 15000 })
+  assert.ok(await page.locator('.inside header').getByRole('button', { name: 'Look through it again' }).isVisible())
+  await shot('9q9-look-inside-a-source')
+  // A source can be left out from its look inside, and put back from its card.
+  await page.locator('.inside header').getByRole('button', { name: 'Leave out E:' }).click()
+  await page.locator('.inside .left-out-here').waitFor()
+  assert.match(await text('.inside .left-out-said'), /nothing already backed up is touched/)
+  await page.getByRole('button', { name: '‹ Back' }).click()
+  const card = page.locator('.kept li.source').first()
+  await card.locator('.left-out-by-you').waitFor()
+  assert.match(await card.locator('.left-out-by-you').innerText(), /Left out of this backup:\s*E:/)
+  await shot('9r3-source-left-out')
+  await fitsNarrow('A source with a folder left out')
+  await card.getByRole('button', { name: 'Put back E:' }).click()
+  await card.locator('.left-out-by-you .left-out-said').waitFor()
+  await card.locator('.left-out-by-you li').waitFor({ state: 'detached' })
+
+  // --- Leave a folder out from the survey's suggestions, and from the
+  // look inside, saying at the moment of the choice that nothing already
+  // backed up is touched; Put back undoes it.
+  await page.goto(`${base}/?demo=empty&fast`)
+  await page.getByRole('button', { name: /Windows \(C:\)/ }).click()
+  await page.getByRole('button', { name: 'Find the folders with photos' }).click()
+  await page.getByRole('heading', { name: '4 folders on Windows (C:) seem to hold photos and videos' }).waitFor()
+  await page.getByRole('button', { name: 'Leave out assets' }).click()
+  await page.getByRole('button', { name: 'Put back assets' }).waitFor()
+  assert.match(await text('.survey .left-out-said'), /^Left out C:\\Games\\Launcher\\assets\. .*nothing already backed up is touched\.$/)
+  assert.equal(await page.locator('.survey .hints input').nth(3).isDisabled(), true, 'it can no longer be ticked')
+  await shot('9r-survey-left-out')
+  await fitsNarrow('The survey with a folder left out')
+  await page.getByRole('button', { name: 'Put back assets' }).click()
+  await page.getByRole('button', { name: 'Leave out assets' }).waitFor()
+  await page.getByRole('button', { name: 'Look inside C:\\Users\\Mark\\Pictures' }).click()
+  await page.getByRole('heading', { name: 'Inside Pictures', level: 1 }).waitFor()
+  await page.getByRole('button', { name: 'Leave out Captures' }).click()
+  await page.getByRole('button', { name: 'Put back Captures' }).waitFor()
+  await page.locator('.inside .tiles-heading .badge', { hasText: 'Left out' }).waitFor()
+  await page.locator('.inside header').getByRole('button', { name: 'Leave out Pictures' }).click()
+  await page.locator('.inside .left-out-here').waitFor()
+  await page.locator('.inside .tile .out-mark').first().waitFor()
+  assert.equal(await page.locator('.inside .tile .out-mark').first().getAttribute('title'), 'Left out: you left this folder out of this backup')
+  await shot('9r2-look-inside-left-out')
+  await fitsNarrow('Looking inside a folder left out')
+  await page.locator('.inside .left-out-here').getByRole('button', { name: 'Put back Pictures' }).click()
+  await page.locator('.inside .left-out-here').waitFor({ state: 'detached' })
+  await page.getByRole('button', { name: 'Put back Captures' }).click()
+  await page.getByRole('button', { name: 'Leave out Captures' }).waitFor()
 
   // --- Every main screen fits a narrow window: the page never scrolls
   // sideways, and wide tables scroll inside their own box.
@@ -912,6 +1009,17 @@ try {
   await page.getByRole('button', { name: 'About Keevoro' }).click()
   await fitsNarrow('About')
   await page.getByRole('button', { name: '‹ Back' }).click()
+
+  // --- The narrow window fits even when the typeface cannot be loaded,
+  // whose stand-in draws words wider: the bar at the foot wraps instead.
+  const plain = await browser.newPage({ viewport: { width: 400, height: 800 } })
+  await plain.route('**/*.woff2', (route) => route.abort())
+  await plain.goto(`${base}/?fast`)
+  await plain.getByRole('heading', { name: 'Which of these should we keep?', level: 1 }).waitFor()
+  await plain.evaluate(() => document.fonts.ready)
+  const button = await plain.getByRole('button', { name: 'Choose where they go' }).boundingBox()
+  assert.ok(button && button.x + button.width <= 400, `the button stays inside the window (${JSON.stringify(button)})`)
+  await plain.close()
 
   // --- An existing library opens on the step that still needs doing, in dark mode too.
   await page.emulateMedia({ colorScheme: 'dark' })

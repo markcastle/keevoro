@@ -34,6 +34,7 @@ import type {
   Wants,
   WantsView,
   LeftOut,
+  LeftOutFolder,
   StageRecord,
   Sending,
   AppState,
@@ -63,6 +64,7 @@ import { chooseTheme, savedTheme } from './theme'
 import { ClearUnfinished } from './tidy'
 import { FoundPicture, Viewer } from './pictures'
 import { LookInside } from './inside'
+import { LeaveOutButton, LeftOutByYou, LeftOutSaid, leftOutByYou } from './leaveOut'
 import { VirtualTiles } from './tiles'
 import type { Theme } from './theme'
 
@@ -111,7 +113,13 @@ export function App() {
     const ask = () =>
       api
         .activity()
-        .then((a) => open && setDoing(a.doing))
+        .then((a) => {
+          if (!open) return
+          setDoing(a.doing)
+          // Paused here or by another Keevoro program, it is said on
+          // every screen, with Carry on, for as long as it lasts.
+          setPaused(a.paused)
+        })
         .catch(() => {})
     void ask()
     const timer = window.setInterval(ask, 2000)
@@ -271,7 +279,7 @@ export function App() {
           ))}
         </ol>
         <div className="foot">
-          {check && (
+          {check && !paused && (
             <span className="checking" role="status">
               <Spinner /> Checking for duplicates in the background: {thousands(check.done)} of {thousands(check.total)}.
               You can carry on.
@@ -649,9 +657,10 @@ function FindScreen(props: {
   } | null>(null)
   // Folders waiting their turn to be looked through, one after another.
   const [queue, setQueue] = useState<string[]>([])
-  // A folder the survey suggested, being looked inside before it is chosen.
-  // The survey stays as it was underneath, to come back to.
-  const [inside, setInside] = useState<string | null>(null)
+  // A folder being looked inside: one the survey suggested, a source, or
+  // one picked to look inside first. The survey stays as it was
+  // underneath, to come back to. `again` when it is a source already.
+  const [inside, setInside] = useState<{ place: string; name?: string; again?: boolean } | null>(null)
   const surveyScroll = useRef(0)
   useEffect(() => api.onSurvey((progress) => setSurvey((s) => (s && !s.found ? { ...s, progress } : s))), [api])
 
@@ -743,6 +752,19 @@ function FindScreen(props: {
       })
       .catch(onProblem)
   }
+  // Opens the look inside a folder, noting where the page was to come back to.
+  const lookInside = (place: string, source?: { name: string }) => {
+    surveyScroll.current = scroller()?.scrollTop ?? 0
+    setInside({ place, name: source?.name, again: Boolean(source) })
+    requestAnimationFrame(() => scroller()?.scrollTo(0, 0))
+  }
+  // Asks for any folder, then looks inside it first.
+  const pickToLookInside = () => {
+    api
+      .pickPlace()
+      .then((path) => path && lookInside(path))
+      .catch(onProblem)
+  }
   const choose = (place: Place) => {
     if (place.askFirst) setAsking({ path: place.path, name: place.name, detail: place.detail })
     else start(place.path)
@@ -756,7 +778,10 @@ function FindScreen(props: {
     return (
       <LookInside
         api={api}
-        place={inside}
+        place={inside.place}
+        name={inside.name}
+        lookThrough={inside.again ? 'Look through it again' : undefined}
+        onChanged={props.onChanged}
         onProblem={onProblem}
         onBack={() => {
           setInside(null)
@@ -859,9 +884,7 @@ function FindScreen(props: {
           }
           onGo={lookThroughChosen}
           onLookInside={(folder) => {
-            surveyScroll.current = scroller()?.scrollTop ?? 0
-            setInside(folder)
-            requestAnimationFrame(() => scroller()?.scrollTo(0, 0))
+            lookInside(folder)
           }}
           onCancel={() => setSurvey(null)}
         />
@@ -918,6 +941,13 @@ function FindScreen(props: {
                   )}
                   {justFound.onlineOnlySaid && <p className="online-only">{justFound.onlineOnlySaid}</p>}
                   <LeftOutNote api={api} leftOut={justFound.leftOut} onProblem={onProblem} />
+                  <LeftOutByYou
+                    api={api}
+                    folders={leftOutByYou(justFound.leftOut)}
+                    title="Passed by, as you left these out of this backup:"
+                    onChanged={props.onChanged}
+                    onProblem={onProblem}
+                  />
                 </>
               )}
             </div>
@@ -938,6 +968,13 @@ function FindScreen(props: {
           {places && removable.length === 0 && (
             <p className="quiet small">No USB or external drive is plugged in right now. Plug one in and it will appear here.</p>
           )}
+          <p className="quiet small look-first">
+            Not sure what is in a folder?{' '}
+            <button className="link" onClick={pickToLookInside}>
+              Look inside one first
+            </button>
+            . You see its photos and videos, and nothing is added until you choose.
+          </p>
         </>
       )}
 
@@ -986,6 +1023,14 @@ function FindScreen(props: {
                   <span className="row-actions">
                     <button
                       className="button small"
+                      onClick={() => lookInside(s.root, { name: sourceTitle(s, places) })}
+                      aria-label={`Look inside ${s.name}`}
+                      title="See its photos and videos, folder by folder. Nothing is changed."
+                    >
+                      Look inside
+                    </button>
+                    <button
+                      className="button small"
                       onClick={() => setTypesOf(typesOf === s.id ? null : s.id)}
                       aria-expanded={typesOf === s.id}
                       aria-label={`File types on ${s.name}`}
@@ -998,6 +1043,13 @@ function FindScreen(props: {
                   </span>
                 )}
                 {s.onlineOnlySaid && <p className="online-only small">{s.onlineOnlySaid}</p>}
+                <LeftOutByYou
+                  api={api}
+                  folders={s.leftOut ?? []}
+                  title="Left out of this backup:"
+                  onChanged={props.onChanged}
+                  onProblem={onProblem}
+                />
                 {typesOf === s.id && removing !== s.id && (
                   <FileTypes api={api} source={s} onChanged={props.onChanged} onProblem={onProblem} />
                 )}
@@ -3347,7 +3399,8 @@ const DOUBLE_CLICK_WAIT = 260
  * say what each is, with a way to see it. Keevoro never removes them.
  */
 function LeftOutNote(props: { api: Backend; leftOut?: LeftOut[]; onProblem: (error: unknown) => void }) {
-  const leftOut = props.leftOut ?? []
+  // Those the person left out are said apart, each with Put back.
+  const leftOut = (props.leftOut ?? []).filter((left) => left.what !== 'leftOutByYou')
   if (leftOut.length === 0) return null
   return (
     <details className="left-out">
@@ -3382,7 +3435,10 @@ function SurveyResult(props: {
   onCancel: () => void
 }) {
   const { found, chosen } = props
-  const picked = found.hints.filter((h) => chosen.has(h.folder))
+  // Suggestions left out from here, and what that did, said once.
+  const [outNow, setOutNow] = useState<Set<string>>(new Set())
+  const [said, setSaid] = useState<LeftOutFolder | null>(null)
+  const picked = found.hints.filter((h) => chosen.has(h.folder) && !outNow.has(h.folder))
   const photos = picked.reduce((n, h) => n + h.photos, 0)
   const videos = picked.reduce((n, h) => n + h.videos, 0)
   const bytes = picked.reduce((n, h) => n + h.bytes, 0)
@@ -3406,8 +3462,8 @@ function SurveyResult(props: {
               <label>
                 <input
                   type="checkbox"
-                  checked={chosen.has(hint.folder)}
-                  disabled={hint.alreadyASource}
+                  checked={chosen.has(hint.folder) && !outNow.has(hint.folder)}
+                  disabled={hint.alreadyASource || outNow.has(hint.folder)}
                   onChange={() => props.onToggle(hint.folder)}
                 />
                 <span className="where">{hint.folder}</span>
@@ -3423,6 +3479,26 @@ function SurveyResult(props: {
               >
                 Look inside
               </button>
+              {!hint.alreadyASource && (
+                <LeaveOutButton
+                  api={props.api}
+                  folder={hint.folder}
+                  leftOut={outNow.has(hint.folder)}
+                  words="Leave out"
+                  small
+                  onChanged={(done) => {
+                    setSaid(done)
+                    setOutNow((now) => {
+                      const next = new Set(now)
+                      if (done.leftOut) next.add(hint.folder)
+                      else next.delete(hint.folder)
+                      return next
+                    })
+                  }}
+                  onProblem={props.onProblem}
+                />
+              )}
+              {outNow.has(hint.folder) && <span className="badge">Left out of this backup</span>}
               {hint.alreadyASource && <span className="badge">Already a source</span>}
               {!hint.likelyPhotos && !hint.alreadyASource && (
                 <span className="badge" title="The pictures here are very small and there are no videos">
@@ -3434,7 +3510,15 @@ function SurveyResult(props: {
           ))}
         </ul>
       )}
+      <LeftOutSaid done={said} />
       <LeftOutNote api={props.api} leftOut={found.leftOut} onProblem={props.onProblem} />
+      <LeftOutByYou
+        api={props.api}
+        folders={leftOutByYou(found.leftOut)}
+        title="Passed by, as you left these out of this backup:"
+        onChanged={setSaid}
+        onProblem={props.onProblem}
+      />
       {found.unreadable > 0 && (
         <p className="quiet small">
           {count(found.unreadable, 'folder')} could not be listed, usually because this account is not allowed to

@@ -57,6 +57,7 @@ use crate::keevoro::Keevoro;
 use crate::log::Log;
 use crate::register::Op;
 use across::{Across, Ask, NotTaken, Work};
+use keevoro_core::pause::PausedBy;
 use keevoro_engine::connect::SecretStore;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
@@ -840,7 +841,7 @@ impl Jobs {
         // A paused job is waiting, and must wake to see it has been asked
         // to stop.
         if asked.iter().any(|job| job.kind().waits_while_paused()) {
-            keevoro_core::pause::set_paused(false);
+            keevoro_core::pause::carry_on();
         }
         let mut ids: Vec<JobId> = asked.iter().map(|job| job.id()).collect();
         // One job, found here, is not looked for elsewhere.
@@ -987,7 +988,7 @@ impl Jobs {
                     }
                 }
                 // A paused job must wake to see it has been asked to stop.
-                keevoro_core::pause::set_paused(false);
+                keevoro_core::pause::carry_on();
                 registry = lock(&self.registry);
                 continue;
             }
@@ -1061,8 +1062,19 @@ impl Work for Jobs {
                     self.stop(Which::Job(*id), log);
                 }
             }
-            Ask::Pause => keevoro_core::pause::set_paused(true),
-            Ask::CarryOn => keevoro_core::pause::set_paused(false),
+            Ask::Pause => keevoro_core::pause::pause(PausedBy::AnotherProgram),
+            Ask::CarryOn => keevoro_core::pause::carry_on(),
+        }
+    }
+
+    fn nothing_held(&self) {
+        // Another program can no longer see or reach anything here, so a
+        // pause it asked for would hold what is left (such as the check for
+        // duplicates) where nobody could tell it to carry on.
+        if keevoro_core::pause::lift_pause_asked_for_elsewhere() {
+            if let Some(log) = self.log.get() {
+                log.say("Carrying on: the work another Keevoro program paused here has ended, so its pause is lifted");
+            }
         }
     }
 
@@ -1222,20 +1234,28 @@ impl Keevoro {
         if let Some(kind) = only {
             kinds = kinds.only(kind);
         }
-        surveying::start(&self.context(), place, backup, kinds, self.skip_rules(), listener)
+        surveying::start(
+            &self.context(),
+            place,
+            backup,
+            kinds,
+            self.skip_rules_for(backup),
+            listener,
+        )
     }
 
     /// `sources.look`: looks through a drive or folder quickly and adds it
     /// to the backup as a source.
     pub fn look(&self, backup: &Named, place: &Path, listener: Option<Listener>) -> Result<JobHandle> {
         must_be_there(place)?;
+        looking::not_left_out(backup, place)?;
         looking::start(
             &self.context(),
             backup,
             vec![place.to_path_buf()],
             JobKind::Look,
             self.kinds_to_look_for(),
-            self.skip_rules(),
+            self.skip_rules_for(Some(backup)),
             listener,
         )
     }
@@ -1250,7 +1270,7 @@ impl Keevoro {
             places,
             JobKind::LookAgain,
             self.kinds_to_look_for(),
-            self.skip_rules(),
+            self.skip_rules_for(Some(backup)),
             listener,
         )
     }
@@ -1298,7 +1318,7 @@ impl Keevoro {
     /// `jobs.pause`: every heavy job waits once the file in hand is done,
     /// in this program and any other working on a backup.
     pub fn pause(&self) {
-        keevoro_core::pause::set_paused(true);
+        keevoro_core::pause::pause(PausedBy::ThisProgram);
         self.jobs.ask_everyone_else(Ask::Pause);
         self.log().say("Paused: all heavy work is waiting");
     }
@@ -1306,7 +1326,7 @@ impl Keevoro {
     /// `jobs.carry_on`: paused jobs go on from where they were, in this
     /// program and any other working on a backup.
     pub fn carry_on(&self) {
-        keevoro_core::pause::set_paused(false);
+        keevoro_core::pause::carry_on();
         self.jobs.ask_everyone_else(Ask::CarryOn);
         self.log().say("Resumed: work is carrying on from where it paused");
     }

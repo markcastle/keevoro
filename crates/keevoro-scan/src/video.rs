@@ -1,10 +1,12 @@
-//! Reads the recording date from MP4, MOV and 3GP videos.
+//! Reads the movie header of MP4, MOV, M4V and 3GP videos: when the video
+//! was recorded, and how long it lasts.
 //!
 //! These formats share one container layout: a list of "boxes", each with a
-//! length and a four-letter name. The recording date lives in the movie
-//! header (`mvhd`) inside the `moov` box. On files straight from a camera
-//! `moov` is often at the very end, after gigabytes of video, so the reader
-//! hops from box to box by seeking rather than reading everything.
+//! length and a four-letter name. Both facts live in the movie header
+//! (`mvhd`) inside the `moov` box. On files straight from a camera `moov`
+//! is often at the very end, after gigabytes of video, so the reader hops
+//! from box to box by seeking rather than reading everything. A handful of
+//! small reads, and nothing is decoded.
 //!
 //! The date is stored as seconds since 1904. Phones usually write it in UTC
 //! and older cameras in local time, and the file does not say which. Keevoro
@@ -12,6 +14,7 @@
 
 use keevoro_core::PartialDate;
 use std::io::{Read, Seek, SeekFrom};
+use std::path::Path;
 
 /// Seconds between the container's 1904 epoch and the Unix epoch.
 const EPOCH_1904_TO_1970: i64 = 2_082_844_800;
@@ -19,6 +22,8 @@ const EPOCH_1904_TO_1970: i64 = 2_082_844_800;
 const EARLIEST_BELIEVABLE: i64 = 631_152_000;
 /// A damaged file must not send the reader round in circles.
 const MAX_BOXES: usize = 4096;
+/// Longer than any real video: a length past it is a damaged header.
+const LONGEST_BELIEVABLE: f64 = 7.0 * 24.0 * 60.0 * 60.0;
 
 struct BoxHeader {
     /// Where the box's contents start and where the box ends.
@@ -26,9 +31,18 @@ struct BoxHeader {
     end: u64,
 }
 
-/// The recording date of a video, or `None` when the file is not this kind
-/// of container or its clock was never set.
-pub fn recording_date<R: Read + Seek>(r: &mut R) -> Option<PartialDate> {
+/// What a video's movie header says.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MovieHeader {
+    /// When it was recorded, if its clock was set.
+    pub recorded: Option<PartialDate>,
+    /// How long it lasts, in seconds, if it says.
+    pub seconds: Option<f64>,
+}
+
+/// The movie header of a video, or `None` when the file is not this kind
+/// of container.
+pub fn movie_header<R: Read + Seek>(r: &mut R) -> Option<MovieHeader> {
     let len = r.seek(SeekFrom::End(0)).ok()?;
     let moov = find_box(r, 0, len, b"moov", true)?;
     let mvhd = find_box(r, moov.body, moov.end, b"mvhd", false)?;
@@ -36,20 +50,46 @@ pub fn recording_date<R: Read + Seek>(r: &mut R) -> Option<PartialDate> {
     r.seek(SeekFrom::Start(mvhd.body)).ok()?;
     let mut version_and_flags = [0u8; 4];
     r.read_exact(&mut version_and_flags).ok()?;
-    let created = if version_and_flags[0] == 1 {
+    let long = version_and_flags[0] == 1;
+    // Created, then modified, then the time scale and the duration.
+    let created = read_number(r, long)?;
+    read_number(r, long)?;
+    let scale = read_number(r, false)?;
+    let duration = read_number(r, long)?;
+
+    let recorded = i64::try_from(created)
+        .ok()
+        .and_then(|c| c.checked_sub(EPOCH_1904_TO_1970))
+        .filter(|unix| *unix >= EARLIEST_BELIEVABLE)
+        .and_then(PartialDate::from_unix_seconds);
+    // All ones means the length is not known.
+    let unknown = if long { u64::MAX } else { u64::from(u32::MAX) };
+    #[allow(clippy::cast_precision_loss)]
+    let seconds = (scale > 0 && duration != unknown)
+        .then(|| duration as f64 / scale as f64)
+        .filter(|s| s.is_finite() && *s <= LONGEST_BELIEVABLE);
+    Some(MovieHeader { recorded, seconds })
+}
+
+/// How long the video at `path` lasts, from its movie header, in seconds.
+/// `None` for a file that is not MP4, MOV, M4V or 3GP, or does not say.
+/// The file is only read, a few bytes at a time.
+pub fn length_of(path: &Path) -> Option<f64> {
+    let mut file = std::io::BufReader::with_capacity(4096, std::fs::File::open(path).ok()?);
+    movie_header(&mut file)?.seconds
+}
+
+/// A big-endian number of 32 bits, or 64 when `long`.
+fn read_number<R: Read>(r: &mut R, long: bool) -> Option<u64> {
+    if long {
         let mut b = [0u8; 8];
         r.read_exact(&mut b).ok()?;
-        i64::try_from(u64::from_be_bytes(b)).ok()?
+        Some(u64::from_be_bytes(b))
     } else {
         let mut b = [0u8; 4];
         r.read_exact(&mut b).ok()?;
-        i64::from(u32::from_be_bytes(b))
-    };
-    let unix = created.checked_sub(EPOCH_1904_TO_1970)?;
-    if unix < EARLIEST_BELIEVABLE {
-        return None;
+        Some(u64::from(u32::from_be_bytes(b)))
     }
-    PartialDate::from_unix_seconds(unix)
 }
 
 /// Walks the boxes between `start` and `end` looking for `wanted`.
@@ -109,11 +149,23 @@ pub(crate) mod tests {
     }
 
     fn mvhd(version: u8, created_1904: u64) -> Vec<u8> {
+        mvhd_lasting(version, created_1904, 600, 61_200)
+    }
+
+    /// A movie header saying the video was made at `created_1904` and
+    /// lasts `duration` ticks of `scale` a second.
+    fn mvhd_lasting(version: u8, created_1904: u64, scale: u32, duration: u64) -> Vec<u8> {
         let mut body = vec![version, 0, 0, 0];
         if version == 1 {
             body.extend_from_slice(&created_1904.to_be_bytes());
+            body.extend_from_slice(&created_1904.to_be_bytes());
+            body.extend_from_slice(&scale.to_be_bytes());
+            body.extend_from_slice(&duration.to_be_bytes());
         } else {
             body.extend_from_slice(&u32::try_from(created_1904).unwrap().to_be_bytes());
+            body.extend_from_slice(&u32::try_from(created_1904).unwrap().to_be_bytes());
+            body.extend_from_slice(&scale.to_be_bytes());
+            body.extend_from_slice(&u32::try_from(duration).unwrap().to_be_bytes());
         }
         body.extend_from_slice(&[0; 16]);
         boxed(b"mvhd", &body)
@@ -137,7 +189,66 @@ pub(crate) mod tests {
     const SPAIN: i64 = 1_247_605_802;
 
     fn date(bytes: Vec<u8>) -> Option<String> {
-        recording_date(&mut Cursor::new(bytes)).map(|d| d.to_string())
+        movie_header(&mut Cursor::new(bytes))
+            .and_then(|h| h.recorded)
+            .map(|d| d.to_string())
+    }
+
+    fn seconds(bytes: Vec<u8>) -> Option<f64> {
+        movie_header(&mut Cursor::new(bytes)).and_then(|h| h.seconds)
+    }
+
+    #[test]
+    fn reads_how_long_a_video_lasts_wherever_the_header_sits() {
+        // 61,200 ticks of 1/600 of a second: one minute 42 seconds.
+        assert_eq!(seconds(mp4_recorded_at(SPAIN, 0, false)), Some(102.0));
+        assert_eq!(seconds(mp4_recorded_at(SPAIN, 0, true)), Some(102.0));
+        assert_eq!(seconds(mp4_recorded_at(SPAIN, 1, true)), Some(102.0));
+        let created = u64::try_from(SPAIN + EPOCH_1904_TO_1970).unwrap();
+        let long = [
+            boxed(b"ftyp", b"qt  "),
+            boxed(b"moov", &mvhd_lasting(1, created, 90_000, 90_000 * 3_725)),
+        ]
+        .concat();
+        assert_eq!(seconds(long), Some(3_725.0), "a 64-bit header, an hour and more");
+    }
+
+    #[test]
+    fn a_length_not_known_or_not_believable_is_no_length() {
+        let created = u64::try_from(SPAIN + EPOCH_1904_TO_1970).unwrap();
+        let with = |scale, duration| {
+            [
+                boxed(b"ftyp", b"isom"),
+                boxed(b"moov", &mvhd_lasting(0, created, scale, duration)),
+            ]
+            .concat()
+        };
+        assert_eq!(seconds(with(0, 100)), None, "no time scale");
+        assert_eq!(seconds(with(600, u64::from(u32::MAX))), None, "all ones: not known");
+        assert_eq!(
+            seconds(with(1, 30 * 24 * 60 * 60)),
+            None,
+            "a month long is a damaged header"
+        );
+        // A header with no room for its length says no length, and no date either.
+        let mut short = vec![0u8, 0, 0, 0];
+        short.extend_from_slice(&u32::try_from(created).unwrap().to_be_bytes());
+        let cut = [boxed(b"ftyp", b"isom"), boxed(b"moov", &boxed(b"mvhd", &short))].concat();
+        assert_eq!(movie_header(&mut Cursor::new(cut)), None);
+    }
+
+    #[test]
+    fn the_length_of_a_file_is_read_without_changing_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("clip.mov");
+        let bytes = mp4_recorded_at(SPAIN, 0, true);
+        std::fs::write(&file, &bytes).unwrap();
+        assert_eq!(length_of(&file), Some(102.0));
+        assert_eq!(std::fs::read(&file).unwrap(), bytes);
+        let avi = dir.path().join("old.avi");
+        std::fs::write(&avi, b"RIFF\0\0\0\0AVI LIST").unwrap();
+        assert_eq!(length_of(&avi), None);
+        assert_eq!(length_of(&dir.path().join("gone.mp4")), None);
     }
 
     #[test]

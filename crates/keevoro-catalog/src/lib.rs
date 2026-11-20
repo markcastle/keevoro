@@ -190,6 +190,10 @@ pub struct FileType {
 /// What a backup wants, kept in its settings.
 const WANTS: &str = "wants";
 
+/// The folders the person left out of this backup, kept in its settings
+/// as a list of full paths.
+const LEFT_OUT_FOLDERS: &str = "left_out_folders";
+
 fn wants_key(root: &str) -> String {
     format!("wants:{root}")
 }
@@ -465,8 +469,9 @@ impl Catalog {
             .query_row("SELECT root FROM sources WHERE id = ?1", [source], |r| r.get(0))
             .optional()?;
         let Some(root) = root else { return Ok(Vec::new()) };
+        let choices = self.choices()?;
         let left_out = self.left_out_types(&root)?;
-        let (backup, own) = (self.wants()?, self.source_wants_at(&root)?);
+        let root_path = PathBuf::from(&root);
         let mut kinds: std::collections::BTreeMap<String, (u64, u64, keevoro_core::MediaKind)> =
             std::collections::BTreeMap::new();
         for item in self.items_of(source)? {
@@ -478,8 +483,17 @@ impl Catalog {
             .into_iter()
             .map(|(ending, (files, bytes, kind))| {
                 let included = !left_out.contains(&ending);
+                // A file with this ending at the source's top, as every
+                // choice about the whole source would judge it.
+                let file = root_path.join(format!("file.{ending}"));
+                let facts = keevoro_core::FileFacts {
+                    path: &file,
+                    kind,
+                    looked_for: true,
+                    made_by_keevoro: false,
+                };
                 FileType {
-                    left_out_by: keevoro_core::offered(kind, backup, own, included).err(),
+                    left_out_by: choices.offered_in(&facts, &root_path).err(),
                     kind,
                     included,
                     ending,
@@ -563,6 +577,74 @@ impl Catalog {
             .optional()?)
     }
 
+    /// The folders the person left out of this backup, as full paths.
+    pub fn left_out_folders(&self) -> Result<Vec<PathBuf>> {
+        Ok(self
+            .setting(LEFT_OUT_FOLDERS)?
+            .and_then(|text| serde_json::from_str::<Vec<PathBuf>>(&text).ok())
+            .unwrap_or_default())
+    }
+
+    /// Leaves a folder (its full path, as the computer gives it) out of
+    /// this backup, or puts it back. It need not be in a source yet. Put
+    /// back, only that folder is: one left out in its own right beneath it
+    /// stays out. True if anything changed.
+    pub fn set_folder_left_out(&self, folder: &Path, left_out: bool) -> Result<bool> {
+        let mut all = self.left_out_folders()?;
+        let before = all.len();
+        if left_out {
+            if all.iter().any(|f| keevoro_core::places::same_place(f, folder)) {
+                return Ok(false);
+            }
+            all.push(folder.to_path_buf());
+        } else {
+            all.retain(|f| !keevoro_core::places::same_place(f, folder));
+            if all.len() == before {
+                return Ok(false);
+            }
+        }
+        all.sort();
+        self.set_setting(LEFT_OUT_FOLDERS, &serde_json::to_string(&all).map_err(damaged)?)?;
+        Ok(true)
+    }
+
+    /// How many files found, on any source, are in `folder` or beneath it,
+    /// whatever is offered.
+    pub fn found_beneath(&self, folder: &Path) -> Result<usize> {
+        let mut q = self.conn.prepare("SELECT path FROM items")?;
+        let paths = q.query_map([], |r| r.get::<_, String>(0))?;
+        let mut found = 0;
+        for path in paths {
+            if keevoro_core::places::within(Path::new(&path?), folder) {
+                found += 1;
+            }
+        }
+        Ok(found)
+    }
+
+    /// Every choice the person made that decides what is offered, for
+    /// `keevoro_core::Choices::offered`.
+    pub fn choices(&self) -> Result<keevoro_core::Choices> {
+        let roots = self
+            .conn
+            .prepare("SELECT root FROM sources ORDER BY id")?
+            .query_map([], |r| r.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut sources = Vec::with_capacity(roots.len());
+        for root in roots {
+            sources.push(keevoro_core::SourceChoices {
+                wants: self.source_wants_at(&root)?,
+                endings_left_out: self.left_out_types(&root)?,
+                root: PathBuf::from(root),
+            });
+        }
+        Ok(keevoro_core::Choices {
+            backup: self.wants()?,
+            sources,
+            left_out_folders: self.left_out_folders()?,
+        })
+    }
+
     fn left_out_types(&self, root: &str) -> Result<std::collections::BTreeSet<String>> {
         Ok(match self.setting(&left_out_key(root))? {
             Some(text) => serde_json::from_str(&text).unwrap_or_default(),
@@ -572,13 +654,14 @@ impl Catalog {
 
     /// Everything known about every source, in the same shape a fresh scan
     /// gives, so the rest of keevoro does not care which one it is given.
-    /// What the person has left out (photos or videos, for the backup or a
-    /// source, and endings on a source; see `keevoro_core::wants`) is not
+    /// What the person has left out (folders, photos or videos for the
+    /// backup or a source, and endings on a source; see
+    /// `keevoro_core::wants`) is not
     /// in it, so to everything else, counts and backups alike, it is simply
     /// not there. Nothing found is forgotten: changing a choice back brings
     /// it straight back.
     pub fn load_reports(&self) -> Result<Vec<ScanReport>> {
-        let backup = self.wants()?;
+        let choices = self.choices()?;
         let mut sources = self
             .conn
             .prepare("SELECT id, root, other_files FROM sources ORDER BY id")?;
@@ -593,12 +676,18 @@ impl Catalog {
                 Ok(ScanReport {
                     root: PathBuf::from(&root),
                     items: {
-                        let left_out = self.left_out_types(&root)?;
-                        let own = self.source_wants_at(&root)?;
                         let mut items = self.items_of(id)?;
+                        // Found already, so of a kind looked for when found:
+                        // switching a kind off never takes away what was found.
+                        let root = PathBuf::from(&root);
                         items.retain(|item| {
-                            let included = !left_out.contains(&ending_of(&item.path));
-                            keevoro_core::offered(item.kind, backup, own, included).is_ok()
+                            let facts = keevoro_core::FileFacts {
+                                path: &item.path,
+                                kind: item.kind,
+                                looked_for: true,
+                                made_by_keevoro: false,
+                            };
+                            choices.offered_in(&facts, &root).is_ok()
                         });
                         items
                     },

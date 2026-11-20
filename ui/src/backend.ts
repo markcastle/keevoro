@@ -79,7 +79,11 @@ export type Survey = {
 }
 
 /** A folder Keevoro made (a backup, an old library, its own files), left out of a search or survey. */
-export type LeftOut = { folder: string; what: 'keevoroBackup' | 'keevoroOwn' | 'oldLibrary'; said: string }
+/** A folder a search or survey left out: one Keevoro made, or one the person left out (which can be put back). */
+export type LeftOut = { folder: string; what: 'keevoroBackup' | 'keevoroOwn' | 'oldLibrary' | 'leftOutByYou'; said: string }
+
+/** What leaving a folder out, or putting it back, did, in words that say nothing backed up is touched. */
+export type LeftOutFolder = { folder: string; leftOut: boolean; files: number; stillInside?: string; said: string }
 
 export type SurveyProgress = { folders: number; files: number; photos: number; videos: number }
 
@@ -134,6 +138,8 @@ export type Source = {
    */
   onlineOnly?: number
   onlineOnlySaid?: string
+  /** Folders left out of this backup that are in it, or that it is in. */
+  leftOut?: string[]
 }
 
 export type Discover = {
@@ -451,6 +457,8 @@ export type FolderView = {
   bytes: number
   /** Of them, how many are only in online storage (OneDrive), never opened. */
   onlineOnly: number
+  /** True when it, or a folder it is in, is left out of this backup. */
+  leftOut?: boolean
 }
 
 /** The folders inside a place that hold photos or videos, from the survey Keevoro remembers. */
@@ -465,6 +473,8 @@ export type FoldersView = {
   videos: number
   bytes: number
   onlineOnly: number
+  /** The folder left out of this backup that the place is in, or is, if any. */
+  leftOut?: string
 }
 
 /** One photo or video in a folder being looked inside. */
@@ -477,11 +487,24 @@ export type FileView = {
   modified: number
   /** Only in online storage: no picture is made, as that would download it. */
   onlineOnly?: boolean
+  /** How long a video lasts, in seconds, when its file says. */
+  seconds?: number
+  /** Why it would not be backed up, when it would not, in words. */
+  leftOut?: string
 }
+
+/** The order a folder's files are given in: by name, or by the file's date (not the date taken). */
+export type FilesSort = 'name' | 'newest' | 'oldest'
+/** Which of a folder's files are given. */
+export type FilesShow = 'all' | 'photos' | 'videos'
+
+/** Asks for one page of a folder's photos and videos. */
+export type FilesRequest = { place: string; from: number; count: number; sort: FilesSort; only: FilesShow }
 
 /** One page of the photos and videos in a folder. */
 export type FilesView = {
   folder: string
+  /** How many are shown in all, of the kind asked for: what `from` pages through. */
   total: number
   photos: number
   videos: number
@@ -593,6 +616,8 @@ export interface Backend {
   fileTypes(id: number): Promise<FileType[]>
   /** Includes or leaves out every file of one kind on one source. */
   includeFileType(id: number, ending: string, included: boolean): Promise<void>
+  /** Leaves a folder out of this backup, or puts it back. Nothing in it, or already backed up, is touched. */
+  leaveOutFolder(folder: string, leftOut: boolean): Promise<LeftOutFolder>
   /** Stops remembering a source. Nothing on the source itself is touched. */
   forgetSource(id: number): Promise<void>
   /** Every file found more than once: the copy kept, and the copies left out. */
@@ -608,10 +633,13 @@ export interface Backend {
    * `fileKey`): its tile has left the screen.
    */
   notNeeded(key: string): void
-  /** The folders inside a surveyed place that hold photos or videos. Nothing is added. */
-  foldersInside(place: string): Promise<FoldersView>
-  /** A page of the photos and videos directly in one folder, by name. Nothing is added. */
-  folderFiles(place: string, from: number, count: number): Promise<FilesView>
+  /**
+   * The folders inside a place that hold photos or videos, from the survey
+   * Keevoro remembers; `null` when no survey covers it yet. Nothing is added.
+   */
+  foldersInside(place: string): Promise<FoldersView | null>
+  /** A page of the photos and videos directly in one folder, as asked. Nothing is added. */
+  folderFiles(request: FilesRequest): Promise<FilesView>
   /** An address for a small picture of any photo or video, by its path. Only Keevoro's cache is written. */
   filePicture(path: string): Promise<string>
   /** A screen-sized picture of any photo or video, by its path. Fetched afresh each time. */
@@ -718,13 +746,14 @@ async function tauriBackend(): Promise<Backend> {
     forgetSource: (id) => invoke('forget_source', { id }),
     fileTypes: (id) => invoke('file_types', { id }),
     includeFileType: (id, ending, included) => invoke('include_file_type', { id, ending, included }),
+    leaveOutFolder: (folder, leftOut) => invoke('leave_out_folder', { folder, leftOut }),
     keepPhoto: (id, keep) => invoke('keep_photo', { id, keep }),
     preview: (id) =>
       pictures.want(photoKey(id), () => invoke<ArrayBuffer>('preview', { id }).then(webp)),
     notNeeded: (key) => pictures.drop(key),
     closerLook: (id) => invoke<ArrayBuffer>('closer_look', { id }).then(webp),
     foldersInside: (place) => invoke('folders_inside', { place }),
-    folderFiles: (place, from, count) => invoke('folder_files', { place, from, count }),
+    folderFiles: (request) => invoke('folder_files', { request }),
     filePicture: (path) =>
       pictures.want(fileKey(path), () => invoke<ArrayBuffer>('file_picture', { path, large: false }).then(webp)),
     closerLookAtFile: (path) => invoke<ArrayBuffer>('file_picture', { path, large: true }).then(webp),
