@@ -76,6 +76,9 @@ pub(crate) trait Work: Send + Sync {
     /// The lock on a backup was taken by another program, which judged
     /// this one to have stopped: every job on it must stop.
     fn lost(&self, backup: &str);
+    /// This program has let go of its last hold, so no other program can
+    /// see its work or ask anything of it.
+    fn nothing_held(&self);
 }
 
 /// One backup's folder of shared files.
@@ -472,6 +475,7 @@ impl Across {
             all.remove(backup)
         };
         let Some(mut held) = held else { return };
+        let nothing_left = lock_of(&self.held).is_empty();
         *lock_of(&held.keeper.ending) = true;
         held.keeper.wake.notify_all();
         if let Some(thread) = held.thread.take() {
@@ -487,6 +491,10 @@ impl Across {
         }
         let _ = requests::take(&place.requests(), &held.token);
         let _ = std::fs::remove_dir(place.requests());
+        // Under `changing`, so no new hold can begin meanwhile.
+        if nothing_left {
+            work.nothing_held();
+        }
         self.sweep();
     }
 

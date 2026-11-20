@@ -30,7 +30,7 @@ pub(crate) struct CarryOnAfter;
 
 impl Drop for CarryOnAfter {
     fn drop(&mut self) {
-        keevoro_core::pause::set_paused(false);
+        keevoro_core::pause::carry_on();
     }
 }
 
@@ -967,6 +967,120 @@ fn a_job_in_another_program_is_seen_refused_followed_waited_for_and_stopped() {
     assert!(matches!(app.wait(own.id), Some(Said::Scan(e)) if e.finished && !e.stopped));
     command_line.wait_for_jobs();
     assert!(!app.busy());
+}
+
+/// Starts a search in `app` and waits until it is held, once its last
+/// file is done, where it stays until the returned sender is dropped: the
+/// moment between a search's end and its letting go of the backup.
+///
+/// The card gains a large photo, so the check for duplicates that follows
+/// has a file to read and waits while paused.
+fn a_search_held_at_its_end(app: &Keevoro, named: &Named, card: &Path) -> (JobId, std::sync::mpsc::Sender<()>) {
+    std::fs::create_dir_all(card.join("Big")).unwrap();
+    std::fs::write(card.join("Big/IMG_20200102_120000.jpg"), large_photo(220)).unwrap();
+    let (go, wait) = std::sync::mpsc::channel::<()>();
+    let (there, arrived) = std::sync::mpsc::channel::<()>();
+    let wait = Mutex::new(Some((wait, there)));
+    let listener: Listener = Arc::new(move |event: &Event| {
+        if matches!(&event.said, Said::Scan(e) if e.finished) {
+            if let Some((wait, there)) = lock(&wait).take() {
+                let _ = there.send(());
+                let _ = wait.recv();
+            }
+        }
+    });
+    let job = app.look(named, card, Some(listener)).unwrap();
+    arrived
+        .recv_timeout(Duration::from_secs(30))
+        .expect("the search reaches its end");
+    (job.id, go)
+}
+
+/// Waits for every job in `keevoro` to end, for a generous while. False
+/// if they never did, which is what a pause nobody can lift looks like.
+fn all_end_within_a_while(keevoro: &Keevoro) -> bool {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while keevoro.busy_here() || !keevoro.jobs(None).is_empty() {
+        if Instant::now() > deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    keevoro.wait_for_jobs();
+    true
+}
+
+#[test]
+fn a_pause_another_program_asked_for_is_lifted_when_the_work_it_could_see_ends() {
+    let _turn = one_at_a_time();
+    let _after = CarryOnAfter;
+    let dir = tempfile::tempdir().unwrap();
+    let app = keevoro(dir.path());
+    let named = app.start_backup("Card photos").unwrap();
+    let card = card_in(dir.path());
+    let command_line = command_line(dir.path());
+
+    let (job, go) = a_search_held_at_its_end(&app, &named, &card);
+    eventually("the app's search seen", || {
+        command_line.jobs(None).into_iter().find(|s| s.handle.id == job)
+    });
+    // The command line asks for a pause just as the search ends. (Only
+    // the asking: its own switch is the app's too, in one test process.)
+    command_line.jobs.ask_everyone_else(Ask::Pause);
+    eventually("the pause heard", || {
+        (keevoro_core::pause::paused_by() == Some(keevoro_core::pause::PausedBy::AnotherProgram)).then_some(())
+    });
+    drop(go);
+
+    // The search ends and lets go, so the command line can no longer see
+    // the app or ask it to carry on: the pause goes with it, and the
+    // check for duplicates that follows is not left waiting for nobody.
+    assert!(all_end_within_a_while(&app), "nothing is left sitting paused");
+    assert!(!keevoro_core::pause::is_paused());
+    assert!(
+        app.log_tail(30)
+            .contains("the work another Keevoro program paused here has ended, so its pause is lifted"),
+        "{}",
+        app.log_tail(30)
+    );
+}
+
+#[test]
+fn the_persons_own_pause_outlasts_the_work_and_is_still_said() {
+    let _turn = one_at_a_time();
+    let _after = CarryOnAfter;
+    let dir = tempfile::tempdir().unwrap();
+    let app = keevoro(dir.path());
+    let named = app.start_backup("Card photos").unwrap();
+    let card = card_in(dir.path());
+
+    let (job, go) = a_search_held_at_its_end(&app, &named, &card);
+    app.pause();
+    // Another program asking too does not make it the other program's.
+    app.jobs.asked(&across::requests::Request {
+        to: String::new(),
+        ask: Ask::Pause,
+        jobs: Vec::new(),
+        by: FrontEnd::CommandLine,
+        at: 0,
+    });
+    drop(go);
+    app.wait(job);
+
+    // Only the check for duplicates is left, and it waits; asked, Keevoro
+    // says so rather than that nothing is running.
+    let left = eventually("the check for duplicates waiting", || {
+        app.jobs(None).into_iter().find(|s| s.handle.job == JobKind::Duplicates)
+    });
+    assert!(left.paused);
+    assert!(keevoro_core::pause::is_paused(), "the person's pause stays");
+    assert!(app.activity().paused, "and the app is told it is paused");
+    let status = call(&app, Op::JobsStatus, None, json!({})).unwrap();
+    assert_eq!(status[0]["job"], "duplicates", "{status}");
+    assert_eq!(status[0]["paused"], true);
+
+    app.carry_on();
+    assert!(all_end_within_a_while(&app));
 }
 
 #[test]

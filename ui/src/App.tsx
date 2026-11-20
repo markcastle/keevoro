@@ -111,7 +111,13 @@ export function App() {
     const ask = () =>
       api
         .activity()
-        .then((a) => open && setDoing(a.doing))
+        .then((a) => {
+          if (!open) return
+          setDoing(a.doing)
+          // Paused here or by another Keevoro program, it is said on
+          // every screen, with Carry on, for as long as it lasts.
+          setPaused(a.paused)
+        })
         .catch(() => {})
     void ask()
     const timer = window.setInterval(ask, 2000)
@@ -271,7 +277,7 @@ export function App() {
           ))}
         </ol>
         <div className="foot">
-          {check && (
+          {check && !paused && (
             <span className="checking" role="status">
               <Spinner /> Checking for duplicates in the background: {thousands(check.done)} of {thousands(check.total)}.
               You can carry on.

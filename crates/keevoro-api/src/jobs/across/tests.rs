@@ -32,6 +32,7 @@ fn named(id: &str) -> Named {
 struct FakeWork {
     asked: Mutex<Vec<Request>>,
     lost: AtomicUsize,
+    nothing_held: AtomicUsize,
     running: Mutex<Vec<status::Running>>,
 }
 
@@ -56,6 +57,10 @@ impl Work for FakeWork {
 
     fn lost(&self, _backup: &str) {
         self.lost.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn nothing_held(&self) {
+        self.nothing_held.fetch_add(1, Ordering::SeqCst);
     }
 }
 
@@ -206,6 +211,24 @@ fn one_program_holds_a_backup_another_is_told_who_and_can_take_it_once_let_go() 
     command_line.take("backup-1").unwrap();
     command_line.let_go("backup-1");
     command_line.let_go("backup-2");
+}
+
+#[test]
+fn the_jobs_are_told_when_the_last_hold_is_let_go_and_not_before() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = program(dir.path());
+    let told = || app.work.nothing_held.load(Ordering::SeqCst);
+
+    app.take("backup-1").unwrap();
+    app.take("backup-1").unwrap();
+    app.take("backup-2").unwrap();
+    app.let_go("backup-1");
+    app.let_go("backup-1");
+    assert_eq!(told(), 0, "another backup is still held, and seen");
+    app.let_go("backup-2");
+    assert_eq!(told(), 1, "nothing is held now");
+    app.let_go("backup-2");
+    assert_eq!(told(), 1, "letting go of what is not held says nothing");
 }
 
 #[test]
