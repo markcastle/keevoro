@@ -9,6 +9,7 @@
 pub mod collections;
 pub mod date;
 pub mod doing;
+pub mod estimate;
 pub mod folders;
 pub mod junk;
 pub mod layout;
