@@ -73,6 +73,20 @@ export function SpaceScreen(props: {
   }, [api, place, folder])
   const { answer: view, surveying, stop, mapAgain } = useAfterSurvey(api, place, ask, `${folder} ${version}`, onProblem)
   const keys = useMemo(() => (view ? keysOf(view.top) : new Map<MapNode, string>()), [view])
+  // A map out of date is mapped again once as it opens: by itself on a disk
+  // of this computer, after asking across a network.
+  const refreshed = useRef(false)
+  const [answered, setAnswered] = useState(false)
+  const again = useCallback(() => {
+    refreshed.current = true
+    setAnswered(true)
+    answers.current.clear()
+    mapAgain()
+  }, [mapAgain])
+  useEffect(() => {
+    if (view?.refresh === 'byItself' && !refreshed.current && !surveying) again()
+  }, [view, surveying, again])
+  const asking = view?.refresh === 'askFirst' && !answered && !surveying
 
   // Asked afresh after a change, with nothing kept from before it.
   const afresh = () => {
@@ -138,16 +152,15 @@ export function SpaceScreen(props: {
           back them up. Nothing here is opened or changed. Mapped {ago(view.surveyedAt)}.{' '}
           <button
             className="link"
-            onClick={() => {
-              answers.current.clear()
-              mapAgain()
-            }}
+            onClick={again}
           >
             Map again
           </button>
         </p>
         {!view.complete && (
-          <p className="quiet small">The survey was stopped part-way, so there may be more here than is shown.</p>
+          <p className="quiet small">
+            <b>Partly mapped.</b> The survey was stopped part-way, so there may be more here than is shown.
+          </p>
         )}
         {view.complete && !view.sizedAll && (
           <p className="quiet small">
@@ -156,6 +169,28 @@ export function SpaceScreen(props: {
         )}
       </header>
       {surveying && <SurveyingPanel name={name} surveying={surveying} onStop={stop} />}
+      {asking && (
+        <div className="panel asking map-again" role="region" aria-label="Map it again?">
+          <p>
+            This was mapped {ago(view.surveyedAt)}
+            {view.searchedSince ? ', and a source in it has been looked through since' : ''}. Map it again? It may take a
+            while over the network.
+          </p>
+          <p className="choices">
+            <button className="primary" onClick={again}>
+              Map it again
+            </button>
+            <button
+              onClick={() => {
+                refreshed.current = true
+                setAnswered(true)
+              }}
+            >
+              Use this map
+            </button>
+          </p>
+        </div>
+      )}
       <Trail view={view} onGo={go} />
       <p className="visually-hidden" aria-live="polite">
         In {top.name}: {size(top.bytes)}

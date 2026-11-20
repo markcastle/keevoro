@@ -631,6 +631,10 @@ export type MapView = {
   smallest: number
   /** The backup whose choices are said. */
   backup?: string
+  /** Out of date (over an hour old, or a source in it looked through since): mapped again by itself on a disk, or asked first across a network. */
+  refresh?: 'byItself' | 'askFirst'
+  /** A source in it has been looked through since it was mapped. */
+  searchedSince?: boolean
 }
 
 /** A newer version of Keevoro that is ready to install. */
@@ -766,6 +770,8 @@ export interface Backend {
    * `null` when no survey covers it yet. Nothing is opened or changed.
    */
   spaceMap(request: MapRequest): Promise<MapView | null>
+  /** Forgets every remembered survey and map; says how many. */
+  forgetMaps(): Promise<{ forgotten: number }>
   /** An address for a small picture of any photo or video, by its path. Only Keevoro's cache is written. */
   filePicture(path: string): Promise<string>
   /** A screen-sized picture of any photo or video, by its path. Fetched afresh each time. */
@@ -881,6 +887,7 @@ async function tauriBackend(): Promise<Backend> {
     foldersInside: (place) => invoke('folders_inside', { place }),
     folderFiles: (request) => invoke('folder_files', { request }),
     spaceMap: (request) => invoke('space_map', { request }),
+    forgetMaps: () => invoke('forget_maps'),
     filePicture: (path) =>
       pictures.want(fileKey(path), () => invoke<ArrayBuffer>('file_picture', { path, large: false }).then(webp)),
     closerLookAtFile: (path) => invoke<ArrayBuffer>('file_picture', { path, large: true }).then(webp),

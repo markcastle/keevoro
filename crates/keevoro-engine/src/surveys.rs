@@ -10,8 +10,16 @@
 //! Surveys are kept in Keevoro's own cache folder (`surveys/` inside it),
 //! never beside a person's files, one file per place, named by a
 //! fingerprint of the place so the name says nothing about it. Reset
-//! removes the cache, and with it every survey. At most [`KEPT`] are kept,
-//! the oldest removed first.
+//! removes the cache, and with it every survey, and a person can forget
+//! them all at any time ([`forget_all`]), since a map lists folder names
+//! across a whole drive. At most [`KEPT`] are kept, taking at most
+//! [`MOST_BYTES`] between them, the oldest removed first.
+//!
+//! A remembered map is honest about its age. One over an hour old is
+//! surveyed again when opened, by itself on a disk of this computer and
+//! after asking across a network ([`freshness`]). A search of a source
+//! marks every survey covering it as out of date ([`mark_out_of_date`]),
+//! with a small file beside it, so the next opening surveys afresh.
 //!
 //! The file is lines of JSON, compact: a header, the endings, the totals by
 //! ending, then one line per folder, then one per file kept by name. A file
@@ -35,6 +43,38 @@ const VERSION: u32 = 2;
 
 /// How many places' surveys are kept.
 pub const KEPT: usize = 8;
+
+/// How much room the surveys kept may take between them. The newest is kept
+/// whatever its size; a map is bounded anyway (`keevoro_scan::map::Limits`).
+pub const MOST_BYTES: u64 = 200 * 1024 * 1024;
+
+/// How old a remembered map may be before it is surveyed again on opening.
+pub const FRESH_FOR_SECONDS: i64 = 60 * 60;
+
+/// Whether a remembered map should be surveyed again as it is opened.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Freshness {
+    /// Recent, and nothing has been looked through since: shown as it is.
+    Fresh,
+    /// Out of date, on a disk of this computer: surveyed again by itself,
+    /// the old map shown meanwhile.
+    Again,
+    /// Out of date, across a network, where a survey can take a long while:
+    /// the person is asked first.
+    AskFirst,
+}
+
+/// Is a map surveyed at `surveyed_at` (seconds since 1970) fresh at `now`?
+/// Out of date when it is over an hour old or a source inside it has been
+/// looked through since. Pure.
+pub fn freshness(surveyed_at: i64, now: i64, searched_since: bool, across_a_network: bool) -> Freshness {
+    let old = now.saturating_sub(surveyed_at) > FRESH_FOR_SECONDS;
+    match (old || searched_since, across_a_network) {
+        (false, _) => Freshness::Fresh,
+        (true, false) => Freshness::Again,
+        (true, true) => Freshness::AskFirst,
+    }
+}
 
 /// One place's survey, as remembered.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -118,6 +158,12 @@ fn file_for(cache: &Path, root: &Path) -> PathBuf {
     folder(cache).join(format!("{}.jsonl", &hash.as_str()[..16]))
 }
 
+/// The mark beside a survey's file that says a source inside it has been
+/// looked through since it was made.
+fn mark_for(file: &Path) -> PathBuf {
+    file.with_extension("searched")
+}
+
 fn line<T: Serialize>(text: &mut String, value: &T) -> std::io::Result<()> {
     text.push_str(&serde_json::to_string(value)?);
     text.push('\n');
@@ -199,7 +245,9 @@ pub fn save(cache: &Path, survey: &Remembered) -> std::io::Result<()> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .take_if(|(kept, _, _)| *kept == file);
     keevoro_media::write_rendition(&file, text.as_bytes())?;
-    forget_oldest(cache, KEPT);
+    // Fresh now, whatever was looked through before.
+    let _ = std::fs::remove_file(mark_for(&file));
+    forget_oldest(cache, KEPT, MOST_BYTES);
     Ok(())
 }
 
@@ -367,12 +415,63 @@ pub fn covering(cache: &Path, place: &Path) -> Option<Arc<Loaded>> {
     })
 }
 
-/// Keeps only the newest `keep` surveys. Only Keevoro's own survey files
-/// in its own folder are ever removed.
-pub fn forget_oldest(cache: &Path, keep: usize) {
-    for (_, old) in all(cache).into_iter().skip(keep) {
-        let _ = std::fs::remove_file(old);
+/// Keeps only the newest `keep` surveys, and only as many as fit in
+/// `most_bytes` between them, though always the newest. Only Keevoro's own
+/// survey files in its own folder are ever removed.
+pub fn forget_oldest(cache: &Path, keep: usize, most_bytes: u64) {
+    let mut held = 0u64;
+    for (n, ((_, bytes), file)) in all(cache).into_iter().enumerate() {
+        held = held.saturating_add(bytes);
+        if n >= keep || (n > 0 && held > most_bytes) {
+            forget(&file);
+        }
     }
+}
+
+fn forget(file: &Path) {
+    let _ = std::fs::remove_file(file);
+    let _ = std::fs::remove_file(mark_for(file));
+    LAST_READ
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .take_if(|(kept, _, _)| kept == file);
+}
+
+/// Forgets every remembered survey, and the one held in memory, and says
+/// how many there were. Nothing outside Keevoro's own folder is touched.
+pub fn forget_all(cache: &Path) -> usize {
+    let surveys = all(cache);
+    for (_, file) in &surveys {
+        forget(file);
+    }
+    // Marks left beside surveys already gone.
+    if let Ok(entries) = std::fs::read_dir(folder(cache)) {
+        for entry in entries.flatten() {
+            if entry.path().extension().is_some_and(|x| x == "searched") {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+    *LAST_READ.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+    surveys.len()
+}
+
+/// A source at `place` (a full path) has just been looked through: every
+/// remembered survey that covers it, or lies inside it, is marked out of
+/// date, so the next time its map is opened it is surveyed again.
+pub fn mark_out_of_date(cache: &Path, place: &Path) {
+    for (_, file) in all(cache) {
+        let Some(root) = root_of(&file) else { continue };
+        if keevoro_core::places::within(place, &root) || keevoro_core::places::within(&root, place) {
+            let _ = std::fs::write(mark_for(&file), b"");
+        }
+    }
+}
+
+/// Has a source inside the survey of `root` been looked through since it
+/// was made?
+pub fn searched_since(cache: &Path, root: &Path) -> bool {
+    mark_for(&file_for(cache, root)).is_file()
 }
 
 #[cfg(test)]
@@ -487,13 +586,92 @@ mod tests {
                 .set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_000 + n as u64))
                 .unwrap();
         }
-        forget_oldest(&cache, KEPT);
+        forget_oldest(&cache, KEPT, MOST_BYTES);
         assert_eq!(all(&cache).len(), KEPT);
         assert!(
             covering(&cache, &dir.path().join("place 0")).is_none(),
             "the oldest went first"
         );
         assert!(covering(&cache, &dir.path().join(format!("place {}", KEPT + 2))).is_some());
+    }
+
+    #[test]
+    fn no_more_room_is_taken_than_allowed_the_oldest_going_first_but_never_the_newest() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().to_path_buf();
+        for n in 0..4u64 {
+            let root = dir.path().join(format!("place {n}"));
+            save(&cache, &surveyed(&root)).unwrap();
+            std::fs::File::options()
+                .write(true)
+                .open(file_for(&cache, &root))
+                .unwrap()
+                .set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_000 + n))
+                .unwrap();
+        }
+        let one = all(&cache)[0].0 .1;
+        // Room for two and a half: the two newest stay.
+        forget_oldest(&cache, KEPT, one * 5 / 2);
+        let left: Vec<PathBuf> = all(&cache).into_iter().filter_map(|(_, f)| root_of(&f)).collect();
+        assert_eq!(left, [dir.path().join("place 3"), dir.path().join("place 2")]);
+        // Room for none: the newest is still kept.
+        forget_oldest(&cache, KEPT, 1);
+        assert_eq!(all(&cache).len(), 1);
+    }
+
+    #[test]
+    fn a_search_marks_the_surveys_covering_it_out_of_date_until_surveyed_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("cache");
+        let drive = dir.path().join("C");
+        let elsewhere = dir.path().join("D");
+        save(&cache, &surveyed(&drive)).unwrap();
+        save(&cache, &surveyed(&elsewhere)).unwrap();
+        assert!(!searched_since(&cache, &drive));
+        mark_out_of_date(&cache, &drive.join("Users").join("Mark").join("Pictures"));
+        assert!(
+            searched_since(&cache, &drive),
+            "a source inside the drive was looked through"
+        );
+        assert!(!searched_since(&cache, &elsewhere), "nothing in D was");
+        // A search of a whole drive marks a survey of a folder inside it too.
+        mark_out_of_date(&cache, &elsewhere.parent().unwrap().join("D"));
+        assert!(searched_since(&cache, &elsewhere));
+        save(&cache, &surveyed(&drive)).unwrap();
+        assert!(!searched_since(&cache, &drive), "surveyed again, it is fresh");
+    }
+
+    #[test]
+    fn a_map_is_surveyed_again_when_old_or_searched_since_by_itself_on_a_disk_and_asked_across_a_network() {
+        let now = 1_800_000_000;
+        let hour = FRESH_FOR_SECONDS;
+        assert_eq!(freshness(now - 60, now, false, false), Freshness::Fresh);
+        assert_eq!(freshness(now - 60, now, false, true), Freshness::Fresh);
+        assert_eq!(freshness(now - hour - 1, now, false, false), Freshness::Again);
+        assert_eq!(freshness(now - 3 * 24 * hour, now, false, true), Freshness::AskFirst);
+        assert_eq!(freshness(now - 60, now, true, false), Freshness::Again);
+        assert_eq!(freshness(now - 60, now, true, true), Freshness::AskFirst);
+    }
+
+    #[test]
+    fn every_remembered_map_can_be_forgotten_and_nothing_else_is_touched() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("cache");
+        std::fs::create_dir_all(&cache).unwrap();
+        std::fs::write(cache.join("picture.webp"), b"p").unwrap();
+        for place in ["C", "D"] {
+            save(&cache, &surveyed(&dir.path().join(place))).unwrap();
+        }
+        mark_out_of_date(&cache, &dir.path().join("C"));
+        assert!(
+            covering(&cache, &dir.path().join("C")).is_some(),
+            "read, so held in memory"
+        );
+        assert_eq!(forget_all(&cache), 2);
+        assert!(covering(&cache, &dir.path().join("C")).is_none());
+        assert_eq!(std::fs::read_dir(folder(&cache)).unwrap().count(), 0);
+        assert_eq!(std::fs::read(cache.join("picture.webp")).unwrap(), b"p");
+        assert_eq!(forget_all(&cache), 0, "forgetting again is harmless");
     }
 
     #[test]

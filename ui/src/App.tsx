@@ -66,6 +66,7 @@ import { FoundPicture, Viewer } from './pictures'
 import { LookInside } from './inside'
 import { SpaceScreen } from './map'
 import { LiveMap } from './liveMap'
+import { ForgetMapsSetting } from './forgetMaps'
 import { LeaveOutButton, LeftOutByYou, LeftOutSaid, leftOutByYou } from './leaveOut'
 import { VirtualTiles } from './tiles'
 import type { Theme } from './theme'
@@ -1855,6 +1856,7 @@ function SettingsScreen(props: {
       <details className="advanced">
         <summary>Advanced</summary>
         <FileKindsSetting api={api} onSources={props.onSources} onProblem={onProblem} />
+        <ForgetMapsSetting api={api} onProblem={onProblem} />
         <div className="setting">
           <h3>Unfinished copies</h3>
           <p className="quiet">
@@ -1886,7 +1888,7 @@ function SettingsScreen(props: {
             <p>
               <b>This removes:</b>{' '}
               {props.state.backups.length === 1 ? 'your backup' : `all ${props.state.backups.length} of your backups`} from
-              Keevoro, with what was found and what you chose to keep; the previews Keevoro made; and any storage
+              Keevoro, with what was found and what you chose to keep; the previews and maps Keevoro made; and any storage
               keys it saved.
             </p>
             <p>

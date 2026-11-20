@@ -210,6 +210,11 @@ export function demoBackend(): Backend {
   const surveyListeners = new Set<(e: SurveyProgress) => void>()
   // The places surveyed, so looking inside one surveys it first, as the real one does.
   const surveyed = new Set<string>()
+  // `?old=disk` or `?old=network`: the source's drive was mapped days ago,
+  // so opening its map surveys it again by itself, or asks first.
+  const old = new URLSearchParams(window.location.search).get('old')
+  if (old) surveyed.add('E:')
+  const mappedAgain = new Set<string>()
   // Folders left out of the backup, and whether a path is in one (case
   // ignored, as on Windows; never fooled by "Photos 2" beside "Photos").
   const leftOutFolders = new Set<string>()
@@ -750,6 +755,7 @@ export function demoBackend(): Backend {
     async surveyPlace(path) {
       const drive = path.replace(/[\\/]+$/, '')
       surveyed.add(drive)
+      mappedAgain.add(drive)
       for (let step = 1; step <= 5; step++) {
         surveyListeners.forEach((tell) =>
           // The last steps measure what Keevoro never looks through, for the map.
@@ -968,7 +974,15 @@ export function demoBackend(): Backend {
       const { place } = request
       if (![...surveyed].some((root) => place === root || place.startsWith(`${root}\\`))) return null
       await later(40 * pace)
-      return demoMap(request, leftOutOf, Math.floor(Date.now() / 1000) - 120)
+      const root = [...surveyed].find((r) => place === r || place.startsWith(`${r}\\`)) ?? place
+      const stale = old !== null && !mappedAgain.has(root)
+      const map = demoMap(request, leftOutOf, Math.floor(Date.now() / 1000) - (stale ? 3 * 24 * 3600 : 120))
+      return map && stale ? { ...map, refresh: old === 'network' ? 'askFirst' : 'byItself' } : map
+    },
+    forgetMaps: async () => {
+      const forgotten = surveyed.size
+      surveyed.clear()
+      return { forgotten }
     },
     folderFiles: async ({ place, from, count, sort, only }) => {
       await later(80 * pace)

@@ -26,7 +26,7 @@ Whatever you allow, an agent can never:
 - delete a photo from a backup. Nothing in Keevoro can do that either;
 - look in, or back up to, a folder you have not named. A path written to dodge the rule, with `..`, a shortcut (a symbolic link) or another spelling of the same Windows path, is judged by where it really leads, and refused;
 - read back a storage key. An agent can give Keevoro a key when it adds cloud storage, and the key goes straight into your computer's keychain. No answer, error or line of the log ever contains it;
-- forget a backup, reset Keevoro, change its settings (the kinds of file Keevoro looks for among them; it can read that list), or install an update. Those are for you;
+- forget a backup or the remembered maps, reset Keevoro, change its settings (the kinds of file Keevoro looks for among them; it can read that list), or install an update. Those are for you;
 - change what it is allowed to do. It can ask what it may do, and nothing more.
 
 Everything an agent does is written to Keevoro's log, in plain words: which tool it used, on which backup, and how it went. Settings, "What Keevoro has been doing", shows it.

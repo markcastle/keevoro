@@ -1185,6 +1185,38 @@ try {
   await page.getByRole('grid', { name: /^What is in / }).waitFor({ timeout: 15000 })
   assert.ok(await page.getByRole('heading', { name: 'Where the space goes on Family hard drive', level: 1 }).isVisible())
   await shot('9s5-space-of-a-source')
+  // A map out of date is mapped again as it opens: by itself on a disk of
+  // this computer, and after asking across a network.
+  await page.goto(`${base}/?old=disk&slow`)
+  await page.locator('.steps button').nth(0).click()
+  await page.getByRole('button', { name: 'Where the space goes on Family hard drive' }).click()
+  await page.getByRole('heading', { name: 'Finding what is in Family hard drive…' }).waitFor({ timeout: 15000 })
+  assert.equal(await page.getByRole('region', { name: 'Map it again?' }).count(), 0, 'on a disk it is not asked')
+  await page.getByRole('heading', { name: 'Finding what is in Family hard drive…' }).waitFor({ state: 'detached', timeout: 15000 })
+  assert.match(await text('.space header'), /Mapped 2 minutes ago/)
+  await page.goto(`${base}/?old=network&fast`)
+  await page.locator('.steps button').nth(0).click()
+  await page.getByRole('button', { name: 'Where the space goes on Family hard drive' }).click()
+  const askAgain = page.getByRole('region', { name: 'Map it again?' })
+  await askAgain.waitFor()
+  assert.match(await askAgain.innerText(), /^This was mapped 3 days ago\. Map it again\? It may take a while over the network\./)
+  await shot('9t9-space-map-again-asked')
+  await fitsNarrow('Where the space goes, asking to map again')
+  await askAgain.getByRole('button', { name: 'Use this map' }).click()
+  await askAgain.waitFor({ state: 'detached' })
+  assert.match(await text('.space header'), /Mapped 3 days ago/)
+  await page.getByRole('button', { name: 'Map again' }).click()
+  await page.getByRole('grid', { name: /^What is in / }).waitFor()
+  await page.waitForFunction(() => /Mapped 2 minutes ago/.test(document.querySelector('.space header')?.textContent ?? ''))
+  // A map lists folder names across a whole drive, so it can be forgotten.
+  await page.getByRole('button', { name: '‹ Back' }).click()
+  await page.getByRole('button', { name: 'Settings' }).click()
+  await page.getByRole('heading', { name: 'Settings', level: 1 }).waitFor()
+  await page.locator('details.advanced').last().getByText('Advanced', { exact: true }).click()
+  await page.getByRole('button', { name: 'Forget remembered maps' }).click()
+  assert.equal(await page.getByRole('status').filter({ hasText: 'remembered map' }).innerText(), 'Forgot 1 remembered map.')
+  await page.locator('.setting', { hasText: 'Remembered maps' }).scrollIntoViewIfNeeded()
+  await shot('9u-settings-forget-maps')
 
   // --- Every main screen fits a narrow window: the page never scrolls
   // sideways, and wide tables scroll inside their own box.

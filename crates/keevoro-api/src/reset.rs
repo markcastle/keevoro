@@ -62,6 +62,9 @@ pub fn reset(backups: &Backups, secrets: &dyn SecretStore, cache_dir: &Path) -> 
                 done.left_alone.push(home);
             }
         }
+        // The remembered maps go with the cache, and the one held in memory
+        // with them, since a map lists folder names across a whole drive.
+        keevoro_engine::surveys::forget_all(cache_dir);
         let _ = std::fs::remove_dir_all(cache_dir);
         *settings = Settings::default();
         Ok(done)
@@ -89,6 +92,29 @@ mod tests {
         std::fs::write(home.join("notes.txt"), "notes").unwrap();
         std::fs::create_dir_all(&cache).unwrap();
         std::fs::write(cache.join("thumb.webp"), "p").unwrap();
+        // A remembered map of where the space goes.
+        let mapped = dir.path().join("Pictures");
+        std::fs::create_dir_all(&mapped).unwrap();
+        let survey = keevoro_scan::survey::survey(
+            &mapped,
+            &keevoro_core::SkipRules::default(),
+            &keevoro_core::Kinds::default(),
+            &keevoro_scan::ByAttributes,
+            keevoro_scan::map::Limits::default(),
+            None,
+            &mut |_| {},
+        );
+        keevoro_engine::surveys::save(
+            &cache,
+            &keevoro_engine::surveys::Remembered {
+                surveyed_at: 1,
+                complete: true,
+                sized_all: true,
+                map: survey.map,
+            },
+        )
+        .unwrap();
+        assert!(keevoro_engine::surveys::covering(&cache, &mapped).is_some());
 
         // The person's own things: a source, somewhere files were sent, and
         // an old library folder with gathered photos in it.
@@ -120,6 +146,10 @@ mod tests {
 
         assert!(!home.exists(), "Keevoro's own notes are gone");
         assert!(!cache.exists(), "and its previews");
+        assert!(
+            keevoro_engine::surveys::covering(&cache, &mapped).is_none(),
+            "and the maps it remembered"
+        );
         assert_eq!(
             backups.read(),
             Settings::default(),

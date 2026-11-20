@@ -246,6 +246,25 @@ pub struct MapView {
     /// The backup whose choices are said, if any.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backup: Option<String>,
+    /// The map is out of date (over an hour old, or a source in it has been
+    /// looked through since), and how to map it again: by itself on a disk
+    /// of this computer, or after asking across a network. Absent when it
+    /// is fresh.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refresh: Option<Refresh>,
+    /// A source in it has been looked through since it was mapped.
+    #[serde(skip_serializing_if = "not")]
+    pub searched_since: bool,
+}
+
+/// How an out of date map is mapped again when it is opened.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Refresh {
+    /// On a disk of this computer: surveyed again by itself.
+    ByItself,
+    /// Across a network, where it may take a while: asked first.
+    AskFirst,
 }
 
 /// When `smallest` is not given, what is too small to see on a map of
@@ -349,6 +368,20 @@ impl Keevoro {
             at = map.nodes[at as usize].parent;
         }
         trail.reverse();
+        let searched_since = keevoro_engine::surveys::searched_since(&self.cache_folder(), &map.root);
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(0));
+        let refresh = match keevoro_engine::surveys::freshness(
+            loaded.survey.surveyed_at,
+            now,
+            searched_since,
+            keevoro_engine::reach::is_across_a_network(&place),
+        ) {
+            keevoro_engine::surveys::Freshness::Fresh => None,
+            keevoro_engine::surveys::Freshness::Again => Some(Refresh::ByItself),
+            keevoro_engine::surveys::Freshness::AskFirst => Some(Refresh::AskFirst),
+        };
         Ok(Some(MapView {
             place: friendly_path(&place),
             folder: friendly_path(&folder),
@@ -361,6 +394,8 @@ impl Keevoro {
             kinds_short,
             smallest: shown.smallest,
             backup: backup.map(|b| b.name.clone()),
+            refresh,
+            searched_since,
         }))
     }
 }
@@ -399,6 +434,29 @@ impl Keevoro {
             }
         }
         Err(Error::refused("Keevoro doesn't know that folder."))
+    }
+}
+
+/// What `places.forget_maps` answers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Forgotten {
+    /// How many places' surveys were forgotten.
+    pub forgotten: usize,
+}
+
+impl Keevoro {
+    /// `places.forget_maps`: forgets every remembered survey, since a map
+    /// lists folder names across a whole drive. Only Keevoro's own cache is
+    /// touched; a place is simply surveyed again when next asked about.
+    pub fn forget_maps(&self) -> Forgotten {
+        let forgotten = keevoro_engine::surveys::forget_all(&self.cache_folder());
+        self.log().say(&format!(
+            "Forgot {} remembered {}",
+            forgotten,
+            if forgotten == 1 { "map" } else { "maps" }
+        ));
+        Forgotten { forgotten }
     }
 }
 
@@ -918,6 +976,50 @@ mod tests {
         assert!(
             k.folder_to_show(&named.home, Some(&named)).is_ok(),
             "the backup's own folder"
+        );
+        k.wait_for_jobs();
+    }
+
+    #[test]
+    fn a_map_is_fresh_until_a_source_in_it_is_looked_through_and_can_be_forgotten_by_the_person_only() {
+        let _turn = one_at_a_time();
+        let dir = tempfile::tempdir().unwrap();
+        let k = keevoro(dir.path());
+        k.start_backup("Card photos").unwrap();
+        let card = crate::backup::tests::card_in(dir.path());
+        surveyed(&k, &card);
+        let mut ask = MapRequest::of(&card);
+        ask.smallest = Some(1);
+        let fresh = k.space_map(&ask, None).unwrap();
+        assert_eq!((fresh.refresh, fresh.searched_since), (None, false), "just mapped");
+        let looked = call(
+            &k,
+            Op::SourcesLook,
+            None,
+            json!({ "place": card.join("Holidays").display().to_string() }),
+        )
+        .unwrap();
+        k.wait(serde_json::from_value(looked["id"].clone()).unwrap());
+        k.wait_for_jobs();
+        let after = k.space_map(&ask, None).unwrap();
+        assert!(after.searched_since, "a source inside it was looked through since");
+        assert_eq!(
+            after.refresh,
+            Some(Refresh::ByItself),
+            "on a disk, mapped again by itself"
+        );
+        assert_eq!(serde_json::to_value(&after).unwrap()["refresh"], "byItself");
+        // An agent may not forget the person's maps.
+        let agent = keevoro(dir.path()).as_front_end(crate::FrontEnd::Agent);
+        let e = call_for_agent(&agent, Op::PlacesForgetMaps, None, json!({})).unwrap_err();
+        assert_eq!(e.kind, crate::Kind::Refused);
+        assert!(k.space_map(&ask, None).is_ok(), "still remembered");
+        // The person can.
+        let forgot = call(&k, Op::PlacesForgetMaps, None, json!({})).unwrap();
+        assert_eq!(forgot["forgotten"], 1);
+        assert!(
+            k.space_map_if_surveyed(&ask, None).unwrap().is_none(),
+            "surveyed afresh when next asked"
         );
         k.wait_for_jobs();
     }

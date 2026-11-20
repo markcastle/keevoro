@@ -586,6 +586,13 @@ pub fn room(shared: State<'_, Shared>) -> Said<keevoro_api::RoomAtAGlance> {
     Ok(backup(&shared)?.room().map_err(say)?.at_a_glance)
 }
 
+/// Forgets every remembered survey, and so every map of where the space
+/// goes. Nothing on any drive is touched.
+#[tauri::command]
+pub fn forget_maps(shared: State<'_, Shared>) -> Said<keevoro_api::space::Forgotten> {
+    Ok(shared.keevoro.forget_maps())
+}
+
 /// Clears Keevoro's unfinished copies from a folder, or with `dry_run`
 /// only says what it would clear. Any folder the person chooses: one no
 /// backup goes to any more is the case it is for.

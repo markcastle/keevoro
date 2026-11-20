@@ -873,6 +873,11 @@ fn where_the_space_goes_is_said_from_the_survey_by_folder_and_by_kind() {
     assert_eq!(inside.json()["top"]["name"], "Games");
     let too_deep = at.keevoro(&["map", &text(&card), "--depth", "9"]);
     assert_ne!(too_deep.code, Code::Worked);
+    // Forgotten, it is surveyed again when next asked about.
+    let forgot = at.keevoro(&["forget-maps"]);
+    assert_eq!(forgot.code, Code::Worked, "{}", forgot.err);
+    assert!(forgot.out.starts_with("Forgot 1 remembered map."), "{}", forgot.out);
+    assert_ne!(at.keevoro(&["map", &text(&card)]).code, Code::Worked);
     assert_eq!(everything_written(&card), before, "nothing on it was changed");
 }
 
