@@ -3399,6 +3399,20 @@ fieldset.wants [role='status'] {
    the top it would take a third of a small window, and the page's
    heading would slide under it as soon as the page moved. */
 @media (max-width: 640px) {
+  /* The bar at the foot wraps rather than pushing its button off the side,
+     whatever typeface ends up drawing it (the button's words never break). */
+  .next {
+    flex-wrap: wrap;
+  }
+
+  .next .say {
+    flex: 1 1 12em;
+  }
+
+  .next .primary {
+    max-width: 100%;
+  }
+
   .app {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto 1fr;

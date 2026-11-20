@@ -34,7 +34,10 @@ const page = await browser.newPage({ viewport: { width: 1440, height: 900 } })
 const problems = []
 page.on('pageerror', (error) => problems.push(String(error)))
 page.on('console', (message) => message.type() === 'error' && problems.push(message.text()))
-const shot = (name) => page.screenshot({ path: join(shots, `${name}.png`) })
+const shot = async (name) => {
+  await settled()
+  await page.screenshot({ path: join(shots, `${name}.png`) })
+}
 const text = (selector) => page.locator(selector).first().innerText()
 // The step the list down the side says we are on.
 const currentStep = () => page.locator('.steps li.now').innerText()
@@ -87,11 +90,24 @@ const headingClearOfBand = async (where) => {
   assert.equal(await headingUnderBand(), null, `${where}, scrolled down a little`)
   await page.evaluate((was) => [document.scrollingElement, ...document.querySelectorAll('.app, main')].forEach((el, n) => (el.scrollTop = was[n])), scrolled)
 }
+// Waits until the page is drawn as it will stay: its typeface has loaded
+// (until then a wider stand-in draws the words, which once pushed a button
+// past the edge on a slow machine), every easing of colour or place has
+// finished, and two frames have been laid out since. Never a guess at a
+// number of milliseconds.
+const settled = () =>
+  page.evaluate(async () => {
+    await document.fonts.ready
+    // Spinners and shimmers go round for ever; only easings end.
+    const easing = document.getAnimations().filter((a) => a.effect?.getComputedTiming().iterations !== Infinity)
+    await Promise.all(easing.map((a) => a.finished.catch(() => {})))
+    await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => done())))
+  })
 // Checks the screen as it is at narrow widths, then puts the window back.
 const fitsNarrow = async (screen) => {
   for (const width of [400, 560]) {
     await page.setViewportSize({ width, height: 800 })
-    await page.waitForTimeout(50)
+    await settled()
     assert.deepEqual(await spills(), [], `${screen} at ${width} pixels wide spills sideways`)
     await headingClearOfBand(`${screen} at ${width} pixels wide`)
   }
@@ -562,7 +578,6 @@ try {
   await page.getByRole('button', { name: 'Dark', exact: true }).click()
   assert.equal(await ground(), 'rgb(16, 39, 37)', 'the deep teal ground of the dark theme')
   assert.match(await page.locator('.brand img:visible').getAttribute('src'), /lockup-reversed/, 'the logo for dark grounds')
-  await page.waitForTimeout(400) // let the colours finish easing across
   await shot('9f-settings-dark')
   await page.getByRole('button', { name: 'Light', exact: true }).click()
   assert.equal(await ground(), 'rgb(255, 254, 251)')
@@ -869,7 +884,6 @@ try {
   await page.getByRole('button', { name: 'Look inside C:\\Users\\Mark\\Pictures' }).click()
   await page.getByRole('heading', { name: 'Inside Pictures', level: 1 }).waitFor()
   await page.waitForFunction(() => document.querySelectorAll('.inside .tile img').length >= 12)
-  await page.waitForTimeout(400)
   await shot('9q4-look-inside')
   await fitsNarrow('Looking inside')
   await page.getByRole('button', { name: '‹ Back' }).click()
@@ -912,6 +926,17 @@ try {
   await page.getByRole('button', { name: 'About Keevoro' }).click()
   await fitsNarrow('About')
   await page.getByRole('button', { name: '‹ Back' }).click()
+
+  // --- The narrow window fits even when the typeface cannot be loaded,
+  // whose stand-in draws words wider: the bar at the foot wraps instead.
+  const plain = await browser.newPage({ viewport: { width: 400, height: 800 } })
+  await plain.route('**/*.woff2', (route) => route.abort())
+  await plain.goto(`${base}/?fast`)
+  await plain.getByRole('heading', { name: 'Which of these should we keep?', level: 1 }).waitFor()
+  await plain.evaluate(() => document.fonts.ready)
+  const button = await plain.getByRole('button', { name: 'Choose where they go' }).boundingBox()
+  assert.ok(button && button.x + button.width <= 400, `the button stays inside the window (${JSON.stringify(button)})`)
+  await plain.close()
 
   // --- An existing library opens on the step that still needs doing, in dark mode too.
   await page.emulateMedia({ colorScheme: 'dark' })
