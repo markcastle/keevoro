@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.35.0] - 2026-11-20
+
 ### Added
 
 - **Look inside any folder, sorted as you like, with each video's length.** Each source now has **Look inside** beside File types, and the first step has "Not sure what is in a folder? Look inside one first", which lets you pick any folder. If Keevoro has not looked at the folder's listings before, it does that first, quickly, and you can stop it. Show all, only photos or only videos, and sort by name, newest first or oldest first. The dates are each file's own (when it was last changed or copied), and the screen says so, since that is not always when a photo was taken. A video shows how long it lasts, read from the file without playing it, and never for one only in OneDrive. From the command line: `keevoro files FOLDER --videos --sort newest`.
@@ -564,7 +568,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.34.0...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.35.0...HEAD
+[0.35.0]: https://github.com/markcastle/keevoro/compare/v0.34.0...v0.35.0
 [0.34.0]: https://github.com/markcastle/keevoro/compare/v0.33.0...v0.34.0
 [0.33.0]: https://github.com/markcastle/keevoro/compare/v0.32.0...v0.33.0
 [0.32.0]: https://github.com/markcastle/keevoro/compare/v0.31.0...v0.32.0
