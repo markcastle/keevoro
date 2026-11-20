@@ -3832,11 +3832,6 @@ fieldset.wants [role='status'] {
 }
 
 @media (max-width: 640px) {
-  /* The counts are said under each name instead. */
-  .space-list .counts {
-    display: none;
-  }
-
   .share-bar {
     width: 48px;
   }
@@ -3867,4 +3862,149 @@ fieldset.wants [role='status'] {
 
 .space div.chosen {
   box-shadow: var(--shadow-md);
+}
+
+/* The map beside the list: the map the larger, held in sight as the list scrolls. */
+.space-body {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(320px, 2fr);
+  gap: var(--space-5);
+  align-items: start;
+  margin-top: var(--space-3);
+}
+
+.space-body .space-list {
+  margin-top: 0;
+}
+
+.space-body .space-list .name {
+  min-width: 0;
+}
+
+.space-body .share-bar {
+  width: 56px;
+}
+
+.space-map {
+  position: sticky;
+  top: var(--space-3);
+  min-width: 0;
+}
+
+.space-map > .button {
+  margin-bottom: var(--space-2);
+}
+
+.map-canvas {
+  position: relative;
+  height: min(64vh, 640px);
+  min-height: 280px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.map-canvas canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.map-canvas canvas.over {
+  cursor: pointer;
+}
+
+/* Beside the pointer; the list says the same in words. */
+.map-tip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  max-width: 280px;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--ink);
+  box-shadow: var(--shadow-md);
+  font-size: 12px;
+  line-height: 1.4;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.map-tip[hidden] {
+  display: none;
+}
+
+.key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  color: var(--ink-muted);
+}
+
+.key li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.key .swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+
+.key .skipped {
+  background-color: color-mix(in srgb, var(--line-strong) 35%, var(--surface-sunken));
+  background-image: radial-gradient(var(--line-strong) 1.2px, transparent 1.4px);
+  background-size: 6px 6px;
+}
+
+.key .left-out {
+  background-color: color-mix(in srgb, var(--line-strong) 35%, var(--surface-sunken));
+  background-image: repeating-linear-gradient(45deg, color-mix(in srgb, var(--ink) 50%, transparent) 0 1px, transparent 1px 5px),
+    repeating-linear-gradient(-45deg, color-mix(in srgb, var(--ink) 50%, transparent) 0 1px, transparent 1px 5px);
+}
+
+.key .online {
+  background: var(--sun);
+  box-shadow: none;
+  outline: 1px dashed var(--sun-ink);
+  outline-offset: -1px;
+}
+
+@media (max-width: 760px) {
+  .space-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .space-map {
+    position: static;
+  }
+
+  .map-canvas {
+    height: 45vh;
+    min-height: 200px;
+  }
+}
+
+@media (max-width: 480px) {
+  /* A strip of the biggest boxes, until the whole map is asked for. */
+  .space-map.strip .map-canvas {
+    height: 120px;
+    min-height: 0;
+  }
+
+  .space-map.strip .key {
+    display: none;
+  }
 }

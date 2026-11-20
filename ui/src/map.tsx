@@ -12,53 +12,19 @@
 // folder and file the map shows, with its size and what it holds, and the
 // trail above goes back up.
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Backend, LeftOutFolder, MapNode, MapView } from './backend'
-import { ago, count, photosAndVideos, share, size, thousands } from './format'
+import { ago, photosAndVideos, share, size } from './format'
 import { nameOf } from './inside'
 import { LeaveOutButton, LeftOutSaid } from './leaveOut'
+import { MapCanvas, MapKey } from './mapCanvas'
+import { called, find, holds, keysOf, notesOn } from './mapWords'
 import { SurveyingPanel, useAfterSurvey } from './surveyFirst'
-
-/** The online storage a person here would know by name. */
-const SERVICE = typeof navigator !== 'undefined' && /Mac/.test(navigator.platform) ? 'iCloud' : 'OneDrive'
 
 /** How many levels of folders are asked for at once. */
 const DEPTH = 3
 /** How many answers are kept, so going back up is instant. */
 const KEPT = 8
-
-/** A row's key: a folder by its path, anything else by what it is. */
-export const keyOf = (node: MapNode) => node.path ?? `${node.node} ${node.kind ?? ''} ${node.name}`
-
-/** What a box holds, in words: "1,204 photos, 37 videos and 12 other files". */
-export function holds(node: MapNode) {
-  const parts = [
-    node.photos > 0 ? count(node.photos, 'photo') : '',
-    node.videos > 0 ? count(node.videos, 'video') : '',
-    node.others > 0 ? count(node.others, 'other file') : '',
-  ].filter(Boolean)
-  if (parts.length === 0) return 'nothing'
-  return parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`
-}
-
-/** What a row is called: its name, or for several together, how many. */
-export function called(node: MapNode) {
-  if (node.node === 'smaller') return count(node.folders ?? 0, 'smaller folder')
-  if (node.node === 'files') return holds(node)
-  return node.name
-}
-
-/** The notes said beside a box, in words. */
-export function notesOn(node: MapNode) {
-  const notes: string[] = []
-  if (node.skipped) notes.push(`${node.skipped}: Keevoro never looks through it`)
-  else if (node.leftOut) notes.push(`Not backed up: ${node.leftOut}`)
-  if (node.onlineOnlyBytes) notes.push(`${size(node.onlineOnlyBytes)} in ${SERVICE} only, not on this computer`)
-  if (node.unreadable) notes.push('Couldn’t be read')
-  if (node.notSized) notes.push('Not all measured')
-  if (node.moreFolders) notes.push(`${count(node.moreFolders, 'more folder')} counted in`)
-  return notes
-}
 
 export function SpaceScreen(props: {
   api: Backend
@@ -82,6 +48,12 @@ export function SpaceScreen(props: {
   const [version, setVersion] = useState(0)
   const [chosen, setChosen] = useState<string | null>(null)
   const [said, setSaid] = useState<LeftOutFolder | null>(null)
+  // The row pointed at in the list, outlined on the map, and the other way round.
+  const [listPoint, setListPoint] = useState<string | null>(null)
+  const [mapPoint, setMapPoint] = useState<string | null>(null)
+  // In a very narrow window the map is a strip of the biggest boxes until asked for.
+  const narrow = useNarrow()
+  const [wholeMap, setWholeMap] = useState(false)
   const answers = useRef(new Map<string, MapView>())
 
   const ask = useCallback(async () => {
@@ -95,6 +67,7 @@ export function SpaceScreen(props: {
     return view
   }, [api, place, folder])
   const { answer: view, surveying, stop, mapAgain } = useAfterSurvey(api, place, ask, `${folder} ${version}`, onProblem)
+  const keys = useMemo(() => (view ? keysOf(view.top) : new Map<MapNode, string>()), [view])
 
   // Asked afresh after a change, with nothing kept from before it.
   const afresh = () => {
@@ -109,6 +82,8 @@ export function SpaceScreen(props: {
   const go = (to: string) => {
     setChosen(null)
     setSaid(null)
+    setListPoint(null)
+    setMapPoint(null)
     setFolder(to)
     props.onAt?.(to)
   }
@@ -131,7 +106,10 @@ export function SpaceScreen(props: {
 
   const top = view.top
   const rows = top.children ?? []
-  const selected = rows.find((r) => keyOf(r) === chosen) ?? null
+  const path = find(top, keys, chosen)
+  const selected = path.length > 1 ? path[path.length - 1] : null
+  // A box chosen deep in the map is in one of the list's rows.
+  const chosenRow = path.length > 1 ? (keys.get(path[1]) ?? null) : null
   const up = view.trail.length > 1 ? view.trail[view.trail.length - 2].folder : null
   return (
     <section className="space">
@@ -148,8 +126,9 @@ export function SpaceScreen(props: {
             : `${size(top.wouldBackUp)} of it is photos and videos Keevoro would back up.`}
         </p>
         <p className="quiet small">
-          Everything is listed, photos or not, so you can see what takes the room. Only photos and videos are backed
-          up, and nothing here is opened or changed. Mapped {ago(view.surveyedAt)}.{' '}
+          Each box is a folder or file, sized by the room it takes; click one to choose it, and again to go inside.
+          Grey boxes are not photos or videos. They are shown so you can see what is taking the room; Keevoro will not
+          back them up. Nothing here is opened or changed. Mapped {ago(view.surveyedAt)}.{' '}
           <button
             className="link"
             onClick={() => {
@@ -175,14 +154,37 @@ export function SpaceScreen(props: {
         In {top.name}: {size(top.bytes)}
       </p>
       <LeftOutSaid done={said} />
-      <SpaceList
-        top={top}
-        rows={rows}
-        chosen={chosen}
-        onChoose={setChosen}
-        onGo={go}
-        onUp={up ? () => go(up) : undefined}
-      />
+      <div className="space-body">
+        <div className={narrow && !wholeMap ? 'space-map strip' : 'space-map'}>
+          {narrow && (
+            <button className="button small" onClick={() => setWholeMap((w) => !w)} aria-expanded={wholeMap}>
+              {wholeMap ? 'Show less of the map' : 'Show the map'}
+            </button>
+          )}
+          <MapCanvas
+            top={top}
+            keys={keys}
+            depth={narrow && !wholeMap ? 1 : DEPTH}
+            chosen={chosen}
+            lit={listPoint}
+            onChoose={setChosen}
+            onGo={go}
+            onPoint={setMapPoint}
+          />
+          <MapKey />
+        </div>
+        <SpaceList
+          top={top}
+          rows={rows}
+          keys={keys}
+          chosen={chosenRow}
+          lit={mapPoint}
+          onChoose={setChosen}
+          onPoint={setListPoint}
+          onGo={go}
+          onUp={up ? () => go(up) : undefined}
+        />
+      </div>
       {/* Below the list, held at the foot of the window, so choosing a row never moves the rows. */}
       <Chosen
         api={api}
@@ -194,6 +196,19 @@ export function SpaceScreen(props: {
       />
     </section>
   )
+}
+
+/** True in a window too narrow for a map beside or above the list. */
+function useNarrow() {
+  const query = '(max-width: 480px)'
+  const [narrow, setNarrow] = useState(() => window.matchMedia(query).matches)
+  useEffect(() => {
+    const watch = window.matchMedia(query)
+    const changed = () => setNarrow(watch.matches)
+    watch.addEventListener('change', changed)
+    return () => watch.removeEventListener('change', changed)
+  }, [])
+  return narrow
 }
 
 /** The way back up, from the place to the folder shown. */
@@ -282,6 +297,7 @@ function Chosen(props: {
 export function SpaceList(props: {
   top: MapNode
   rows: MapNode[]
+  keys: Map<MapNode, string>
   chosen: string | null
   onChoose: (key: string) => void
   onGo: (folder: string) => void
@@ -292,6 +308,7 @@ export function SpaceList(props: {
 }) {
   const { top, rows } = props
   const body = useRef<HTMLTableSectionElement>(null)
+  const keyOf = (node: MapNode) => props.keys.get(node) ?? ''
   const at = Math.max(0, rows.findIndex((r) => keyOf(r) === props.chosen))
   // The row pointed at on the map is brought into view in the list.
   useEffect(() => {
@@ -324,15 +341,6 @@ export function SpaceList(props: {
             </th>
             <th scope="col" className="share-column">
               Share
-            </th>
-            <th scope="col" className="number counts">
-              Photos
-            </th>
-            <th scope="col" className="number counts">
-              Videos
-            </th>
-            <th scope="col" className="number counts">
-              Other files
             </th>
           </tr>
         </thead>
@@ -373,9 +381,6 @@ export function SpaceList(props: {
                 <td className="share-column">
                   <ShareBar node={node} whole={top.bytes} />
                 </td>
-                <td className="number counts">{thousands(node.photos)}</td>
-                <td className="number counts">{thousands(node.videos)}</td>
-                <td className="number counts">{thousands(node.others)}</td>
               </tr>
             )
           })}

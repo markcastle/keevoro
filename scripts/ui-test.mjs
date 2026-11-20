@@ -93,7 +93,7 @@ const headingClearOfBand = async (where) => {
 // Waits until the page is drawn as it will stay: its typeface has loaded
 // (until then a wider stand-in draws the words, which once pushed a button
 // past the edge on a slow machine), every easing of colour or place has
-// finished, and two frames have been laid out since. Never a guess at a
+// finished (the map's too), and two frames have been laid out since. Never a guess at a
 // number of milliseconds.
 const settled = () =>
   page.evaluate(async () => {
@@ -101,6 +101,11 @@ const settled = () =>
     // Spinners and shimmers go round for ever; only easings end.
     const easing = document.getAnimations().filter((a) => a.effect?.getComputedTiming().iterations !== Infinity)
     await Promise.all(easing.map((a) => a.finished.catch(() => {})))
+    // The map eases on a canvas, marking itself while it does.
+    await new Promise((done) => {
+      const check = () => (document.querySelector('[data-easing]') ? requestAnimationFrame(check) : done())
+      check()
+    })
     await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => done())))
   })
 // Checks the screen as it is at narrow widths, then puts the window back.
@@ -1007,6 +1012,68 @@ try {
   await page.emulateMedia({ colorScheme: 'dark' })
   await shot('9s2-space-list-dark')
   await page.emulateMedia({ colorScheme: 'light' })
+  // The map beside the list: pointing at a box says what it is and lights
+  // its row, pointing at a row outlines its box, and choosing either
+  // chooses both.
+  const map = page.locator('.map-canvas')
+  const mapBox = await map.locator('canvas.over').boundingBox()
+  await page.mouse.move(mapBox.x + 30, mapBox.y + 8)
+  await page.locator('.map-tip:not([hidden])').waitFor()
+  assert.match(await text('.map-tip'), /^Texture packs: 17\.7 GB, 160 other files$/)
+  await page.locator('.space-list tr.lit', { hasText: 'Texture packs' }).waitFor()
+  assert.equal(await map.getAttribute('data-pointed'), 'C:\\Users\\Mark\\Pictures\\Texture packs')
+  await page.locator('.space-list tbody tr', { hasText: 'Captures' }).hover()
+  await page.waitForFunction(() => document.querySelector('.map-canvas')?.dataset.lit === 'C:\\Users\\Mark\\Pictures\\Captures')
+  await page.locator('.space-list tbody tr', { hasText: 'Screenshots' }).click()
+  assert.equal(await map.getAttribute('data-selected'), 'C:\\Users\\Mark\\Pictures\\Screenshots', 'the row chosen lights its box')
+  await page.mouse.click(mapBox.x + 30, mapBox.y + 8)
+  assert.equal(await map.getAttribute('data-selected'), 'C:\\Users\\Mark\\Pictures\\Texture packs', 'a box chosen on the map')
+  assert.equal(await page.locator('.space-list tr[aria-selected="true"] .name > :first-child').innerText(), 'Texture packs', 'is chosen in the list')
+  await page.locator('.space .chosen').getByRole('button', { name: 'Leave out Texture packs' }).waitFor()
+  await shot('9t-space-map')
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await shot('9t2-space-map-dark')
+  await page.emulateMedia({ colorScheme: 'light' })
+  // Clicking a chosen folder again goes into it, easing unless motion is unwelcome.
+  await page.evaluate(() => {
+    window.keevoroEased = false
+    new MutationObserver(() => {
+      if (document.querySelector('[data-easing]')) window.keevoroEased = true
+    }).observe(document.body, { attributes: true, subtree: true, attributeFilter: ['data-easing'] })
+  })
+  await page.mouse.click(mapBox.x + 30, mapBox.y + 8)
+  await page.getByRole('grid', { name: 'What is in Texture packs, the biggest first' }).waitFor()
+  await settled()
+  assert.equal(await page.evaluate(() => window.keevoroEased), true, 'the folder grew to fill the map')
+  await page.getByRole('navigation', { name: 'Where you are' }).getByRole('button', { name: 'Pictures' }).click()
+  await page.getByRole('grid', { name: 'What is in Pictures, the biggest first' }).waitFor()
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.evaluate(() => (window.keevoroEased = false))
+  await page.mouse.dblclick(mapBox.x + 30, mapBox.y + 8)
+  await page.getByRole('grid', { name: 'What is in Texture packs, the biggest first' }).waitFor()
+  await settled()
+  assert.equal(await page.evaluate(() => window.keevoroEased), false, 'with reduced motion the new map simply appears')
+  await page.getByRole('navigation', { name: 'Where you are' }).getByRole('button', { name: 'Pictures' }).click()
+  await page.getByRole('grid', { name: 'What is in Pictures, the biggest first' }).waitFor()
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  for (const [width, name] of [
+    [700, '9t3-space-map-700'],
+    [400, '9t5-space-map-400'],
+  ]) {
+    await page.setViewportSize({ width, height: 900 })
+    await shot(name)
+    await page.emulateMedia({ colorScheme: 'dark' })
+    await shot(`${name}-dark`)
+    await page.emulateMedia({ colorScheme: 'light' })
+  }
+  // In a very narrow window the map is a strip until asked for.
+  await page.getByRole('button', { name: 'Show the map' }).click()
+  await page.getByRole('button', { name: 'Show less of the map' }).waitFor()
+  await fitsNarrow('Where the space goes, with the whole map')
+  await page.setViewportSize({ width: 400, height: 900 })
+  await shot('9t6-space-map-400-whole')
+  await page.getByRole('button', { name: 'Show less of the map' }).click()
+  await page.setViewportSize({ width: 1440, height: 900 })
   // A folder chosen: look inside it, look through it, or leave it out.
   await page.locator('.space-list tbody tr', { hasText: 'Camera Roll' }).click()
   const chosen = page.locator('.space .chosen')
