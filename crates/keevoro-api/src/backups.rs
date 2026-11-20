@@ -52,6 +52,11 @@ pub struct Settings {
     /// someone who never has is exactly as it always was.
     #[serde(default, skip_serializing_if = "AgentAccess::is_default")]
     pub agents: AgentAccess,
+    /// The person's changes to the kinds of file Keevoro looks for: the
+    /// endings they added and the built-in ones they changed. Left out
+    /// while the list is as it came.
+    #[serde(default, skip_serializing_if = "keevoro_core::FileKinds::is_built_in")]
+    pub file_kinds: keevoro_core::FileKinds,
 }
 
 /// One backup, as the settings file lists it.

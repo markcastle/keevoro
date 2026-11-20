@@ -1064,3 +1064,115 @@ fn a_program_that_is_closing_stops_its_own_jobs_and_leaves_the_rest() {
     // With nothing running, it answers at once.
     assert!(agent.stop_here_and_wait(Duration::ZERO));
 }
+
+/// Every file under `folder`, by name, with its bytes.
+fn files_under(folder: &Path) -> Vec<(String, Vec<u8>)> {
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(folder).into_iter().flatten().flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            found.extend(files_under(&path));
+        } else {
+            found.push((
+                entry.file_name().to_string_lossy().into_owned(),
+                std::fs::read(&path).unwrap(),
+            ));
+        }
+    }
+    found
+}
+
+#[test]
+fn a_kind_added_that_keevoro_cannot_open_is_found_and_backed_up_exactly_with_no_preview_and_no_fuss() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro(dir.path());
+    keevoro.add_file_kind(".XYZ", keevoro_core::MediaKind::Photo).unwrap();
+    // Nothing inside either says what it is, and no decoder can open it.
+    let pano: Vec<u8> = (0..5_000u32).map(|n| u8::try_from(n * 7 % 251).unwrap()).collect();
+    let other: Vec<u8> = (0..3_000u32).map(|n| u8::try_from(n * 13 % 241).unwrap()).collect();
+    let card = dir.path().join("Card");
+    for (rel, bytes) in [
+        ("DCIM/pano.xyz", &pano),
+        // A copy in a folder called Icons: with no size known, not set aside.
+        ("Icons/pano copy.xyz", &pano),
+        ("DCIM/other.xyz", &other),
+    ] {
+        std::fs::create_dir_all(card.join(rel).parent().unwrap()).unwrap();
+        std::fs::write(card.join(rel), bytes).unwrap();
+    }
+
+    // "Find where the photos are" counts them.
+    let survey = keevoro.survey(&card, None, None).unwrap();
+    let Some(Said::Surveyed(found)) = keevoro.wait(survey.id) else {
+        panic!("a survey ends with what it found")
+    };
+    let counted: usize = found.hints.iter().map(|h| h.photos).sum();
+    assert_eq!(counted, 3, "{found:?}");
+
+    // Found, told apart from its copy, and not set aside.
+    let named = keevoro.start_backup("Panoramas").unwrap();
+    let look = keevoro.look(&named, &card, None).unwrap();
+    assert!(matches!(keevoro.wait(look.id), Some(Said::Scan(e)) if e.photos == 3 && !e.stopped));
+    keevoro.wait_for_jobs();
+    let backup = Backup::open(&named.home).unwrap();
+    let found = backup.found().unwrap();
+    assert_eq!(
+        (found.photos, found.duplicates, found.set_aside),
+        (2, 1, 0),
+        "{found:?}"
+    );
+    assert_eq!(backup.duplicates().unwrap().len(), 1);
+    assert!(backup.set_aside().unwrap().is_empty());
+    assert!(!backup.collections().unwrap().is_empty());
+    let types = backup.file_types(backup.sources().unwrap()[0].id).unwrap();
+    assert_eq!((types[0].ending.as_str(), types[0].files), ("xyz", 3));
+
+    // No picture: the screens show their placeholder.
+    let id = backup.catalog().load_reports().unwrap()[0].items[0]
+        .id()
+        .unwrap()
+        .to_string();
+    let e = keevoro.picture(&backup, &id, crate::PictureSize::Small).unwrap_err();
+    assert!(e.message.starts_with("This one can't be previewed"), "{e}");
+
+    // Backed up, byte for byte, with previews wanted, and in the index.
+    let usb = dir.path().join("USB");
+    keevoro.add_destination(&backup, &folder(&usb)).unwrap();
+    let job = keevoro.run_backup(&named, None).unwrap();
+    let Some(Said::Send(last)) = keevoro.wait(job.id) else {
+        panic!("a backup ends with what it said")
+    };
+    keevoro.wait_for_jobs();
+    assert_eq!(
+        (last.problem.as_deref(), last.outcome),
+        (None, Some(Outcome::Worked)),
+        "{last:?}"
+    );
+    assert!(
+        last.summary.iter().any(|l| l.starts_with("Safely backed up 2 files")),
+        "{last:?}"
+    );
+    // One of the two copies of the panorama, whichever the duplicate
+    // rules keep, and the other file: each exact.
+    let mut sent: Vec<Vec<u8>> = files_under(&usb.join("originals"))
+        .into_iter()
+        .map(|(_, b)| b)
+        .collect();
+    sent.sort_by_key(Vec::len);
+    assert_eq!(sent, [other.clone(), pano.clone()]);
+    assert!(files_under(&usb.join("renditions")).is_empty(), "no preview was made");
+    let gallery = std::fs::read_to_string(usb.join("index").join("gallery.json")).unwrap();
+    assert!(gallery.contains(".xyz") && gallery.contains("other.xyz"), "{gallery}");
+
+    // Nothing in the log about it failing.
+    let log = keevoro.log_tail(200).to_lowercase();
+    for noise in ["couldn't", "could not", "can't", "failed", "error"] {
+        assert!(!log.contains(noise), "{noise}: {log}");
+    }
+    assert_eq!(
+        std::fs::read(card.join("DCIM/pano.xyz")).unwrap(),
+        pano,
+        "the source is untouched"
+    );
+}

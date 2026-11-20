@@ -82,19 +82,49 @@ pub fn scan_into_with(
     // A remembered drive is recognised by its full path, so `D:` and
     // `D:\.` must come out the same.
     let root = std::fs::canonicalize(source).unwrap_or_else(|_| source.to_path_buf());
-    let report = scan(&root, options, on_progress);
+    let mut report = scan(&root, options, on_progress);
     // A search that was stopped has only seen part of the source. Saving
     // that would make the rest look as if it were not there, so nothing
     // is remembered: whatever was known about this source stays as it was.
     if report.stopped {
         return Ok(report);
     }
+    keep_found_before(catalog, &mut report, &options.kinds)?;
     let fallback = root
         .file_name()
         .map_or_else(|| root.display().to_string(), |n| n.to_string_lossy().to_string());
     on_saving();
     catalog.save_scan(name.unwrap_or(&fallback), &report, now())?;
     Ok(report)
+}
+
+/// Keeps what was found on this source before whose kind is no longer
+/// looked for, as long as it is still there, the same size. Switching a
+/// kind off, or removing one, changes what is looked for from now on; it
+/// never takes away a file already found, which may already be backed up
+/// and in the backup's index. A file of a kind still looked for that was
+/// not found again has gone, or changed, and is not kept.
+fn keep_found_before(catalog: &Catalog, report: &mut ScanReport, kinds: &keevoro_core::Kinds) -> Result<()> {
+    let Some(before) = catalog.load_reports()?.into_iter().find(|r| r.root == report.root) else {
+        return Ok(());
+    };
+    let found_now: std::collections::HashSet<&Path> = report.items.iter().map(|i| i.path.as_path()).collect();
+    let kept: Vec<FoundItem> = before
+        .items
+        .into_iter()
+        .filter(|item| !found_now.contains(item.path.as_path()))
+        .filter(|item| {
+            let ending = item.path.extension().map(|e| e.to_string_lossy()).unwrap_or_default();
+            kinds.looked_for(&ending).is_none()
+        })
+        .filter(|item| std::fs::metadata(&item.path).is_ok_and(|m| m.is_file() && m.len() == item.bytes))
+        .collect();
+    if !kept.is_empty() {
+        report.other_files = report.other_files.saturating_sub(kept.len() as u64);
+        report.items.extend(kept);
+        report.items.sort_by(|a, b| a.path.cmp(&b.path));
+    }
+    Ok(())
 }
 
 /// Which part of getting ready to back up is under way, for a progress
@@ -266,4 +296,64 @@ fn now() -> i64 {
         .ok()
         .and_then(|d| i64::try_from(d.as_secs()).ok())
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use keevoro_core::{FileKinds, KindChange};
+    use std::fs;
+
+    fn look(catalog: &mut Catalog, drive: &Path, kinds: &FileKinds) -> Vec<String> {
+        let options = ScanOptions {
+            kinds: kinds.lookup(),
+            ..ScanOptions::default()
+        };
+        scan_into_with(catalog, drive, None, &options, &mut |_| {}, &mut || {}).unwrap();
+        let mut names: Vec<String> = catalog.load_reports().unwrap()[0]
+            .items
+            .iter()
+            .map(|i| i.path.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn switching_a_kind_off_or_removing_it_never_takes_away_what_was_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let drive = dir.path().join("drive");
+        fs::create_dir_all(&drive).unwrap();
+        fs::write(drive.join("a.xyz"), [1u8; 100]).unwrap();
+        fs::write(drive.join("b.xyz"), [2u8; 100]).unwrap();
+        fs::write(drive.join("c.xyz"), [3u8; 100]).unwrap();
+        let mut catalog = Catalog::open_in_library(&dir.path().join("home")).unwrap();
+        let mut kinds = FileKinds::default();
+        kinds.add("xyz", keevoro_core::MediaKind::Photo).unwrap();
+        assert_eq!(look(&mut catalog, &drive, &kinds), ["a.xyz", "b.xyz", "c.xyz"]);
+
+        // Switched off, then looked through again: the ones found stay found,
+        // unless they have gone or changed meanwhile.
+        let off = KindChange {
+            on: Some(false),
+            ..KindChange::default()
+        };
+        kinds.change("xyz", &off).unwrap();
+        fs::remove_file(drive.join("b.xyz")).unwrap();
+        fs::write(drive.join("c.xyz"), [3u8; 50]).unwrap();
+        fs::write(drive.join("d.xyz"), [4u8; 100]).unwrap();
+        assert_eq!(
+            look(&mut catalog, &drive, &kinds),
+            ["a.xyz"],
+            "nothing new of that kind is found"
+        );
+
+        kinds.remove("xyz").unwrap();
+        assert_eq!(look(&mut catalog, &drive, &kinds), ["a.xyz"]);
+
+        // Looked for again, a file that has gone is gone.
+        kinds.add("xyz", keevoro_core::MediaKind::Photo).unwrap();
+        fs::remove_file(drive.join("a.xyz")).unwrap();
+        assert_eq!(look(&mut catalog, &drive, &kinds), ["c.xyz", "d.xyz"]);
+    }
 }

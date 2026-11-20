@@ -235,6 +235,23 @@ register! {
     AgentsAccess = "agents.access",
         "Which folders an agent may use, and whether it may make changes",
         changes: OnlyWhenAsked, job: false, command_line: true, agents: Agents::LookOnly, implemented: true;
+
+    // The kinds of file looked for
+    FileKindsList = "file_kinds.list",
+        "The kinds of file Keevoro looks for, by ending: photo or video, built in or added, on or off",
+        changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
+    FileKindsAdd = "file_kinds.add",
+        "Adds an ending for Keevoro to look for, as a photo or a video",
+        changes: Always, job: false, command_line: true, agents: Agents::No, implemented: true;
+    FileKindsChange = "file_kinds.change",
+        "Switches a kind of file on or off, makes it a photo or a video, or renames one you added",
+        changes: Always, job: false, command_line: true, agents: Agents::No, implemented: true;
+    FileKindsRemove = "file_kinds.remove",
+        "Takes an ending you added off the list. Nothing already found is taken away",
+        changes: Always, job: false, command_line: true, agents: Agents::No, implemented: true;
+    FileKindsReset = "file_kinds.reset",
+        "Puts back the kinds of file Keevoro comes with, all on. Your own stay",
+        changes: Always, job: false, command_line: true, agents: Agents::No, implemented: true;
 }
 
 impl Op {
@@ -285,6 +302,11 @@ impl Op {
                 | Op::KeevoroUpdate
                 | Op::KeevoroReset
                 | Op::AgentsAccess
+                | Op::FileKindsList
+                | Op::FileKindsAdd
+                | Op::FileKindsChange
+                | Op::FileKindsRemove
+                | Op::FileKindsReset
         )
     }
 
@@ -324,6 +346,7 @@ impl Op {
     pub fn request_schema(self) -> serde_json::Value {
         use crate::agents::AgentsAccessRequest as Agents;
         use crate::destinations::{AddDestinationRequest as Add, RemoveDestinationRequest as Remove};
+        use crate::file_kinds::{AddFileKindRequest, ChangeFileKindRequest, FileKindRequest};
         use crate::keevoro::{
             ForgetBackupRequest, LogRequest, RenameBackupRequest, SettingsRequest, StartBackupRequest,
         };
@@ -352,6 +375,9 @@ impl Op {
             Op::KeevoroLog => schema::<LogRequest>(),
             Op::KeevoroSettings => schema::<SettingsRequest>(),
             Op::AgentsAccess => schema::<Agents>(),
+            Op::FileKindsAdd => schema::<AddFileKindRequest>(),
+            Op::FileKindsChange => schema::<ChangeFileKindRequest>(),
+            Op::FileKindsRemove => schema::<FileKindRequest>(),
             Op::BackupsList
             | Op::PlacesList
             | Op::SourcesList
@@ -371,7 +397,9 @@ impl Op {
             | Op::KeevoroAbout
             | Op::KeevoroActivity
             | Op::KeevoroUpdate
-            | Op::KeevoroReset => schema::<Nothing>(),
+            | Op::KeevoroReset
+            | Op::FileKindsList
+            | Op::FileKindsReset => schema::<Nothing>(),
         }
     }
 
@@ -578,7 +606,21 @@ impl Op {
                 "Says which folders you may look through and back up to, and whether you may make changes. If \
                  something is refused, this explains why; only the person can change it.",
             ),
-            Op::BackupsForget | Op::KeevoroLog | Op::KeevoroReset | Op::JobsFollow => return None,
+            Op::FileKindsList => (
+                "list_file_kinds",
+                "Lists the kinds of file Keevoro looks for on every source, by ending (such as jpg or mov): whether \
+                 each is a photo or a video, whether it came with Keevoro or the person added it, and whether it is \
+                 switched on. A search only finds files of kinds switched on, and a survey only counts them. You \
+                 cannot change the list; the person can, in Settings or with the keevoro command. Changes nothing.",
+            ),
+            Op::BackupsForget
+            | Op::KeevoroLog
+            | Op::KeevoroReset
+            | Op::JobsFollow
+            | Op::FileKindsAdd
+            | Op::FileKindsChange
+            | Op::FileKindsRemove
+            | Op::FileKindsReset => return None,
         };
         Some(Tool { name, tells })
     }
@@ -630,7 +672,7 @@ mod tests {
 
     #[test]
     fn the_register_has_every_operation_in_the_plan() {
-        assert_eq!(Op::ALL.len(), 42);
+        assert_eq!(Op::ALL.len(), 47);
         // Each entry is the one for its own operation.
         for op in Op::ALL {
             assert_eq!(op.entry().op, *op);
@@ -679,19 +721,24 @@ mod tests {
     }
 
     #[test]
-    fn only_the_five_operations_the_plan_names_are_kept_from_agents() {
+    fn only_the_operations_the_plan_names_are_kept_from_agents() {
         let kept_from_agents: HashSet<Op> = entries()
             .filter(|e| matches!(e.agents, Agents::No | Agents::LookOnly))
             .map(|e| e.op)
             .collect();
-        // Forgetting a backup, changing settings, installing an update,
-        // resetting, and changing an agent's own permissions.
+        // Forgetting a backup, changing settings (the kinds of file looked
+        // for among them), installing an update, resetting, and changing an
+        // agent's own permissions.
         let plan: HashSet<Op> = [
             Op::BackupsForget,
             Op::KeevoroSettings,
             Op::KeevoroUpdate,
             Op::KeevoroReset,
             Op::AgentsAccess,
+            Op::FileKindsAdd,
+            Op::FileKindsChange,
+            Op::FileKindsRemove,
+            Op::FileKindsReset,
         ]
         .into();
         assert_eq!(kept_from_agents, plan);
@@ -778,6 +825,7 @@ mod tests {
         "read_settings",
         "check_for_update",
         "my_access",
+        "list_file_kinds",
     ];
 
     #[test]

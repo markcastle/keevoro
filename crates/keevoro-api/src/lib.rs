@@ -32,6 +32,7 @@ pub mod backup;
 pub mod backups;
 pub mod destinations;
 pub mod error;
+pub mod file_kinds;
 pub mod for_agents;
 pub mod jobs;
 pub mod keevoro;
@@ -51,14 +52,17 @@ pub use destinations::{
     RoomAtAGlance, WaitingAt,
 };
 pub use error::{Error, Kind, Result};
+pub use file_kinds::PhotoOrVideo;
 pub use for_agents::{call_for_agent, read_for_agent};
 pub use jobs::{Event, FrontEnd, JobHandle, JobId, JobKind, JobStatus, Listener, Outcome, Said, Which, PROGRESS_EVERY};
 pub use keevoro::{BackupListing, Codecs, Folders, Keevoro, Offer, SettingsView};
 pub use keevoro_core::estimate;
+pub use keevoro_core::{FileKind, KindChange, MediaKind};
 pub use keevoro_engine::connect::SecretStore;
 pub use picture::{Picture, PictureRequest, PictureSize};
 pub use register::{entries, Agents, Changes, Entry, Op, Tool};
 
+use file_kinds::{AddFileKindRequest, ChangeFileKindRequest, FileKindRequest};
 use keevoro::{ForgetBackupRequest, LogRequest, RenameBackupRequest, SettingsRequest, StartBackupRequest};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -406,6 +410,31 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
         Op::KeevoroReset => {
             read::<Nothing>(request)?;
             answer(keevoro.reset()?)
+        }
+        Op::FileKindsList => {
+            read::<Nothing>(request)?;
+            answer(keevoro.file_kinds())
+        }
+        Op::FileKindsAdd => {
+            let r: AddFileKindRequest = read(request)?;
+            answer(keevoro.add_file_kind(&r.ending, r.kind.into())?)
+        }
+        Op::FileKindsChange => {
+            let r: ChangeFileKindRequest = read(request)?;
+            let change = keevoro_core::KindChange {
+                kind: r.kind.map(Into::into),
+                on: r.on,
+                ending: r.to,
+            };
+            answer(keevoro.change_file_kind(&r.ending, &change)?)
+        }
+        Op::FileKindsRemove => {
+            let r: FileKindRequest = read(request)?;
+            answer(keevoro.remove_file_kind(&r.ending)?)
+        }
+        Op::FileKindsReset => {
+            read::<Nothing>(request)?;
+            answer(keevoro.reset_file_kinds()?)
         }
         Op::AgentsAccess => {
             let r: AgentsAccessRequest = read(request)?;

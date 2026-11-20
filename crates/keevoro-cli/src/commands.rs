@@ -736,7 +736,119 @@ pub static ROWS: &[Row] = &[
         ask: |_, m, _| Ok((Op::AgentsAccess, json!({ "mayChange": on_off(&required(m, "value"))? }))),
         show: show::agents,
     },
+    // The kinds of file looked for
+    Row {
+        words: &["kinds"],
+        ops: &[Op::FileKindsList],
+        about: Some(
+            "The kinds of file Keevoro looks for on every source, by ending: photo or video, built in or yours, on or off.",
+        ),
+        args: none,
+        ask: |c, m, io| nothing(c, m, io, Op::FileKindsList),
+        show: show::kinds,
+    },
+    Row {
+        words: &["kinds", "add"],
+        ops: &[Op::FileKindsAdd],
+        about: Some(
+            "Adds an ending for Keevoro to look for, as photos or videos. Counts from the next time a source is looked through.",
+        ),
+        args: |c| {
+            c.arg(arg("ending", "The ending, such as heif").required(true))
+                .args(photo_or_video())
+                .group(clap::ArgGroup::new("kind").args(["photo", "video"]).required(true))
+        },
+        ask: |_, m, _| {
+            Ok((
+                Op::FileKindsAdd,
+                json!({ "ending": required(m, "ending"), "kind": photo_or_video_given(m) }),
+            ))
+        },
+        show: show::kind_changed,
+    },
+    Row {
+        words: &["kinds", "change"],
+        ops: &[Op::FileKindsChange],
+        about: Some(
+            "Makes a kind of file photos or videos, or gives one you added a new ending. Counts from the next time a source is looked through.",
+        ),
+        args: |c| {
+            c.arg(arg("ending", "The ending as it is on the list, such as heif").required(true))
+                .args(photo_or_video())
+                .arg(
+                    Arg::new("to")
+                        .long("to")
+                        .value_name("ENDING")
+                        .help("A new ending, for one you added"),
+                )
+                .group(
+                    clap::ArgGroup::new("change")
+                        .args(["photo", "video", "to"])
+                        .multiple(true)
+                        .required(true),
+                )
+        },
+        ask: |_, m, _| {
+            Ok((
+                Op::FileKindsChange,
+                json!({ "ending": required(m, "ending"), "kind": photo_or_video_given(m), "to": text(m, "to") }),
+            ))
+        },
+        show: show::kind_changed,
+    },
+    Row {
+        words: &["kinds", "on"],
+        ops: &[Op::FileKindsChange],
+        about: Some("Looks for a kind of file again, from the next time a source is looked through."),
+        args: |c| c.arg(arg("ending", "The ending, such as avi").required(true)),
+        ask: |_, m, _| Ok((Op::FileKindsChange, json!({ "ending": required(m, "ending"), "on": true }))),
+        show: show::kind_changed,
+    },
+    Row {
+        words: &["kinds", "off"],
+        ops: &[Op::FileKindsChange],
+        about: Some(
+            "Stops looking for a kind of file, from the next time a source is looked through. Nothing already found or backed up is taken away.",
+        ),
+        args: |c| c.arg(arg("ending", "The ending, such as avi").required(true)),
+        ask: |_, m, _| Ok((Op::FileKindsChange, json!({ "ending": required(m, "ending"), "on": false }))),
+        show: show::kind_changed,
+    },
+    Row {
+        words: &["kinds", "remove"],
+        ops: &[Op::FileKindsRemove],
+        about: None,
+        args: |c| c.arg(arg("ending", "An ending you added, such as heif").required(true)),
+        ask: |_, m, _| Ok((Op::FileKindsRemove, json!({ "ending": required(m, "ending") }))),
+        show: show::kind_removed,
+    },
+    Row {
+        words: &["kinds", "reset"],
+        ops: &[Op::FileKindsReset],
+        about: None,
+        args: none,
+        ask: |c, m, io| nothing(c, m, io, Op::FileKindsReset),
+        show: show::kinds,
+    },
 ];
+
+fn photo_or_video() -> [Arg; 2] {
+    [
+        flag("photo", "They are photos").conflicts_with("video"),
+        flag("video", "They are videos"),
+    ]
+}
+
+/// `photo`, `video`, or nothing when neither was given.
+fn photo_or_video_given(m: &ArgMatches) -> Option<&'static str> {
+    if m.get_flag("photo") {
+        Some("photo")
+    } else if m.get_flag("video") {
+        Some("video")
+    } else {
+        None
+    }
+}
 
 fn choose_args(command: Command) -> Command {
     command

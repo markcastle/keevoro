@@ -15,9 +15,9 @@ pub mod survey;
 mod video;
 
 use keevoro_core::{
-    best_date, date_from_filename, folder_hints, holds_originals, is_raw_extension, junk_hint, kind_from_extension,
-    kind_from_mime, library_album_segments, never_media_extension, photo_library, DateGuess, DateSource, FolderHints,
-    JunkInput, JunkReason, MediaKind, PartialDate, SkipReason, SkipRules,
+    best_date, date_from_filename, folder_hints, holds_originals, is_raw_extension, junk_hint, kind_from_mime,
+    library_album_segments, never_media_extension, photo_library, DateGuess, DateSource, FolderHints, JunkInput,
+    JunkReason, Kinds, MediaKind, PartialDate, SkipReason, SkipRules,
 };
 use serde::Serialize;
 use std::fs::File;
@@ -46,6 +46,9 @@ pub struct ScanOptions {
     /// Set to true from anywhere to stop the search. It ends within a
     /// moment, and its report says it was stopped.
     pub stop: Option<Arc<AtomicBool>>,
+    /// The kinds of file looked for, read once from the settings before
+    /// the search starts. The built-in list unless told otherwise.
+    pub kinds: Kinds,
 }
 
 impl ScanOptions {
@@ -61,6 +64,7 @@ impl Default for ScanOptions {
             hash: true,
             quick: false,
             stop: None,
+            kinds: Kinds::default(),
         }
     }
 }
@@ -314,11 +318,16 @@ fn walk(
             continue;
         }
         let path = entry.into_path();
-        let plainly_not_media = path
-            .extension()
-            .is_some_and(|ext| never_media_extension(&ext.to_string_lossy()));
-        let sent = if plainly_not_media {
-            // Programs, documents and music are not opened at all.
+        let passed_over = path.extension().is_some_and(|ext| {
+            let ext = ext.to_string_lossy();
+            match opts.kinds.looked_for(&ext) {
+                Some(_) => false,
+                None => opts.kinds.switched_off(&ext) || never_media_extension(&ext),
+            }
+        });
+        let sent = if passed_over {
+            // Programs, documents and music, and kinds the person switched
+            // off, are not opened at all.
             done.send((order, path, Looked::Other)).is_ok()
         } else {
             to_read.send((order, path)).is_ok()
@@ -340,15 +349,18 @@ fn examine(root: &Path, path: &Path, opts: &ScanOptions) -> std::io::Result<Opti
         .extension()
         .map(|e| e.to_string_lossy().to_string())
         .unwrap_or_default();
-    let (kind, mime) = match infer::get(&head) {
-        Some(t) => match kind_from_mime(t.mime_type()) {
-            Some(k) => (k, t.mime_type().to_string()),
-            None => return Ok(None),
-        },
-        None => match kind_from_extension(&ext) {
-            Some(k) => (k, format!("application/x-{}", ext.to_ascii_lowercase())),
-            None => return Ok(None),
-        },
+    // What is inside decides, where Keevoro recognises it. A kind known
+    // only by its name (most camera raw, and every kind a person added)
+    // is taken at its word when the inside says nothing, or says
+    // something Keevoro does not count as a photo.
+    let inside = infer::get(&head).map(|t| t.mime_type());
+    let (kind, mime) = match (inside.and_then(kind_from_mime), opts.kinds.by_name(&ext)) {
+        (Some(k), _) => (k, inside.unwrap_or_default().to_string()),
+        (None, Some(k)) => (
+            k,
+            inside.map_or_else(|| format!("application/x-{}", ext.to_lowercase()), str::to_string),
+        ),
+        (None, None) => return Ok(None),
     };
 
     let meta = file.metadata()?;

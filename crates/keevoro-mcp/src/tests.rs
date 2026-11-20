@@ -119,7 +119,12 @@ async fn an_app_sees_every_tool_with_what_it_takes_and_whether_it_changes_things
     let mut app = App::connect(keevoro(dir.path())).await;
     let listed = app.ask("tools/list", json!({})).await;
     let tools = listed["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 38);
+    assert_eq!(tools.len(), 39);
+    let kinds = tools.iter().find(|t| t["name"] == "list_file_kinds").unwrap();
+    assert_eq!(
+        kinds["annotations"]["readOnlyHint"], true,
+        "an agent may read the list, not change it"
+    );
     let run = tools.iter().find(|t| t["name"] == "run_backup").unwrap();
     assert_eq!(run["annotations"]["readOnlyHint"], false);
     assert_eq!(run["annotations"]["destructiveHint"], false);

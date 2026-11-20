@@ -9,6 +9,7 @@ use super::{spawn, Context, Every, Job, JobHandle, JobKind, Listener, Said, Scan
 use crate::backups::Named;
 use crate::error::{Error, Result};
 use keevoro_catalog::Catalog;
+use keevoro_core::Kinds;
 use keevoro_engine::friendly_path;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -33,12 +34,14 @@ pub(super) fn sources_to_look_again(backup: &Named, source: Option<i64>) -> Resu
     }
 }
 
-/// Starts looking through `places`, one after another.
+/// Starts looking through `places`, one after another, for the `kinds`
+/// of file the settings named as it started.
 pub(super) fn start(
     ctx: &Context,
     backup: &Named,
     places: Vec<PathBuf>,
     kind: JobKind,
+    kinds: Kinds,
     listener: Option<Listener>,
 ) -> Result<JobHandle> {
     let job = ctx.jobs.begin(kind, Some(backup), listener)?;
@@ -51,7 +54,7 @@ pub(super) fn start(
     spawn(ctx, &job, move |ctx, job, ending| {
         let mut last = None;
         for (n, place) in places.iter().enumerate() {
-            let said = look_through(ctx, job, &backup.home, place);
+            let said = look_through(ctx, job, &backup.home, place, &kinds);
             // A search that was stopped stops the rest too.
             let more = n + 1 < places.len() && !said.stopped && !job.stopped();
             if !more {
@@ -80,7 +83,7 @@ fn name_of(source: &Path) -> String {
 }
 
 /// Looks through one place, saying how it goes, and gives the last event.
-fn look_through(ctx: &Context, job: &Arc<Job>, home: &Path, source: &Path) -> ScanEvent {
+fn look_through(ctx: &Context, job: &Arc<Job>, home: &Path, source: &Path, kinds: &Kinds) -> ScanEvent {
     let name = name_of(source);
     let started = Instant::now();
     let log = &ctx.log;
@@ -115,6 +118,7 @@ fn look_through(ctx: &Context, job: &Arc<Job>, home: &Path, source: &Path) -> Sc
                 &keevoro_scan::ScanOptions {
                     quick: true,
                     stop: Some(job.stop_switch()),
+                    kinds: kinds.clone(),
                     ..Default::default()
                 },
                 &mut |p| {

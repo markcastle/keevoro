@@ -665,6 +665,53 @@ pub fn reset(io: &mut Io<'_>, _: &ArgMatches, done: &Value) -> Said_ {
     Ok(Code::Worked)
 }
 
+/// One line of the list of kinds, as `keevoro kinds` shows it.
+fn kind_line(kind: &Value) -> String {
+    format!(
+        ".{:<10} {:<6} {:<9} {}",
+        s(kind, "ending"),
+        s(kind, "kind"),
+        if yes(kind, "builtIn") { "built in" } else { "yours" },
+        if yes(kind, "on") { "on" } else { "off" }
+    )
+}
+
+pub fn kinds(io: &mut Io<'_>, _: &ArgMatches, list: &Value) -> Said_ {
+    writeln!(io.out, "{:<11} {:<6} {:<9} looked for", "ending", "kind", "from")?;
+    for kind in each(list) {
+        writeln!(io.out, "{}", kind_line(kind))?;
+    }
+    writeln!(
+        io.out,
+        "Changes count from the next time a source is looked through (keevoro look --again)."
+    )?;
+    Ok(Code::Worked)
+}
+
+pub fn kind_changed(io: &mut Io<'_>, _: &ArgMatches, kind: &Value) -> Said_ {
+    let ending = s(kind, "ending");
+    let what = if s(kind, "kind") == "video" { "videos" } else { "photos" };
+    if yes(kind, "on") {
+        writeln!(io.out, "Keevoro looks for .{ending} files, as {what}.")?;
+    } else {
+        writeln!(
+            io.out,
+            "Keevoro no longer looks for .{ending} files. Nothing already found or backed up is taken away."
+        )?;
+    }
+    writeln!(io.out, "This counts from the next time a source is looked through.")?;
+    Ok(Code::Worked)
+}
+
+pub fn kind_removed(io: &mut Io<'_>, _: &ArgMatches, kind: &Value) -> Said_ {
+    writeln!(
+        io.out,
+        "Took .{} off the list. Nothing already found or backed up is taken away.",
+        s(kind, "ending")
+    )?;
+    Ok(Code::Worked)
+}
+
 pub fn agents(io: &mut Io<'_>, _: &ArgMatches, access: &Value) -> Said_ {
     let folders = |name: &str| -> Vec<String> {
         each(access.get(name).unwrap_or(&Value::Null))

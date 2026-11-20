@@ -136,10 +136,12 @@ mod tests {
             "follow",
             "set_access",
             "install_update",
+            "add_file_kind",
+            "change_file_kind",
         ] {
             assert!(op_named(kept).is_none(), "{kept}");
         }
-        assert_eq!(tools.len(), 38);
+        assert_eq!(tools.len(), 39);
         assert_eq!(title("run_backup"), "Run backup");
         assert_eq!(title("about_keevoro"), "About Keevoro");
     }

@@ -15,6 +15,7 @@ pub(super) fn start(
     ctx: &Context,
     place: &Path,
     backup: Option<&Named>,
+    kinds: keevoro_core::Kinds,
     listener: Option<Listener>,
 ) -> Result<JobHandle> {
     // What is a source already, as it is shown, to say so beside each
@@ -37,18 +38,24 @@ pub(super) fn start(
         let stop = job.stop_switch();
         let found = {
             let _busy = keevoro_core::doing::doing(keevoro_core::doing::Work::Surveying);
-            keevoro_scan::survey::survey(&root, &keevoro_core::SkipRules::default(), Some(&stop), &mut |p| {
-                ctx.jobs.heard(
-                    job,
-                    Said::Survey(SurveyEvent {
-                        folders: p.folders_seen,
-                        files: p.files_seen,
-                        photos: p.photos,
-                        videos: p.videos,
-                    }),
-                    true,
-                );
-            })
+            keevoro_scan::survey::survey(
+                &root,
+                &keevoro_core::SkipRules::default(),
+                &kinds,
+                Some(&stop),
+                &mut |p| {
+                    ctx.jobs.heard(
+                        job,
+                        Said::Survey(SurveyEvent {
+                            folders: p.folders_seen,
+                            files: p.files_seen,
+                            photos: p.photos,
+                            videos: p.videos,
+                        }),
+                        true,
+                    );
+                },
+            )
         };
         let seconds = started.elapsed().as_secs_f32();
         ctx.log.say(&format!(
