@@ -615,6 +615,13 @@ export function demoBackend(): Backend {
         unreadable: 3,
         seconds: 6.2,
         stopped: false,
+        leftOut: [
+          {
+            folder: `${drive}\\Users\\Mark\\Pictures\\Keevoro Library`,
+            what: 'oldLibrary',
+            said: `Left out ${drive}\\Users\\Mark\\Pictures\\Keevoro Library: a folder an older version of Keevoro made, which it no longer uses. It takes 9.2 GB: 8.4 GB of copies of your photos it gathered there (2,310 files), and 0.8 GB of previews and working files it made. Keevoro has not checked that every copy is also in one of your backups, so it leaves the folder for you to decide about and never removes it.`,
+          },
+        ],
       }
     },
     stopSurvey: async () => {},

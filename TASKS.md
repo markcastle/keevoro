@@ -356,6 +356,13 @@ Before building
 - [ ] When cloud storage is taken off a backup, abort the unfinished uploads in parts this backup started there. Not done yet: taking it off forgets its keys at once, so the storage cannot be asked; doing it needs the removal to open the storage first, which may be offline. Until then they are aborted only while the destination is still part of the backup
 - [ ] List and clear uploads in parts at cloud storage that this backup started but its record no longer knows (ListMultipartUploads under its own keys). Its record saves each upload before any part is sent, so this only matters for a record that was lost or reset
 
+### Keevoro's own folders are never a source
+
+- [x] Leave out backups, old libraries, a backup's own folder, Keevoro's own folders and every folder a backup goes to, in the survey and the search, and say so
+- [x] Describe an old library (how big, how much is copies of photos) and offer to show it; never remove it
+- [ ] Prove, as a job the person starts, whether every photo in an old library is already in one of this computer's backups (by fingerprint against each catalog), so they can remove it knowing nothing is lost. Not done yet: it reads every copy in full, gigabytes, so it must be a job with progress and a stop, not something done unasked
+- [ ] Recognise Keevoro's previews copied out of a backup by hand (loose `.webp` thumbnails). Nothing marks them as Keevoro's yet
+
 ### Scheduled and repeat backups
 
 Today a backup runs when someone presses "Back up now". These make it run by itself, which is what turns a one-off rescue into something that keeps photos safe as new ones are taken.

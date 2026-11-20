@@ -3280,3 +3280,28 @@ main > section > :nth-last-child(2) {
   margin: 0;
   white-space: pre-wrap;
 }
+
+/* Folders Keevoro made, left out of a search: one quiet line that opens. */
+.left-out {
+  margin-top: var(--space-3);
+  font-size: 13px;
+  color: var(--ink-muted);
+}
+
+.left-out summary {
+  cursor: pointer;
+}
+
+.left-out ul {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-4);
+}
+
+.left-out li p {
+  margin: 0 0 var(--space-1);
+  max-width: 720px;
+}
+
+.left-out li + li {
+  margin-top: var(--space-3);
+}

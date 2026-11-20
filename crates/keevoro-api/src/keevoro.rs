@@ -284,6 +284,11 @@ impl Keevoro {
         self.log.clone()
     }
 
+    /// Where pictures made for showing are kept.
+    pub(crate) fn cache_folder(&self) -> PathBuf {
+        self.cache.clone()
+    }
+
     pub(crate) fn rates_file(&self) -> PathBuf {
         self.rates.clone()
     }

@@ -15,9 +15,9 @@ pub mod survey;
 mod video;
 
 use keevoro_core::{
-    best_date, date_from_filename, folder_hints, holds_originals, is_raw_extension, junk_hint, kind_from_mime,
-    library_album_segments, never_media_extension, photo_library, DateGuess, DateSource, FolderHints, JunkInput,
-    JunkReason, Kinds, MediaKind, PartialDate, SkipReason, SkipRules,
+    best_date, date_from_filename, folder_hints, folder_made_by_keevoro, holds_originals, is_raw_extension, junk_hint,
+    kind_from_mime, library_album_segments, never_media_extension, photo_library, DateGuess, DateSource, FolderHints,
+    JunkInput, JunkReason, Kinds, MediaKind, PartialDate, SkipReason, SkipRules,
 };
 use serde::Serialize;
 use std::fs::File;
@@ -300,6 +300,18 @@ fn walk(
         };
         let name = entry.file_name().to_string_lossy();
         if entry.file_type().is_dir() {
+            // What Keevoro made is never a source: a backup, a backup's own
+            // folder, an old library, Keevoro's own data. Judged by what is
+            // in it, or by being one of Keevoro's places on this computer.
+            let made = opts
+                .skip
+                .own_place(entry.path())
+                .or_else(|| folder_made_by_keevoro(entry.path()));
+            if let Some(reason) = made {
+                let _ = done.send((order, entry.path().to_path_buf(), Looked::Skipped(reason)));
+                walk.skip_current_dir();
+                continue;
+            }
             if inside_library_package(entry.path()) && !holds_originals(&name) {
                 // Thumbnails, previews and databases: copies of what is in
                 // the originals folder, so not worth reporting as skipped.

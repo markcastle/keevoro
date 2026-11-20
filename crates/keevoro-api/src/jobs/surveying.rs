@@ -16,6 +16,7 @@ pub(super) fn start(
     place: &Path,
     backup: Option<&Named>,
     kinds: keevoro_core::Kinds,
+    skip: keevoro_core::SkipRules,
     listener: Option<Listener>,
 ) -> Result<JobHandle> {
     // What is a source already, as it is shown, to say so beside each
@@ -38,24 +39,18 @@ pub(super) fn start(
         let stop = job.stop_switch();
         let found = {
             let _busy = keevoro_core::doing::doing(keevoro_core::doing::Work::Surveying);
-            keevoro_scan::survey::survey(
-                &root,
-                &keevoro_core::SkipRules::default(),
-                &kinds,
-                Some(&stop),
-                &mut |p| {
-                    ctx.jobs.heard(
-                        job,
-                        Said::Survey(SurveyEvent {
-                            folders: p.folders_seen,
-                            files: p.files_seen,
-                            photos: p.photos,
-                            videos: p.videos,
-                        }),
-                        true,
-                    );
-                },
-            )
+            keevoro_scan::survey::survey(&root, &skip, &kinds, Some(&stop), &mut |p| {
+                ctx.jobs.heard(
+                    job,
+                    Said::Survey(SurveyEvent {
+                        folders: p.folders_seen,
+                        files: p.files_seen,
+                        photos: p.photos,
+                        videos: p.videos,
+                    }),
+                    true,
+                );
+            })
         };
         let seconds = started.elapsed().as_secs_f32();
         ctx.log.say(&format!(
@@ -86,7 +81,11 @@ pub(super) fn start(
             unreadable: found.unreadable,
             seconds,
             stopped: found.stopped,
+            left_out: super::own::left_out(&found.left_out, &[]),
         };
+        for left in &view.left_out {
+            ctx.log.say(&left.said);
+        }
         let last = Said::Surveyed(view);
         ctx.jobs.heard(job, last.clone(), true);
         ending.with(Some(last));

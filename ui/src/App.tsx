@@ -31,6 +31,7 @@ import type {
   Activity,
   AgentAccess,
   FileKind,
+  LeftOut,
   StageRecord,
   Sending,
   AppState,
@@ -811,6 +812,8 @@ function FindScreen(props: {
         </div>
       ) : survey?.found ? (
         <SurveyResult
+          api={api}
+          onProblem={onProblem}
           name={survey.name}
           found={survey.found}
           chosen={survey.chosen}
@@ -877,6 +880,7 @@ function FindScreen(props: {
                       list is in the log, in Settings.
                     </p>
                   )}
+                  <LeftOutNote api={api} leftOut={justFound.leftOut} onProblem={onProblem} />
                 </>
               )}
             </div>
@@ -3265,7 +3269,37 @@ function Viewer(props: {
  * and videos, each with a tick. The person chooses, then Keevoro looks
  * through the ticked ones properly, one after another.
  */
+/**
+ * Folders Keevoro made (a backup, a library from an older version, its own
+ * files) that a search or survey left out: one quiet line that opens to
+ * say what each is, with a way to see it. Keevoro never removes them.
+ */
+function LeftOutNote(props: { api: Backend; leftOut?: LeftOut[]; onProblem: (error: unknown) => void }) {
+  const leftOut = props.leftOut ?? []
+  if (leftOut.length === 0) return null
+  return (
+    <details className="left-out">
+      <summary>
+        Left out {leftOut.length === 1 ? 'a folder' : `${leftOut.length} folders`} Keevoro made, as{' '}
+        {leftOut.length === 1 ? 'it is' : 'they are'} not a source
+      </summary>
+      <ul>
+        {leftOut.map((left) => (
+          <li key={left.folder}>
+            <p>{left.said}</p>
+            <button className="button small" onClick={() => props.api.openPlace(left.folder).catch(props.onProblem)}>
+              Show me the folder
+            </button>
+          </li>
+        ))}
+      </ul>
+    </details>
+  )
+}
+
 function SurveyResult(props: {
+  api: Backend
+  onProblem: (error: unknown) => void
   name: string
   found: Survey
   chosen: Set<string>
@@ -3317,6 +3351,7 @@ function SurveyResult(props: {
           ))}
         </ul>
       )}
+      <LeftOutNote api={props.api} leftOut={found.leftOut} onProblem={props.onProblem} />
       {found.unreadable > 0 && (
         <p className="quiet small">
           {count(found.unreadable, 'folder')} could not be listed, usually because this account is not allowed to

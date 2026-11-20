@@ -45,6 +45,7 @@ pub(crate) mod across;
 mod backing_up;
 mod duplicates;
 mod looking;
+pub mod own;
 pub mod said;
 mod surveying;
 #[cfg(test)]
@@ -1209,7 +1210,14 @@ impl Keevoro {
     /// which of them are already its sources; nothing is changed.
     pub fn survey(&self, place: &Path, backup: Option<&Named>, listener: Option<Listener>) -> Result<JobHandle> {
         must_be_there(place)?;
-        surveying::start(&self.context(), place, backup, self.kinds_to_look_for(), listener)
+        surveying::start(
+            &self.context(),
+            place,
+            backup,
+            self.kinds_to_look_for(),
+            self.skip_rules(),
+            listener,
+        )
     }
 
     /// `sources.look`: looks through a drive or folder quickly and adds it
@@ -1222,6 +1230,7 @@ impl Keevoro {
             vec![place.to_path_buf()],
             JobKind::Look,
             self.kinds_to_look_for(),
+            self.skip_rules(),
             listener,
         )
     }
@@ -1236,6 +1245,7 @@ impl Keevoro {
             places,
             JobKind::LookAgain,
             self.kinds_to_look_for(),
+            self.skip_rules(),
             listener,
         )
     }

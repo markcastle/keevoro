@@ -271,6 +271,7 @@ fn last_word(last: Option<&Said>) -> Vec<String> {
             if e.unreadable > 0 {
                 lines.push(format!("{} couldn't be read.", count(e.unreadable, "file")));
             }
+            lines.extend(e.left_out.iter().map(|left| left.said.clone()));
             lines.extend(e.problem.clone());
             lines
         }
@@ -297,6 +298,7 @@ fn last_word(last: Option<&Said>) -> Vec<String> {
                     }
                 ));
             }
+            lines.extend(found.left_out.iter().map(|left| left.said.clone()));
             lines
         }
         Some(_) => Vec::new(),

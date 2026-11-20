@@ -58,6 +58,10 @@ pub struct ScanEvent {
     pub unreadable: usize,
     #[serde(rename = "unreadableNames", default, skip_serializing_if = "Vec::is_empty")]
     pub unreadable_names: Vec<String>,
+    /// On the last event: folders Keevoro made (a backup, an old library)
+    /// that were left out, each with what is said about it.
+    #[serde(rename = "leftOut", default, skip_serializing_if = "Vec::is_empty")]
+    pub left_out: Vec<super::own::LeftOut>,
 }
 
 fn is_zero(n: &usize) -> bool {
@@ -154,6 +158,9 @@ pub struct SurveyView {
     pub unreadable: usize,
     pub seconds: f32,
     pub stopped: bool,
+    /// Folders Keevoro made that were left out, each with what is said.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub left_out: Vec<super::own::LeftOut>,
 }
 
 /// One thing a job said. It is written out as the shape inside it, with
@@ -253,6 +260,7 @@ mod tests {
                 problem: None,
                 unreadable: 0,
                 unreadable_names: Vec::new(),
+                left_out: Vec::new(),
             }),
             Said::Survey(SurveyEvent {
                 folders: 1,
@@ -267,6 +275,7 @@ mod tests {
                 unreadable: 0,
                 seconds: 0.5,
                 stopped: false,
+                left_out: Vec::new(),
             }),
             Said::Send(SendEvent::progress("Getting ready")),
             Said::Send(SendEvent::finished(b"Done.\n", Some("x".into()), Outcome::Unreachable)),
@@ -333,6 +342,7 @@ mod tests {
             problem: None,
             unreadable: 0,
             unreadable_names: Vec::new(),
+            left_out: Vec::new(),
         };
         assert_eq!(
             serde_json::to_value(&scan).unwrap(),
@@ -375,6 +385,7 @@ mod tests {
                 problem: Some("x".into()),
                 unreadable: 1,
                 unreadable_names: vec!["b".into()],
+                left_out: Vec::new(),
             }),
             Said::Survey(survey),
             Said::Send(SendEvent::progress("x")),

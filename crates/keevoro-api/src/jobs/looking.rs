@@ -42,6 +42,7 @@ pub(super) fn start(
     places: Vec<PathBuf>,
     kind: JobKind,
     kinds: Kinds,
+    skip: keevoro_core::SkipRules,
     listener: Option<Listener>,
 ) -> Result<JobHandle> {
     let job = ctx.jobs.begin(kind, Some(backup), listener)?;
@@ -54,7 +55,7 @@ pub(super) fn start(
     spawn(ctx, &job, move |ctx, job, ending| {
         let mut last = None;
         for (n, place) in places.iter().enumerate() {
-            let said = look_through(ctx, job, &backup.home, place, &kinds);
+            let said = look_through(ctx, job, &backup.home, place, &kinds, &skip);
             // A search that was stopped stops the rest too.
             let more = n + 1 < places.len() && !said.stopped && !job.stopped();
             if !more {
@@ -83,7 +84,14 @@ fn name_of(source: &Path) -> String {
 }
 
 /// Looks through one place, saying how it goes, and gives the last event.
-fn look_through(ctx: &Context, job: &Arc<Job>, home: &Path, source: &Path, kinds: &Kinds) -> ScanEvent {
+fn look_through(
+    ctx: &Context,
+    job: &Arc<Job>,
+    home: &Path,
+    source: &Path,
+    kinds: &Kinds,
+    skip: &keevoro_core::SkipRules,
+) -> ScanEvent {
     let name = name_of(source);
     let started = Instant::now();
     let log = &ctx.log;
@@ -105,8 +113,22 @@ fn look_through(ctx: &Context, job: &Arc<Job>, home: &Path, source: &Path, kinds
         problem: None,
         unreadable: 0,
         unreadable_names: Vec::new(),
+        left_out: Vec::new(),
     };
     let mut last_progress = keevoro_scan::ScanProgress::default();
+    // What an earlier look through this place found, to say which files
+    // are no longer offered if Keevoro's own folders are left out now.
+    let root = std::fs::canonicalize(source).unwrap_or_else(|_| source.to_path_buf());
+    let found_before: Vec<PathBuf> = Catalog::open_in_library(home)
+        .and_then(|c| c.load_reports())
+        .map(|reports| {
+            reports
+                .into_iter()
+                .filter(|r| r.root == root)
+                .flat_map(|r| r.items.into_iter().map(|i| i.path))
+                .collect()
+        })
+        .unwrap_or_default();
     let result = Catalog::open_in_library(home)
         .map_err(anyhow::Error::from)
         .and_then(|mut catalog| {
@@ -119,6 +141,7 @@ fn look_through(ctx: &Context, job: &Arc<Job>, home: &Path, source: &Path, kinds
                     quick: true,
                     stop: Some(job.stop_switch()),
                     kinds: kinds.clone(),
+                    skip: skip.clone(),
                     ..Default::default()
                 },
                 &mut |p| {
@@ -170,6 +193,9 @@ fn look_through(ctx: &Context, job: &Arc<Job>, home: &Path, source: &Path, kinds
                 report.skipped.len(),
                 report.unreadable.len()
             ));
+            for left in &left_out_of(report, &found_before) {
+                log.say(&left.said);
+            }
             for unreadable in report.unreadable.iter().take(200) {
                 log.say(&format!(
                     "Could not read {}: {}",
@@ -196,6 +222,16 @@ fn look_through(ctx: &Context, job: &Arc<Job>, home: &Path, source: &Path, kinds
             |_| Vec::new(),
             |r| r.unreadable.iter().take(5).map(|u| friendly_path(&u.path)).collect(),
         ),
+        left_out: result
+            .as_ref()
+            .map_or_else(|_| Vec::new(), |r| left_out_of(r, &found_before)),
         problem: result.err().map(|e| format!("{e:#}")),
     }
+}
+
+/// The folders Keevoro made that a look through left out, said.
+fn left_out_of(report: &keevoro_scan::ScanReport, found_before: &[PathBuf]) -> Vec<super::own::LeftOut> {
+    let skipped: Vec<(PathBuf, keevoro_core::SkipReason)> =
+        report.skipped.iter().map(|s| (s.path.clone(), s.reason)).collect();
+    super::own::left_out(&skipped, found_before)
 }

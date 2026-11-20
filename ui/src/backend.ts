@@ -66,7 +66,12 @@ export type Survey = {
   unreadable: number
   seconds: number
   stopped: boolean
+  /** Folders Keevoro made that were left out, each with what is said. */
+  leftOut?: LeftOut[]
 }
+
+/** A folder Keevoro made (a backup, an old library, its own files), left out of a search or survey. */
+export type LeftOut = { folder: string; what: 'keevoroBackup' | 'keevoroOwn' | 'oldLibrary'; said: string }
 
 export type SurveyProgress = { folders: number; files: number; photos: number; videos: number }
 
@@ -162,6 +167,8 @@ export type ScanEvent = {
   /** On the last event: how many files could not be read, and the first few by name. */
   unreadable?: number
   unreadableNames?: string[]
+  /** On the last event: folders Keevoro made that were left out, each with what is said. */
+  leftOut?: LeftOut[]
 }
 
 /** Sent while files a quick search only sampled are read in the background. */

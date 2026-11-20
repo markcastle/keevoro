@@ -109,6 +109,21 @@ A kind Keevoro cannot open goes through everything else like any other file: it 
 
 The guard on what may be added is small: an ending is letters and numbers only (no spaces, dots or path characters, at most ten), compared without case or the leading dot, never twice, and never one of the endings Keevoro passes over as programs, documents, music or archives (`never_media_extension`), which would make no sense to look inside. An AI agent may read the list (`list_file_kinds`) but not change it, like Keevoro's other settings.
 
+### What a search and a survey leave out
+
+`keevoro_core::SkipRules` decides which folders are never looked in: system and app folders, recycle bins, hidden folders and developer folders, by name, and Keevoro's own folders, by what is in them. The search (`keevoro-scan/src/lib.rs`) and the survey (`survey.rs`) both use it, and every folder left out is in the report with its `SkipReason`.
+
+Keevoro's own folders are never a source, because backing a backup up into another is never what a person means:
+
+- **A backup**, wherever it was sent and whatever it is called: a folder holding the note `What is in this backup.txt` beside an `index` folder (`SkipReason::KeevoroBackup`). The whole folder is left out, originals included.
+- **A library from before 0.30**, the gathering model that was removed: `.keevoro/catalog.sqlite` beside an `originals` folder (`SkipReason::OldLibrary`). It holds copies of photos, so it is described (how big, how much is copies and how much previews) and never removed; the person decides.
+- **A backup's own folder** (`.keevoro/catalog.sqlite` alone), and Keevoro's data, config, cache and log folders (`SkipReason::KeevoroOwn`).
+- **Every folder a backup on this computer goes to**, by its full path, even before its first backup has written anything there. `Keevoro::skip_rules` (`keevoro-api/src/jobs/own.rs`) gathers these from the settings as each search or survey starts.
+
+The survey only looks closely at a folder when one of those telltale names is in its listing, so it stays quick. Each folder left out is said, in the log, at the end of a search (`ScanEvent::left_out`) and of a survey (`SurveyView::left_out`), in the app as one quiet line that opens, and at the command line. Files found there by an earlier search drop out of what is offered at the next look, and the line says how many; anything already backed up stays backed up. To back up a backup's photos somewhere else on purpose, a person chooses its `originals` folder itself as the source: only the folder chosen is judged, never its parents, so that works, and an AI agent is still held to the folders it is allowed. Keevoro's previews copied out of a backup by hand (loose `.webp` files) are not recognised; nothing marks them as Keevoro's.
+
+The walk has no depth limit and never follows a link or junction, so a loop cannot happen; a folder that cannot be opened is reported and the walk carries on.
+
 ### What a backup looks like on disk
 
 A backup has three folders: `originals` (the files themselves, never altered), `renditions` (thumb, display, poster and video versions made for looking at, each named after a fingerprint of its original) and `index` (the list a gallery reads). `crates/keevoro-engine/src/layout.rs` holds the explanation of these in plain words and writes it into every backup as "What is in this backup.txt". The app shows the same on the backup screen.

@@ -1228,3 +1228,147 @@ fn a_kind_added_that_keevoro_cannot_open_is_found_and_backed_up_exactly_with_no_
         "the source is untouched"
     );
 }
+
+/// Looks through `place` for `named`, waits, and gives the last event.
+fn look_and_wait(keevoro: &Keevoro, named: &Named, place: &Path) -> ScanEvent {
+    let job = keevoro.look(named, place, None).unwrap();
+    let Some(Said::Scan(last)) = keevoro.wait(job.id) else {
+        panic!("a search ends with what it found")
+    };
+    keevoro.wait_for_jobs();
+    last
+}
+
+/// Pictures with a library an older Keevoro left in it: its previews were
+/// found as photos before Keevoro knew to leave them out.
+fn pictures_with_an_old_library(dir: &Path) -> PathBuf {
+    let pictures = dir.join("Pictures");
+    for (rel, shade) in [
+        ("Holiday/IMG_20190601_120000.jpg", 20u8),
+        ("Keevoro Library/renditions/display/0a1b2c.jpg", 60),
+        ("Keevoro Library/renditions/display/3d4e5f.jpg", 90),
+    ] {
+        std::fs::create_dir_all(pictures.join(rel).parent().unwrap()).unwrap();
+        std::fs::write(pictures.join(rel), crate::backup::tests::large_photo(shade)).unwrap();
+    }
+    std::fs::create_dir_all(pictures.join("Keevoro Library/originals")).unwrap();
+    pictures
+}
+
+/// What makes it recognisable as the old library.
+fn mark_as_old_library(pictures: &Path) {
+    let record = pictures.join("Keevoro Library").join(".keevoro");
+    std::fs::create_dir_all(&record).unwrap();
+    std::fs::write(record.join("catalog.sqlite"), b"an old record").unwrap();
+}
+
+#[test]
+fn files_from_a_folder_keevoro_made_are_no_longer_offered_after_a_look_again_and_it_says_so() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro(dir.path());
+    let named = keevoro.start_backup("Pictures").unwrap();
+    let pictures = pictures_with_an_old_library(dir.path());
+    // Found as photos, as by a version before this one.
+    assert_eq!(look_and_wait(&keevoro, &named, &pictures).photos, 3);
+
+    mark_as_old_library(&pictures);
+    let again = look_and_wait(&keevoro, &named, &pictures);
+    assert_eq!(again.photos, 1, "only the person's own photo");
+    assert_eq!(again.left_out.len(), 1);
+    let left = &again.left_out[0];
+    assert_eq!(left.what, "oldLibrary");
+    assert!(left.folder.ends_with("Keevoro Library"), "{left:?}");
+    assert!(
+        left.said
+            .contains("a folder an older version of Keevoro made, which it no longer uses"),
+        "{left:?}"
+    );
+    assert!(
+        left.said
+            .contains("of copies of your photos it gathered there (0 files)"),
+        "{left:?}"
+    );
+    assert!(
+        left.said
+            .contains("has not checked that every copy is also in one of your backups"),
+        "{left:?}"
+    );
+    assert!(
+        left.said
+            .contains("The 2 files found there before are no longer offered"),
+        "{left:?}"
+    );
+    assert!(keevoro
+        .log_tail(20)
+        .contains("a folder an older version of Keevoro made"));
+    let backup = Backup::open(&named.home).unwrap();
+    assert_eq!(backup.found().unwrap().photos, 1);
+    assert!(
+        pictures.join("Keevoro Library/renditions/display/0a1b2c.jpg").is_file(),
+        "never removed"
+    );
+}
+
+#[test]
+fn files_already_backed_up_from_a_folder_keevoro_made_stay_backed_up_when_no_longer_offered() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro(dir.path());
+    let named = keevoro.start_backup("Pictures").unwrap();
+    let pictures = pictures_with_an_old_library(dir.path());
+    look_and_wait(&keevoro, &named, &pictures);
+    let usb = dir.path().join("USB");
+    keevoro
+        .add_destination(&Backup::open(&named.home).unwrap(), &folder(&usb))
+        .unwrap();
+    let job = keevoro.run_backup(&named, None).unwrap();
+    keevoro.wait(job.id);
+    keevoro.wait_for_jobs();
+    let sent_before = files_under(&usb.join("originals")).len();
+    assert_eq!(sent_before, 3);
+
+    mark_as_old_library(&pictures);
+    let again = look_and_wait(&keevoro, &named, &pictures);
+    assert_eq!(again.photos, 1);
+    assert!(again.left_out[0]
+        .said
+        .contains("anything already backed up stays backed up"));
+    assert_eq!(
+        files_under(&usb.join("originals")).len(),
+        sent_before,
+        "nothing leaves the backup"
+    );
+    // And a backup now sends nothing more and removes nothing.
+    let job = keevoro.run_backup(&named, None).unwrap();
+    keevoro.wait(job.id);
+    keevoro.wait_for_jobs();
+    assert_eq!(files_under(&usb.join("originals")).len(), sent_before);
+}
+
+#[test]
+fn a_backup_folder_inside_a_source_is_left_out_by_where_it_is_even_before_its_first_backup() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro(dir.path());
+    let named = keevoro.start_backup("Pictures").unwrap();
+    let pictures = pictures_with_an_old_library(dir.path());
+    std::fs::remove_dir_all(pictures.join("Keevoro Library")).unwrap();
+    let inside = pictures.join("Backup for Mum");
+    std::fs::create_dir_all(&inside).unwrap();
+    std::fs::write(inside.join("IMG_1.jpg"), crate::backup::tests::large_photo(5)).unwrap();
+    keevoro
+        .add_destination(&Backup::open(&named.home).unwrap(), &folder(&inside))
+        .unwrap();
+    let found = look_and_wait(&keevoro, &named, &pictures);
+    assert_eq!(found.photos, 1);
+    assert_eq!(found.left_out[0].what, "keevoroBackup");
+    assert!(found.left_out[0].said.contains("it is a backup already, not a source"));
+    // The survey says the same.
+    let survey = keevoro.survey(&pictures, None, None).unwrap();
+    let Some(Said::Surveyed(view)) = keevoro.wait(survey.id) else {
+        panic!()
+    };
+    assert_eq!(view.left_out.len(), 1);
+    assert!(view.left_out[0].folder.ends_with("Backup for Mum"));
+}

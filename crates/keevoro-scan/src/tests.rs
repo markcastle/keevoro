@@ -165,6 +165,62 @@ fn a_kind_switched_off_is_passed_over_without_being_opened() {
 }
 
 #[test]
+fn what_keevoro_made_is_never_searched_and_the_report_says_why() {
+    let t = Tree::new();
+    t.add("Holiday/IMG_1.jpg", &plain_jpeg(1));
+    t.add("Keevoro Library/.keevoro/catalog.sqlite", b"x");
+    t.add("Keevoro Library/originals/Holiday/IMG_1.jpg", &plain_jpeg(1));
+    t.add("Keevoro Library/renditions/display/abc.webp", &plain_jpeg(2));
+    t.add("Backup/What is in this backup.txt", b"x");
+    t.add("Backup/index/gallery.json", b"{}");
+    t.add("Backup/originals/Holiday/IMG_1.jpg", &plain_jpeg(1));
+    t.add("Destination/IMG_9.jpg", &plain_jpeg(3));
+    // A backup's originals folder chosen as the source itself: the
+    // person meant it, so it is looked through.
+    let root = std::fs::canonicalize(t.root()).unwrap();
+    let opts = ScanOptions {
+        skip: SkipRules::default().with_own_places(vec![(root.join("Destination"), SkipReason::KeevoroBackup)]),
+        ..ScanOptions::default()
+    };
+    let r = scan(&root, &opts, &mut |_| {});
+    let names: Vec<_> = r
+        .items
+        .iter()
+        .map(|i| i.path.strip_prefix(&root).unwrap().to_path_buf())
+        .collect();
+    assert_eq!(names, [PathBuf::from("Holiday").join("IMG_1.jpg")]);
+    let left: Vec<_> = r
+        .skipped
+        .iter()
+        .filter(|s| s.reason.keevoro_made())
+        .map(|s| (s.path.clone(), s.reason))
+        .collect();
+    assert_eq!(
+        left,
+        [
+            (root.join("Backup"), SkipReason::KeevoroBackup),
+            (root.join("Destination"), SkipReason::KeevoroBackup),
+            (root.join("Keevoro Library"), SkipReason::OldLibrary),
+        ]
+    );
+    let originals = scan(
+        &root.join("Backup").join("originals"),
+        &ScanOptions::default(),
+        &mut |_| {},
+    );
+    assert_eq!(
+        originals.items.len(),
+        1,
+        "a backup's originals, chosen on purpose, are looked through"
+    );
+    let whole = scan(&root.join("Backup"), &ScanOptions::default(), &mut |_| {});
+    assert!(
+        whole.items.is_empty() && whole.skipped[0].reason == SkipReason::KeevoroBackup,
+        "even chosen whole"
+    );
+}
+
+#[test]
 fn camera_date_beats_file_name_and_modified_time() {
     let t = Tree::new();
     t.add("IMG_20200101_000000.jpg", &jpeg_with_exif("2009:07:14 21:03:11"));

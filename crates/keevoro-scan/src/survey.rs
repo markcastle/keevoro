@@ -70,6 +70,9 @@ pub struct Survey {
     pub unreadable: usize,
     /// True when it was stopped before it had seen everything.
     pub stopped: bool,
+    /// Folders Keevoro made (a backup, an old library, its own data), left
+    /// out and why, in order.
+    pub left_out: Vec<(PathBuf, keevoro_core::SkipReason)>,
 }
 
 /// How far a survey has got.
@@ -214,6 +217,8 @@ struct Walk<'a> {
     /// Folders queued or being listed. The walk is over when it reaches zero.
     in_hand: AtomicUsize,
     tallies: Mutex<Vec<Tally>>,
+    /// Folders Keevoro made, left out, and why.
+    left_out: Mutex<Vec<(PathBuf, keevoro_core::SkipReason)>>,
     folders: AtomicUsize,
     files: AtomicUsize,
     photos: AtomicUsize,
@@ -233,12 +238,30 @@ impl Walk<'_> {
             self.unreadable.fetch_add(1, Ordering::Relaxed);
             return;
         };
+        let entries: Vec<std::fs::DirEntry> = entries.flatten().collect();
+        // What Keevoro made is never a source. Looked at closely only when
+        // one of the names it leaves is there, so a survey stays quick.
+        let telltale = entries
+            .iter()
+            .any(|e| e.file_name() == ".keevoro" || e.file_name() == keevoro_core::BACKUP_GUIDE);
+        let made = self.rules.own_place(&folder).or_else(|| {
+            telltale
+                .then(|| keevoro_core::folder_made_by_keevoro(&folder))
+                .flatten()
+        });
+        if let Some(reason) = made {
+            self.folders.fetch_add(1, Ordering::Relaxed);
+            if let Ok(mut left_out) = self.left_out.lock() {
+                left_out.push((folder, reason));
+            }
+            return;
+        }
         let mut tally = Tally {
             folder,
             ..Tally::default()
         };
         let mut inside = Vec::new();
-        for entry in entries.flatten() {
+        for entry in entries {
             let Ok(kind) = entry.file_type() else { continue };
             let name = entry.file_name();
             let name = name.to_string_lossy();
@@ -344,6 +367,7 @@ pub fn survey(
         more: Condvar::new(),
         in_hand: AtomicUsize::new(1),
         tallies: Mutex::new(Vec::new()),
+        left_out: Mutex::new(Vec::new()),
         folders: AtomicUsize::new(0),
         files: AtomicUsize::new(0),
         photos: AtomicUsize::new(0),
@@ -364,12 +388,15 @@ pub fn survey(
     on_progress(&last);
     let (stopped, unreadable) = (walk.stopped(), walk.unreadable.load(Ordering::Relaxed));
     let tallies = walk.tallies.into_inner().unwrap_or_default();
+    let mut left_out = walk.left_out.into_inner().unwrap_or_default();
+    left_out.sort_by(|a, b| a.0.cmp(&b.0));
     Survey {
         hints: suggest(root, &tallies),
         folders_seen: last.folders_seen,
         files_seen: last.files_seen,
         unreadable,
         stopped,
+        left_out,
     }
 }
 
@@ -555,6 +582,53 @@ mod tests {
         assert_eq!(found.hints.len(), 1, "{:?}", found.hints);
         assert_eq!(found.hints[0].folder, root.join("Panoramas"));
         assert_eq!((found.hints[0].photos, found.hints[0].videos), (20, 0));
+    }
+
+    #[test]
+    fn what_keevoro_made_is_left_out_of_a_survey_and_said() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let put = |rel: &str| {
+            let file = root.join(rel);
+            fs::create_dir_all(file.parent().unwrap()).unwrap();
+            fs::write(file, [0u8; 100]).unwrap();
+        };
+        for n in 0..30 {
+            put(&format!("Pictures/Holiday/IMG_{n}.jpg"));
+            // An old library's gathered copies and its previews.
+            put(&format!("Pictures/Keevoro Library/originals/Holiday/IMG_{n}.jpg"));
+            put(&format!("Pictures/Keevoro Library/renditions/display/{n}.webp"));
+            // A backup sent to a folder with an ordinary name.
+            put(&format!("Pictures/Copy for Mum/originals/Holiday/IMG_{n}.jpg"));
+            // A folder that is a backup's destination, not yet written to.
+            put(&format!("Pictures/USB/IMG_{n}.jpg"));
+        }
+        for n in 0..10 {
+            put(&format!("Work/{n}.docx"));
+        }
+        put("Pictures/Keevoro Library/.keevoro/catalog.sqlite");
+        put("Pictures/Copy for Mum/What is in this backup.txt");
+        put("Pictures/Copy for Mum/index/gallery.json");
+        let rules = SkipRules::default().with_own_places(vec![(
+            std::fs::canonicalize(root.join("Pictures/USB")).unwrap(),
+            keevoro_core::SkipReason::KeevoroBackup,
+        )]);
+        let root = std::fs::canonicalize(root).unwrap();
+        let found = survey(&root, &rules, &Kinds::default(), None, &mut |_| {});
+        let offered: Vec<_> = found.hints.iter().map(|h| h.folder.clone()).collect();
+        // Pictures is offered whole, counting only the person's own photos;
+        // a search of it leaves Keevoro's folders out in the same way.
+        assert_eq!(offered, [root.join("Pictures")]);
+        assert_eq!((found.hints[0].photos, found.files_seen), (30, 40));
+        use keevoro_core::SkipReason::{KeevoroBackup, OldLibrary};
+        assert_eq!(
+            found.left_out,
+            [
+                (root.join("Pictures").join("Copy for Mum"), KeevoroBackup),
+                (root.join("Pictures").join("Keevoro Library"), OldLibrary),
+                (root.join("Pictures").join("USB"), KeevoroBackup),
+            ]
+        );
     }
 
     #[test]

@@ -821,6 +821,9 @@ pub fn last_word(io: &mut Io<'_>, last: Option<&Said>) -> std::io::Result<()> {
                     e.unreadable_names.join(", ")
                 )?;
             }
+            for left in &e.left_out {
+                writeln!(io.out, "{}", left.said)?;
+            }
             if let Some(problem) = &e.problem {
                 writeln!(io.err, "{problem}")?;
             }
@@ -856,6 +859,9 @@ pub fn last_word(io: &mut Io<'_>, last: Option<&Said>) -> std::io::Result<()> {
                     "{} could not be listed, usually for want of permission.",
                     count(found.unreadable, "folder")
                 )?;
+            }
+            for left in &found.left_out {
+                writeln!(io.out, "{}", left.said)?;
             }
             if found.stopped {
                 writeln!(io.out, "Stopped early, so there may be more.")?;

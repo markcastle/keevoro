@@ -374,6 +374,16 @@ try {
   )
   assert.match(await page.locator('.survey .hints li').last().innerText(), /Small pictures, probably not photos/)
   await shot('9q-survey')
+  // A library an older Keevoro left is never offered, and is said quietly, on one line that opens.
+  const leftOut = page.locator('.survey .left-out')
+  assert.equal(await leftOut.locator('summary').innerText(), 'Left out a folder Keevoro made, as it is not a source')
+  assert.equal(await leftOut.getByRole('button', { name: 'Show me the folder' }).isVisible(), false, 'folded away')
+  await leftOut.locator('summary').click()
+  assert.match(await leftOut.innerText(), /a folder an older version of Keevoro made, which it no longer uses\. It takes 9\.2 GB: 8\.4 GB of copies of your photos/)
+  assert.match(await leftOut.innerText(), /never removes it/)
+  await leftOut.getByRole('button', { name: 'Show me the folder' }).click()
+  await leftOut.scrollIntoViewIfNeeded()
+  await shot('9x-survey-old-library')
   // Unticking one leaves two, and the button says so.
   await ticks.nth(2).uncheck()
   await page.getByRole('button', { name: 'Look through these 2 folders' }).click()
