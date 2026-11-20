@@ -13,5 +13,8 @@
     "noEmit": true,
     "types": ["vite/client"]
   },
-  "include": ["ui/src"]
+  "include": ["ui/src"],
+  // Tests of pure modules, run by Node on its own (npm run ui:unit), which
+  // needs no types of its own to be installed.
+  "exclude": ["ui/src/**/*.test.ts"]
 }
