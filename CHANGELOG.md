@@ -6,7 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **Pause, Carry on and Stop now always reach a backup another Keevoro program is running, on Windows too.** Pausing from the command line while the app was backing up, say, could on rare occasions go unheard, because Windows sometimes holds a just-written file for a moment (while a virus checker looks at it) and Keevoro gave up on it instead of trying again.
 
 ## [0.32.0] - 2026-11-20
 

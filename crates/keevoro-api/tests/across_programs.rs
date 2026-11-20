@@ -246,7 +246,11 @@ fn pause_and_carry_on_reach_another_program() {
     let job = other.job("looking");
     app.pause();
     // The other program noticed, which only its own switch could tell it.
-    other.expect("paused");
+    // It says so either way, so that a request that never arrived is
+    // told apart from a status that never said so.
+    assert_eq!(other.expect("pause"), "heard", "the request to pause reached it");
+    let log = app.log_tail(40);
+    assert!(!log.contains("Couldn't pass a request"), "{log}");
     eventually("it is seen paused", || {
         app.jobs(Some(&named.id))
             .into_iter()
@@ -297,7 +301,11 @@ fn helper() {
                 while !keevoro_core::pause::is_paused() && Instant::now() < deadline {
                     std::thread::sleep(Duration::from_millis(10));
                 }
-                say("paused");
+                say(if keevoro_core::pause::is_paused() {
+                    "pause heard"
+                } else {
+                    "pause never heard"
+                });
             });
             keevoro.look(&named, &card, Some(listener)).unwrap()
         }

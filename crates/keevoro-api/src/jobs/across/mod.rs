@@ -636,12 +636,17 @@ fn keep(place: &Place, token: &str, keeper: &Keeper, clock: &dyn Clock, work: &W
         let Some(work) = work.upgrade() else { return };
         for request in requests::take(&place.requests(), token) {
             work.asked(&request);
+            // Whoever asked is watching for it to be done: a pause, say.
+            keeper.dirty.store(true, Ordering::SeqCst);
         }
         let due = written.is_none_or(|at| at.elapsed() >= lock::BEAT);
         if keeper.dirty.swap(false, Ordering::SeqCst) || due {
             let status = work.status(&place.backup, token, clock.now_ms());
             if files::write_whole(&place.status_path(), &status.to_bytes()).is_ok() {
                 written = Some(Instant::now());
+            } else {
+                // Not written, so still worth writing at the next tick.
+                keeper.dirty.store(true, Ordering::SeqCst);
             }
         }
         if checked.elapsed() >= lock::BEAT {

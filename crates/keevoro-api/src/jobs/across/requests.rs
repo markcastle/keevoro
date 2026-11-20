@@ -58,8 +58,15 @@ pub(crate) fn leave(folder: &Path, request: &Request) -> io::Result<()> {
 
 /// Takes every request in `folder`, oldest first, and answers those for
 /// `token`. Every file read is removed, including those for others and
-/// those that cannot be read, so the folder never fills up.
+/// those that cannot be understood, so the folder never fills up. One that
+/// cannot be read at all is left where it is for the next look: removing
+/// it unread would lose what was asked.
 pub(crate) fn take(folder: &Path, token: &str) -> Vec<Request> {
+    take_with(folder, token, &files::read)
+}
+
+/// [`take`], reading each file with `read`: for tests, one that fails.
+fn take_with(folder: &Path, token: &str, read: &dyn Fn(&Path) -> io::Result<Option<Vec<u8>>>) -> Vec<Request> {
     let Ok(entries) = std::fs::read_dir(folder) else {
         return Vec::new();
     };
@@ -73,12 +80,10 @@ pub(crate) fn take(folder: &Path, token: &str) -> Vec<Request> {
         .into_iter()
         .filter_map(|name| {
             let path = folder.join(&name);
-            let request = files::read(&path)
-                .ok()
-                .flatten()
-                .and_then(|bytes| serde_json::from_slice::<Request>(&bytes).ok());
+            // Not there any more, or not readable yet: nothing to answer now.
+            let bytes = read(&path).ok().flatten()?;
             let _ = files::remove(&path);
-            request.filter(|r| r.to == token)
+            serde_json::from_slice::<Request>(&bytes).ok().filter(|r| r.to == token)
         })
         .collect()
 }
@@ -95,6 +100,23 @@ mod tests {
             by: FrontEnd::Agent,
             at,
         }
+    }
+
+    #[test]
+    fn a_request_that_cannot_be_read_for_a_moment_is_answered_at_the_next_look_not_lost() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("requests");
+        leave(&folder, &ask("mine", Ask::Pause, 1_000)).unwrap();
+        // As Windows can refuse a file another program has open.
+        let refused = |_: &Path| Err(io::Error::other("in use by another process"));
+        assert!(take_with(&folder, "mine", &refused).is_empty());
+        let taken = take(&folder, "mine");
+        assert_eq!(
+            taken.iter().map(|r| r.ask).collect::<Vec<_>>(),
+            [Ask::Pause],
+            "still there to be answered"
+        );
+        assert!(take(&folder, "mine").is_empty(), "and answered once");
     }
 
     #[test]
