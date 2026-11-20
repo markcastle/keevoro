@@ -17,8 +17,15 @@ windows = { version = "0.62", features = [
     "Win32_Media_MediaFoundation",
     "Win32_System_Com",
     "Win32_System_Com_StructuredStorage",
+    "Win32_System_Power",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
     "Win32_System_Variant",
+    "Win32_UI_Input_KeyboardAndMouse",
 ] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
@@ -30,7 +37,12 @@ objc2-core-foundation = { version = "0.3", features = ["CFCGTypes"] }
 
 # Talking to the operating system's decoder means calling into it, which
 # Rust cannot check. This is the one crate allowed to do that; every such
-# call is kept in `windows.rs` and `macos.rs` and explained there.
+# call is kept in `windows.rs`, `photo_windows.rs`, `macos.rs` and
+# `quiet.rs` (what the computer says about itself, for being a good guest)
+# and explained there.
+[dev-dependencies]
+tempfile.workspace = true
+
 [lints.rust]
 unsafe_code = "allow"
 
