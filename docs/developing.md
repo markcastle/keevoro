@@ -119,11 +119,13 @@ The owner pointed Keevoro at a 46 GB Pictures folder that also held zip files, t
 
 | What | Kept | Past the bound |
 | --- | --- | --- |
-| Folders | 500,000, one node each | The next folders are counted into the folder above, which says "and N more folders" |
-| Files by name | At least 1 MiB, the biggest 64 per folder and 200,000 in all | The smallest is let go; its size stays in its folder's sums |
-| Endings | 2,000 different ones, and 2,000,000 (folder, ending) pairs | Rarer endings are "other endings"; past the pairs, folders keep no endings of their own, and the totals for the whole place still have them |
+| Folders | 100,000, one node each | The next folders are counted into the folder above, which says "and N more folders" |
+| Files by name | At least 1 MiB, the biggest 64 per folder and 50,000 in all | The smallest is let go; its size stays in its folder's sums |
+| Endings | 2,000 different ones, and 500,000 (folder, ending) pairs | Rarer endings are "other endings"; past the pairs, folders keep no endings of their own, and the totals for the whole place still have them |
 
 A map of a million files in a hundred thousand folders holds about 25 MB (`a_map_of_a_million_files_stays_within_its_bounds` counts it). The walk holds it while it runs; once it is saved it is freed, and read back only when someone looks.
+
+The folder bound was 500,000 at first. Measured with `how_much_a_map_at_the_folder_bound_holds` (run by hand on Linux, as it reads what the process holds), a map at that bound took 111 MB, allocator and all: about 220 bytes a folder, not the 80 the plan guessed (a node is 120 bytes, and its name and endings are allocations of their own). Being a good guest on someone's computer matters more than mapping half a million folders one by one, so the bounds are lower: at 100,000 folders, each with five endings and a file kept by name, a map takes 38 MB. Totals stay exact past every bound, and the bound bites late: a person's own folders are listed first, and the folders Keevoro never looks through (where most of a system disk's folders are) last, so on a whole disk it is the depths of system and app folders that are counted into the folder above.
 
 **How it is remembered.** `keevoro_engine::surveys` writes the whole map into Keevoro's cache, as compact lines of JSON (format version 2). A survey remembered in the older, media-only form is simply surveyed again, and a file that does not hold together (an index pointing outside it) is ignored, so nothing read back can point anywhere it should not. The last map read is kept in memory, so going in and out of folders does not read it again.
 

@@ -132,12 +132,12 @@ pub struct Limits {
 impl Default for Limits {
     fn default() -> Self {
         Limits {
-            folders: 500_000,
-            named_files: 200_000,
+            folders: 100_000,
+            named_files: 50_000,
             named_per_folder: 64,
             named_at_least: 1024 * 1024,
             endings: 2_000,
-            ending_pairs: 2_000_000,
+            ending_pairs: 500_000,
         }
     }
 }
@@ -1575,18 +1575,30 @@ mod tests {
         while folders < 100_000 {
             let mut deeper = Vec::new();
             for parent in next {
-                if let Some(first) = b.subfolders(CountedIn::Own(parent), &found) {
-                    for c in 0..10 {
-                        let mut files = Listing::default();
-                        for n in 0..10u64 {
-                            let name = format!("IMG_{n}.{}", ["jpg", "mp4", "zip"][(n % 3) as usize]);
-                            files.file(&seen(&name, 2_000_000 + n), &limits);
-                        }
-                        b.record(CountedIn::Own(first + c), files);
-                        deeper.push(first + c);
+                // Past the folder bound, counted into the folder above, as
+                // the walk does.
+                let first = b.subfolders(CountedIn::Own(parent), &found);
+                for c in 0..10 {
+                    let mut files = Listing::default();
+                    for n in 0..10u64 {
+                        let name = format!("IMG_{n}.{}", ["jpg", "mp4", "zip"][(n % 3) as usize]);
+                        files.file(&seen(&name, 2_000_000 + n), &limits);
                     }
-                    folders += 10;
+                    match first {
+                        Some(first) => {
+                            b.record(CountedIn::Own(first + c), files);
+                            deeper.push(first + c);
+                        }
+                        None => b.record(
+                            CountedIn::Above {
+                                node: parent,
+                                passed_by: false,
+                            },
+                            files,
+                        ),
+                    }
                 }
+                folders += 10;
                 if folders >= 100_000 {
                     break;
                 }
@@ -1602,6 +1614,59 @@ mod tests {
             map.nodes.len(),
             bytes as f64 / 1024.0 / 1024.0
         );
+    }
+
+    /// What a map at the folder bound really takes, allocator and all, from
+    /// what the process holds before and after building one. Linux only, as
+    /// it reads `/proc`; run by hand:
+    /// `cargo test -p keevoro-scan how_much -- --ignored --nocapture`.
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[ignore = "a measurement, run by hand"]
+    fn how_much_a_map_at_the_folder_bound_holds() {
+        fn resident() -> usize {
+            let statm = std::fs::read_to_string("/proc/self/statm").unwrap();
+            let pages: usize = statm.split_whitespace().nth(1).unwrap().parse().unwrap();
+            pages * 4096
+        }
+        let limits = Limits::default();
+        let before = resident();
+        let mut b = Builder::new(Path::new("/d"), limits);
+        b.record(CountedIn::Own(0), Listing::default());
+        // Folders ten wide, with names of a usual length, each holding a few
+        // files of two or three endings, until the bound stops it.
+        let names: Vec<String> = (0..10).map(|n| format!("Holiday folder {n}")).collect();
+        let found: Vec<(&str, Option<SkipReason>)> = names.iter().map(|n| (n.as_str(), None)).collect();
+        let mut next = vec![0u32];
+        while !next.is_empty() {
+            let mut deeper = Vec::new();
+            for parent in next {
+                let Some(first) = b.subfolders(CountedIn::Own(parent), &found) else {
+                    continue;
+                };
+                for c in 0..10 {
+                    let mut files = Listing::default();
+                    // Five endings, and one file big enough to be named.
+                    for n in 0..6u64 {
+                        let name = format!("IMG_{n}.{}", ["jpg", "mp4", "txt", "png", "zip", "jpg"][n as usize]);
+                        files.file(&seen(&name, if n == 1 { 2_000_000 } else { 300_000 + n }), &limits);
+                    }
+                    b.record(CountedIn::Own(first + c), files);
+                    deeper.push(first + c);
+                }
+            }
+            next = deeper;
+        }
+        let map = b.finish();
+        let after = resident();
+        eprintln!(
+            "{} folders: {:.1} MB held by the process, {:.1} MB counted by the map, {} bytes a folder node",
+            map.nodes.len(),
+            (after.saturating_sub(before)) as f64 / 1024.0 / 1024.0,
+            held(&map) as f64 / 1024.0 / 1024.0,
+            std::mem::size_of::<FolderNode>()
+        );
+        assert_eq!(map.nodes.len(), limits.folders.min(map.nodes.len()));
     }
 
     /// Roughly what a map holds in memory: its parts and what they point to.
