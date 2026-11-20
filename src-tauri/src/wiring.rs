@@ -262,6 +262,43 @@ fn unfinished_copies_are_said_then_cleared_by_the_names_and_shapes_the_screens_u
 }
 
 #[test]
+fn a_folder_is_looked_inside_by_the_names_and_shapes_the_screens_use_and_nothing_is_added() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, window, _heard) = the_app(dir.path());
+    let card = dir.path().join("Card");
+    std::fs::create_dir_all(card.join("DCIM")).unwrap();
+    std::fs::write(card.join("DCIM").join("IMG_1.jpg"), photo()).unwrap();
+    let before = snapshot(&card);
+    let place = card.display().to_string();
+    invoke(&window, "start_backup", json!({ "name": "Card photos" })).unwrap();
+    let refused = invoke(&window, "folders_inside", json!({ "place": place })).unwrap_err();
+    assert!(
+        refused.as_str().unwrap().contains("Find where the photos are"),
+        "{refused}"
+    );
+    invoke(&window, "survey_place", json!({ "path": place })).unwrap();
+    let outline = invoke(&window, "folders_inside", json!({ "place": place })).unwrap();
+    fits(&outline, "FoldersView");
+    fits(&outline["folders"][0], "FolderView");
+    let folder = outline["folders"][0]["folder"].as_str().unwrap().to_string();
+    let page = invoke(
+        &window,
+        "folder_files",
+        json!({ "place": folder, "from": 0, "count": 100 }),
+    )
+    .unwrap();
+    fits(&page, "FilesView");
+    fits(&page["files"][0], "FileView");
+    let path = page["files"][0]["path"].as_str().unwrap().to_string();
+    for large in [false, true] {
+        invoke(&window, "file_picture", json!({ "path": path, "large": large })).unwrap();
+    }
+    assert_eq!(snapshot(&card), before, "the folder is exactly as it was");
+    let discover = invoke(&window, "discover", json!({})).unwrap();
+    assert_eq!(discover["sources"].as_array().unwrap().len(), 0, "nothing was added");
+}
+
+#[test]
 fn the_screens_commands_start_the_apis_jobs_and_their_events_reach_the_window() {
     let dir = tempfile::tempdir().unwrap();
     let card = dir.path().join("Card");

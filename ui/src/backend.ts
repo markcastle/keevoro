@@ -10,6 +10,7 @@
 // (discover.rs) and src-tauri/src/commands.rs. If one changes, change both.
 
 import { demoBackend } from './demo'
+import { PictureQueue, fileKey, photoKey } from './pictureQueue'
 
 export type Photo = {
   id: string
@@ -440,6 +441,54 @@ export type Tidied = {
   said: string[]
 }
 
+/** One folder inside a surveyed place that holds photos or videos itself. */
+export type FolderView = {
+  folder: string
+  /** Where it is inside the place, such as "2019 › Cornwall"; empty for the place itself. */
+  relative: string
+  photos: number
+  videos: number
+  bytes: number
+  /** Of them, how many are only in online storage (OneDrive), never opened. */
+  onlineOnly: number
+}
+
+/** The folders inside a place that hold photos or videos, from the survey Keevoro remembers. */
+export type FoldersView = {
+  place: string
+  /** When that survey was made, in seconds since 1970. */
+  surveyedAt: number
+  /** False when the survey was stopped part-way, so there may be more. */
+  complete: boolean
+  folders: FolderView[]
+  photos: number
+  videos: number
+  bytes: number
+  onlineOnly: number
+}
+
+/** One photo or video in a folder being looked inside. */
+export type FileView = {
+  path: string
+  name: string
+  isVideo: boolean
+  bytes: number
+  /** When it was last changed (not taken), in seconds since 1970. */
+  modified: number
+  /** Only in online storage: no picture is made, as that would download it. */
+  onlineOnly?: boolean
+}
+
+/** One page of the photos and videos in a folder. */
+export type FilesView = {
+  folder: string
+  total: number
+  photos: number
+  videos: number
+  onlineOnly: number
+  files: FileView[]
+}
+
 /** A newer version of Keevoro that is ready to install. */
 export type Update = { version: string; page: string }
 
@@ -553,6 +602,20 @@ export interface Backend {
   keepPhoto(id: string, keep: boolean): Promise<void>
   /** An address for a small picture of this file, usable in an <img>. */
   preview(id: string): Promise<string>
+  /**
+   * Stops waiting for a small picture asked for with `preview` or
+   * `filePicture` that has not been fetched yet, by its key (`photoKey`,
+   * `fileKey`): its tile has left the screen.
+   */
+  notNeeded(key: string): void
+  /** The folders inside a surveyed place that hold photos or videos. Nothing is added. */
+  foldersInside(place: string): Promise<FoldersView>
+  /** A page of the photos and videos directly in one folder, by name. Nothing is added. */
+  folderFiles(place: string, from: number, count: number): Promise<FilesView>
+  /** An address for a small picture of any photo or video, by its path. Only Keevoro's cache is written. */
+  filePicture(path: string): Promise<string>
+  /** A screen-sized picture of any photo or video, by its path. Fetched afresh each time. */
+  closerLookAtFile(path: string): Promise<string>
   /** A screen-sized picture of one file, for looking at it closely. Fetched afresh each time. */
   closerLook(id: string): Promise<string>
   /** Where this backup goes, in words, or null if nowhere yet. */
@@ -592,7 +655,10 @@ async function tauriBackend(): Promise<Backend> {
     const picked = await open({ directory: true, multiple: false, title })
     return typeof picked === 'string' ? picked : null
   }
-  const previews = new Map<string, Promise<string>>()
+  // Every small picture goes through one queue: a few at a time, dropped
+  // when its tile leaves the screen, and let go of when long unused.
+  const pictures = new PictureQueue()
+  const webp = (bytes: ArrayBuffer) => URL.createObjectURL(new Blob([bytes], { type: 'image/webp' }))
 
   return {
     state: () => invoke('app_state'),
@@ -653,22 +719,15 @@ async function tauriBackend(): Promise<Backend> {
     fileTypes: (id) => invoke('file_types', { id }),
     includeFileType: (id, ending, included) => invoke('include_file_type', { id, ending, included }),
     keepPhoto: (id, keep) => invoke('keep_photo', { id, keep }),
-    preview(id) {
-      // Each picture is fetched once and reused; the bytes come back raw.
-      let url = previews.get(id)
-      if (!url) {
-        url = invoke<ArrayBuffer>('preview', { id }).then((bytes) =>
-          URL.createObjectURL(new Blob([bytes], { type: 'image/webp' })),
-        )
-        url.catch(() => previews.delete(id))
-        previews.set(id, url)
-      }
-      return url
-    },
-    closerLook: (id) =>
-      invoke<ArrayBuffer>('closer_look', { id }).then((bytes) =>
-        URL.createObjectURL(new Blob([bytes], { type: 'image/webp' })),
-      ),
+    preview: (id) =>
+      pictures.want(photoKey(id), () => invoke<ArrayBuffer>('preview', { id }).then(webp)),
+    notNeeded: (key) => pictures.drop(key),
+    closerLook: (id) => invoke<ArrayBuffer>('closer_look', { id }).then(webp),
+    foldersInside: (place) => invoke('folders_inside', { place }),
+    folderFiles: (place, from, count) => invoke('folder_files', { place, from, count }),
+    filePicture: (path) =>
+      pictures.want(fileKey(path), () => invoke<ArrayBuffer>('file_picture', { path, large: false }).then(webp)),
+    closerLookAtFile: (path) => invoke<ArrayBuffer>('file_picture', { path, large: true }).then(webp),
     destination: () => invoke('destination'),
     chooseDestinationFolder: () => pickFolder('Choose a folder to back up to'),
     connectDestination: (request) => invoke('connect_destination', { request }),

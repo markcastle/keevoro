@@ -378,14 +378,14 @@ Finding photos is hard when you do not know what a folder holds. "Find where the
 
 A look inside a folder
 
-- [ ] Each folder the survey suggests opens to a grid of thumbnails: photos, and a still from each video with its length
+- [x] Each folder the survey suggests opens to a grid of thumbnails: photos, and a still from each video (its length comes in the next step)
 - [ ] The same look for any folder you pick yourself, and for a source already added
-- [ ] Thumbnails are made as you look and kept in Keevoro's own cache, never beside the originals; the source is only read
-- [ ] Only what is on screen is fetched, so a folder of ten thousand opens at once
+- [x] Thumbnails are made as you look and kept in Keevoro's own cache, never beside the originals; the source is only read
+- [x] Only what is on screen is fetched, so a folder of ten thousand opens at once
 - [ ] Sort by date or name, and show photos only or videos only
-- [ ] Open one in the closer look, and play a video there
+- [ ] Open one in the closer look (done), and play a video there (decided against for now: a still and its length instead)
 - [ ] From the grid: look through this folder, or leave it out
-- [ ] Say plainly when a picture cannot be opened, with a placeholder, and carry on
+- [x] Say plainly when a picture cannot be opened, with a placeholder, and carry on
 
 A map of where the space goes
 
@@ -402,7 +402,7 @@ A map of where the space goes
 Decided
 
 - [ ] Whether the map shows everything on the drive or only folders that hold photos and videos (the first is more useful for finding things; the second is closer to what Keevoro is for)
-- [ ] Whether these views are also offered from the command line and to AI agents (the figures yes, as lists; the pictures only through `picture`, as now)
+- [x] Whether these views are also offered from the command line and to AI agents (the figures yes, as lists; the pictures only through `picture`, as now): yes, `keevoro folders`, `keevoro files`, `keevoro picture --file`, and the agent tools folders_inside and files_in_folder
 
 ### Scheduled and repeat backups
 

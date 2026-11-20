@@ -3456,3 +3456,56 @@ fieldset.wants [role='status'] {
     padding: var(--space-5) 16px 0;
   }
 }
+
+/* ---------- the look inside a folder ---------- */
+
+/* A grid that only draws what is near the screen: each section and its
+   rows are placed where they would be if every tile were there. */
+.virtual-tiles {
+  position: relative;
+  margin-top: var(--space-4);
+}
+
+.inside .virtual-tiles {
+  margin-top: 0;
+}
+
+.tiles-section {
+  position: absolute;
+  left: 0;
+  right: 0;
+}
+
+.tiles-section > .tiles {
+  position: absolute;
+  left: 0;
+  right: 0;
+}
+
+.tiles-heading {
+  height: 56px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.tiles-heading b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inside header .online-only {
+  margin-top: var(--space-3);
+}
+
+.tiles-heading {
+  align-items: baseline;
+  padding-top: var(--space-5);
+}
+
+.picture.missing span {
+  padding: var(--space-2);
+  text-align: center;
+}

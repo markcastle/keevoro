@@ -786,6 +786,74 @@ try {
   await page.locator('.kept li.source').waitFor({ state: 'detached' })
   assert.ok(await page.locator('.searching').isVisible(), 'and the search carries on')
 
+  // --- Look inside a folder the survey suggests, before choosing it. Only
+  // what is near the screen is fetched, pictures shimmer until they come,
+  // and nothing is added until the person says so.
+  await page.goto(`${base}/?demo=empty&fast&slowpictures`)
+  await page.getByRole('button', { name: /Windows \(C:\)/ }).click()
+  await page.getByRole('button', { name: 'Find the folders with photos' }).click()
+  await page.getByRole('heading', { name: '4 folders on Windows (C:) seem to hold photos and videos' }).waitFor()
+  await page.locator('.survey .hints input').nth(2).uncheck()
+  await page.getByRole('button', { name: 'Look inside C:\\Users\\Mark\\Pictures' }).click()
+  await page.getByRole('heading', { name: 'Inside Pictures', level: 1 }).waitFor()
+  assert.match(await text('.inside .status'), /^1,630 photos and 82 videos, [\d.]+ GB\. Nothing here is added or changed until you choose\.$/)
+  assert.match(await text('.inside header .online-only'), /^32 files are in OneDrive only, not on this computer, so Keevoro does not open them/)
+  await page.locator('.inside .tile .picture.loading').first().waitFor()
+  assert.ok((await page.locator('.inside .tile .picture.loading').count()) > 0, 'a shimmer before the pictures arrive')
+  await shot('9q3-look-inside-waiting')
+  await page.locator('.inside .tile img').first().waitFor({ timeout: 15000 })
+  const tilesShown = await page.locator('.inside .tile').count()
+  assert.ok(tilesShown > 0 && tilesShown < 1_712, `only the tiles near the screen are in the page (${tilesShown} of 1,712)`)
+  assert.deepEqual(
+    await page.locator('.inside .tiles-heading b').allInnerTexts(),
+    ['Pictures', 'Camera Roll', 'Captures', '2019 › Cornwall', 'Screenshots'].slice(0, await page.locator('.inside .tiles-heading').count()),
+    'the person’s own folders, in order, as sections',
+  )
+  // Scrolled into the camera roll: its tiles come, and those passed by are dropped.
+  await page.getByRole('button', { name: 'Look at IMG_0013.jpg' }).first().scrollIntoViewIfNeeded()
+  await page.getByRole('button', { name: 'Look at IMG_0013.jpg' }).first().getByText('Can’t be shown').waitFor({ timeout: 15000 })
+  await page.locator('main').evaluate((main) => main.scrollBy(0, 1200))
+  await page.getByRole('button', { name: 'Look at IMG_0050.jpg' }).first().waitFor()
+  assert.equal(await page.getByRole('button', { name: 'Look at IMG_0050.jpg' }).first().innerText(), 'In OneDrive only, not on this computer')
+  await page.getByRole('button', { name: 'Look at IMG_0050.jpg' }).first().scrollIntoViewIfNeeded()
+  const made = await page.evaluate(() => window.keevoroPicturesMade())
+  assert.ok(made < 400, `pictures are made only for what was near the screen (${made})`)
+  await shot('9q4-look-inside-scrolled')
+  // A closer look, with the way to look through the folder beside it.
+  await page.getByRole('button', { name: 'Look at IMG_0048.jpg' }).first().click()
+  const closer = page.getByRole('dialog', { name: 'IMG_0048.jpg' })
+  await closer.locator('img').waitFor()
+  assert.ok(await closer.getByRole('button', { name: 'Look through this folder' }).isVisible())
+  await page.keyboard.press('ArrowRight')
+  await page.getByRole('dialog', { name: 'IMG_0049.jpg' }).waitFor()
+  await page.keyboard.press('ArrowRight')
+  // One only in OneDrive is never opened, there either.
+  await page.getByRole('dialog', { name: 'IMG_0050.jpg' }).getByText('In OneDrive only, not on this computer').waitFor()
+  await shot('9q5-look-inside-closer')
+  await page.keyboard.press('Escape')
+  // Back is the survey as it was, ticks and all.
+  await page.getByRole('button', { name: '‹ Back' }).click()
+  await page.getByRole('heading', { name: '4 folders on Windows (C:) seem to hold photos and videos' }).waitFor()
+  assert.deepEqual(await page.locator('.survey .hints input').evaluateAll((boxes) => boxes.map((b) => b.checked)), [true, true, false, false])
+  assert.equal(await page.locator('.kept li.source').count(), 0, 'looking inside added nothing')
+  // As it looks once the pictures have come.
+  await page.goto(`${base}/?demo=empty&fast`)
+  await page.getByRole('button', { name: /Windows \(C:\)/ }).click()
+  await page.getByRole('button', { name: 'Find the folders with photos' }).click()
+  await page.getByRole('button', { name: 'Look inside C:\\Users\\Mark\\Pictures' }).click()
+  await page.getByRole('heading', { name: 'Inside Pictures', level: 1 }).waitFor()
+  await page.waitForFunction(() => document.querySelectorAll('.inside .tile img').length >= 12)
+  await page.waitForTimeout(400)
+  await shot('9q4-look-inside')
+  await fitsNarrow('Looking inside')
+  await page.getByRole('button', { name: '‹ Back' }).click()
+  // And from inside, one button looks through it properly.
+  await page.getByRole('button', { name: 'Look inside C:\\Users\\Mark\\Pictures' }).click()
+  await page.getByRole('heading', { name: 'Inside Pictures', level: 1 }).waitFor()
+  await page.locator('.inside header').getByRole('button', { name: 'Look through this folder' }).click()
+  await page.locator('.kept li.source').first().waitFor()
+  assert.match(await text('.kept li.source .what .folder'), /^C:\\Users\\Mark\\Pictures$/)
+
   // --- Every main screen fits a narrow window: the page never scrolls
   // sideways, and wide tables scroll inside their own box.
   await page.goto(`${base}/?fast`)

@@ -44,6 +44,10 @@ const BACKED: &[(&str, &[Op])] = &[
     ("duplicates", &[Op::DuplicatesList]),
     ("preview", &[Op::PhotosPicture]),
     ("closer_look", &[Op::PhotosPicture]),
+    // Looking inside a folder before it is added.
+    ("folders_inside", &[Op::PlacesFolders]),
+    ("folder_files", &[Op::PlacesFiles]),
+    ("file_picture", &[Op::PhotosPicture]),
     // The one-line summary names the places without counting what has
     // reached each, which the API does quickly.
     ("destination", &[Op::DestinationsList]),

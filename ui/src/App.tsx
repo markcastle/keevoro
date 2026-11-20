@@ -19,7 +19,6 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { createPortal } from 'react-dom'
 
 import { backend } from './backend'
 import type {
@@ -43,7 +42,6 @@ import type {
   ConnectRequest,
   Discover,
   FileType,
-  Photo,
   PhotoChoice,
   Place,
   CheckEvent,
@@ -62,6 +60,9 @@ import lockupDarkUrl from './assets/keevoro-lockup-reversed.png'
 import lockupUrl from './assets/keevoro-lockup.png'
 import { chooseTheme, savedTheme } from './theme'
 import { ClearUnfinished } from './tidy'
+import { FoundPicture, Viewer } from './pictures'
+import { LookInside } from './inside'
+import { VirtualTiles } from './tiles'
 import type { Theme } from './theme'
 
 type Step = 'find' | 'choose' | 'send'
@@ -646,6 +647,10 @@ function FindScreen(props: {
   } | null>(null)
   // Folders waiting their turn to be looked through, one after another.
   const [queue, setQueue] = useState<string[]>([])
+  // A folder the survey suggested, being looked inside before it is chosen.
+  // The survey stays as it was underneath, to come back to.
+  const [inside, setInside] = useState<string | null>(null)
+  const surveyScroll = useRef(0)
   useEffect(() => api.onSurvey((progress) => setSurvey((s) => (s && !s.found ? { ...s, progress } : s))), [api])
 
   const look = useCallback(() => {
@@ -743,6 +748,27 @@ function FindScreen(props: {
   const done = new Set(found?.sources.map((s) => s.root.replace(/[\\/]+$/, '')))
   const removable = places?.filter((p) => p.removable) ?? []
   const fixed = places?.filter((p) => !p.removable) ?? []
+  const scroller = () => document.querySelector('main')
+
+  if (inside) {
+    return (
+      <LookInside
+        api={api}
+        place={inside}
+        onProblem={onProblem}
+        onBack={() => {
+          setInside(null)
+          requestAnimationFrame(() => scroller()?.scrollTo(0, surveyScroll.current))
+        }}
+        onLookThrough={(folder) => {
+          setInside(null)
+          setSurvey(null)
+          setQueue([])
+          start(folder)
+        }}
+      />
+    )
+  }
 
   return (
     <section className="find">
@@ -830,6 +856,11 @@ function FindScreen(props: {
             )
           }
           onGo={lookThroughChosen}
+          onLookInside={(folder) => {
+            surveyScroll.current = scroller()?.scrollTop ?? 0
+            setInside(folder)
+            requestAnimationFrame(() => scroller()?.scrollTo(0, 0))
+          }}
           onCancel={() => setSurvey(null)}
         />
       ) : asking ? (
@@ -2132,7 +2163,7 @@ function ChooseScreen(props: {
             onKeyDown={(e) => e.key === 'Enter' && props.onOpen(hero)}
           >
             {hero.previews.slice(0, 3).map((p) => (
-              <Picture key={p.id} api={props.api} photo={p} />
+              <FoundPicture key={p.id} api={props.api} photo={p} />
             ))}
           </div>
           <div className="caption">
@@ -2153,7 +2184,7 @@ function ChooseScreen(props: {
           {rest.map((c) => (
             <article className={c.kept ? 'card' : 'card skipped'} key={c.key}>
               <button className="open" onClick={() => props.onOpen(c)} aria-label={`Open ${c.title}`}>
-                <Picture key={c.cover.id} api={props.api} photo={c.cover} />
+                <FoundPicture key={c.cover.id} api={props.api} photo={c.cover} />
               </button>
               <h4>{c.title}</h4>
               <p>{c.summary}</p>
@@ -3238,37 +3269,53 @@ function PhotosScreen(props: {
       {photos && photos.length === 0 && (
         <div className="empty quiet">{collection ? 'Nothing here.' : 'Nothing is set aside.'}</div>
       )}
-      <div className="tiles">
-        {photos?.map((photo) => (
-          <div key={photo.id} className={photo.kept ? 'tile' : 'tile out'}>
-            <button
-              className="look"
-              onClick={() => clicked(photo.id)}
-              onDoubleClick={() => doubleClicked(photo)}
-              aria-label={`Look at ${photo.name}`}
-            >
-              <Picture api={api} photo={photo} />
-            </button>
-            <button
-              className="tick"
-              role="switch"
-              aria-checked={photo.kept}
-              aria-label={`Keep ${photo.name}`}
-              title={photo.kept ? 'Keeping. Click to leave it out.' : 'Left out. Click to keep it.'}
-              onClick={() => toggle(photo)}
-            >
-              {photo.kept ? '✓' : ''}
-            </button>
-            {photo.junkReason && <span className="why">{photo.junkReason}</span>}
-          </div>
-        ))}
-      </div>
+      {photos && photos.length > 0 && (
+        <VirtualTiles
+          label={collection ? `Photos and videos in ${collection.title}` : 'Pictures set aside'}
+          sections={[
+            {
+              key: collection?.key ?? 'set aside',
+              count: photos.length,
+              load: async (from, count) => ({ total: photos.length, items: photos.slice(from, from + count) }),
+            },
+          ]}
+          // The list in hand is the truth: a tick changes it, not the page fetched.
+          tile={(_, index) => {
+            const photo = photos[index]
+            if (!photo) return null
+            return (
+              <div className={photo.kept ? 'tile' : 'tile out'}>
+                <button
+                  className="look"
+                  onClick={() => clicked(photo.id)}
+                  onDoubleClick={() => doubleClicked(photo)}
+                  aria-label={`Look at ${photo.name}`}
+                >
+                  <FoundPicture key={photo.id} api={api} photo={photo} />
+                </button>
+                <button
+                  className="tick"
+                  role="switch"
+                  aria-checked={photo.kept}
+                  aria-label={`Keep ${photo.name}`}
+                  title={photo.kept ? 'Keeping. Click to leave it out.' : 'Left out. Click to keep it.'}
+                  onClick={() => toggle(photo)}
+                >
+                  {photo.kept ? '✓' : ''}
+                </button>
+                {photo.junkReason && <span className="why">{photo.junkReason}</span>}
+              </div>
+            )
+          }}
+        />
+      )}
       {photos && at >= 0 && (
         <Viewer
-          api={api}
-          photo={photos[at]}
+          item={{ key: photos[at].id, name: photos[at].name, isVideo: photos[at].isVideo, where: photos[at].sourcePath }}
+          small={() => api.preview(photos[at].id)}
+          large={() => api.closerLook(photos[at].id)}
           place={`${thousands(at + 1)} of ${thousands(photos.length)}`}
-          onKeep={() => toggle(photos[at])}
+          keep={{ kept: photos[at].kept, onKeep: () => toggle(photos[at]) }}
           onMove={(by) => {
             const next = photos[at + by]
             if (next) setLooking(next.id)
@@ -3286,102 +3333,6 @@ function PhotosScreen(props: {
  * an unhurried double click.
  */
 const DOUBLE_CLICK_WAIT = 260
-
-/**
- * One photo or video still, as large as the window allows, over the grid.
- * Opened by clicking a tile. It shows the picture, where it is on
- * the source and whether it is being kept, and lets that be changed here
- * too. Arrow keys move to the next and previous; Escape closes.
- */
-function Viewer(props: {
-  api: Backend
-  photo: PhotoChoice
-  place: string
-  onKeep: () => void
-  onMove: (by: 1 | -1) => void
-  onClose: () => void
-}) {
-  const { api, photo, onMove, onClose } = props
-  const [shown, setShown] = useState<{ id: string; url: string } | null>(null)
-  const [missing, setMissing] = useState<string | null>(null)
-  const box = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    let current = true
-    let made: string | null = null
-    // The small picture is already on screen, so show it at once and swap
-    // in the large one when it arrives.
-    api
-      .preview(photo.id)
-      .then((url) => current && setShown((now) => (now?.id === photo.id ? now : { id: photo.id, url })))
-      .catch(() => {})
-    api
-      .closerLook(photo.id)
-      .then((url) => {
-        made = url
-        if (current) setShown({ id: photo.id, url })
-      })
-      .catch(() => current && setMissing(photo.id))
-    return () => {
-      current = false
-      // The large picture is only held while it is being looked at.
-      if (made?.startsWith('blob:')) URL.revokeObjectURL(made)
-    }
-  }, [api, photo.id])
-
-  useEffect(() => {
-    box.current?.focus()
-    const keys = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-      else if (e.key === 'ArrowRight') onMove(1)
-      else if (e.key === 'ArrowLeft') onMove(-1)
-      else return
-      e.preventDefault()
-    }
-    window.addEventListener('keydown', keys)
-    return () => window.removeEventListener('keydown', keys)
-  }, [onClose, onMove])
-
-  const url = shown?.id === photo.id ? shown.url : null
-  // Drawn on the page itself, not inside the screen that opened it, so it
-  // covers the whole window whatever that screen is nested in.
-  return createPortal(
-    <div className="viewer" role="dialog" aria-modal="true" aria-label={photo.name} tabIndex={-1} ref={box} onClick={onClose}>
-      <figure onClick={(e) => e.stopPropagation()}>
-        <div className="stage">
-          {url ? (
-            <img src={url} alt={photo.name} draggable={false} />
-          ) : (
-            <span className="quiet">{missing === photo.id ? 'This one can’t be shown.' : <Spinner />}</span>
-          )}
-        </div>
-        <figcaption>
-          <div>
-            <b>{photo.name}</b>
-            {photo.isVideo && <span className="badge">Video: this is a still from it</span>}
-            <span className="quiet small where">{photo.sourcePath}</span>
-          </div>
-          <div className="choices">
-            <span className="quiet small">{props.place}</span>
-            <button className="button" onClick={() => onMove(-1)} aria-label="Previous">
-              ‹
-            </button>
-            <button className="button" onClick={() => onMove(1)} aria-label="Next">
-              ›
-            </button>
-            <button className="button" role="switch" aria-checked={photo.kept} onClick={props.onKeep}>
-              {photo.kept ? '✓ Keeping' : 'Left out'}
-            </button>
-            <button className="primary" onClick={onClose}>
-              Close
-            </button>
-          </div>
-        </figcaption>
-      </figure>
-    </div>,
-    document.body,
-  )
-}
 
 /**
  * What a survey of a drive found: the folders that seem to hold photos
@@ -3424,6 +3375,8 @@ function SurveyResult(props: {
   chosen: Set<string>
   onToggle: (folder: string) => void
   onGo: () => void
+  /** Opens a grid of what is in one suggested folder, before it is chosen. */
+  onLookInside: (folder: string) => void
   onCancel: () => void
 }) {
   const { found, chosen } = props
@@ -3460,6 +3413,14 @@ function SurveyResult(props: {
               <span className="quiet small">
                 {photosAndVideos(hint.photos, hint.videos)} · {size(hint.bytes)}
               </span>
+              <button
+                className="button small"
+                onClick={() => props.onLookInside(hint.folder)}
+                aria-label={`Look inside ${hint.folder}`}
+                title="See its photos and videos first. Nothing is added or changed."
+              >
+                Look inside
+              </button>
               {hint.alreadyASource && <span className="badge">Already a source</span>}
               {!hint.likelyPhotos && !hint.alreadyASource && (
                 <span className="badge" title="The pictures here are very small and there are no videos">
@@ -3560,7 +3521,7 @@ function DuplicatesScreen(props: { api: Backend; onBack: () => void; onProblem: 
       <ul className="groups">
         {found?.slice(0, DUPLICATES_SHOWN).map((d) => (
           <li key={d.id}>
-            <Picture api={api} photo={d} />
+            <FoundPicture key={d.id} api={api} photo={d} />
             <div>
               <p className="name">
                 <b>{d.name}</b> <span className="quiet">{size(d.bytes)}</span>
@@ -3591,38 +3552,6 @@ function DuplicatesScreen(props: { api: Backend; onBack: () => void; onProblem: 
         </p>
       )}
     </section>
-  )
-}
-
-/** One picture, fetched when first shown. A gentle placeholder until then. */
-function Picture(props: { api: Backend; photo: Photo }) {
-  const { api, photo } = props
-  const [url, setUrl] = useState<string | null>(null)
-  const [missing, setMissing] = useState(false)
-
-  // Callers give each Picture a key of its photo's id, so a different photo
-  // is a fresh component and this runs once per picture.
-  useEffect(() => {
-    let current = true
-    api
-      .preview(photo.id)
-      .then((address) => current && setUrl(address))
-      .catch(() => current && setMissing(true))
-    return () => {
-      current = false
-    }
-  }, [api, photo.id])
-
-  return (
-    <div
-      className={missing ? 'picture missing' : url ? 'picture' : 'picture loading'}
-      title={photo.name}
-      aria-busy={!url && !missing}
-    >
-      {url && <img src={url} alt="" draggable={false} />}
-      {missing && <span>{photo.isVideo ? 'Video' : 'No preview'}</span>}
-      {photo.isVideo && url && <span className="play" aria-label="Video" />}
-    </div>
   )
 }
 

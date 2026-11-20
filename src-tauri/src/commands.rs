@@ -234,6 +234,56 @@ async fn picture<R: Runtime>(
     Ok(tauri::ipc::Response::new(bytes))
 }
 
+/// The folders inside a surveyed place that hold photos or videos, from
+/// the survey Keevoro remembers: the outline of a look inside.
+#[tauri::command]
+pub fn folders_inside(shared: State<'_, Shared>, place: String) -> Said<keevoro_api::inside::FoldersView> {
+    let backup = shared.keevoro.backups().current();
+    shared
+        .keevoro
+        .folders_inside(Path::new(&place), backup.as_ref())
+        .map_err(say)
+}
+
+/// One page of the photos and videos directly in a folder, by name.
+#[tauri::command]
+pub async fn folder_files<R: Runtime>(
+    app: AppHandle<R>,
+    place: String,
+    from: usize,
+    count: usize,
+) -> Said<keevoro_api::inside::FilesView> {
+    // A folder on a slow drive can take a moment to list.
+    tauri::async_runtime::spawn_blocking(move || {
+        let keevoro = &app.state::<Shared>().keevoro;
+        let backup = keevoro.backups().current();
+        keevoro.files_in(Path::new(&place), backup.as_ref(), from, count)
+    })
+    .await
+    .map_err(say)?
+    .map_err(say)
+}
+
+/// A small or screen-sized picture of any photo or video in a folder being
+/// looked inside, as raw WebP bytes. Only Keevoro's cache is written.
+#[tauri::command]
+pub async fn file_picture<R: Runtime>(app: AppHandle<R>, path: String, large: bool) -> Said<tauri::ipc::Response> {
+    let size = if large {
+        keevoro_api::PictureSize::Screen
+    } else {
+        keevoro_api::PictureSize::Small
+    };
+    let bytes = tauri::async_runtime::spawn_blocking(move || {
+        let keevoro = &app.state::<Shared>().keevoro;
+        let backup = keevoro.backups().current();
+        keevoro.picture_of_file(Path::new(&path), size, backup.as_ref())
+    })
+    .await
+    .map_err(say)?
+    .map_err(say)?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
 /// Reads, in the background, the files a quick search only sampled, so
 /// that true duplicates are known and a backup has less to do. Does
 /// nothing if a pass is already running. It gives way to a search or a
