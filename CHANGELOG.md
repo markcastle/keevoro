@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.36.1] - 2026-11-20
+
 ### Fixed
 
 - **The progress bar of a backup no longer sits at full from the start.** For an instant before a backup had worked out what it had to do, it reported itself as finished, and the bar then held that. It now starts empty and follows the work, and a wrong reading can no longer pin it.
@@ -580,7 +584,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.36.0...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.36.1...HEAD
+[0.36.1]: https://github.com/markcastle/keevoro/compare/v0.36.0...v0.36.1
 [0.36.0]: https://github.com/markcastle/keevoro/compare/v0.35.0...v0.36.0
 [0.35.0]: https://github.com/markcastle/keevoro/compare/v0.34.0...v0.35.0
 [0.34.0]: https://github.com/markcastle/keevoro/compare/v0.33.0...v0.34.0
