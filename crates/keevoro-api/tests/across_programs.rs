@@ -8,8 +8,9 @@
 //! which makes the `helper` test below do one job and report on its
 //! standard output. Without that variable, `helper` does nothing.
 //!
-//! Each test holds the other program's job where it wants it with a pause,
-//! never with a sleep, and waits for what it reports with a deadline.
+//! Each test holds the other program's job where it wants it with a pause
+//! or a listener that does not return, never with a sleep, and waits for
+//! what it reports with a deadline.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -257,12 +258,23 @@ fn pause_and_carry_on_reach_another_program() {
             .find(|s| s.handle.id == job && s.paused)
     });
     app.carry_on();
+    assert_eq!(other.expect("carry on"), "heard", "the request to carry on reached it");
     let Some(Said::Scan(last)) = app.wait(job) else {
         panic!("it went on to the end")
     };
     assert!(last.finished && !last.stopped, "{last:?}");
     assert_eq!(other.expect("ended"), "finished");
     assert!(other.ends());
+}
+
+/// Waits, for a generous while, until this program's pause switch is
+/// `paused`. True if it came to be.
+fn until_paused_is(paused: bool) -> bool {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while keevoro_core::pause::is_paused() != paused && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    keevoro_core::pause::is_paused() == paused
 }
 
 /// The other program. Does nothing unless started by a test above.
@@ -286,8 +298,14 @@ fn helper() {
             say(&format!("holding {}", job.id.0));
             job
         }
-        // Says it is looking, then waits until it is paused, which only a
-        // request from another program can do.
+        // Says it is looking, then waits until it is paused and then until
+        // it is carried on, which only requests from another program can
+        // do. The search reads its files on threads of its own and a pause
+        // holds it only between one file and the next, so with three
+        // photos it may have read them all before a pause arrives, and end
+        // without ever being seen paused. But it cannot end while a
+        // listener is still hearing it, so this one holds it there,
+        // running, until both requests have reached it.
         "wait for a pause" => {
             let told = Arc::new(Mutex::new(false));
             let listener: keevoro_api::Listener = Arc::new(move |event| {
@@ -297,14 +315,15 @@ fn helper() {
                 }
                 *told = true;
                 say(&format!("looking {}", event.job.0));
-                let deadline = Instant::now() + Duration::from_secs(30);
-                while !keevoro_core::pause::is_paused() && Instant::now() < deadline {
-                    std::thread::sleep(Duration::from_millis(10));
-                }
-                say(if keevoro_core::pause::is_paused() {
+                say(if until_paused_is(true) {
                     "pause heard"
                 } else {
                     "pause never heard"
+                });
+                say(if until_paused_is(false) {
+                    "carry on heard"
+                } else {
+                    "carry on never heard"
                 });
             });
             keevoro.look(&named, &card, Some(listener)).unwrap()
