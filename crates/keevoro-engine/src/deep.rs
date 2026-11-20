@@ -42,16 +42,33 @@ pub struct DeepProgress<'a> {
 /// whole one. `only` limits the pass to those quick fingerprints (files
 /// about to be backed up that look alike, say); `None` means all of them. `keep_going` is
 /// asked before each file, so a pass can be stopped between files.
+///
+/// `cache` is Keevoro's cache folder, when pictures made while looking
+/// inside a folder may be there: a file's pictures are named by its quick
+/// fingerprint, so they take its whole one too, and are not made twice.
+/// Only a file that alone went by its quick fingerprint has them renamed;
+/// files that looked alike may have shared one picture, which is then
+/// left to be made afresh for each.
 pub fn deep_look(
     catalog: &Catalog,
+    cache: Option<&Path>,
     only: Option<&HashSet<String>>,
     on_progress: &mut dyn FnMut(DeepProgress<'_>),
     keep_going: &dyn Fn() -> bool,
 ) -> Result<DeepReport> {
     let _busy = keevoro_core::doing::doing(keevoro_core::doing::Work::CheckingForDuplicates);
-    let waiting: Vec<_> = catalog
-        .unhashed()?
+    let unhashed = catalog.unhashed()?;
+    let mut sharing = std::collections::HashMap::<&str, usize>::new();
+    for file in &unhashed {
+        *sharing.entry(file.quick.as_str()).or_default() += 1;
+    }
+    let alone: HashSet<String> = sharing
         .into_iter()
+        .filter(|(_, files)| *files == 1)
+        .map(|(quick, _)| quick.to_string())
+        .collect();
+    let waiting: Vec<_> = unhashed
+        .iter()
         .filter(|file| only.is_none_or(|wanted| wanted.contains(&file.quick)))
         .collect();
     let mut report = DeepReport::default();
@@ -70,6 +87,9 @@ pub fn deep_look(
         match keevoro_scan::whole_hash(&file.path) {
             Ok(whole) => {
                 catalog.set_whole_hash(&file.path, &file.quick, &whole)?;
+                if let (Some(cache), true) = (cache, alone.contains(&file.quick)) {
+                    crate::look::now_known_as(cache, &file.quick, &whole);
+                }
                 report.checked += 1;
             }
             Err(e) => report.failed.push((file.path.clone(), e.to_string())),
@@ -137,7 +157,7 @@ mod tests {
     fn checking_tells_true_copies_from_lookalikes() {
         let (_dir, _drive, library, catalog) = world();
         let mut seen = Vec::new();
-        let report = deep_look(&catalog, None, &mut |p| seen.push((p.done, p.total)), &|| true).unwrap();
+        let report = deep_look(&catalog, None, None, &mut |p| seen.push((p.done, p.total)), &|| true).unwrap();
         assert_eq!((report.checked, report.failed.len(), report.stopped), (3, 0, false));
         assert_eq!(seen, [(0, 3), (1, 3), (2, 3)]);
         assert!(catalog.unhashed().unwrap().is_empty());
@@ -148,11 +168,74 @@ mod tests {
     }
 
     #[test]
+    fn a_picture_made_while_looking_is_found_after_the_check_without_being_made_again() {
+        let (dir, drive, library, catalog) = world();
+        let cache = dir.path().join("cache");
+        // The lone large photo: pictured while looking, then checked.
+        fs::write(drive.join("Trip/IMG_20100103_090000.jpg"), big_photo(2_000_000, 9)).unwrap();
+        let mut catalog = catalog;
+        let quick = ScanOptions {
+            quick: true,
+            ..ScanOptions::default()
+        };
+        scan_into_with(&mut catalog, &drive, Some("Card"), &quick, &mut |_| {}, &mut || {}).unwrap();
+        let lone = std::fs::canonicalize(drive.join("Trip/IMG_20100103_090000.jpg")).unwrap();
+        let lookalike = std::fs::canonicalize(drive.join("Trip/IMG_20100101_100001.jpg")).unwrap();
+        for file in [&lone, &lookalike] {
+            crate::look::picture_of_file(
+                &cache,
+                file,
+                keevoro_core::MediaKind::Photo,
+                crate::Look::Small,
+                None,
+                &keevoro_scan::ByAttributes,
+                None,
+            )
+            .unwrap();
+        }
+        let pictures = || -> std::collections::BTreeSet<_> {
+            fs::read_dir(&cache)
+                .unwrap()
+                .filter_map(Result::ok)
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .filter(|n| n.ends_with(".webp"))
+                .collect()
+        };
+        let before = pictures();
+
+        deep_look(&catalog, Some(&cache), None, &mut |_| {}, &|| true).unwrap();
+        let whole = keevoro_scan::whole_hash(&lone).unwrap();
+        let quick_of_lone = keevoro_scan::fingerprint(&lone, true).unwrap();
+        let after = pictures();
+        assert!(after.contains(&format!("{}.webp", &whole[..16])), "{after:?}");
+        assert!(!after.contains(&format!("{}.webp", &quick_of_lone[..16])));
+        assert_eq!(after.len(), before.len(), "renamed, not copied");
+
+        // The Discover grid's picture of it is the one made while looking.
+        let id = catalog
+            .load_reports()
+            .unwrap()
+            .iter()
+            .flat_map(|r| r.items.clone())
+            .find(|i| i.path.ends_with("IMG_20100103_090000.jpg"))
+            .and_then(|i| i.id().map(str::to_string))
+            .unwrap();
+        let renamed = cache.join(format!("{}.webp", &whole[..16]));
+        let made = fs::metadata(&renamed).unwrap().modified().unwrap();
+        crate::preview(&library, &catalog, &cache, &id, None).unwrap();
+        assert_eq!(pictures().len(), after.len(), "nothing was made twice");
+        assert!(fs::metadata(&renamed).unwrap().modified().unwrap() >= made);
+        // The lookalikes shared a quick fingerprint, so theirs is left.
+        let shared = keevoro_scan::fingerprint(&lookalike, true).unwrap();
+        assert!(after.contains(&format!("{}.webp", &shared[..16])));
+    }
+
+    #[test]
     fn a_choice_made_before_checking_still_holds_afterwards() {
         let (_dir, _drive, library, catalog) = world();
         let key = discover(&library, &catalog).unwrap().collections[0].key.clone();
         set_collection_kept(&catalog, &key, false).unwrap();
-        deep_look(&catalog, None, &mut |_| {}, &|| true).unwrap();
+        deep_look(&catalog, None, None, &mut |_| {}, &|| true).unwrap();
         for report in catalog.load_reports().unwrap() {
             for item in &report.items {
                 assert!(!wanted(&catalog, item).unwrap(), "{} was left out", item.path.display());
@@ -164,13 +247,13 @@ mod tests {
     fn a_pass_can_be_stopped_and_picked_up_again() {
         let (_dir, _drive, _library, catalog) = world();
         let asked = std::cell::Cell::new(0);
-        let report = deep_look(&catalog, None, &mut |_| {}, &|| {
+        let report = deep_look(&catalog, None, None, &mut |_| {}, &|| {
             asked.set(asked.get() + 1);
             asked.get() <= 1
         })
         .unwrap();
         assert_eq!((report.checked, report.stopped), (1, true));
-        let rest = deep_look(&catalog, None, &mut |_| {}, &|| true).unwrap();
+        let rest = deep_look(&catalog, None, None, &mut |_| {}, &|| true).unwrap();
         assert_eq!((rest.checked, rest.stopped), (2, false));
     }
 
@@ -178,7 +261,7 @@ mod tests {
     fn a_file_that_has_gone_is_reported_and_left_unchecked() {
         let (_dir, drive, _library, catalog) = world();
         fs::remove_file(drive.join("Backup/IMG_20100101_100000.jpg")).unwrap();
-        let report = deep_look(&catalog, None, &mut |_| {}, &|| true).unwrap();
+        let report = deep_look(&catalog, None, None, &mut |_| {}, &|| true).unwrap();
         assert_eq!((report.checked, report.failed.len()), (2, 1));
         assert_eq!(catalog.unhashed().unwrap().len(), 1);
     }
@@ -188,12 +271,16 @@ mod tests {
         let (_dir, _drive, _library, catalog) = world();
         let none = HashSet::new();
         assert_eq!(
-            deep_look(&catalog, Some(&none), &mut |_| {}, &|| true).unwrap().checked,
+            deep_look(&catalog, None, Some(&none), &mut |_| {}, &|| true)
+                .unwrap()
+                .checked,
             0
         );
         let all: HashSet<String> = catalog.unhashed().unwrap().into_iter().map(|f| f.quick).collect();
         assert_eq!(
-            deep_look(&catalog, Some(&all), &mut |_| {}, &|| true).unwrap().checked,
+            deep_look(&catalog, None, Some(&all), &mut |_| {}, &|| true)
+                .unwrap()
+                .checked,
             3
         );
     }

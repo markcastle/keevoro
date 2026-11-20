@@ -58,3 +58,11 @@ export function size(bytes: number) {
   }
   return unit === 0 ? `${bytes} bytes` : `${value.toFixed(1)} ${units[unit]}`
 }
+
+/** How long a video lasts, as a video player shows it: "0:07", "1:42", "1:02:05". */
+export function length(seconds: number) {
+  const all = Math.max(0, Math.round(seconds))
+  const [h, m, s] = [Math.floor(all / 3600), Math.floor(all / 60) % 60, all % 60]
+  const two = (n: number) => String(n).padStart(2, '0')
+  return h > 0 ? `${h}:${two(m)}:${two(s)}` : `${m}:${two(s)}`
+}

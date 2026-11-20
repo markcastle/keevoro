@@ -655,9 +655,10 @@ function FindScreen(props: {
   } | null>(null)
   // Folders waiting their turn to be looked through, one after another.
   const [queue, setQueue] = useState<string[]>([])
-  // A folder the survey suggested, being looked inside before it is chosen.
-  // The survey stays as it was underneath, to come back to.
-  const [inside, setInside] = useState<string | null>(null)
+  // A folder being looked inside: one the survey suggested, a source, or
+  // one picked to look inside first. The survey stays as it was
+  // underneath, to come back to. `again` when it is a source already.
+  const [inside, setInside] = useState<{ place: string; name?: string; again?: boolean } | null>(null)
   const surveyScroll = useRef(0)
   useEffect(() => api.onSurvey((progress) => setSurvey((s) => (s && !s.found ? { ...s, progress } : s))), [api])
 
@@ -749,6 +750,19 @@ function FindScreen(props: {
       })
       .catch(onProblem)
   }
+  // Opens the look inside a folder, noting where the page was to come back to.
+  const lookInside = (place: string, source?: { name: string }) => {
+    surveyScroll.current = scroller()?.scrollTop ?? 0
+    setInside({ place, name: source?.name, again: Boolean(source) })
+    requestAnimationFrame(() => scroller()?.scrollTo(0, 0))
+  }
+  // Asks for any folder, then looks inside it first.
+  const pickToLookInside = () => {
+    api
+      .pickPlace()
+      .then((path) => path && lookInside(path))
+      .catch(onProblem)
+  }
   const choose = (place: Place) => {
     if (place.askFirst) setAsking({ path: place.path, name: place.name, detail: place.detail })
     else start(place.path)
@@ -762,7 +776,9 @@ function FindScreen(props: {
     return (
       <LookInside
         api={api}
-        place={inside}
+        place={inside.place}
+        name={inside.name}
+        lookThrough={inside.again ? 'Look through it again' : undefined}
         onProblem={onProblem}
         onBack={() => {
           setInside(null)
@@ -865,9 +881,7 @@ function FindScreen(props: {
           }
           onGo={lookThroughChosen}
           onLookInside={(folder) => {
-            surveyScroll.current = scroller()?.scrollTop ?? 0
-            setInside(folder)
-            requestAnimationFrame(() => scroller()?.scrollTo(0, 0))
+            lookInside(folder)
           }}
           onCancel={() => setSurvey(null)}
         />
@@ -944,6 +958,13 @@ function FindScreen(props: {
           {places && removable.length === 0 && (
             <p className="quiet small">No USB or external drive is plugged in right now. Plug one in and it will appear here.</p>
           )}
+          <p className="quiet small look-first">
+            Not sure what is in a folder?{' '}
+            <button className="link" onClick={pickToLookInside}>
+              Look inside one first
+            </button>
+            . You see its photos and videos, and nothing is added until you choose.
+          </p>
         </>
       )}
 
@@ -990,6 +1011,14 @@ function FindScreen(props: {
                   </span>
                 ) : (
                   <span className="row-actions">
+                    <button
+                      className="button small"
+                      onClick={() => lookInside(s.root, { name: sourceTitle(s, places) })}
+                      aria-label={`Look inside ${s.name}`}
+                      title="See its photos and videos, folder by folder. Nothing is changed."
+                    >
+                      Look inside
+                    </button>
                     <button
                       className="button small"
                       onClick={() => setTypesOf(typesOf === s.id ? null : s.id)}

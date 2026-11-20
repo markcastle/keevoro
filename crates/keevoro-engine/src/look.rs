@@ -11,8 +11,14 @@
 //! A picture is named by the fingerprint a search would give the file
 //! (`keevoro_scan::fingerprint`), the same name the Discover screen's
 //! pictures have (`preview.rs`), so once the folder is looked through
-//! properly its pictures are already made. The pictures sit in the same
-//! cache as those, under its 1 GB limit.
+//! properly its pictures are already made. When the check for duplicates
+//! later reads such a file in full, its pictures are renamed to the whole
+//! fingerprint ([`now_known_as`]), so they are still found.
+//!
+//! Everything here sits in the same cache as those pictures, under its
+//! 1 GB limit ([`trim_cache`]), which removes the pictures used longest ago
+//! first. A picture removed while it is on screen is simply made again the
+//! next time it is asked for.
 
 use crate::preview::Look;
 use anyhow::{anyhow, bail, Result};
@@ -42,6 +48,19 @@ pub struct FileEntry {
     pub modified: i64,
     /// Only in online storage, not on this computer: never opened.
     pub online_only: bool,
+}
+
+impl FileEntry {
+    /// How long a video lasts, in seconds, from its movie header: a few
+    /// small reads and no decoding. `None` for a photo, for a video whose
+    /// container does not say (only MP4, MOV, M4V and 3GP do), and always
+    /// for a file only in online storage, which is never opened.
+    pub fn length(&self) -> Option<f64> {
+        if self.kind != MediaKind::Video || self.online_only {
+            return None;
+        }
+        keevoro_scan::video::length_of(&self.path)
+    }
 }
 
 /// The photos and videos directly in `folder`, by name, from one listing.
@@ -130,7 +149,7 @@ pub fn picture_of_file(
     if let Some(seen) = index.as_ref().and_then(|i| i.seen(&key)) {
         match seen {
             Seen::Picture(id) => {
-                if let Ok(bytes) = std::fs::read(name(&id)) {
+                if let Some(bytes) = read_and_use(&name(&id)) {
                     return Ok(bytes);
                 }
             }
@@ -149,7 +168,7 @@ pub fn picture_of_file(
     }
     let id = keevoro_scan::fingerprint(file, true)?;
     let id = &id[..16];
-    if let Ok(bytes) = std::fs::read(name(id)) {
+    if let Some(bytes) = read_and_use(&name(id)) {
         if let Some(index) = &index {
             index.remember(&key, Ok(id));
         }
@@ -191,6 +210,129 @@ pub fn picture_of_file(
 
 fn now() -> i64 {
     seconds(Some(SystemTime::now()))
+}
+
+/// A picture from the cache, marked as just used, so the cache's limit
+/// removes the pictures used longest ago, not those made longest ago.
+pub fn read_and_use(picture: &Path) -> Option<Vec<u8>> {
+    let bytes = std::fs::read(picture).ok()?;
+    if let Ok(file) = std::fs::File::options().write(true).open(picture) {
+        let _ = file.set_modified(SystemTime::now());
+    }
+    Some(bytes)
+}
+
+/// The two pictures a file can have in the cache, under a fingerprint's
+/// first sixteen letters.
+fn picture_names(id16: &str) -> [String; 2] {
+    [format!("{id16}.webp"), format!("{id16}.display.webp")]
+}
+
+/// A file once known by its quick fingerprint is now known by its whole
+/// one (the check for duplicates has read it in full). Its pictures in
+/// `cache` take the new name, and the index follows, so nothing is made
+/// twice. A picture already there under the new name is kept as it is.
+/// Only Keevoro's own pictures in its own cache are ever moved.
+pub fn now_known_as(cache: &Path, quick: &str, whole: &str) {
+    let (Some(quick), Some(whole)) = (quick.get(..16), whole.get(..16)) else {
+        return;
+    };
+    if quick == whole {
+        return;
+    }
+    for (from, to) in picture_names(quick).iter().zip(picture_names(whole)) {
+        let (from, to) = (cache.join(from), cache.join(to));
+        if from.is_file() {
+            if to.exists() {
+                let _ = std::fs::remove_file(&from);
+            } else {
+                let _ = std::fs::rename(&from, &to);
+            }
+        }
+    }
+    if cache.join("look.sqlite").is_file() {
+        if let Some(index) = Index::open(cache) {
+            let _ = index
+                .0
+                .execute("UPDATE seen SET id = ?1 WHERE id = ?2", params![whole, quick]);
+        }
+    }
+}
+
+/// The most room Keevoro's cache may take: the pictures, the index and
+/// the remembered surveys together. Past it the pictures used longest ago
+/// are removed; any can be made again.
+pub const CACHE_LIMIT: u64 = 1024 * 1024 * 1024;
+
+/// Keeps everything in `cache` within `limit`, removing the pictures used
+/// longest ago first. Everything there counts towards the limit, but only
+/// plain `.webp` files directly in the cache folder, which Keevoro made,
+/// are ever removed. Answers the bytes freed.
+pub fn trim_cache(cache: &Path, limit: u64) -> u64 {
+    let Ok(entries) = std::fs::read_dir(cache) else {
+        return 0;
+    };
+    let mut total = 0;
+    let mut pictures: Vec<(SystemTime, u64, PathBuf)> = Vec::new();
+    for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        let Ok(meta) = std::fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if meta.is_dir() {
+            total += size_of_folder(&path);
+            continue;
+        }
+        total += meta.len();
+        if meta.is_file() && path.extension().is_some_and(|x| x == "webp") {
+            pictures.push((meta.modified().unwrap_or(UNIX_EPOCH), meta.len(), path));
+        }
+    }
+    pictures.sort();
+    let mut freed = 0;
+    for (_, bytes, path) in pictures {
+        if total <= limit {
+            break;
+        }
+        if std::fs::remove_file(&path).is_ok() {
+            total = total.saturating_sub(bytes);
+            freed += bytes;
+        }
+    }
+    freed
+}
+
+/// Trims the cache to [`CACHE_LIMIT`] on a thread of its own at low
+/// priority, so nobody waits for it. One trim at a time: asked again while
+/// one runs, it does nothing.
+pub fn trim_cache_quietly(cache: &Path) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static TRIMMING: AtomicBool = AtomicBool::new(false);
+    if TRIMMING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let cache = cache.to_path_buf();
+    let started = std::thread::Builder::new().name("keevoro cache".into()).spawn(move || {
+        keevoro_frame::quiet::lower_this_threads_priority();
+        trim_cache(&cache, CACHE_LIMIT);
+        TRIMMING.store(false, Ordering::SeqCst);
+    });
+    if started.is_err() {
+        TRIMMING.store(false, Ordering::SeqCst);
+    }
+}
+
+/// The bytes in the files directly in `folder` (Keevoro's own folders in
+/// its cache are one level deep).
+fn size_of_folder(folder: &Path) -> u64 {
+    std::fs::read_dir(folder)
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter_map(|e| std::fs::symlink_metadata(e.path()).ok())
+        .filter(std::fs::Metadata::is_file)
+        .map(|m| m.len())
+        .sum()
 }
 
 /// What a file's listing says about it, as one key: where it is, its size
@@ -474,10 +616,6 @@ mod tests {
             .into_iter()
             .filter(|p| p.extension().is_some_and(|x| x == "webp"))
             .collect();
-        let times: Vec<SystemTime> = made
-            .iter()
-            .map(|p| fs::metadata(p).unwrap().modified().unwrap())
-            .collect();
 
         let library = dir.path().join("library");
         let mut catalog = Catalog::open_in_library(&library).unwrap();
@@ -487,12 +625,11 @@ mod tests {
         };
         let report = crate::scan_into_with(&mut catalog, &source, None, &quick, &mut |_| {}, &mut || {}).unwrap();
         let id = report.items[0].id().unwrap().to_string();
-        crate::preview(&library, &catalog, &cache, &id, None).unwrap();
-        let again: Vec<SystemTime> = made
-            .iter()
-            .map(|p| fs::metadata(p).unwrap().modified().unwrap())
-            .collect();
-        assert_eq!(times, again, "no picture was made twice");
+        // With the photo moved away, a picture can only come from the cache.
+        let aside = dir.path().join("aside.jpg");
+        fs::rename(&file, &aside).unwrap();
+        crate::preview(&library, &catalog, &cache, &id, None).expect("no picture was made twice");
+        fs::rename(&aside, &file).unwrap();
         assert!(
             cache.join(format!("{id}.webp")).is_file(),
             "the search's picture is the one made while looking"
@@ -520,5 +657,133 @@ mod tests {
             Some(found),
         )
         .unwrap();
+    }
+
+    fn age(path: &Path, seconds_ago: u64) {
+        let file = fs::File::options().write(true).open(path).unwrap();
+        file.set_modified(SystemTime::now() - std::time::Duration::from_secs(seconds_ago))
+            .unwrap();
+    }
+
+    #[test]
+    fn the_cache_is_kept_within_its_limit_used_longest_ago_first_and_only_pictures_are_removed() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("previews");
+        fs::create_dir_all(cache.join("surveys")).unwrap();
+        for (n, ago) in [(1, 300), (2, 200), (3, 100)] {
+            let path = cache.join(format!("{n}.webp"));
+            fs::write(&path, vec![0u8; 1000]).unwrap();
+            age(&path, ago);
+        }
+        // The oldest is looked at again, so it is the newest used.
+        assert!(read_and_use(&cache.join("1.webp")).is_some());
+        // The index and the surveys count towards the limit, and are kept.
+        fs::write(cache.join("look.sqlite"), vec![0u8; 500]).unwrap();
+        fs::write(cache.join("surveys").join("a.jsonl"), vec![0u8; 500]).unwrap();
+        assert_eq!(trim_cache(&cache, 3000), 1000);
+        assert!(!cache.join("2.webp").exists(), "used longest ago");
+        assert!(cache.join("1.webp").is_file() && cache.join("3.webp").is_file());
+        assert!(cache.join("look.sqlite").is_file() && cache.join("surveys").join("a.jsonl").is_file());
+        assert_eq!(trim_cache(&cache, 3000), 0);
+        assert_eq!(trim_cache(&dir.path().join("none"), 0), 0);
+        // Nothing outside the cache is ever touched, however low the limit.
+        fs::write(dir.path().join("mine.webp"), b"x").unwrap();
+        trim_cache(&cache, 0);
+        assert!(dir.path().join("mine.webp").is_file());
+    }
+
+    #[test]
+    fn a_picture_the_limit_removed_is_simply_made_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("a.jpg");
+        fs::write(&file, real_jpeg(90)).unwrap();
+        let cache = dir.path().join("cache");
+        let first = picture_of_file(&cache, &file, MediaKind::Photo, Look::Small, None, &ByAttributes, None).unwrap();
+        // Even the picture on screen goes, when the limit says so.
+        trim_cache(&cache, 0);
+        assert!(walk(&cache).iter().all(|p| p.extension().is_none_or(|x| x != "webp")));
+        let again = picture_of_file(&cache, &file, MediaKind::Photo, Look::Small, None, &ByAttributes, None).unwrap();
+        assert_eq!(&again[8..12], b"WEBP");
+        assert_eq!(again.len(), first.len(), "the same picture, made again");
+        let closer = picture_of_file(&cache, &file, MediaKind::Photo, Look::Closer, None, &ByAttributes, None).unwrap();
+        assert_eq!(&closer[8..12], b"WEBP");
+    }
+
+    /// The least of an MP4: a movie header saying 61,200 ticks of 1/600 of
+    /// a second.
+    fn mp4_lasting_102_seconds() -> Vec<u8> {
+        let boxed = |name: &[u8; 4], body: &[u8]| {
+            let mut v = u32::try_from(body.len() + 8).unwrap().to_be_bytes().to_vec();
+            v.extend_from_slice(name);
+            v.extend_from_slice(body);
+            v
+        };
+        let mut mvhd = vec![0u8; 12];
+        mvhd.extend_from_slice(&600u32.to_be_bytes());
+        mvhd.extend_from_slice(&61_200u32.to_be_bytes());
+        mvhd.extend_from_slice(&[0; 16]);
+        [boxed(b"ftyp", b"isom"), boxed(b"moov", &boxed(b"mvhd", &mvhd))].concat()
+    }
+
+    fn entry(path: &Path, kind: MediaKind, online_only: bool) -> FileEntry {
+        FileEntry {
+            path: path.to_path_buf(),
+            name: path.file_name().unwrap().to_string_lossy().into_owned(),
+            kind,
+            bytes: 0,
+            modified: 0,
+            online_only,
+        }
+    }
+
+    #[test]
+    fn a_videos_length_comes_from_its_header_and_never_from_a_file_only_online() {
+        let dir = tempfile::tempdir().unwrap();
+        let clip = dir.path().join("clip.mp4");
+        fs::write(&clip, mp4_lasting_102_seconds()).unwrap();
+        assert_eq!(entry(&clip, MediaKind::Video, false).length(), Some(102.0));
+        assert_eq!(entry(&clip, MediaKind::Photo, false).length(), None, "a photo has none");
+        #[cfg(unix)]
+        {
+            // Opening it would fail: it must not be opened at all.
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&clip, fs::Permissions::from_mode(0o000)).unwrap();
+        }
+        assert_eq!(entry(&clip, MediaKind::Video, true).length(), None);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&clip, fs::Permissions::from_mode(0o644)).unwrap();
+        }
+    }
+
+    #[test]
+    fn pictures_follow_a_file_to_its_whole_fingerprint() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("a.jpg");
+        fs::write(&file, big_jpeg()).unwrap();
+        let cache = dir.path().join("cache");
+        picture_of_file(&cache, &file, MediaKind::Photo, Look::Small, None, &ByAttributes, None).unwrap();
+        let quick = keevoro_scan::fingerprint(&file, true).unwrap();
+        let whole = keevoro_scan::whole_hash(&file).unwrap();
+        assert_ne!(quick, whole);
+        now_known_as(&cache, &quick, &whole);
+        assert!(!cache.join(format!("{}.webp", &quick[..16])).exists());
+        let renamed = cache.join(format!("{}.webp", &whole[..16]));
+        let display = cache.join(format!("{}.display.webp", &whole[..16]));
+        assert!(renamed.is_file() && display.is_file());
+        let made = fs::metadata(&renamed).unwrap().len();
+        // The index follows, so looking again reads it, and makes nothing.
+        age(&renamed, 1000);
+        let before = walk(&cache).len();
+        picture_of_file(&cache, &file, MediaKind::Photo, Look::Small, None, &ByAttributes, None).unwrap();
+        assert_eq!(walk(&cache).len(), before, "nothing new was made");
+        assert_eq!(fs::metadata(&renamed).unwrap().len(), made);
+        // A name already taken is left as it is.
+        fs::write(cache.join("1111111111111111.webp"), b"old").unwrap();
+        fs::write(cache.join("2222222222222222.webp"), b"kept").unwrap();
+        now_known_as(&cache, "1111111111111111aa", "2222222222222222bb");
+        assert_eq!(fs::read(cache.join("2222222222222222.webp")).unwrap(), b"kept");
+        assert!(!cache.join("1111111111111111.webp").exists());
     }
 }

@@ -379,11 +379,11 @@ Finding photos is hard when you do not know what a folder holds. "Find where the
 A look inside a folder
 
 - [x] Each folder the survey suggests opens to a grid of thumbnails: photos, and a still from each video (its length comes in the next step)
-- [ ] The same look for any folder you pick yourself, and for a source already added
+- [x] The same look for any folder you pick yourself, and for a source already added
 - [x] Thumbnails are made as you look and kept in Keevoro's own cache, never beside the originals; the source is only read
 - [x] Only what is on screen is fetched, so a folder of ten thousand opens at once
-- [ ] Sort by date or name, and show photos only or videos only
-- [ ] Open one in the closer look (done), and play a video there (decided against for now: a still and its length instead)
+- [x] Sort by date or name, and show photos only or videos only (by the file's date, said as such)
+- [x] Open one in the closer look, and a video's length on its tile and there (playing it was decided against for now)
 - [ ] From the grid: look through this folder, or leave it out
 - [x] Say plainly when a picture cannot be opened, with a placeholder, and carry on
 

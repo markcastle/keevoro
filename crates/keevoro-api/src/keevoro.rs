@@ -251,10 +251,7 @@ impl Keevoro {
         keevoro.apply_saved_choices();
         // Pictures kept for quick showing are kept within bounds, quietly,
         // off the thread that opened Keevoro.
-        let cache = keevoro.cache.clone();
-        let _ = std::thread::Builder::new()
-            .name("keevoro cache".into())
-            .spawn(move || crate::picture::trim_cache(&cache, crate::picture::CACHE_LIMIT));
+        keevoro_engine::look::trim_cache_quietly(&keevoro.cache);
         keevoro
     }
 

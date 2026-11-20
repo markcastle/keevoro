@@ -137,7 +137,10 @@ function demoFiles(folder: string, photos: number, videos: number): FileView[] {
       name: `VID_${String(i + 1).padStart(4, '0')}.mp4`,
       isVideo: true,
       bytes: 88 * 1024 ** 2,
-      modified: 1_560_000_000 + i * 900,
+      // Taken between the photos, so sorting by date mixes them.
+      modified: 1_560_000_000 + i * 900 + 300,
+      // The first is one minute 42 seconds; every fifth says nothing.
+      ...(i % 5 === 4 ? {} : { seconds: 102 + i * 37 }),
     })
   }
   return files
@@ -170,6 +173,8 @@ export function demoBackend(): Backend {
   const junk: PhotoChoice[] = collections.length === 0 ? [] : junkFound()
   const scanListeners = new Set<(e: ScanEvent) => void>()
   const surveyListeners = new Set<(e: SurveyProgress) => void>()
+  // The places surveyed, so looking inside one surveys it first, as the real one does.
+  const surveyed = new Set<string>()
   const checkListeners = new Set<(event: CheckEvent) => void>()
   const sendListeners = new Set<(e: SendEvent) => void>()
   // What the last backup said when it ended, as the real app keeps it.
@@ -698,6 +703,7 @@ export function demoBackend(): Backend {
     // A made-up survey of a big disk: three real places and one of icons.
     async surveyPlace(path) {
       const drive = path.replace(/[\\/]+$/, '')
+      surveyed.add(drive)
       for (let step = 1; step <= 4; step++) {
         surveyListeners.forEach((tell) =>
           tell({ folders: step * 9_000, files: step * 120_000, photos: step * 3_100, videos: step * 90 }),
@@ -856,6 +862,7 @@ export function demoBackend(): Backend {
     // Looking inside a folder: a Pictures folder like the owner's, or any
     // other with a few photos in it.
     foldersInside: async (place) => {
+      if (![...surveyed].some((root) => place === root || place.startsWith(`${root}\\`))) return null
       const plan = /\\Pictures$/.test(place) ? INSIDE : [{ relative: '', photos: 40, videos: 2 }]
       const folders: FolderView[] = plan.map((f) => ({
         folder: f.relative ? `${place}\\${f.relative.replace(/ › /g, '\\')}` : place,
@@ -876,17 +883,23 @@ export function demoBackend(): Backend {
         onlineOnly: folders.reduce((n, f) => n + f.onlineOnly, 0),
       }
     },
-    folderFiles: async (place, from, count) => {
+    folderFiles: async ({ place, from, count, sort, only }) => {
       await later(80 * pace)
       const known = INSIDE.find((f) => (f.relative ? place.endsWith(`\\${f.relative.replace(/ › /g, '\\')}`) : /\\Pictures$/.test(place)))
       const files = demoFiles(place, known?.photos ?? 40, known?.videos ?? 2)
+      // As the real one: by name, or by the file's date with ties by name.
+      const shown = files
+        .filter((f) => only === 'all' || f.isVideo === (only === 'videos'))
+        .sort((a, b) =>
+          sort === 'name' ? a.name.localeCompare(b.name) : (sort === 'newest' ? b.modified - a.modified : a.modified - b.modified) || a.name.localeCompare(b.name),
+        )
       return {
         folder: place,
-        total: files.length,
+        total: shown.length,
         photos: files.filter((f) => !f.isVideo).length,
         videos: files.filter((f) => f.isVideo).length,
         onlineOnly: files.filter((f) => f.onlineOnly).length,
-        files: files.slice(from, from + Math.min(count, 500)),
+        files: shown.slice(from, from + Math.min(count, 500)),
       }
     },
     // Each picture takes a moment, a few at a time, as the real ones do.

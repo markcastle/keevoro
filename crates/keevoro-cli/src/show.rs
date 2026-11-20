@@ -373,7 +373,11 @@ pub fn files(io: &mut Io<'_>, _: &ArgMatches, view: &Value) -> Said_ {
         }
     )?;
     for file in list {
-        let what = if yes(file, "isVideo") { "video" } else { "photo" };
+        let what = match file.get("seconds").and_then(Value::as_f64) {
+            Some(seconds) => format!("video {:>7}", keevoro_api::words::length(seconds)),
+            None if yes(file, "isVideo") => "video        ".to_string(),
+            None => "photo        ".to_string(),
+        };
         let online = if yes(file, "onlineOnly") {
             "  (only online, so not opened)"
         } else {

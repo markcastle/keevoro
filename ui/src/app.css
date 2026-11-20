@@ -284,6 +284,20 @@ h3 {
   border: 2px solid rgba(255, 255, 255, 0.9);
 }
 
+/* How long a video lasts, in the corner of its still, as a player shows it. */
+.picture .length {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  background: rgba(0, 0, 0, 0.62);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
 .play::after {
   content: '';
   position: absolute;
@@ -1889,7 +1903,8 @@ input::placeholder {
 
 /* ---------- the theme choice in Settings ---------- */
 
-.themes {
+.themes,
+.segmented {
   display: inline-flex;
   padding: 3px;
   gap: 2px;
@@ -1898,7 +1913,8 @@ input::placeholder {
   background: var(--surface-sunken);
 }
 
-.themes button {
+.themes button,
+.segmented button {
   height: 32px;
   padding: 0 var(--space-4);
   border-radius: 7px;
@@ -1908,7 +1924,8 @@ input::placeholder {
   transition: background-color 0.15s ease-out;
 }
 
-.themes button[aria-pressed='true'] {
+.themes button[aria-pressed='true'],
+.segmented button[aria-checked='true'] {
   background: var(--surface-raised);
   color: var(--ink);
   box-shadow: var(--shadow-sm);
@@ -1925,7 +1942,8 @@ input::placeholder {
   background: var(--surface);
 }
 
-.themes button:hover {
+.themes button:hover,
+.segmented button:hover {
   text-decoration: none;
   color: var(--ink);
 }
@@ -3514,6 +3532,26 @@ fieldset.wants [role='status'] {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Which files to show and in what order, under the look inside's heading. */
+.inside .arrange {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-5);
+  margin-top: var(--space-4);
+}
+
+.inside .sort {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 100%;
+}
+
+.inside .sort select {
+  min-width: 0;
 }
 
 .inside header .online-only {

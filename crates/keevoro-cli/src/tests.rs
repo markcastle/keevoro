@@ -821,6 +821,11 @@ fn a_folder_is_looked_inside_and_a_picture_saved_without_adding_anything() {
     let files = at.keevoro(&["files", &text(&cornwall), "--count", "1"]);
     assert_eq!(files.code, Code::Worked, "{}", files.err);
     assert!(files.out.contains(", 1 of them here:"), "{}", files.out);
+    let videos = at.keevoro(&["files", &text(&cornwall), "--videos", "--sort", "newest"]);
+    assert_eq!(videos.code, Code::Worked, "{}", videos.err);
+    assert!(!videos.out.contains("photo "), "{}", videos.out);
+    let mixed = at.keevoro(&["files", &text(&cornwall), "--photos", "--videos"]);
+    assert_ne!(mixed.code, Code::Worked, "one kind or the other");
     let first = at.keevoro(&["files", &text(&cornwall), "--json"]).json()["files"][0]["path"]
         .as_str()
         .unwrap()

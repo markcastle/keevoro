@@ -886,6 +886,25 @@ try {
   await page.waitForFunction(() => document.querySelectorAll('.inside .tile img').length >= 12)
   await shot('9q4-look-inside')
   await fitsNarrow('Looking inside')
+  // Only the videos, newest first by the file's date, each with its length.
+  await page.getByRole('radiogroup', { name: 'Show' }).getByRole('radio', { name: 'Videos' }).click()
+  await page.getByLabel('Sort by').selectOption({ label: 'Newest first (by file date)' })
+  assert.match(await text('.inside header'), /not always when it was taken/)
+  await page.getByRole('button', { name: 'Look at VID_0037.mp4' }).first().waitFor()
+  assert.deepEqual(
+    await page.locator('.inside .tiles-heading b').allInnerTexts(),
+    ['Camera Roll', 'Captures', '2019 › Cornwall'],
+    'folders with no videos are not shown',
+  )
+  assert.equal(await page.locator('.inside .tile .look').first().getAttribute('aria-label'), 'Look at VID_0037.mp4', 'the newest first')
+  await page.locator('.inside .tile img').first().waitFor()
+  assert.equal(await page.getByRole('button', { name: 'Look at VID_0001.mp4' }).first().locator('.length').innerText(), '1:42')
+  assert.equal(await page.getByRole('button', { name: 'Look at VID_0005.mp4' }).first().locator('.length').count(), 0, 'one that does not say shows none')
+  await shot('9q6-look-inside-videos')
+  await page.getByRole('button', { name: 'Look at VID_0001.mp4' }).first().click()
+  await page.getByRole('dialog', { name: 'VID_0001.mp4' }).getByText('Video, 1:42 long: this is a still from it').waitFor()
+  await page.keyboard.press('Escape')
+  await fitsNarrow('Looking inside, videos only')
   await page.getByRole('button', { name: '‹ Back' }).click()
   // And from inside, one button looks through it properly.
   await page.getByRole('button', { name: 'Look inside C:\\Users\\Mark\\Pictures' }).click()
@@ -893,6 +912,26 @@ try {
   await page.locator('.inside header').getByRole('button', { name: 'Look through this folder' }).click()
   await page.locator('.kept li.source').first().waitFor()
   assert.match(await text('.kept li.source .what .folder'), /^C:\\Users\\Mark\\Pictures$/)
+
+  // --- Any folder can be looked inside: a source, surveyed first when
+  // Keevoro has not seen inside it, and one picked from the first step.
+  await page.goto(`${base}/?demo=empty&fast`)
+  await page.getByRole('button', { name: 'Look inside one first' }).click()
+  await page.getByRole('heading', { name: 'Inside Photos', level: 1 }).waitFor()
+  await page.locator('.inside .tile').first().waitFor()
+  assert.equal(await page.locator('.kept li.source').count(), 0, 'looking inside added nothing')
+  await page.getByRole('button', { name: '‹ Back' }).click()
+  await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
+  await shot('9q7-look-inside-first')
+  await page.goto(`${base}/?slow`)
+  await page.locator('.steps button').nth(0).click()
+  await page.getByRole('button', { name: 'Look inside Family hard drive' }).click()
+  await page.getByRole('heading', { name: 'Finding what is in Family hard drive…' }).waitFor()
+  assert.ok(await page.getByRole('button', { name: 'Stop and show what was found' }).isVisible())
+  await shot('9q8-look-inside-a-source-surveying')
+  await page.locator('.inside .tile').first().waitFor({ timeout: 15000 })
+  assert.ok(await page.locator('.inside header').getByRole('button', { name: 'Look through it again' }).isVisible())
+  await shot('9q9-look-inside-a-source')
 
   // --- Every main screen fits a narrow window: the page never scrolls
   // sideways, and wide tables scroll inside their own box.

@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { length } from './format'
 import { NotNeeded, photoKey } from './pictureQueue'
 import type { Backend, Photo } from './backend'
 
@@ -16,6 +17,9 @@ import type { Backend, Photo } from './backend'
  * request not started yet is never made. `missing` says, up front, why no
  * picture will be fetched at all ("In OneDrive only, not on this
  * computer"). Without `load` and `missing` it simply waits, shimmering.
+ * A video's length, when known, is shown in its corner. A picture that
+ * stops being there (its address let go to save memory while it was still
+ * on screen) is simply fetched again.
  */
 export function Picture(props: {
   id: string
@@ -26,10 +30,14 @@ export function Picture(props: {
   missing?: string
   /** What is said when the picture could not be made. "No preview" when not said. */
   cannot?: string
+  /** How long a video lasts, in seconds, when known. */
+  seconds?: number
 }) {
   const { id, load, drop } = props
   const [url, setUrl] = useState<string | null>(null)
   const [failed, setFailed] = useState(false)
+  // Asked again once if the picture shown stops being there.
+  const [again, setAgain] = useState(0)
   // Kept in a ref, so a new function each render does not fetch again.
   const latest = useRef({ load, drop })
   useEffect(() => {
@@ -55,7 +63,7 @@ export function Picture(props: {
       current = false
       if (!arrived) latest.current.drop?.()
     }
-  }, [id, asking])
+  }, [id, asking, again])
 
   const words = props.missing ?? (failed ? (props.isVideo ? 'Video' : (props.cannot ?? 'No preview')) : null)
   return (
@@ -64,9 +72,25 @@ export function Picture(props: {
       title={props.name}
       aria-busy={!url && !words}
     >
-      {url && !words && <img src={url} alt="" draggable={false} />}
+      {url && !words && (
+        <img
+          src={url}
+          alt=""
+          draggable={false}
+          onError={() => {
+            if (again > 0) return setFailed(true)
+            setUrl(null)
+            setAgain(1)
+          }}
+        />
+      )}
       {words && <span>{words}</span>}
       {props.isVideo && url && !words && <span className="play" aria-label="Video" />}
+      {props.isVideo && props.seconds !== undefined && !props.missing && (
+        <span className="length" aria-label={`Lasts ${length(props.seconds)}`}>
+          {length(props.seconds)}
+        </span>
+      )}
     </div>
   )
 }
@@ -94,6 +118,8 @@ export type Looked = {
   where: string
   /** Why it cannot be shown at all, said instead of a picture. */
   missing?: string
+  /** How long a video lasts, in seconds, when known. */
+  seconds?: number
 }
 
 /**
@@ -174,7 +200,11 @@ export function Viewer(props: {
         <figcaption>
           <div>
             <b>{item.name}</b>
-            {item.isVideo && <span className="badge">Video: this is a still from it</span>}
+            {item.isVideo && (
+              <span className="badge">
+                {item.seconds !== undefined ? `Video, ${length(item.seconds)} long` : 'Video'}: this is a still from it
+              </span>
+            )}
             <span className="quiet small where">{item.where}</span>
           </div>
           <div className="choices">

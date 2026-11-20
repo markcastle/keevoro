@@ -477,11 +477,22 @@ export type FileView = {
   modified: number
   /** Only in online storage: no picture is made, as that would download it. */
   onlineOnly?: boolean
+  /** How long a video lasts, in seconds, when its file says. */
+  seconds?: number
 }
+
+/** The order a folder's files are given in: by name, or by the file's date (not the date taken). */
+export type FilesSort = 'name' | 'newest' | 'oldest'
+/** Which of a folder's files are given. */
+export type FilesShow = 'all' | 'photos' | 'videos'
+
+/** Asks for one page of a folder's photos and videos. */
+export type FilesRequest = { place: string; from: number; count: number; sort: FilesSort; only: FilesShow }
 
 /** One page of the photos and videos in a folder. */
 export type FilesView = {
   folder: string
+  /** How many are shown in all, of the kind asked for: what `from` pages through. */
   total: number
   photos: number
   videos: number
@@ -608,10 +619,13 @@ export interface Backend {
    * `fileKey`): its tile has left the screen.
    */
   notNeeded(key: string): void
-  /** The folders inside a surveyed place that hold photos or videos. Nothing is added. */
-  foldersInside(place: string): Promise<FoldersView>
-  /** A page of the photos and videos directly in one folder, by name. Nothing is added. */
-  folderFiles(place: string, from: number, count: number): Promise<FilesView>
+  /**
+   * The folders inside a place that hold photos or videos, from the survey
+   * Keevoro remembers; `null` when no survey covers it yet. Nothing is added.
+   */
+  foldersInside(place: string): Promise<FoldersView | null>
+  /** A page of the photos and videos directly in one folder, as asked. Nothing is added. */
+  folderFiles(request: FilesRequest): Promise<FilesView>
   /** An address for a small picture of any photo or video, by its path. Only Keevoro's cache is written. */
   filePicture(path: string): Promise<string>
   /** A screen-sized picture of any photo or video, by its path. Fetched afresh each time. */
@@ -724,7 +738,7 @@ async function tauriBackend(): Promise<Backend> {
     notNeeded: (key) => pictures.drop(key),
     closerLook: (id) => invoke<ArrayBuffer>('closer_look', { id }).then(webp),
     foldersInside: (place) => invoke('folders_inside', { place }),
-    folderFiles: (place, from, count) => invoke('folder_files', { place, from, count }),
+    folderFiles: (request) => invoke('folder_files', { request }),
     filePicture: (path) =>
       pictures.want(fileKey(path), () => invoke<ArrayBuffer>('file_picture', { path, large: false }).then(webp)),
     closerLookAtFile: (path) => invoke<ArrayBuffer>('file_picture', { path, large: true }).then(webp),

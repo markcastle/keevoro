@@ -34,10 +34,83 @@ pub struct FilesRequest {
     /// How many to give, at most 500. 100 when left out.
     #[serde(default = "a_hundred")]
     pub count: usize,
+    /// `name` (the default), `newest` or `oldest`. Newest and oldest go by
+    /// each file's date as the folder lists it, which is when it was last
+    /// changed: often when it was copied, not when it was taken.
+    #[serde(default)]
+    pub sort: Sort,
+    /// `all` (the default), `photos` or `videos`.
+    #[serde(default)]
+    pub only: Show,
+}
+
+/// The order `places.files` gives a folder's files in.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum Sort {
+    /// By name, whatever the case.
+    #[default]
+    Name,
+    /// The file's date, newest first.
+    Newest,
+    /// The file's date, oldest first.
+    Oldest,
+}
+
+/// Which of a folder's files `places.files` gives.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum Show {
+    /// Photos and videos.
+    #[default]
+    All,
+    Photos,
+    Videos,
+}
+
+impl Show {
+    fn takes(self, kind: MediaKind) -> bool {
+        match self {
+            Show::All => true,
+            Show::Photos => kind == MediaKind::Photo,
+            Show::Videos => kind == MediaKind::Video,
+        }
+    }
+}
+
+/// The files to show, in order: those `only` takes, sorted by `sort`.
+/// Files with the same date keep their order by name. Pure, so the rules
+/// are tested without a disk.
+fn arranged(
+    files: &[keevoro_engine::look::FileEntry],
+    sort: Sort,
+    only: Show,
+) -> Vec<&keevoro_engine::look::FileEntry> {
+    // The listing is already by name, and the sort keeps that order for a tie.
+    let mut shown: Vec<_> = files.iter().filter(|f| only.takes(f.kind)).collect();
+    match sort {
+        Sort::Name => {}
+        Sort::Newest => shown.sort_by_key(|f| std::cmp::Reverse(f.modified)),
+        Sort::Oldest => shown.sort_by_key(|f| f.modified),
+    }
+    shown
 }
 
 fn a_hundred() -> usize {
     100
+}
+
+impl FilesRequest {
+    /// The first page of a folder, by name, photos and videos alike.
+    pub fn of(folder: &Path) -> Self {
+        Self {
+            place: folder.display().to_string(),
+            from: 0,
+            count: a_hundred(),
+            sort: Sort::default(),
+            only: Show::default(),
+        }
+    }
 }
 
 /// One folder that holds photos or videos itself.
@@ -73,7 +146,7 @@ pub struct FoldersView {
 }
 
 /// One photo or video in a folder.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileView {
     /// The file, written whole: what `photos.picture` takes as `file`.
@@ -87,19 +160,24 @@ pub struct FileView {
     /// Only in online storage, not on this computer: no picture is made.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub online_only: bool,
+    /// How long a video lasts, in seconds, when its movie header says
+    /// (MP4, MOV, M4V and 3GP). Never read for a file only online.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seconds: Option<f64>,
 }
 
 /// What `places.files` answers.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FilesView {
     pub folder: String,
-    /// How many photos and videos the folder holds directly, in all.
+    /// How many of the folder's own files are shown, in all: its photos and
+    /// videos, or only one kind when asked. What `from` pages through.
     pub total: usize,
     pub photos: usize,
     pub videos: usize,
     pub online_only: usize,
-    /// This page of them, by name.
+    /// This page of them, in the order asked for.
     pub files: Vec<FileView>,
 }
 
@@ -138,13 +216,21 @@ impl Keevoro {
     /// `places.folders`: the folders inside `place` that hold photos or
     /// videos, from the newest remembered survey that covers it.
     pub fn folders_inside(&self, place: &Path, backup: Option<&Named>) -> Result<FoldersView> {
-        let real = existing_folder(place)?;
-        let Some(survey) = keevoro_engine::surveys::covering(&self.cache_folder(), &real) else {
-            return Err(Error::not_found(format!(
+        self.folders_inside_if_surveyed(place, backup)?.ok_or_else(|| {
+            Error::not_found(format!(
                 "Keevoro hasn't surveyed {} yet. Find where the photos are in it first (keevoro survey), then look \
                  inside.",
                 friendly_path(place)
-            )));
+            ))
+        })
+    }
+
+    /// As [`Keevoro::folders_inside`], but `None` when no remembered survey
+    /// covers the place, so the app can survey it first and then look.
+    pub fn folders_inside_if_surveyed(&self, place: &Path, backup: Option<&Named>) -> Result<Option<FoldersView>> {
+        let real = existing_folder(place)?;
+        let Some(survey) = keevoro_engine::surveys::covering(&self.cache_folder(), &real) else {
+            return Ok(None);
         };
         let (_, only) = self.kinds_for(backup);
         let folders: Vec<FolderView> = survey
@@ -170,7 +256,7 @@ impl Keevoro {
             })
             .filter(|f| f.photos + f.videos > 0)
             .collect();
-        Ok(FoldersView {
+        Ok(Some(FoldersView {
             place: friendly_path(place),
             surveyed_at: survey.surveyed_at,
             complete: survey.complete,
@@ -179,22 +265,25 @@ impl Keevoro {
             bytes: folders.iter().map(|f| f.bytes).sum(),
             online_only: folders.iter().map(|f| f.online_only).sum(),
             folders,
-        })
+        }))
     }
 
-    /// `places.files`: the photos and videos directly in one folder, by
-    /// name, a page at a time. Only its listing is read.
-    pub fn files_in(&self, place: &Path, backup: Option<&Named>, from: usize, count: usize) -> Result<FilesView> {
+    /// `places.files`: the photos and videos directly in one folder, a page
+    /// at a time, sorted and shown as asked. Only its listing is read, and
+    /// for the videos in the page, their movie headers.
+    pub fn files_in(&self, ask: &FilesRequest, backup: Option<&Named>) -> Result<FilesView> {
+        let place = Path::new(&ask.place);
         let real = existing_folder(place)?;
         if let Some(said) = self.made_by_keevoro(&real) {
             return Err(Error::refused(said));
         }
         let (kinds, _) = self.kinds_for(backup);
         let files = self.listing(&real, &kinds)?;
-        let page = files
+        let shown = arranged(&files, ask.sort, ask.only);
+        let page = shown
             .iter()
-            .skip(from)
-            .take(count.clamp(1, MOST_AT_ONCE))
+            .skip(ask.from)
+            .take(ask.count.clamp(1, MOST_AT_ONCE))
             .map(|f| FileView {
                 path: friendly_path(&f.path),
                 name: f.name.clone(),
@@ -202,11 +291,12 @@ impl Keevoro {
                 bytes: f.bytes,
                 modified: f.modified,
                 online_only: f.online_only,
+                seconds: f.length(),
             })
             .collect();
         Ok(FilesView {
             folder: friendly_path(place),
-            total: files.len(),
+            total: shown.len(),
             photos: files.iter().filter(|f| f.kind == MediaKind::Photo).count(),
             videos: files.iter().filter(|f| f.kind == MediaKind::Video).count(),
             online_only: files.iter().filter(|f| f.online_only).count(),
@@ -367,6 +457,87 @@ mod tests {
 
     use serde_json::Value;
 
+    fn entry(name: &str, kind: MediaKind, modified: i64) -> keevoro_engine::look::FileEntry {
+        keevoro_engine::look::FileEntry {
+            path: PathBuf::from(name),
+            name: name.to_string(),
+            kind,
+            bytes: 1,
+            modified,
+            online_only: false,
+        }
+    }
+
+    #[test]
+    fn files_are_sorted_by_name_or_by_their_date_and_shown_by_kind() {
+        use MediaKind::{Photo, Video};
+        // As listed: by name.
+        let files = [
+            entry("a.jpg", Photo, 300),
+            entry("b.mp4", Video, 100),
+            entry("c.jpg", Photo, 300),
+            entry("d.jpg", Photo, 200),
+        ];
+        let names = |sort, only| -> Vec<&str> {
+            arranged(&files, sort, only)
+                .into_iter()
+                .map(|f| f.name.as_str())
+                .collect()
+        };
+        assert_eq!(names(Sort::Name, Show::All), ["a.jpg", "b.mp4", "c.jpg", "d.jpg"]);
+        assert_eq!(
+            names(Sort::Newest, Show::All),
+            ["a.jpg", "c.jpg", "d.jpg", "b.mp4"],
+            "a tie keeps its order by name"
+        );
+        assert_eq!(names(Sort::Oldest, Show::All), ["b.mp4", "d.jpg", "a.jpg", "c.jpg"]);
+        assert_eq!(names(Sort::Name, Show::Videos), ["b.mp4"]);
+        assert_eq!(names(Sort::Oldest, Show::Photos), ["d.jpg", "a.jpg", "c.jpg"]);
+    }
+
+    /// The least of an MP4 lasting 1 minute 42 seconds.
+    fn mp4_of_102_seconds() -> Vec<u8> {
+        let boxed = |name: &[u8; 4], body: &[u8]| {
+            let mut v = u32::try_from(body.len() + 8).unwrap().to_be_bytes().to_vec();
+            v.extend_from_slice(name);
+            v.extend_from_slice(body);
+            v
+        };
+        let mut mvhd = vec![0u8; 12];
+        mvhd.extend_from_slice(&600u32.to_be_bytes());
+        mvhd.extend_from_slice(&61_200u32.to_be_bytes());
+        mvhd.extend_from_slice(&[0; 16]);
+        [boxed(b"ftyp", b"isom"), boxed(b"moov", &boxed(b"mvhd", &mvhd))].concat()
+    }
+
+    #[test]
+    fn a_page_is_sorted_and_shown_as_asked_with_each_videos_length() {
+        let _turn = one_at_a_time();
+        let dir = tempfile::tempdir().unwrap();
+        let k = keevoro(dir.path());
+        let folder = pictures(dir.path(), 3).join("2019");
+        std::fs::write(folder.join("clip.mp4"), mp4_of_102_seconds()).unwrap();
+        let place = folder.display().to_string();
+        let page = call(
+            &k,
+            Op::PlacesFiles,
+            None,
+            json!({ "place": place, "only": "videos", "sort": "name" }),
+        )
+        .unwrap();
+        assert_eq!(page["total"], 2, "only the videos are paged through");
+        assert_eq!(page["photos"], 3, "while the folder's counts are all of it");
+        assert_eq!(page["files"][0]["name"], "clip.mp4");
+        assert_eq!(page["files"][0]["seconds"], 102.0);
+        assert!(
+            page["files"][1].get("seconds").is_none(),
+            "a video that does not say has none"
+        );
+        assert!(call(&k, Op::PlacesFiles, None, json!({ "place": place, "sort": "taken" })).is_err());
+        let newest = call(&k, Op::PlacesFiles, None, json!({ "place": place, "sort": "newest" })).unwrap();
+        assert_eq!(newest["total"], 5);
+    }
+
     #[test]
     fn a_backup_for_photos_only_is_shown_no_videos() {
         let _turn = one_at_a_time();
@@ -379,7 +550,9 @@ mod tests {
         surveyed(&k, &place);
         let folders = k.folders_inside(&place, Some(&named)).unwrap();
         assert_eq!((folders.photos, folders.videos), (3, 0));
-        let files = k.files_in(&place.join("2019"), Some(&named), 0, 100).unwrap();
+        let files = k
+            .files_in(&FilesRequest::of(&place.join("2019")), Some(&named))
+            .unwrap();
         assert_eq!((files.total, files.videos), (3, 0));
         k.wait_for_jobs();
     }
@@ -393,11 +566,11 @@ mod tests {
         std::fs::create_dir_all(backup.join("originals")).unwrap();
         std::fs::write(backup.join(keevoro_core::BACKUP_GUIDE), b"note").unwrap();
         std::fs::write(backup.join("IMG_1.jpg"), b"jpeg").unwrap();
-        let e = k.files_in(&backup, None, 0, 10).unwrap_err();
+        let e = k.files_in(&FilesRequest::of(&backup), None).unwrap_err();
         assert_eq!(e.kind, crate::Kind::Refused);
         assert!(e.message.contains("Copy for Mum"), "{e}");
         // Its originals, chosen on purpose, are a folder like any other.
-        assert!(k.files_in(&backup.join("originals"), None, 0, 10).is_ok());
+        assert!(k.files_in(&FilesRequest::of(&backup.join("originals")), None).is_ok());
     }
 
     #[test]

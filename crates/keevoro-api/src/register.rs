@@ -467,8 +467,10 @@ impl Op {
             ),
             Op::PlacesFiles => (
                 "files_in_folder",
-                "Lists the photos and videos directly in one folder, by name, a page at a time (from and count, at \
-                 most 500): each one's path, size, whether it is a video, and whether it is only in online storage. \
+                "Lists the photos and videos directly in one folder, a page at a time (from and count, at most \
+                 500), by name or by the file's date (sort: name, newest or oldest; the date is when the file last \
+                 changed, not when it was taken), all or only photos or videos (only): each one's path, size, \
+                 whether it is a video and how many seconds it lasts, and whether it is only in online storage. \
                  Give a path to show_picture as file to see one. Reads the folder's listing only; changes nothing \
                  and adds nothing to a backup. Only works in folders the person has allowed (see my_access).",
             ),

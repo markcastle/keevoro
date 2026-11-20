@@ -372,7 +372,7 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
         }
         Op::PlacesFiles => {
             let r: inside::FilesRequest = read(request)?;
-            answer(keevoro.files_in(Path::new(&r.place), any_backup()?.as_ref(), r.from, r.count)?)
+            answer(keevoro.files_in(&r, any_backup()?.as_ref())?)
         }
         Op::DestinationsList => {
             read::<Nothing>(request)?;
