@@ -56,7 +56,9 @@ button:focus-visible {
 
 .app {
   display: grid;
-  grid-template-columns: 250px 1fr;
+  /* The page column may shrink below its content's natural width, so a
+     wide table scrolls inside itself and never pushes the page sideways. */
+  grid-template-columns: 250px minmax(0, 1fr);
   height: 100%;
 }
 
@@ -503,6 +505,7 @@ h3 {
   border-radius: 18px;
   padding: 30px 32px;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   justify-items: start;
 }
@@ -3279,4 +3282,19 @@ main > section > :nth-last-child(2) {
 .run-detail .summary-lines p {
   margin: 0;
   white-space: pre-wrap;
+}
+
+/* The history of backups never sets the width of the page: its table
+   scrolls inside its own box. */
+.sends {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.sends-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  /* Holds the hidden labels for screen readers inside the scrolling box;
+     left to the page, they stretch it sideways. */
+  position: relative;
 }

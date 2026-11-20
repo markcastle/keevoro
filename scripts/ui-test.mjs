@@ -258,7 +258,7 @@ try {
   assert.equal(await page.locator('.run-detail').count(), 1, 'one open at a time')
   // In a narrow window the table scrolls inside itself, never the page.
   await details.click()
-  await page.setViewportSize({ width: 900, height: 700 })
+  await page.setViewportSize({ width: 760, height: 700 })
   await panel.scrollIntoViewIfNeeded()
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, 'the page does not spill sideways')
   await shot('9w-a-backup-in-full-narrow')
