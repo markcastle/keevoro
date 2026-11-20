@@ -1,7 +1,8 @@
 //! `places.survey`: finding which folders in a drive or folder hold photos
-//! and videos, by reading folder listings only. No file is opened and
-//! nothing is remembered: the answer is a list of suggestions for the
-//! person to choose from.
+//! and videos, by reading folder listings only. No file is opened. The
+//! answer is a list of suggestions for the person to choose from, and
+//! which folders hold photos and videos is remembered in Keevoro's cache
+//! (`keevoro_engine::surveys`), so a look inside one opens at once.
 
 use super::{spawn, Context, HintView, JobHandle, JobKind, Listener, Said, SurveyEvent, SurveyView};
 use crate::backups::Named;
@@ -60,6 +61,29 @@ pub(super) fn start(
             )
         };
         let seconds = started.elapsed().as_secs_f32();
+        let remembered = keevoro_engine::surveys::Remembered {
+            root: root.clone(),
+            surveyed_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(0)),
+            complete: !found.stopped,
+            folders: found
+                .media_folders
+                .iter()
+                .map(|t| keevoro_engine::surveys::FolderCount {
+                    folder: t.folder.clone(),
+                    photos: t.photos,
+                    videos: t.videos,
+                    bytes: t.bytes,
+                    online_only: t.online_only,
+                })
+                .collect(),
+        };
+        if let Err(e) = keevoro_engine::surveys::save(&ctx.cache, &remembered) {
+            ctx.log.say(&format!(
+                "Couldn't remember what the survey found ({e}); it will be found again when needed"
+            ));
+        }
         ctx.log.say(&format!(
             "Looked at {} files in {} folders in {seconds:.1} seconds without opening any: {} folders suggested{}",
             found.files_seen,

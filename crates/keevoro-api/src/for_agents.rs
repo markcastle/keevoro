@@ -14,8 +14,9 @@
 //!   so an agent can never change its own permissions.
 //! - Until a person allows changes, anything that would change something
 //!   is refused with a sentence saying how they can allow it.
-//! - Looking through, surveying, and making a picture of a file happen
-//!   only in folders the person has allowed agents to look in; backing up,
+//! - Looking through, surveying, looking inside a folder, and making a
+//!   picture of a file happen only in folders the person has allowed agents
+//!   to look in; backing up,
 //!   and checking what arrived, only to folders they have allowed agents to
 //!   back up to. Each place is judged by where it really leads (see
 //!   [`crate::agents`]). Cloud storage is not a folder: adding it is a
@@ -91,7 +92,9 @@ fn allowed(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: &Value) -> 
         return Err(Error::refused(LOOK_ONLY));
     }
     match op {
-        Op::PlacesSurvey | Op::SourcesLook => may_look_in(&access, place(request)?),
+        Op::PlacesSurvey | Op::SourcesLook | Op::PlacesFolders | Op::PlacesFiles => {
+            may_look_in(&access, place(request)?)
+        }
         Op::SourcesLookAgain => {
             let one = request.get("source").and_then(Value::as_i64);
             let sources = keevoro.backups().open(backup)?.sources()?;
@@ -100,6 +103,7 @@ fn allowed(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: &Value) -> 
             }
             Ok(())
         }
+        Op::PhotosPicture if !text(request, "file").is_empty() => may_look_in(&access, text(request, "file")),
         Op::PhotosPicture => {
             let photo = text(request, "photo");
             let found = keevoro.backups().open(backup)?.catalog().find_item(photo)?;

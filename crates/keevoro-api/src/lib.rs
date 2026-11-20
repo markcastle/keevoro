@@ -34,6 +34,7 @@ pub mod destinations;
 pub mod error;
 pub mod file_kinds;
 pub mod for_agents;
+pub mod inside;
 pub mod jobs;
 pub mod keevoro;
 pub mod log;
@@ -279,6 +280,14 @@ fn answer(value: impl Serialize) -> Result<Value> {
 pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> Result<Value> {
     let open = || keevoro.backups().open(backup);
     let named = || keevoro.backups().named_or_open(backup);
+    // A backup used only for its choices (photos or videos only) and what
+    // its searches know: the one named, else the open one, if any.
+    let any_backup = || -> Result<Option<Named>> {
+        match backup {
+            Some(_) => Ok(Some(keevoro.backups().named_or_open(backup)?)),
+            None => Ok(keevoro.backups().current()),
+        }
+    };
     match op {
         Op::BackupsList => {
             read::<Nothing>(request)?;
@@ -350,8 +359,20 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
         }
         Op::PhotosPicture => {
             let r: PictureRequest = read(request)?;
-            let bytes = keevoro.picture(&open()?, &r.photo, r.size)?;
+            let bytes = match (r.photo, r.file) {
+                (Some(photo), None) => keevoro.picture(&open()?, &photo, r.size)?,
+                (None, Some(file)) => keevoro.picture_of_file(Path::new(&file), r.size, any_backup()?.as_ref())?,
+                _ => return Err(Error::not_understood("give a photo or a file, not both")),
+            };
             answer(Picture::webp(&bytes))
+        }
+        Op::PlacesFolders => {
+            let r: PlaceRequest = read(request)?;
+            answer(keevoro.folders_inside(Path::new(&r.place), any_backup()?.as_ref())?)
+        }
+        Op::PlacesFiles => {
+            let r: inside::FilesRequest = read(request)?;
+            answer(keevoro.files_in(Path::new(&r.place), any_backup()?.as_ref(), r.from, r.count)?)
         }
         Op::DestinationsList => {
             read::<Nothing>(request)?;

@@ -81,6 +81,9 @@ pub struct Survey {
     /// Folders Keevoro made (a backup, an old library, its own data), left
     /// out and why, in order.
     pub left_out: Vec<(PathBuf, keevoro_core::SkipReason)>,
+    /// Every folder that holds photos or videos itself, with what it holds
+    /// directly, in order: the outline a look inside is drawn from.
+    pub media_folders: Vec<Tally>,
 }
 
 /// How far a survey has got.
@@ -409,6 +412,8 @@ pub fn survey(
     let (stopped, unreadable) = (walk.stopped(), walk.unreadable.load(Ordering::Relaxed));
     let tallies = walk.tallies.into_inner().unwrap_or_default();
     let online_only = tallies.iter().map(|t| t.online_only).sum();
+    let mut media_folders: Vec<Tally> = tallies.iter().filter(|t| t.photos + t.videos > 0).cloned().collect();
+    media_folders.sort_by(|a, b| a.folder.cmp(&b.folder));
     let mut left_out = walk.left_out.into_inner().unwrap_or_default();
     left_out.sort_by(|a, b| a.0.cmp(&b.0));
     Survey {
@@ -419,6 +424,7 @@ pub fn survey(
         online_only,
         stopped,
         left_out,
+        media_folders,
     }
 }
 
@@ -577,6 +583,13 @@ mod tests {
         assert_eq!(hint.bytes, 30 * 200_000 + 900_000);
         assert_eq!(hint.likely, Likely::Photos);
         assert_eq!((seen.photos, seen.videos), (30, 1));
+        // The outline: only folders holding photos or videos themselves.
+        let outline: Vec<(PathBuf, usize, usize)> = found
+            .media_folders
+            .iter()
+            .map(|t| (t.folder.clone(), t.photos, t.videos))
+            .collect();
+        assert_eq!(outline, [(root.join("Pictures").join("2019"), 30, 1)]);
         // Skipped folders are not even listed.
         assert_eq!(found.files_seen, 41);
         assert!(!found.stopped);

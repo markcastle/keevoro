@@ -38,7 +38,15 @@ Looked at 481,907 files in 36,412 folders in 6.2 seconds, without opening any of
    9.0 MB  1,840 photos and 0 videos  D:\Games\Launcher\assets  (small pictures, probably not photos)
 ```
 
-It goes by file names, so it is a good guess and not a promise.
+It goes by file names, so it is a good guess and not a promise. Keevoro remembers what it found, so you can look inside a suggestion before choosing it, without waiting again. Nothing is added or changed:
+
+```sh
+keevoro folders "D:\Users\Mark\Pictures"
+keevoro files "D:\Users\Mark\Pictures\Camera Roll" --count 20
+keevoro picture --file "D:\Users\Mark\Pictures\Camera Roll\IMG_0001.jpg" --to look.webp
+```
+
+`folders` lists the folders inside that hold photos or videos, with how many each holds; `files` lists one folder's photos and videos by name, a page at a time (`--from` and `--count`, at most 500); `picture --file` saves a picture of any of them. The picture is kept in Keevoro's own cache, and a file only in OneDrive (or iCloud) is never opened.
 
 ### Look through a source
 
@@ -234,6 +242,8 @@ The words each command shows in `keevoro --help` come from the same list the app
 | --- | --- |
 | `keevoro places` | The drives plugged into this computer. |
 | `keevoro survey PLACE` | Finds the folders in a drive or folder that hold photos and videos, reading listings only. |
+| `keevoro folders PLACE` | The folders inside a surveyed place that hold photos or videos, with how many each holds. |
+| `keevoro files FOLDER [--from N] [--count N]` | The photos and videos directly in one folder, by name, a page at a time. Nothing is added. |
 | `keevoro look PLACE` | Looks through a drive or folder and adds it as a source. |
 | `keevoro look --again [SOURCE]` | Looks through one source, or all of them, for what is new. |
 | `keevoro sources` | The backup's sources, each with its number. |
@@ -272,6 +282,7 @@ An ending is typed with or without its dot, in any case: `.HEIF` and `heif` are 
 | `keevoro set-aside` | Pictures set aside as probably not photos, each with the reason. |
 | `keevoro duplicates` | Files found more than once: the copy kept, and the copies left out. |
 | `keevoro picture CODE --to FILE` | Saves a small picture of one file; `--large` for a screen-sized one. |
+| `keevoro picture --file PATH --to FILE` | The same for any photo or video, by its path, found or not. Only Keevoro's cache is written. |
 
 A collection is named by its whole name, such as "Holidays / Cornwall", or by its last part, "Cornwall", when only one has it.
 

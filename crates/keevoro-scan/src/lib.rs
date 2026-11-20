@@ -567,6 +567,20 @@ fn quick_fingerprint(file: &mut File, size: u64) -> std::io::Result<String> {
     Ok(hasher.finalize().to_hex().to_string())
 }
 
+/// The fingerprint a search gives a file, worked out the same way: from a
+/// few samples for a large file when `quick` (as the app's searches are),
+/// otherwise from every byte. A picture made of a file before it is found
+/// is named by this, so the search finds that picture already made.
+pub fn fingerprint(path: &Path, quick: bool) -> std::io::Result<String> {
+    let mut file = File::open(path)?;
+    let size = file.metadata()?.len();
+    if quick && size > QUICK_ABOVE {
+        quick_fingerprint(&mut file, size)
+    } else {
+        hash_rest(&mut file, &[])
+    }
+}
+
 /// The BLAKE3 hash of every byte of a file: the fingerprint that proves two
 /// files are the same, and that a copy is exact.
 pub fn whole_hash(path: &Path) -> std::io::Result<String> {

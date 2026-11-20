@@ -307,6 +307,51 @@ pub static ROWS: &[Row] = &[
         show: show::nothing_more,
     },
     Row {
+        words: &["folders"],
+        ops: &[Op::PlacesFolders],
+        about: Some(
+            "The folders inside a place that hold photos or videos themselves, with how many each holds, from what `keevoro survey` found there. Nothing is added or changed.",
+        ),
+        args: |c| c.arg(arg("place", "A drive or folder that was surveyed").required(true)),
+        ask: |_, m, _| Ok((Op::PlacesFolders, json!({ "place": required(m, "place") }))),
+        show: show::folders,
+    },
+    Row {
+        words: &["files"],
+        ops: &[Op::PlacesFiles],
+        about: Some(
+            "The photos and videos directly in one folder, by name, a page at a time, without adding anything. Save a picture of one with `keevoro picture --file`.",
+        ),
+        args: |c| {
+            c.arg(arg("folder", "The folder").required(true))
+                .arg(
+                    Arg::new("from")
+                        .long("from")
+                        .value_name("N")
+                        .help("How many to pass over first; 0 when left out")
+                        .value_parser(clap::value_parser!(usize)),
+                )
+                .arg(
+                    Arg::new("count")
+                        .long("count")
+                        .value_name("N")
+                        .help("How many to list, at most 500; 100 when left out")
+                        .value_parser(clap::value_parser!(usize)),
+                )
+        },
+        ask: |_, m, _| {
+            Ok((
+                Op::PlacesFiles,
+                json!({
+                    "place": required(m, "folder"),
+                    "from": m.get_one::<usize>("from").copied().unwrap_or(0),
+                    "count": m.get_one::<usize>("count").copied().unwrap_or(100),
+                }),
+            ))
+        },
+        show: show::files,
+    },
+    Row {
         words: &["sources"],
         ops: &[Op::SourcesList],
         about: None,
@@ -464,9 +509,18 @@ pub static ROWS: &[Row] = &[
     Row {
         words: &["picture"],
         ops: &[Op::PhotosPicture],
-        about: Some("Saves a small or screen-sized picture of one photo or video, as a WebP file."),
+        about: Some(
+            "Saves a small or screen-sized picture of one photo or video, as a WebP file: one found, by its code, or any in a folder, by its path with --file. The file is only read.",
+        ),
         args: |c| {
-            c.arg(arg("photo", "The photo's code, as `keevoro photos` lists it").required(true))
+            c.arg(arg("photo", "The photo's code, as `keevoro photos` lists it").required_unless_present("file"))
+                .arg(
+                    Arg::new("file")
+                        .long("file")
+                        .value_name("PATH")
+                        .conflicts_with("photo")
+                        .help("Any photo or video, by its path, as `keevoro files` lists it"),
+                )
                 .arg(flag("large", "Screen-sized, not small"))
                 .arg(
                     Arg::new("to")
@@ -482,7 +536,11 @@ pub static ROWS: &[Row] = &[
                 ));
             }
             let size = if m.get_flag("large") { "screen" } else { "small" };
-            Ok((Op::PhotosPicture, json!({ "photo": required(m, "photo"), "size": size })))
+            let request = match text(m, "file") {
+                Some(file) => json!({ "file": file, "size": size }),
+                None => json!({ "photo": required(m, "photo"), "size": size }),
+            };
+            Ok((Op::PhotosPicture, request))
         },
         show: show::picture,
     },

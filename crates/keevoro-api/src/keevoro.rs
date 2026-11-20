@@ -219,6 +219,8 @@ pub struct Keevoro {
     web: Box<dyn Web + Send + Sync>,
     /// The jobs running, and everyone listening to them.
     pub(crate) jobs: Arc<Jobs>,
+    /// The last few folders looked inside (`places.files`).
+    pub(crate) listings: crate::inside::Listings,
 }
 
 impl Keevoro {
@@ -244,6 +246,7 @@ impl Keevoro {
             secrets: Arc::new(Keychain),
             web: Box::new(GitHub::from_env()),
             jobs,
+            listings: crate::inside::Listings::default(),
         };
         keevoro.apply_saved_choices();
         // Pictures kept for quick showing are kept within bounds, quietly,
@@ -482,6 +485,15 @@ impl Keevoro {
             not_ours: swept.not_ours,
             said,
         })
+    }
+
+    /// `photos.picture` of any photo or video by its path, as WebP bytes.
+    /// `backup`, when given, decides photos or videos only, and may know
+    /// the file from a search already.
+    pub fn picture_of_file(&self, file: &Path, size: PictureSize, backup: Option<&crate::Named>) -> Result<Vec<u8>> {
+        let (kinds, _) = self.kinds_for(backup);
+        let open = backup.and_then(|b| Backup::open_existing(&b.home));
+        crate::picture::picture_of_file(&self.cache, file, &kinds, size, open.as_ref())
     }
 
     /// `photos.picture`, as WebP bytes.

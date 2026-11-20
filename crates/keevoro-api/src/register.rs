@@ -117,6 +117,12 @@ register! {
     PlacesSurvey = "places.survey",
         "Finds the folders in a place that hold photos and videos, reading listings only",
         changes: Never, job: true, command_line: true, agents: Agents::Yes, implemented: true;
+    PlacesFolders = "places.folders",
+        "The folders inside a surveyed place that hold photos or videos, with how many each holds",
+        changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
+    PlacesFiles = "places.files",
+        "The photos and videos in one folder, a page at a time, without adding anything",
+        changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     SourcesList = "sources.list",
         "A backup's sources: name, place, how many photos and videos, size",
         changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
@@ -162,7 +168,7 @@ register! {
         "Files found more than once: the copy kept, the copies left out, and whether confirmed",
         changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     PhotosPicture = "photos.picture",
-        "A small or screen-sized picture of one file",
+        "A small or screen-sized picture of a found file, or of any photo or video in a folder",
         changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
 
     // Destinations
@@ -372,7 +378,8 @@ impl Op {
             Op::BackupsStart => schema::<StartBackupRequest>(),
             Op::BackupsRename => schema::<RenameBackupRequest>(),
             Op::BackupsForget => schema::<ForgetBackupRequest>(),
-            Op::PlacesSurvey | Op::SourcesLook => schema::<PlaceRequest>(),
+            Op::PlacesSurvey | Op::SourcesLook | Op::PlacesFolders => schema::<PlaceRequest>(),
+            Op::PlacesFiles => schema::<crate::inside::FilesRequest>(),
             Op::SourcesLookAgain => schema::<LookAgainRequest>(),
             Op::SourcesForget | Op::SourcesFileTypes => schema::<SourceRequest>(),
             Op::SourcesIncludeType => schema::<IncludeTypeRequest>(),
@@ -451,6 +458,20 @@ impl Op {
                  back its id at once; ask job_status with that id, and waitSeconds, for the folders it found. \
                  Changes nothing. Only works in folders the person has allowed (see my_access).",
             ),
+            Op::PlacesFolders => (
+                "folders_inside",
+                "Lists the folders inside a drive or folder that hold photos or videos themselves, with how many of \
+                 each, their size, and how many are only in online storage, from what survey_place found there \
+                 (survey it first). Use it to look inside a suggestion before choosing it. Changes nothing and adds \
+                 nothing. Only works in folders the person has allowed (see my_access).",
+            ),
+            Op::PlacesFiles => (
+                "files_in_folder",
+                "Lists the photos and videos directly in one folder, by name, a page at a time (from and count, at \
+                 most 500): each one's path, size, whether it is a video, and whether it is only in online storage. \
+                 Give a path to show_picture as file to see one. Reads the folder's listing only; changes nothing \
+                 and adds nothing to a backup. Only works in folders the person has allowed (see my_access).",
+            ),
             Op::SourcesList => (
                 "list_sources",
                 "Lists the places a backup looks for photos (its sources), with each one's id, where it is, and how \
@@ -526,9 +547,11 @@ impl Op {
             ),
             Op::PhotosPicture => (
                 "show_picture",
-                "Gives back a picture of one photo, or a still from a video, by the short id list_photos gives: \
-                 small, or screen-sized, so you can look at it or show it to the person. Changes nothing. Only for \
-                 files in folders the person has allowed (see my_access).",
+                "Gives back a picture of one photo, or a still from a video: by the short id list_photos gives \
+                 (photo), or of any photo or video by the path files_in_folder gives (file), small or screen-sized, \
+                 so you can look at it or show it to the person. A file only in online storage is never opened. \
+                 Changes nothing; the picture is kept only in Keevoro's own cache. Only for files in folders the \
+                 person has allowed (see my_access).",
             ),
             Op::DestinationsList => (
                 "list_destinations",
@@ -705,7 +728,7 @@ mod tests {
 
     #[test]
     fn the_register_has_every_operation_in_the_plan() {
-        assert_eq!(Op::ALL.len(), 50);
+        assert_eq!(Op::ALL.len(), 52);
         // Each entry is the one for its own operation.
         for op in Op::ALL {
             assert_eq!(op.entry().op, *op);
@@ -826,6 +849,8 @@ mod tests {
         "rename_backup",
         "list_places",
         "survey_place",
+        "folders_inside",
+        "files_in_folder",
         "list_sources",
         "look_through",
         "look_again",

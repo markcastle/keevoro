@@ -1119,6 +1119,8 @@ pub(crate) struct Context {
     pub(crate) secrets: Arc<dyn SecretStore + Send + Sync>,
     /// Where the rates measured in backups are remembered.
     pub(crate) rates: std::path::PathBuf,
+    /// Keevoro's cache folder, where surveys are remembered.
+    pub(crate) cache: std::path::PathBuf,
 }
 
 /// Ends a job however its thread ends, even by a panic, so its slot is
@@ -1181,6 +1183,7 @@ impl Keevoro {
             log: self.log_shared(),
             secrets: self.secrets_shared(),
             rates: self.rates_file(),
+            cache: self.cache_folder(),
         }
     }
 

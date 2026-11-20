@@ -802,3 +802,34 @@ fn tidy_says_first_what_it_would_clear_then_clears_it_in_the_apps_own_words() {
         "the same words as the API"
     );
 }
+
+#[test]
+fn a_folder_is_looked_inside_and_a_picture_saved_without_adding_anything() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let card = card(dir.path());
+    let at = At::new(dir.path());
+    let before = everything_written(&card);
+    let refused = at.keevoro(&["folders", &text(&card)]);
+    assert_ne!(refused.code, Code::Worked);
+    assert!(refused.err.contains("Find where the photos are"), "{}", refused.err);
+    at.keevoro(&["survey", &text(&card)]);
+    let folders = at.keevoro(&["folders", &text(&card)]);
+    assert_eq!(folders.code, Code::Worked, "{}", folders.err);
+    assert!(folders.out.contains("Cornwall"), "{}", folders.out);
+    let cornwall = card.join("Holidays").join("Cornwall");
+    let files = at.keevoro(&["files", &text(&cornwall), "--count", "1"]);
+    assert_eq!(files.code, Code::Worked, "{}", files.err);
+    assert!(files.out.contains(", 1 of them here:"), "{}", files.out);
+    let first = at.keevoro(&["files", &text(&cornwall), "--json"]).json()["files"][0]["path"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let to = dir.path().join("look.webp");
+    let saved = at.keevoro(&["picture", "--file", &first, "--to", &text(&to)]);
+    assert_eq!(saved.code, Code::Worked, "{}", saved.err);
+    assert_eq!(&std::fs::read(&to).unwrap()[8..12], b"WEBP");
+    assert_eq!(everything_written(&card), before, "the folder is exactly as it was");
+    let api = keevoro_in(dir.path(), FrontEnd::App);
+    assert!(api.backups().all().is_empty(), "nothing was added to any backup");
+}

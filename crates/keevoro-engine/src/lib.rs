@@ -21,11 +21,13 @@ pub mod deep;
 pub mod discover;
 pub mod history;
 pub mod layout;
+pub mod look;
 pub mod preview;
 pub mod reach;
 pub mod room;
 pub mod send;
 pub mod summary;
+pub mod surveys;
 
 pub use discover::{
     collection_photos, discover, set_aside, set_collection_kept, set_photo_kept, CollectionView, Discover, PhotoChoice,

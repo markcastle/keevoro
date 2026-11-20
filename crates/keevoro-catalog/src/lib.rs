@@ -713,6 +713,19 @@ impl Catalog {
         }
     }
 
+    /// The fingerprint a search gave the file at `path` (its full form, as
+    /// a search records it), if one found it there at this size.
+    pub fn id_at(&self, path: &Path, bytes: u64) -> Result<Option<String>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT blake3 FROM items WHERE path = ?1 AND bytes = ?2 AND blake3 IS NOT NULL ORDER BY id LIMIT 1",
+                params![path_text(path), to_i64(bytes)],
+                |r| r.get(0),
+            )
+            .optional()?)
+    }
+
     /// Remembers whether the user wants a file kept. `blake3` is the file's
     /// full content hash.
     pub fn set_choice(&self, blake3: &str, keep: bool) -> Result<()> {

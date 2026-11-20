@@ -848,3 +848,27 @@ mod how_deep {
         assert_eq!(found.hints.iter().map(|h| h.photos).sum::<usize>(), 2);
     }
 }
+
+#[test]
+fn a_file_is_fingerprinted_on_its_own_exactly_as_a_search_does() {
+    let t = Tree::new();
+    let small = t.add("small.jpg", &plain_jpeg(3));
+    let mut big = plain_jpeg(4);
+    big.resize(600 * 1024, 7);
+    let large = t.add("large.jpg", &big);
+    for quick in [true, false] {
+        let opts = ScanOptions {
+            quick,
+            ..ScanOptions::default()
+        };
+        let r = scan(t.root(), &opts, &mut |_| {});
+        for path in [&small, &large] {
+            let found = r.items.iter().find(|i| &i.path == path).unwrap();
+            assert_eq!(
+                found.blake3.as_deref(),
+                Some(fingerprint(path, quick).unwrap().as_str()),
+                "{path:?}, quick {quick}"
+            );
+        }
+    }
+}

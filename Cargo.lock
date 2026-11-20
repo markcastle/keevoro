@@ -2983,6 +2983,7 @@ name = "keevoro-engine"
 version = "0.32.0"
 dependencies = [
  "anyhow",
+ "blake3",
  "getrandom 0.3.4",
  "image",
  "keevoro-catalog",
@@ -2997,6 +2998,7 @@ dependencies = [
  "keevoro-storage-folder",
  "keevoro-storage-s3",
  "keyring",
+ "rusqlite",
  "serde",
  "serde_json",
  "sysinfo",

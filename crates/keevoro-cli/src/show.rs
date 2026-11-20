@@ -332,6 +332,63 @@ pub fn picture(io: &mut Io<'_>, m: &ArgMatches, answer: &Value) -> Said_ {
     Ok(Code::Worked)
 }
 
+pub fn folders(io: &mut Io<'_>, _: &ArgMatches, view: &Value) -> Said_ {
+    writeln!(
+        io.out,
+        "{} in {}, in {}:",
+        photos_and_videos(n(view, "photos"), n(view, "videos")),
+        s(view, "place"),
+        count(each(view.get("folders").unwrap_or(&Value::Null)).count(), "folder")
+    )?;
+    for folder in each(view.get("folders").unwrap_or(&Value::Null)) {
+        let online = match n(folder, "onlineOnly") {
+            0 => String::new(),
+            many => format!(", {} only online", thousands(many)),
+        };
+        writeln!(
+            io.out,
+            "{:>9}  {}{online}  {}",
+            bytes(b(folder, "bytes")),
+            photos_and_videos(n(folder, "photos"), n(folder, "videos")),
+            s(folder, "folder")
+        )?;
+    }
+    if view.get("complete").and_then(Value::as_bool) == Some(false) {
+        writeln!(io.out, "The survey was stopped part-way, so there may be more.")?;
+    }
+    Ok(Code::Worked)
+}
+
+pub fn files(io: &mut Io<'_>, _: &ArgMatches, view: &Value) -> Said_ {
+    let list: Vec<&Value> = each(view.get("files").unwrap_or(&Value::Null)).collect();
+    writeln!(
+        io.out,
+        "{} in {}{}",
+        photos_and_videos(n(view, "photos"), n(view, "videos")),
+        s(view, "folder"),
+        if list.len() < n(view, "total") {
+            format!(", {} of them here:", thousands(list.len()))
+        } else {
+            ":".to_string()
+        }
+    )?;
+    for file in list {
+        let what = if yes(file, "isVideo") { "video" } else { "photo" };
+        let online = if yes(file, "onlineOnly") {
+            "  (only online, so not opened)"
+        } else {
+            ""
+        };
+        writeln!(
+            io.out,
+            "{:>9}  {what}  {}{online}",
+            bytes(b(file, "bytes")),
+            s(file, "path")
+        )?;
+    }
+    Ok(Code::Worked)
+}
+
 pub fn destinations(io: &mut Io<'_>, _: &ArgMatches, list: &Value) -> Said_ {
     if each(list).next().is_none() {
         writeln!(
