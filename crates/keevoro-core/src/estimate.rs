@@ -249,6 +249,10 @@ pub struct Estimate {
     pub stages: Vec<StageView>,
     /// Seconds Keevoro has been paused during this backup.
     pub paused_seconds: u64,
+    /// How long it has run and how long is left, in one line (see
+    /// [`headline`]). Filled in by whoever knows when it started.
+    #[serde(default)]
+    pub headline: String,
 }
 
 /// A stage of the plan: what kind, for which destination, and how much.
@@ -546,17 +550,23 @@ impl Estimator {
     }
 
     /// A stage is over, whether or not all its work was needed.
+    /// A stage the plan never had is left out.
     pub fn finish(&mut self, kind: Kind, to: Option<&str>, now: f64) {
         let t = self.active(now);
-        let at = self.find_or_add(kind, to);
-        let stage = &mut self.stages[at];
+        let Some(stage) = self.stages.iter_mut().find(|s| s.is(kind, to)) else {
+            return;
+        };
         if stage.began.is_none() {
             stage.began = Some(t);
         }
         if stage.ended.is_none() {
             stage.ended = Some(t);
-            // Whatever was not needed (already there, say) is not left over.
-            stage.work = stage.done;
+            // Whatever was not needed (already there, say) is not left
+            // over. A stage that said nothing as it went keeps its plan,
+            // so it is still shown as done.
+            if stage.done > 0 {
+                stage.work = stage.done;
+            }
             self.material = true;
         }
     }
@@ -743,6 +753,7 @@ impl Estimator {
             fraction_done: if all_done { 1.0 } else { fraction_done.clamp(0.0, 0.999) },
             stages: self.views(t),
             paused_seconds: (now - t).max(0.0).round() as u64,
+            headline: String::new(),
         }
     }
 
@@ -773,8 +784,8 @@ impl Estimator {
         };
         self.stages
             .iter()
-            // A stage with nothing to do and not begun is not worth a line.
-            .filter(|s| s.work > 0 || s.began.is_some())
+            // A stage that had nothing to do is not worth a line.
+            .filter(|s| s.work > 0 || s.done > 0 || s.running())
             .map(|s| {
                 let state = if s.finished() {
                     State::Done
@@ -797,6 +808,8 @@ impl Estimator {
                     }
                 }
                 let line = match (state, s.kind.unit()) {
+                    // One small file per destination: nothing to count.
+                    _ if s.kind == Kind::WritingIndex => label,
                     (State::Done, _) => label,
                     (State::Next, _) if s.work == 0 => label,
                     (State::Next, Unit::Bytes) => format!("{label}: {}", size(s.work)),
@@ -966,6 +979,23 @@ pub fn headline(running_seconds: u64, estimate: &Estimate) -> String {
     }
 }
 
+/// The headline and then each stage on a line of its own, marked done,
+/// now or still to come, for front ends that write text: the command line
+/// and an agent's summaries.
+pub fn in_lines(estimate: &Estimate) -> Vec<String> {
+    let mut lines = vec![estimate.headline.clone()];
+    lines.retain(|l| !l.is_empty());
+    for stage in &estimate.stages {
+        let mark = match stage.state {
+            State::Done => "Done",
+            State::Now | State::Alongside => "Now",
+            State::Next => "Then",
+        };
+        lines.push(format!("{mark}: {}", stage.line));
+    }
+    lines
+}
+
 /// Bytes as the app shows them: "708.4 GB".
 pub fn size(bytes: u64) -> String {
     const UNITS: [&str; 5] = ["bytes", "KB", "MB", "GB", "TB"];
@@ -1006,6 +1036,8 @@ pub struct Tracker {
 
 struct Tracked {
     estimator: Estimator,
+    /// Bytes of previews per original, as measured in this backup.
+    preview_bytes: Option<f64>,
     /// The sending stage measured by the count of bytes sent, and that
     /// count when it began.
     metered: Option<(Kind, Option<String>, u64)>,
@@ -1016,6 +1048,7 @@ impl Tracker {
         Self {
             inner: std::sync::Arc::new(std::sync::Mutex::new(Tracked {
                 estimator: Estimator::new(remembered),
+                preview_bytes: None,
                 metered: None,
             })),
             began: std::time::Instant::now(),
@@ -1082,7 +1115,25 @@ impl Tracker {
 
     /// What this backup measured, for remembering.
     pub fn measured(&self) -> Remembered {
-        self.with(|t, now| t.estimator.measured(now))
+        self.with(|t, now| Remembered {
+            preview_bytes_per_original: t.preview_bytes,
+            ..t.estimator.measured(now)
+        })
+    }
+
+    /// The bytes of previews one original makes, as best known.
+    pub fn preview_bytes(&self) -> f64 {
+        self.with(|t, _| {
+            t.preview_bytes
+                .unwrap_or_else(|| t.estimator.remembered.preview_bytes())
+        })
+    }
+
+    /// The bytes of previews one original made, as measured now.
+    pub fn note_preview_bytes(&self, per_original: f64) {
+        if per_original.is_finite() && per_original > 0.0 {
+            self.with(|t, _| t.preview_bytes = Some(per_original));
+        }
     }
 }
 
@@ -1410,6 +1461,23 @@ mod tests {
     }
 
     #[test]
+    fn the_whole_estimate_can_be_written_as_lines() {
+        let mut e = one_backup(10 * GB, 1000);
+        e.finish(Kind::Placing, None, 0.0);
+        send_for(&mut e, 0.0, 60, 10 * MB, 0);
+        e.progress(Kind::MakingPreviews, None, 240, 60.0);
+        let mut est = e.estimate(60.0);
+        est.headline = headline(65, &est);
+        let lines = in_lines(&est);
+        assert!(lines[0].starts_with("Running for 1 minute, "), "{lines:?}");
+        assert_eq!(lines[1], "Done: Working out where each file goes");
+        assert!(lines[2].starts_with("Now: Backing up your files: "));
+        assert_eq!(lines[3], "Now: Making previews in the background: 240 of 1,000");
+        assert_eq!(lines[4], "Then: Backing up the previews: 390.6 MB");
+        assert_eq!(lines[5], "Then: Writing the list of what is there");
+    }
+
+    #[test]
     fn numbers_are_written_as_the_app_writes_them() {
         assert_eq!(size(512), "512 bytes");
         assert_eq!(size(700 * GB), "700.0 GB");
@@ -1443,5 +1511,10 @@ mod tests {
         tracker.finish(Kind::SendingOriginals, Some("x"));
         assert_eq!(tracker.estimate().stages[0].state, State::Done);
         assert!(tracker.measured().rates.is_empty(), "too short to remember");
+        assert_eq!(tracker.preview_bytes(), GUESSED_PREVIEW_BYTES);
+        tracker.note_preview_bytes(300_000.0);
+        tracker.note_preview_bytes(f64::NAN);
+        assert_eq!(tracker.preview_bytes(), 300_000.0);
+        assert_eq!(tracker.measured().preview_bytes_per_original, Some(300_000.0));
     }
 }

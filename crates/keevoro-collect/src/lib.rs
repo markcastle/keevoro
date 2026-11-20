@@ -15,8 +15,12 @@
 mod previews;
 mod videos;
 
-pub use previews::{make_previews, make_previews_while, PreviewReport};
-pub use videos::{make_video_previews, make_video_previews_while, VideoReport};
+pub use previews::{
+    foreground_workers, make_previews, make_previews_paced, make_previews_while, previews_to_make, Pace, PreviewReport,
+};
+pub use videos::{
+    make_video_previews, make_video_previews_paced, make_video_previews_while, video_previews_to_make, VideoReport,
+};
 
 use keevoro_catalog::{Catalog, CatalogError};
 use keevoro_core::{library_folder, numbered_name, safe_name};

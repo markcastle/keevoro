@@ -2988,6 +2988,7 @@ dependencies = [
  "keevoro-catalog",
  "keevoro-collect",
  "keevoro-core",
+ "keevoro-frame",
  "keevoro-index",
  "keevoro-media",
  "keevoro-publish",
@@ -2998,6 +2999,7 @@ dependencies = [
  "keyring",
  "serde",
  "serde_json",
+ "sysinfo",
  "tempfile",
  "tokio",
 ]

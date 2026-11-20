@@ -131,6 +131,10 @@ fn hear(
         }
         drop(tell);
         let mut progress = Progress::new(io.watched);
+        // A backup's headline (how long it has run, how long is left),
+        // asked for at most once a second, as the app asks.
+        let mut headline = String::new();
+        let mut asked = None::<std::time::Instant>;
         let mut left = ids.len();
         let mut code = Code::Worked;
         // Each job's last word, once it has been said as an event.
@@ -145,7 +149,23 @@ fn hear(
                     if event.said.is_last() {
                         said_last.push(event.job);
                     } else if !json {
-                        progress.show(io, &step(&event.said))?;
+                        if matches!(event.said, Said::Send(_)) && asked.is_none_or(|at| at.elapsed().as_secs() >= 1) {
+                            asked = Some(std::time::Instant::now());
+                            headline = ctx
+                                .keevoro
+                                .jobs(None)
+                                .into_iter()
+                                .find(|status| status.handle.id == event.job)
+                                .and_then(|status| status.estimate)
+                                .map(|estimate| estimate.headline)
+                                .unwrap_or_default();
+                        }
+                        let step = step(&event.said);
+                        if headline.is_empty() || step.is_empty() {
+                            progress.show(io, &step)?;
+                        } else {
+                            progress.show_with(io, &step, &headline)?;
+                        }
                     }
                 }
                 Heard::Said(_) => {}
@@ -233,6 +253,7 @@ struct Progress {
     watched: bool,
     shown: bool,
     last_step: String,
+    last_headline: String,
 }
 
 impl Progress {
@@ -241,6 +262,7 @@ impl Progress {
             watched,
             shown: false,
             last_step: String::new(),
+            last_headline: String::new(),
         }
     }
 
@@ -258,6 +280,22 @@ impl Progress {
         if words != self.last_step {
             self.last_step = words;
             writeln!(io.err, "{line}")?;
+        }
+        Ok(())
+    }
+
+    /// A step with the backup's headline. Watched, both share the line;
+    /// otherwise the headline is its own line, written when its words
+    /// change, which is when the estimate is worked out again or a minute
+    /// passes.
+    fn show_with(&mut self, io: &mut Io<'_>, line: &str, headline: &str) -> std::io::Result<()> {
+        if self.watched {
+            return self.show(io, &format!("{line}. {headline}"));
+        }
+        self.show(io, line)?;
+        if headline != self.last_headline {
+            headline.clone_into(&mut self.last_headline);
+            writeln!(io.err, "{headline}")?;
         }
         Ok(())
     }

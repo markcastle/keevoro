@@ -114,6 +114,50 @@ mod previews {
     }
 
     #[test]
+    fn previews_made_at_a_pace_wait_their_turn_and_hear_a_stop_while_waiting() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let w = World::new();
+        for (n, shade) in [10u8, 60, 110].iter().enumerate() {
+            w.add(&format!("Family/{n}.jpg"), &real_jpeg(*shade));
+        }
+        let report = w.scan();
+        w.place(&report);
+        let items: Vec<&FoundItem> = report.items.iter().collect();
+        assert_eq!(crate::previews_to_make(&w.library(), &w.catalog, &items).unwrap(), 3);
+
+        // Nothing allowed: nothing is made, and a stop is heard while waiting.
+        let started = AtomicUsize::new(0);
+        let asked = AtomicUsize::new(0);
+        let nothing = crate::Pace {
+            allowed: &|| 0,
+            on_worker: &|| {
+                started.fetch_add(1, Ordering::SeqCst);
+            },
+        };
+        let p = crate::make_previews_paced(
+            &w.library(),
+            &w.catalog,
+            &items,
+            &mut |_, _| {},
+            &|| asked.fetch_add(1, Ordering::SeqCst) < 3,
+            nothing,
+        )
+        .unwrap();
+        assert_eq!(p.made, 0);
+        assert!(started.load(Ordering::SeqCst) >= 1, "each worker was told it started");
+        assert_eq!(crate::previews_to_make(&w.library(), &w.catalog, &items).unwrap(), 3);
+
+        // One at a time: all of them, in the end.
+        let one = crate::Pace {
+            allowed: &|| 1,
+            on_worker: &|| {},
+        };
+        let p = crate::make_previews_paced(&w.library(), &w.catalog, &items, &mut |_, _| {}, &|| true, one).unwrap();
+        assert_eq!(p.made, 3);
+        assert_eq!(crate::previews_to_make(&w.library(), &w.catalog, &items).unwrap(), 0);
+    }
+
+    #[test]
     fn a_deleted_thumbnail_is_made_again() {
         let w = World::new();
         w.add("Family/a.jpg", &real_jpeg(10));

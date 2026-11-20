@@ -199,6 +199,13 @@ fn status(answer: &Value) -> String {
                 ""
             }
         ));
+        // A backup's whole estimate, in the words a person sees in the app.
+        if let Some(estimate) = job
+            .get("estimate")
+            .and_then(|e| serde_json::from_value::<keevoro_api::estimate::Estimate>(e.clone()).ok())
+        {
+            lines.extend(keevoro_api::estimate::in_lines(&estimate));
+        }
     }
     if lines.is_empty() {
         return "Nothing is running.".to_string();

@@ -30,12 +30,80 @@ pub struct PreviewReport {
     pub no_preview: Vec<Failed>,
 }
 
-/// How many previews to make at once: half the processor's cores, and never
-/// more than four. Enough to be several times quicker than one at a time,
-/// while leaving the rest of the computer to its owner.
-fn workers_for(photos: usize) -> usize {
+/// How many previews to make at once in the foreground: half the
+/// processor's cores, and never more than four. Enough to be several times
+/// quicker than one at a time, while leaving the rest of the computer to
+/// its owner. Work in the background uses fewer (see [`Pace`]).
+pub fn foreground_workers() -> usize {
     let cores = std::thread::available_parallelism().map_or(2, std::num::NonZero::get);
-    (cores / 2).clamp(1, 4).min(photos.max(1))
+    (cores / 2).clamp(1, 4)
+}
+
+/// How fast previews may be made, decided afresh as they are. Work done in
+/// the background, beside a backup, is given one that slows or waits when
+/// the computer is wanted for something else.
+#[derive(Clone, Copy)]
+pub struct Pace<'a> {
+    /// How many may be made at once now. Zero means wait.
+    pub allowed: &'a (dyn Fn() -> usize + Sync),
+    /// Called on each worker thread as it starts: to lower its priority,
+    /// say.
+    pub on_worker: &'a (dyn Fn() + Sync),
+}
+
+impl Pace<'_> {
+    /// As fast as the foreground allows, as previews were always made.
+    pub fn full() -> Pace<'static> {
+        Pace {
+            allowed: &|| usize::MAX,
+            on_worker: &|| {},
+        }
+    }
+
+    /// Waits, a little at a time, while no work is allowed. False if asked
+    /// to stop meanwhile.
+    pub(crate) fn wait_for_a_turn(&self, worker: usize, stop: &dyn Fn() -> bool) -> bool {
+        while worker >= (self.allowed)() {
+            if stop() {
+                return false;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        }
+        !stop()
+    }
+}
+
+/// The photos in `items` that have their place and lack previews.
+fn todo_list<'a>(
+    library: &Path,
+    catalog: &Catalog,
+    items: &[&'a FoundItem],
+    report: &mut PreviewReport,
+) -> Result<Vec<(&'a str, std::path::PathBuf, std::path::PathBuf, std::path::PathBuf)>, CatalogError> {
+    let mut todo = Vec::new();
+    for item in items.iter().filter(|i| i.kind == MediaKind::Photo) {
+        let Some(hash) = item.blake3.as_deref() else { continue };
+        if catalog.collected_path(hash)?.is_none() {
+            continue;
+        }
+        let id = &hash[..hash.len().min(16)];
+        let thumb = in_library(library, &rendition_path(Rendition::Thumb, id));
+        let display = in_library(library, &rendition_path(Rendition::Display, id));
+        match catalog.rendition(hash)? {
+            Some(RenditionState::Made { .. }) if thumb.is_file() && display.is_file() => report.already_there += 1,
+            Some(RenditionState::NoPreview { reason }) => report.no_preview.push(Failed {
+                path: item.path.clone(),
+                reason,
+            }),
+            _ => todo.push((hash, item.path.clone(), thumb, display)),
+        }
+    }
+    Ok(todo)
+}
+
+/// How many photos in `items` still need previews made.
+pub fn previews_to_make(library: &Path, catalog: &Catalog, items: &[&FoundItem]) -> Result<usize, CatalogError> {
+    Ok(todo_list(library, catalog, items, &mut PreviewReport::default())?.len())
 }
 
 /// Makes previews for every photo in `items` that has its place and lacks
@@ -59,25 +127,25 @@ pub fn make_previews_while(
     on_progress: &mut dyn FnMut(usize, usize),
     keep_going: &dyn Fn() -> bool,
 ) -> Result<PreviewReport, CatalogError> {
+    make_previews_paced(library, catalog, items, on_progress, keep_going, Pace::full())
+}
+
+/// As [`make_previews_while`], at the pace `pace` allows from moment to
+/// moment. `keep_going` is asked between photos, and also while waiting
+/// for a turn, so a stop is heard at once.
+pub fn make_previews_paced(
+    library: &Path,
+    catalog: &Catalog,
+    items: &[&FoundItem],
+    on_progress: &mut dyn FnMut(usize, usize),
+    keep_going: &dyn Fn() -> bool,
+    pace: Pace<'_>,
+) -> Result<PreviewReport, CatalogError> {
     let _busy = keevoro_core::doing::doing(keevoro_core::doing::Work::MakingPreviews);
     let mut report = PreviewReport::default();
-    let mut todo = Vec::new();
-    for item in items.iter().filter(|i| i.kind == MediaKind::Photo) {
-        let Some(hash) = item.blake3.as_deref() else { continue };
-        if catalog.collected_path(hash)?.is_none() {
-            continue;
-        }
-        let id = &hash[..hash.len().min(16)];
-        let thumb = in_library(library, &rendition_path(Rendition::Thumb, id));
-        let display = in_library(library, &rendition_path(Rendition::Display, id));
-        match catalog.rendition(hash)? {
-            Some(RenditionState::Made { .. }) if thumb.is_file() && display.is_file() => report.already_there += 1,
-            Some(RenditionState::NoPreview { reason }) => report.no_preview.push(Failed {
-                path: item.path.clone(),
-                reason,
-            }),
-            _ => todo.push((hash, item.path.clone(), thumb, display)),
-        }
+    let todo = todo_list(library, catalog, items, &mut report)?;
+    if !keep_going() {
+        return Ok(report);
     }
 
     // Making a preview is all thinking and no waiting, so several are
@@ -89,35 +157,53 @@ pub fn make_previews_while(
     let (finished, results) = mpsc::channel::<(usize, Result<RenditionState, MediaError>)>();
     let mut failure = None;
     std::thread::scope(|workers| {
-        for _ in 0..workers_for(total) {
+        for worker in 0..foreground_workers().min(total.max(1)) {
             let (finished, todo, next, stop) = (finished.clone(), &todo, &next, &stop);
-            workers.spawn(move || loop {
-                keevoro_core::pause::wait_while_paused();
-                if stop.load(Ordering::SeqCst) {
-                    break;
-                }
-                let at = next.fetch_add(1, Ordering::SeqCst);
-                let Some((_, original, thumb, display)) = todo.get(at) else {
-                    break;
-                };
-                let made = render_photo(original).and_then(|r| {
-                    write_rendition(thumb, &r.thumb)?;
-                    write_rendition(display, &r.display)?;
-                    Ok(RenditionState::Made {
-                        width: r.width,
-                        height: r.height,
-                        blurhash: r.blurhash,
-                    })
-                });
-                if finished.send((at, made)).is_err() {
-                    break;
+            workers.spawn(move || {
+                (pace.on_worker)();
+                loop {
+                    keevoro_core::pause::wait_while_paused();
+                    // Nothing left to take is as good as a stop for a worker
+                    // still waiting its turn.
+                    let stopped = || stop.load(Ordering::SeqCst) || next.load(Ordering::SeqCst) >= todo.len();
+                    if !pace.wait_for_a_turn(worker, &stopped) {
+                        break;
+                    }
+                    let at = next.fetch_add(1, Ordering::SeqCst);
+                    let Some((_, original, thumb, display)) = todo.get(at) else {
+                        break;
+                    };
+                    let made = render_photo(original).and_then(|r| {
+                        write_rendition(thumb, &r.thumb)?;
+                        write_rendition(display, &r.display)?;
+                        Ok(RenditionState::Made {
+                            width: r.width,
+                            height: r.height,
+                            blurhash: r.blurhash,
+                        })
+                    });
+                    if finished.send((at, made)).is_err() {
+                        break;
+                    }
                 }
             });
         }
         drop(finished);
 
         let mut done = 0;
-        for (at, made) in results {
+        loop {
+            // Asked now and then even when nothing is finishing, since the
+            // workers may all be waiting for their turn.
+            let (at, made) = match results.recv_timeout(std::time::Duration::from_millis(250)) {
+                Ok(finished) => finished,
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    if !keep_going() {
+                        stop.store(true, Ordering::SeqCst);
+                    }
+                    continue;
+                }
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            };
             let (hash, original, _, _) = &todo[at];
             let recorded = match made {
                 Ok(state) => {

@@ -515,12 +515,22 @@ pub fn status(io: &mut Io<'_>, _: &ArgMatches, list: &Value) -> Said_ {
         if !s(job, "step").is_empty() {
             writeln!(io.out, "  {}", s(job, "step"))?;
         }
-        if b(job, "speed") > 0 {
-            let left = match job.get("secondsLeft").and_then(Value::as_u64) {
-                Some(seconds) => format!(", {} left", duration(seconds)),
-                None => String::new(),
-            };
-            writeln!(io.out, "  {} a second{left}", bytes(b(job, "speed")))?;
+        // A backup says how long it has run, how long is left, and every
+        // stage, in the same words the app and an agent are given.
+        match job
+            .get("estimate")
+            .and_then(|e| serde_json::from_value::<keevoro_api::estimate::Estimate>(e.clone()).ok())
+        {
+            Some(estimate) => {
+                for line in keevoro_api::estimate::in_lines(&estimate) {
+                    writeln!(io.out, "  {line}")?;
+                }
+            }
+            None => writeln!(
+                io.out,
+                "  Running for {}",
+                keevoro_api::estimate::running_for(b(job, "runningSeconds"))
+            )?,
         }
     }
     Ok(Code::Worked)
