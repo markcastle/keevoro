@@ -56,6 +56,7 @@ import type {
   Update,
 } from './backend'
 import { about, count, photosAndVideos, size, thousands, wholePlace } from './format'
+import { heldShare } from './held'
 import lockupDarkLargeUrl from './assets/keevoro-lockup-reversed-large.png'
 import lockupShadowUrl from './assets/keevoro-lockup-shadow.png'
 import lockupDarkUrl from './assets/keevoro-lockup-reversed.png'
@@ -2474,9 +2475,10 @@ function SendPanel(props: {
           if (!open || mine < shown) return
           shown = mine
           // A re-estimate can make the share done slip back a little; the
-          // bar holds where it was rather than looking like lost work.
+          // bar holds where it was rather than looking like lost work, but
+          // gives way to a reading well below it (see `heldShare`).
           if (p.estimate) {
-            furthest = Math.max(furthest, p.estimate.fractionDone)
+            furthest = heldShare(furthest, p.estimate.fractionDone)
             setProgress({ ...p, estimate: { ...p.estimate, fractionDone: furthest } })
           } else {
             setProgress(p)

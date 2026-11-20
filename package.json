@@ -12,7 +12,7 @@
     "ui:build": "tsc -b && vite build",
     "lint": "oxlint ui/src",
     "ui:test": "node scripts/ui-test.mjs",
-    "ui:unit": "node --test ui/src/treemap.test.ts",
+    "ui:unit": "node --test ui/src/treemap.test.ts ui/src/held.test.ts",
     "tokens": "node scripts/make-tokens.mjs"
   },
   "dependencies": {
