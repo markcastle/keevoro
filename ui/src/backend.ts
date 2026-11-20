@@ -228,13 +228,42 @@ export type SendProgress = {
   stopping: boolean
   /** What it last said it was doing; empty when nothing is running. */
   line: string
-  bytesDone: number
-  bytesTotal: number
-  /** Bytes a second, steadied over the last few seconds. */
-  speed: number
-  /** Null while nothing is arriving, when no honest guess can be made. */
-  secondsLeft: number | null
+  /** Seconds since it started, by the clock, from the job itself. */
+  runningSeconds: number
+  /** For a backup: how long the whole of it has left, stage by stage. Null for a check. */
+  estimate: BackupEstimate | null
   overNetwork: boolean
+}
+
+/** One stage of a backup, as `keevoro_core::estimate::StageView` says it. */
+export type BackupStage = {
+  kind: 'tellingApart' | 'placing' | 'sendingOriginals' | 'makingPreviews' | 'makingVideoPreviews' | 'sendingPreviews' | 'writingIndex'
+  /** Which destination, for work done once per destination. */
+  to: string | null
+  /** Done, what it is doing now, under way alongside in the background, or still to come. */
+  state: 'done' | 'now' | 'alongside' | 'next'
+  unit: 'bytes' | 'files'
+  done: number
+  work: number
+  /** Per second, while it runs and once measured. */
+  perSecond: number | null
+  /** As shown: "Backing up your files: 708.4 GB of 716.8 GB at 7.5 MB/s". */
+  line: string
+}
+
+/** How long until a whole backup is done, as the one estimator in `keevoro_core::estimate` says. */
+export type BackupEstimate = {
+  /** Null when there is no honest answer yet. */
+  secondsLeft: number | null
+  sureness: 'fair' | 'rough' | 'unknown' | 'stalled'
+  /** "About 12 minutes left", "Roughly 6 hours left", "Working out how long this will take". */
+  left: string
+  /** How much of the whole backup is done, from 0 to 1. */
+  fractionDone: number
+  stages: BackupStage[]
+  pausedSeconds: number
+  /** "Running for 5 hours 12 minutes, about 3 hours left". */
+  headline: string
 }
 
 /** What Keevoro is doing, why, and how hard it has been working. */

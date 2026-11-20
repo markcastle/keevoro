@@ -1940,41 +1940,18 @@ function SendPanel(props: {
   const [history, setHistory] = useState<Sent[]>([])
   const sending = running !== null
   // The engine's line is what it is doing, then after a tab the file it
-  // has just dealt with. Any "3 of 10" in it also drives a progress bar,
-  // whatever the step: checking, backing up, or making previews.
+  // has just dealt with. A check has no estimate, so any "3 of 10" in its
+  // line drives its bar.
   const [doingNow, latestFile] = (running ?? '').split('\t')
   const steadyFile = useSteady(latestFile, 700)
   const counts = /([\d,]+) of ([\d,]+)/.exec(doingNow)
   const counted = counts
     ? { done: Number(counts[1].replace(/,/g, '')), total: Number(counts[2].replace(/,/g, '')) }
     : null
-  // How long a step has left, judged from how fast its count has moved
-  // since it began. A step is known by its words before the count, so a
-  // new step starts a new estimate. Nothing is guessed until it has been
-  // watched for a few seconds and has moved. It is worked out as each
-  // line arrives (see `noteStep`), not while drawing.
-  const stepBegan = useRef<{ name: string; at: number; done: number } | null>(null)
-  const [stepLeft, setStepLeft] = useState<number | null>(null)
-  const noteStep = useCallback((line: string | null) => {
-    const step = (line ?? '').split('\t')[0]
-    const found = /([\d,]+) of ([\d,]+)/.exec(step)
-    if (!found) {
-      stepBegan.current = null
-      setStepLeft(null)
-      return
-    }
-    const [done, total] = [found[1], found[2]].map((n) => Number(n.replace(/,/g, '')))
-    const name = step.replace(/[\d,]+ of [\d,]+.*$/, '')
-    const now = Date.now()
-    if (stepBegan.current?.name !== name || done < stepBegan.current.done) {
-      stepBegan.current = { name, at: now, done }
-      setStepLeft(null)
-      return
-    }
-    const seconds = (now - stepBegan.current.at) / 1000
-    const moved = done - stepBegan.current.done
-    setStepLeft(seconds >= 4 && moved > 0 ? Math.round((seconds / moved) * (total - done)) : null)
-  }, [])
+  // A backup's own estimate of the whole of it: how long it has run, how
+  // long is left, and every stage. Worked out by Keevoro, the same words
+  // the command line and an agent are given.
+  const estimate = progress?.estimate ?? null
   useEffect(() => {
     if (!sending) return
     let open = true
@@ -1992,8 +1969,14 @@ function SendPanel(props: {
         .then((p) => {
           if (!open || mine < shown) return
           shown = mine
-          furthest = Math.max(furthest, p.bytesDone)
-          setProgress({ ...p, bytesDone: Math.min(furthest, p.bytesTotal) })
+          // A re-estimate can make the share done slip back a little; the
+          // bar holds where it was rather than looking like lost work.
+          if (p.estimate) {
+            furthest = Math.max(furthest, p.estimate.fractionDone)
+            setProgress({ ...p, estimate: { ...p.estimate, fractionDone: furthest } })
+          } else {
+            setProgress(p)
+          }
         })
         .catch(() => {})
     }
@@ -2045,15 +2028,14 @@ function SendPanel(props: {
       if (event.finished) {
         setRunning(null)
         setStopping(false)
+        setProgress(null)
         setSaid(event)
-        noteStep(null)
         onSent()
       } else if (event.line) {
         setRunning(event.line)
-        noteStep(event.line)
       }
     })
-  }, [api, onProblem, onSent, noteStep])
+  }, [api, onProblem, onSent])
 
   const connect = (request: ConnectRequest) => {
     setConnecting(true)
@@ -2289,16 +2271,20 @@ function SendPanel(props: {
               ))}
             </ul>
           )}
-          <p>
-            {props.waiting > 0
-              ? `${props.waiting.toLocaleString('en-GB')} ${props.waiting === 1 ? 'file is' : 'files are'} waiting to be backed up.${
-                  props.safe > 0 ? ` ${props.safe.toLocaleString('en-GB')} already there.` : ''
-                }`
-              : props.safe > 0
-                ? `Everything you are keeping is there: ${props.safe.toLocaleString('en-GB')} files.`
-                : 'Nothing is being kept yet.'}
-          </p>
-          {room && room.needed > 0 && (
+          {/* While a backup runs its own progress says what is left; these
+              counts are from before it began and would only mislead. */}
+          {!sending && (
+            <p>
+              {props.waiting > 0
+                ? `${props.waiting.toLocaleString('en-GB')} ${props.waiting === 1 ? 'file is' : 'files are'} waiting to be backed up.${
+                    props.safe > 0 ? ` ${props.safe.toLocaleString('en-GB')} already there.` : ''
+                  }`
+                : props.safe > 0
+                  ? `Everything you are keeping is there: ${props.safe.toLocaleString('en-GB')} files.`
+                  : 'Nothing is being kept yet.'}
+            </p>
+          )}
+          {!sending && room && room.needed > 0 && (
             <p className={room.enough ? 'needs' : 'needs short'} role={room.enough ? undefined : 'alert'}>
               {room.free === null ? (
                 <>
@@ -2316,42 +2302,45 @@ function SendPanel(props: {
               )}
             </p>
           )}
-          {running && counted && !(progress && progress.bytesTotal > 0 && progress.bytesDone < progress.bytesTotal) && (
+          {running && (
             <div className="speed" role="status" aria-live="off">
-              <progress value={counted.done} max={counted.total} />
+              {/* One bar for the whole backup, the same length whatever it says. */}
+              {estimate ? (
+                <progress value={estimate.fractionDone} max={1} />
+              ) : counted ? (
+                <progress value={counted.done} max={counted.total} />
+              ) : (
+                <progress />
+              )}
               <p>
-                <b>
-                  {thousands(counted.done)} of {thousands(counted.total)}
-                </b>{' '}
-                done
-                {progress && progress.speed > 0 && (
-                  <>
-                    {' '}
-                    at <b>{size(progress.speed)}/s</b>
-                  </>
-                )}
-                {stepLeft !== null && stepLeft > 0 && <>, {about(stepLeft)} left for this step</>}
+                {estimate
+                  ? estimate.headline
+                  : counted
+                    ? `${thousands(counted.done)} of ${thousands(counted.total)} done`
+                    : 'Getting ready…'}
               </p>
-            </div>
-          )}
-          {running && progress && progress.bytesTotal > 0 && progress.bytesDone < progress.bytesTotal && (
-            <div className="speed" role="status" aria-live="off">
-              <progress value={progress.bytesDone} max={progress.bytesTotal} />
-              <p>
-                <b>
-                  {size(progress.bytesDone)} of {size(progress.bytesTotal)}
-                </b>{' '}
-                backed up
-                {progress.speed > 0 ? (
-                  <>
-                    {' '}
-                    at <b>{size(progress.speed)}/s</b>
-                    {progress.secondsLeft !== null && <>, {about(progress.secondsLeft)} left</>}
-                  </>
-                ) : (
-                  <span className="quiet">. Working out the speed…</span>
-                )}
-              </p>
+              {estimate && estimate.stages.length > 0 && (
+                <ol className="stages" aria-label="What this backup does">
+                  {estimate.stages.map((stage) => (
+                    <li key={`${stage.kind} ${stage.to ?? ''}`} className={`is-${stage.state}`}>
+                      <span className="mark" aria-hidden="true" />
+                      <span>
+                        <span className="visually-hidden">
+                          {stage.state === 'done' ? 'Done: ' : stage.state === 'next' ? 'Then: ' : 'Now: '}
+                        </span>
+                        {stage.line}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              )}
+              {estimate?.stages.some((stage) => stage.kind === 'makingPreviews' || stage.kind === 'sendingPreviews') && (
+                <p className="quiet small">
+                  Previews are made in the background while your files are backed up, and sent after them. To back
+                  up the originals alone next time, switch off “Also make previews for a gallery” once this backup
+                  ends.
+                </p>
+              )}
             </div>
           )}
           {running ? (
@@ -2396,7 +2385,7 @@ function SendPanel(props: {
                 <b>Also make previews for a gallery</b>
                 <span className="quiet small">
                   {previews
-                    ? 'After your files are safely backed up, Keevoro makes small and screen-sized versions of each photo and a still of each video, and backs those up too. Switch this off to back up the originals alone, which is quicker.'
+                    ? 'While your files are backed up, Keevoro makes small and screen-sized versions of each photo and a still of each video in the background, gently, and backs those up once your files are safe. Switch this off to back up the originals alone, which is quicker.'
                     : 'Only your original files will be backed up, exactly as they are. No thumbnails or other versions are made. You can switch this back on later and they will be added then.'}
                 </span>
               </span>

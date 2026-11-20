@@ -48,8 +48,30 @@ pub fn make_video_previews_while(
     on_progress: &mut dyn FnMut(usize, usize),
     keep_going: &dyn Fn() -> bool,
 ) -> Result<VideoReport, CatalogError> {
-    let _busy = keevoro_core::doing::doing(keevoro_core::doing::Work::MakingVideoPreviews);
-    let mut report = VideoReport::default();
+    make_video_previews_paced(
+        library,
+        catalog,
+        items,
+        tools,
+        on_progress,
+        keep_going,
+        crate::Pace::full(),
+    )
+}
+
+/// How many videos in `items` still need a poster or their details.
+pub fn video_previews_to_make(library: &Path, catalog: &Catalog, items: &[&FoundItem]) -> Result<usize, CatalogError> {
+    Ok(todo_list(library, catalog, items, &mut VideoReport::default())?.len())
+}
+
+type Todo<'a> = Vec<(&'a str, std::path::PathBuf, std::path::PathBuf)>;
+
+fn todo_list<'a>(
+    library: &Path,
+    catalog: &Catalog,
+    items: &[&'a FoundItem],
+    report: &mut VideoReport,
+) -> Result<Todo<'a>, CatalogError> {
     let mut todo = Vec::new();
     for item in items.iter().filter(|i| i.kind == MediaKind::Video) {
         let Some(hash) = item.blake3.as_deref() else { continue };
@@ -65,11 +87,27 @@ pub fn make_video_previews_while(
             _ => todo.push((hash, original, poster_file)),
         }
     }
+    Ok(todo)
+}
 
+/// As [`make_video_previews_while`], one at a time and only while `pace`
+/// allows any, on the calling thread.
+pub fn make_video_previews_paced(
+    library: &Path,
+    catalog: &Catalog,
+    items: &[&FoundItem],
+    tools: Option<&VideoTools>,
+    on_progress: &mut dyn FnMut(usize, usize),
+    keep_going: &dyn Fn() -> bool,
+    pace: crate::Pace<'_>,
+) -> Result<VideoReport, CatalogError> {
+    let _busy = keevoro_core::doing::doing(keevoro_core::doing::Work::MakingVideoPreviews);
+    let mut report = VideoReport::default();
+    let todo = todo_list(library, catalog, items, &mut report)?;
     let total = todo.len();
     for (done, (hash, original, poster_file)) in todo.into_iter().enumerate() {
         keevoro_core::pause::wait_while_paused();
-        if !keep_going() {
+        if !pace.wait_for_a_turn(0, &|| !keep_going()) {
             break;
         }
         match work_on(tools, &original, &poster_file, &mut report) {

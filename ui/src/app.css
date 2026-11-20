@@ -2386,6 +2386,61 @@ main > section > :nth-last-child(2) {
   font-variant-numeric: tabular-nums;
 }
 
+/* Every stage of a backup, done and still to come, so none is a surprise. */
+.speed .stages {
+  list-style: none;
+  margin: var(--space-3) 0 var(--space-2);
+  padding: 0;
+  display: grid;
+  gap: var(--space-1);
+  font-variant-numeric: tabular-nums;
+}
+
+.speed .stages li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  color: var(--ink-muted);
+  overflow-wrap: anywhere;
+}
+
+.speed .stages li.is-now,
+.speed .stages li.is-alongside {
+  color: var(--ink);
+}
+
+.speed .stages .mark {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  border: 1.5px solid var(--line-strong);
+}
+
+.speed .stages li.is-done .mark {
+  background: var(--pine);
+  border-color: var(--pine);
+}
+
+.speed .stages li.is-now .mark {
+  background: var(--sun);
+  border-color: var(--sun);
+}
+
+.speed .stages li.is-alongside .mark {
+  border-color: var(--sun);
+}
+
+/* Read aloud, not shown: the mark says it to the eye. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
 /* How earlier backups went: folded away, for comparing one with another. */
 .sends {
   margin-top: var(--space-4);

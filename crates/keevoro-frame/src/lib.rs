@@ -23,6 +23,7 @@ use std::path::Path;
 mod macos;
 #[cfg(windows)]
 mod photo_windows;
+pub mod quiet;
 #[cfg(windows)]
 mod windows;
 

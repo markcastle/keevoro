@@ -198,7 +198,7 @@ register! {
 
     // Jobs
     JobsStatus = "jobs.status",
-        "What is running on a backup: the step, counts, speed, time left, who started it",
+        "What is running on a backup: the step, counts, how long it has run and has left, who started it",
         changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     JobsFollow = "jobs.follow",
         "Each thing a running job says, as it says it",
@@ -537,7 +537,9 @@ impl Op {
             Op::JobsStatus => (
                 "job_status",
                 "Says what is running on a backup, or on any: each job's id, the step it is on, how far it has got, \
-                 its speed and roughly how long is left, and who started it. Give job for one job; once it has ended \
+                 how long it has run (runningSeconds) and who started it. For a backup, estimate says how long until \
+                 the whole of it is done, every stage it has (done, now, alongside in the background, or still to \
+                 come) and, in headline, both in the words a person sees. Give job for one job; once it has ended \
                  it says so (ended is true) with its last word in last, such as the folders a survey found. Give \
                  waitSeconds (up to 30) to wait for it to end before answering, rather than asking again and again. \
                  Changes nothing.",

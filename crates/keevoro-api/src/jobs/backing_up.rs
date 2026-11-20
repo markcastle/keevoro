@@ -2,7 +2,8 @@
 //! confirming what is at each.
 //!
 //! A backup goes to each destination in turn, the originals first and the
-//! previews after. How each destination's turn went is written into the
+//! previews after (made in the background while the originals go). One
+//! estimate follows the whole of it, from the moment it starts. How each destination's turn went is written into the
 //! backup's history, and what it said when it ended is kept with the
 //! backup until the next one, so it is still there after closing Keevoro.
 
@@ -11,6 +12,7 @@ use crate::backup::Backup;
 use crate::backups::Named;
 use crate::error::Result;
 use keevoro_catalog::Catalog;
+use keevoro_core::estimate::Tracker;
 use keevoro_engine::connect::{self, World};
 use keevoro_engine::history::Sent;
 use keevoro_engine::send::Went;
@@ -19,25 +21,16 @@ use std::path::Path;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-/// What a backup sets out to send: what every destination still lacks,
-/// added up, so its speed can become a time left.
-fn waiting_everywhere(home: &Path) -> u64 {
-    Catalog::open_in_library(home)
-        .ok()
-        .and_then(|catalog| keevoro_engine::discover(home, &catalog).ok())
-        .map_or(0, |found| {
-            let everywhere: u64 = found.destinations.iter().map(|d| d.waiting_bytes).sum();
-            everywhere.max(found.waiting_bytes)
-        })
-}
-
 pub(super) fn start(ctx: &Context, backup: &Named, kind: JobKind, listener: Option<Listener>) -> Result<JobHandle> {
     let record = kind == JobKind::BackUp;
     let job = ctx.jobs.begin(kind, Some(backup), listener)?;
     let handle = job.handle.clone();
     let home = backup.home.clone();
+    // One estimate of the time left for the whole backup, which starts
+    // from what earlier backups on this computer measured.
+    let tracker = Tracker::new(crate::rates::remembered(&ctx.rates));
     if record {
-        job.note_bytes(waiting_everywhere(&home), keevoro_core::meter::totals().0);
+        job.track(tracker.clone());
     }
     // Said at once, before the first real step has anything to report.
     let opening = if record {
@@ -73,13 +66,29 @@ pub(super) fn start(ctx: &Context, backup: &Named, kind: JobKind, listener: Opti
                 ctx.jobs.heard(job, Said::Send(SendEvent::progress(line)), tell);
             };
             if record {
-                run(&home, &catalog, &world, &stop, &mut said, &mut progress, &mut turns)
+                run(
+                    &home,
+                    &catalog,
+                    &world,
+                    &stop,
+                    &tracker,
+                    &mut said,
+                    &mut progress,
+                    &mut turns,
+                )
             } else {
                 check(&catalog, &world, &stop, &mut said, &mut progress)
             }
         })();
         // Another may start the moment this one is heard to end.
         ctx.jobs.release(job);
+        // What it measured makes the next backup's first estimate better.
+        if record {
+            if let Err(e) = crate::rates::remember(&ctx.rates, &tracker.measured()) {
+                ctx.log
+                    .say(&format!("Couldn't remember how fast this backup went: {e}"));
+            }
+        }
         // How it went, said to the person and written into the backup's
         // record, so "was that slow?" has an answer afterwards.
         if record && result.as_ref().is_ok_and(|went| went.refused.is_none()) {
@@ -146,12 +155,14 @@ fn outcome(went: &Went) -> Outcome {
 }
 
 /// To each destination in turn. The files themselves go first; previews
-/// are made and sent after.
+/// are made beside them and sent after.
+#[allow(clippy::too_many_arguments)]
 fn run(
     home: &Path,
     catalog: &Catalog,
     world: &World<'_>,
     stop: &Arc<AtomicBool>,
+    tracker: &Tracker,
     said: &mut Vec<u8>,
     progress: &mut dyn FnMut(&str),
     turns: &mut Vec<Sent>,
@@ -163,6 +174,7 @@ fn run(
         world,
         VideoTools::find().as_ref(),
         stop,
+        tracker,
         progress,
         &mut |turn| {
             turns.push(Sent {

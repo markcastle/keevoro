@@ -322,7 +322,16 @@ fn the_screens_commands_start_the_apis_jobs_and_their_events_reach_the_window() 
 
     // Backing up again sends the photo, heard as `send` events to the end.
     invoke(&window, "send", json!({})).unwrap();
-    fits(&invoke(&window, "send_progress", json!({})).unwrap(), "SendProgress");
+    let progress = invoke(&window, "send_progress", json!({})).unwrap();
+    fits(&progress, "SendProgress");
+    // A running backup brings its whole estimate, in the shapes the screen reads.
+    if progress["running"] == true {
+        let estimate = &progress["estimate"];
+        fits(estimate, "BackupEstimate");
+        for stage in estimate["stages"].as_array().unwrap() {
+            fits(stage, "BackupStage");
+        }
+    }
     let done = heard.wait_for_nth("send", 1, |e| e["finished"] == true);
     keevoro();
     assert_eq!(done["problem"], Value::Null, "{done}");

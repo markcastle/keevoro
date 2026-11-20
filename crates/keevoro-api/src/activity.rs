@@ -60,25 +60,6 @@ pub fn sample(of_one_core: f32, cores: usize, bytes: u64, sent: u64, network: u6
     }
 }
 
-/// How fast a send is going, in bytes a second, and how long is left.
-///
-/// The speed is the average of the last few seconds, because files arrive
-/// in lumps: a whole photo at once, a large video sixteen megabytes at a
-/// time. A single second's figure would jump about and mean little. With
-/// nothing arriving there is no honest guess at the time left, so there is
-/// none.
-pub fn speed_and_time_left(samples: &[Sample], bytes_left: u64) -> (u64, Option<u64>) {
-    const OVER: usize = 10;
-    let recent = &samples[samples.len().saturating_sub(OVER)..];
-    if recent.is_empty() {
-        return (0, None);
-    }
-    let megabytes: f32 = recent.iter().map(|s| s.sent).sum::<f32>() / recent.len() as f32;
-    let speed = (megabytes * 1024.0 * 1024.0) as u64;
-    let left = (speed > 0 && bytes_left > 0).then(|| bytes_left.div_ceil(speed));
-    (speed, left)
-}
-
 /// The last two minutes of measurements, and how much memory is in use.
 #[derive(Debug, Default)]
 pub struct History {
@@ -137,7 +118,9 @@ fn said(work: Work) -> Job {
             what: "Making previews",
             why: "Making a small and a screen-sized version of each photo, so the backup is quick to \
                   look through. This is the heaviest thing Keevoro does to the processor, and it uses \
-                  half the cores at most. Your originals are not changed.",
+                  half the cores at most. During a backup they are made beside it at low priority, one \
+                  at a time while you are using the computer, and not at all while it is on battery or \
+                  busy. Your originals are not changed.",
         },
         Work::LookingThroughASource => Job {
             what: "Looking through a source",
@@ -342,41 +325,6 @@ mod tests {
     fn what_is_sent_and_what_went_over_the_network_are_megabytes_a_second() {
         let s = sample(0.0, 4, 0, 30 * 1024 * 1024, 12 * 1024 * 1024, 2.0);
         assert_eq!((s.sent, s.network), (15.0, 6.0));
-    }
-
-    fn sending(megabytes: &[f32]) -> Vec<Sample> {
-        megabytes
-            .iter()
-            .map(|&sent| Sample {
-                cpu: 0.0,
-                disk: 0.0,
-                sent,
-                network: 0.0,
-                memory: 0.0,
-            })
-            .collect()
-    }
-
-    #[test]
-    fn speed_is_steadied_over_the_last_few_seconds() {
-        const MB: u64 = 1024 * 1024;
-        // A 48 MB file landing every four seconds is 12 MB a second.
-        let lumpy = sending(&[0.0, 0.0, 0.0, 48.0, 0.0, 0.0, 0.0, 48.0]);
-        let (speed, left) = speed_and_time_left(&lumpy, 1200 * MB);
-        assert_eq!(speed, 12 * MB);
-        assert_eq!(left, Some(100), "1,200 MB at 12 MB a second");
-        // Only the last ten seconds count, so an old burst is forgotten.
-        let mut old_burst = sending(&[500.0]);
-        old_burst.extend(sending(&[2.0; 10]));
-        assert_eq!(speed_and_time_left(&old_burst, 0).0, 2 * MB);
-    }
-
-    #[test]
-    fn with_nothing_arriving_no_time_left_is_guessed() {
-        assert_eq!(speed_and_time_left(&sending(&[0.0, 0.0]), 1000), (0, None));
-        assert_eq!(speed_and_time_left(&[], 1000), (0, None));
-        // Nothing left to send needs no time.
-        assert_eq!(speed_and_time_left(&sending(&[5.0]), 0).1, None);
     }
 
     #[test]

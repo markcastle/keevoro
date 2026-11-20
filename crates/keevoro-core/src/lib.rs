@@ -6,9 +6,11 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
+pub mod background;
 pub mod collections;
 pub mod date;
 pub mod doing;
+pub mod estimate;
 pub mod folders;
 pub mod junk;
 pub mod layout;

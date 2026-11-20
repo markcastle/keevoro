@@ -4,7 +4,9 @@
 //! A backup is the named job ("Family photos"); this module is the act of
 //! sending what it is keeping somewhere: a folder, or storage that speaks
 //! S3. [`everywhere`] sends to each destination in turn, originals first,
-//! then previews, and then writes the index. The order matters: the index
+//! then previews, and then writes the index. Previews are made in the
+//! background while the originals go (see [`crate::background`]), and sent
+//! only once the originals have all arrived. The order matters: the index
 //! goes last, so it never points at something that is not there yet, and
 //! it lists only files confirmed stored. [`check`] confirms what is at a
 //! destination.
@@ -14,9 +16,11 @@
 //! Every front end shows the progress line while it runs and the sentences
 //! when it is done.
 
+use crate::background::Previews;
 use crate::summary;
 use anyhow::{Context, Result};
 use keevoro_catalog::{Catalog, RenditionState, VideoState};
+use keevoro_core::estimate::{Kind, Planned, Tracker};
 use keevoro_core::{group_into_collections, CollectionInput, DateSource};
 use keevoro_index::{build_index, gallery_v1, index_key, rendition_path, AlbumInput, ItemInput, Rendition};
 use keevoro_publish::{publish, put_document, PublishOptions, Upload};
@@ -147,17 +151,31 @@ fn step_line(step: crate::ReadyStep) -> String {
         crate::ReadyStep::Placing { done, total } => {
             format!("Working out where each file goes: {} of {}", n(done), n(total))
         }
-        crate::ReadyStep::MakingPreviews { done, total } => {
-            format!("Your files are backed up. Making previews: {} of {}", n(done), n(total))
-        }
+        crate::ReadyStep::MakingPreviews { done, total } => format!("Making previews: {} of {}", n(done), n(total)),
         crate::ReadyStep::WorkingOnVideos { done, total } => {
-            format!(
-                "Your files are backed up. Making video previews: {} of {}",
-                n(done),
-                n(total)
-            )
+            format!("Making video previews: {} of {}", n(done), n(total))
         }
     }
+}
+
+/// What a backup is doing for one destination, for the estimate: where it
+/// is going, the estimate, and the previews being made in the background.
+pub struct Going<'a> {
+    pub stop: &'a Stop,
+    pub tracker: &'a Tracker,
+    /// The destination in words, as the plan names it.
+    pub to: String,
+    /// Made once, from the first destination's turn, for all of them.
+    pub previews: &'a mut Option<Previews>,
+}
+
+/// One pass of sending: which kind of work it is, for the estimate, and
+/// whether its index is the last one written.
+#[derive(Clone, Copy)]
+struct Pass<'a> {
+    sending: Kind,
+    to: &'a str,
+    last: bool,
 }
 
 /// What a backup says when it has been stopped.
@@ -177,16 +195,19 @@ pub const STOPPED: &str =
 /// half their photos sent. Setting `stop` ends it after the file in hand,
 /// and it then says [`STOPPED`].
 #[allow(clippy::too_many_arguments)]
-pub fn originals_first(
+fn originals_first(
     out: &mut dyn Write,
     catalog: &Catalog,
     home: &Path,
     destination: Destination,
     base_url: Option<&str>,
     video_tools: Option<&keevoro_media::VideoTools>,
-    stop: &Stop,
+    going: &mut Going<'_>,
     on_progress: &mut dyn FnMut(&str),
 ) -> Result<usize> {
+    let stop = going.stop;
+    let tracker = going.tracker;
+    let to = going.to.clone();
     let keep_going = || !stop.load(Ordering::SeqCst);
     let said = |bytes: &[u8]| String::from_utf8_lossy(bytes).into_owned();
     let files_sent = |out: &mut dyn Write, files: &[u8]| -> Result<()> {
@@ -203,10 +224,25 @@ pub fn originals_first(
         Ok(0)
     };
 
-    let not_told_apart = crate::check_and_place(home, catalog, &keep_going, &mut |step| on_progress(&step_line(step)))?;
+    let not_told_apart = crate::check_and_place(home, catalog, &keep_going, &mut |step| {
+        match step {
+            crate::ReadyStep::Checking { done, total } => {
+                tracker.set_work(Kind::TellingApart, None, total as u64);
+                tracker.progress(Kind::TellingApart, None, done as u64);
+            }
+            crate::ReadyStep::Placing { done, total } => {
+                tracker.set_work(Kind::Placing, None, total as u64);
+                tracker.progress(Kind::Placing, None, done as u64);
+            }
+            _ => {}
+        }
+        on_progress(&step_line(step));
+    })?;
     if !keep_going() {
         return stopped(out);
     }
+    tracker.finish(Kind::TellingApart, None);
+    tracker.finish(Kind::Placing, None);
     let unsure = |out: &mut dyn Write| -> Result<()> {
         if not_told_apart > 0 {
             writeln!(
@@ -230,6 +266,18 @@ pub fn originals_first(
         }
     }
 
+    // Previews are made in the background from now on, while the files
+    // themselves are sent, unless this backup is for the originals alone.
+    let wanted = wants_previews(catalog)?;
+    if wanted && going.previews.is_none() {
+        *going.previews = Some(Previews::start(
+            home,
+            video_tools.cloned(),
+            stop.clone(),
+            tracker.clone(),
+        ));
+    }
+
     // The files themselves.
     let mut files = Vec::new();
     let failed = run_until(
@@ -240,32 +288,48 @@ pub fn originals_first(
         base_url,
         Some(stop),
         on_progress,
+        Pass {
+            sending: Kind::SendingOriginals,
+            to: &to,
+            last: !wanted,
+        },
+        tracker,
     )?;
     if !keep_going() {
         files_sent(out, &files)?;
         return stopped(out).map(|_| failed + not_told_apart);
     }
 
-    // Then what makes them nice to look through, unless this backup is
-    // for the originals alone.
-    if !wants_previews(catalog)? {
-        files_sent(out, &files)?;
-        // Anything that could not be sent is said once, with its reason.
+    // Anything that could not be sent is said once, with its reason.
+    let files_failed = |out: &mut dyn Write| -> Result<()> {
         for line in said(&files).lines() {
             if line.starts_with("Couldn't back up") || line.starts_with("  ") || line.starts_with("Back up again") {
                 writeln!(out, "{line}")?;
             }
         }
+        Ok(())
+    };
+    let originals_failed = failed;
+
+    // Then what makes them nice to look through, unless this backup is
+    // for the originals alone.
+    if !wanted {
+        files_sent(out, &files)?;
+        files_failed(out)?;
         unsure(out)?;
         return Ok(failed + not_told_apart);
     }
-    crate::make_previews(home, catalog, video_tools, &keep_going, &mut |step| {
-        on_progress(&step_line(step));
-    })?;
+    // Whatever the background has not made yet is finished now, at the
+    // foreground's pace, since there is nothing else to do.
+    if let Some(previews) = going.previews.as_mut() {
+        previews.wait(on_progress)?;
+    }
+    if !keep_going() {
+        files_sent(out, &files)?;
+        return stopped(out).map(|_| failed + not_told_apart);
+    }
     let mut extras = Vec::new();
-    // The second pass tries again whatever the first could not send, so
-    // what it could not send is what was not sent.
-    let failed = run_until(
+    let previews_failed = run_until(
         &mut extras,
         catalog,
         home,
@@ -273,15 +337,23 @@ pub fn originals_first(
         base_url,
         Some(stop),
         on_progress,
+        Pass {
+            sending: Kind::SendingPreviews,
+            to: &to,
+            last: true,
+        },
+        tracker,
     )?;
 
-    // Said once, in the order it happened: the files, then the previews,
-    // then anything that needs attention (from the second pass, which
-    // tried again whatever the first could not send).
+    // Said once, in the order it happened: the files and any that could
+    // not be sent, then the previews and anything about them.
     files_sent(out, &files)?;
+    files_failed(out)?;
     for line in said(&extras).lines() {
         if let Some(rest) = line.strip_prefix("Safely backed up ") {
             writeln!(out, "Previews added: {rest}")?;
+        } else if line.starts_with("Back up again") && originals_failed > 0 {
+            // Already said, after the files.
         } else if !line.ends_with("already there.") && !line.starts_with("Warning:") {
             writeln!(out, "{line}")?;
         }
@@ -290,7 +362,7 @@ pub fn originals_first(
     if !keep_going() {
         stopped(out)?;
     }
-    Ok(failed + not_told_apart)
+    Ok(originals_failed + previews_failed + not_told_apart)
 }
 
 /// How one destination's turn went, for whoever keeps the record.
@@ -334,6 +406,7 @@ pub fn everywhere(
     world: &crate::connect::World<'_>,
     video_tools: Option<&keevoro_media::VideoTools>,
     stop: &Stop,
+    tracker: &Tracker,
     on_progress: &mut dyn FnMut(&str),
     after_each: &mut dyn FnMut(Turn<'_>),
 ) -> Result<Went> {
@@ -341,8 +414,10 @@ pub fn everywhere(
     if all.is_empty() {
         anyhow::bail!("Choose where to back up to first.");
     }
+    tracker.plan(plan(catalog, home, &all, tracker)?);
     let several = all.len() > 1;
     let mut went = Went::default();
+    let mut previews = None;
     for to in &all {
         // Stopped before this one's turn, even before the first: said the
         // same way as when it is stopped part-way through one.
@@ -372,7 +447,12 @@ pub fn everywhere(
                 destination,
                 to.base_url.as_deref(),
                 video_tools,
-                stop,
+                &mut Going {
+                    stop,
+                    tracker,
+                    to: name.clone(),
+                    previews: &mut previews,
+                },
                 &mut |line| {
                     if several {
                         on_progress(&format!("To {name}: {line}"));
@@ -414,6 +494,48 @@ pub fn everywhere(
         went.refused = None;
     }
     Ok(went)
+}
+
+/// Everything this backup will do, in order, with how much of each there
+/// is as far as can be known before it starts: the plan the estimate of
+/// the time left is made from. What is not known yet (how many files look
+/// alike, the size of previews not made) is filled in as it becomes known.
+fn plan(catalog: &Catalog, home: &Path, all: &[crate::connect::Saved], tracker: &Tracker) -> Result<Vec<Planned>> {
+    let found = crate::discover(home, catalog)?;
+    let previews = wants_previews(catalog)?;
+    let (photos, videos) = if previews {
+        crate::background::still_to_make(catalog)?
+    } else {
+        (0, 0)
+    };
+    let per_original = tracker.preview_bytes();
+    let mut planned = vec![
+        Planned::new(Kind::TellingApart, None, 0),
+        Planned::new(Kind::Placing, None, (found.photos + found.videos) as u64),
+    ];
+    for (at, to) in all.iter().enumerate() {
+        let name = to.describe();
+        let waiting = found.destinations.iter().find(|d| d.name == name);
+        planned.push(Planned::new(
+            Kind::SendingOriginals,
+            Some(&name),
+            waiting.map_or(found.waiting_bytes, |d| d.waiting_bytes),
+        ));
+        if previews {
+            if at == 0 {
+                planned.push(Planned::new(Kind::MakingPreviews, None, photos));
+                planned.push(Planned::new(Kind::MakingVideoPreviews, None, videos));
+            }
+            let files = waiting.map_or(found.waiting_to_gather, |d| d.waiting) as f64;
+            planned.push(Planned::new(
+                Kind::SendingPreviews,
+                Some(&name),
+                (files * per_original) as u64,
+            ));
+        }
+        planned.push(Planned::new(Kind::WritingIndex, Some(&name), 1));
+    }
+    Ok(planned)
 }
 
 /// The catalog's name for the choice of whether a backup also gets previews.
@@ -463,6 +585,7 @@ fn kept_now<'a>(catalog: &Catalog, reports: &'a [keevoro_scan::ScanReport]) -> R
 /// Sends everything that has its place and has not reached this
 /// destination yet, then writes the index. `stop` stops it between files.
 /// Answers how many files could not be sent.
+#[allow(clippy::too_many_arguments)]
 fn run_until(
     out: &mut dyn Write,
     catalog: &Catalog,
@@ -471,6 +594,8 @@ fn run_until(
     base_url: Option<&str>,
     stop: Option<&Stop>,
     on_progress: &mut dyn FnMut(&str),
+    pass: Pass<'_>,
+    tracker: &Tracker,
 ) -> Result<usize> {
     let reports = catalog.load_reports()?;
     let kept = kept_now(catalog, &reports)?;
@@ -494,7 +619,7 @@ fn run_until(
     let store = store.as_ref();
     let base_url = base_url.map_or(default_url, str::to_string);
 
-    let uploads = uploads_for(home, &kept)?;
+    let uploads = uploads_for(home, &kept, pass.sending)?;
     let n = summary::thousands;
     let opts = PublishOptions {
         stop: stop.cloned(),
@@ -502,6 +627,21 @@ fn run_until(
         at_once,
         ..PublishOptions::default()
     };
+    // What this pass has to send, now that it is known exactly.
+    let mut pending = 0;
+    for upload in &uploads {
+        if !catalog.is_uploaded(&target, upload.key.as_str())? {
+            pending += upload.bytes;
+        }
+    }
+    if pass.sending == Kind::SendingPreviews {
+        let with_previews = kept.iter().filter(|k| !k.renditions().is_empty()).count();
+        if with_previews > 0 {
+            tracker.note_preview_bytes(uploads.iter().map(|u| u.bytes).sum::<u64>() as f64 / with_previews as f64);
+        }
+    }
+    tracker.set_work(pass.sending, Some(pass.to), pending);
+    tracker.metered(pass.sending, Some(pass.to));
     let report = runtime.block_on(publish(store, catalog, &target, &uploads, &opts, &mut |p| {
         // After a tab: the file just dealt with, for a screen to show beneath.
         on_progress(&format!(
@@ -511,6 +651,7 @@ fn run_until(
             p.latest
         ));
     }))?;
+    tracker.finish(pass.sending, Some(pass.to));
 
     // Files sent before their whole fingerprint was known now have one,
     // worked out as they went. Each is recorded, and from here on the file
@@ -552,7 +693,20 @@ fn run_until(
         &base_url,
         now,
         &albums_for(&stored),
-        stored.iter().map(|k| item_for(k)).collect(),
+        stored
+            .iter()
+            .map(|k| {
+                // Only previews that have arrived: the index never points
+                // at something that is not there yet.
+                let mut there = Vec::new();
+                for kind in k.renditions() {
+                    if catalog.is_uploaded(&target, &rendition_path(kind, k.id()))? {
+                        there.push(kind);
+                    }
+                }
+                Ok(item_for(k, there))
+            })
+            .collect::<Result<Vec<_>>>()?,
     );
     let documents = [
         (key.clone(), serde_json::to_vec(&index)?, "application/json"),
@@ -568,6 +722,9 @@ fn run_until(
             "text/plain; charset=utf-8",
         ),
     ];
+    if pass.last {
+        tracker.progress(Kind::WritingIndex, Some(pass.to), 0);
+    }
     for (name, body, kind) in documents {
         runtime
             .block_on(put_document(store, &ObjectKey::new(name)?, body, kind, &opts))
@@ -575,6 +732,10 @@ fn run_until(
     }
 
     catalog.set_setting(&setting, &key)?;
+    if pass.last {
+        tracker.progress(Kind::WritingIndex, Some(pass.to), 1);
+        tracker.finish(Kind::WritingIndex, Some(pass.to));
+    }
 
     if report.uploaded > 0 {
         writeln!(
@@ -677,10 +838,39 @@ pub fn check(
     Ok(result.problems.len())
 }
 
-/// Originals first, then previews.
-fn uploads_for(home: &Path, kept: &[Kept<'_>]) -> Result<Vec<Upload>> {
+/// What one pass sends: the originals, or the previews. They are never
+/// sent together, so no preview can hold up an original.
+fn uploads_for(home: &Path, kept: &[Kept<'_>], sending: Kind) -> Result<Vec<Upload>> {
     let local = |relative: &str| relative.split('/').fold(home.to_path_buf(), |p, s| p.join(s));
     let mut uploads = Vec::new();
+    if sending == Kind::SendingPreviews {
+        for k in kept {
+            for kind in k.renditions() {
+                let relative = rendition_path(kind, k.id());
+                let file = local(&relative);
+                // A preview deleted from the backup's own folder is simply
+                // left out; the next backup makes it again.
+                let Ok(meta) = std::fs::metadata(&file) else { continue };
+                uploads.push(Upload {
+                    key: ObjectKey::new(relative)?,
+                    file,
+                    bytes: meta.len(),
+                    write_once: false,
+                    content_type: Some(
+                        if kind == Rendition::Video {
+                            "video/mp4"
+                        } else {
+                            "image/webp"
+                        }
+                        .to_string(),
+                    ),
+                    metadata: BTreeMap::new(),
+                    learn_fingerprint: false,
+                });
+            }
+        }
+        return Ok(uploads);
+    }
     for k in kept {
         uploads.push(Upload {
             key: ObjectKey::new(k.path.clone())?,
@@ -700,35 +890,10 @@ fn uploads_for(home: &Path, kept: &[Kept<'_>]) -> Result<Vec<Upload>> {
             learn_fingerprint: !k.item.hashed,
         });
     }
-    for k in kept {
-        for kind in k.renditions() {
-            let relative = rendition_path(kind, k.id());
-            let file = local(&relative);
-            // A preview deleted from the backup's own folder is simply
-            // left out; the next backup makes it again.
-            let Ok(meta) = std::fs::metadata(&file) else { continue };
-            uploads.push(Upload {
-                key: ObjectKey::new(relative)?,
-                file,
-                bytes: meta.len(),
-                write_once: false,
-                content_type: Some(
-                    if kind == Rendition::Video {
-                        "video/mp4"
-                    } else {
-                        "image/webp"
-                    }
-                    .to_string(),
-                ),
-                metadata: BTreeMap::new(),
-                learn_fingerprint: false,
-            });
-        }
-    }
     Ok(uploads)
 }
 
-fn item_for(k: &Kept<'_>) -> ItemInput {
+fn item_for(k: &Kept<'_>, renditions: Vec<Rendition>) -> ItemInput {
     let (width, height, blurhash) = match &k.preview {
         Some(RenditionState::Made {
             width,
@@ -759,7 +924,7 @@ fn item_for(k: &Kept<'_>) -> ItemInput {
         mime: k.item.mime.clone(),
         blurhash,
         duration,
-        renditions: k.renditions(),
+        renditions,
     }
 }
 
@@ -803,6 +968,37 @@ const BESIDE_THE_INDEX: &str = "../";
 mod tests {
     use super::*;
 
+    /// One destination's turn, as a backup with only that one has it.
+    #[allow(clippy::too_many_arguments)]
+    fn turn_alone(
+        out: &mut dyn Write,
+        catalog: &Catalog,
+        home: &Path,
+        destination: Destination,
+        base_url: Option<&str>,
+        video_tools: Option<&keevoro_media::VideoTools>,
+        stop: &Stop,
+        on_progress: &mut dyn FnMut(&str),
+    ) -> Result<usize> {
+        let tracker = Tracker::new(keevoro_core::estimate::Remembered::default());
+        let mut previews = None;
+        originals_first(
+            out,
+            catalog,
+            home,
+            destination,
+            base_url,
+            video_tools,
+            &mut Going {
+                stop,
+                tracker: &tracker,
+                to: "the folder".into(),
+                previews: &mut previews,
+            },
+            on_progress,
+        )
+    }
+
     /// A source with two photos, searched quickly into a backup whose
     /// home folder is somewhere else entirely.
     fn one_backup() -> (tempfile::TempDir, PathBuf, PathBuf, Catalog) {
@@ -824,7 +1020,7 @@ mod tests {
 
     fn send(catalog: &Catalog, home: &Path, to: &Path) -> String {
         let mut said = Vec::new();
-        originals_first(
+        turn_alone(
             &mut said,
             catalog,
             home,
@@ -939,6 +1135,7 @@ mod tests {
                 &world,
                 None,
                 &Stop::default(),
+                &Tracker::new(keevoro_core::estimate::Remembered::default()),
                 &mut |_| {},
                 &mut |turn| turns.push(turn.to.describe()),
             )
@@ -976,6 +1173,66 @@ mod tests {
         assert!(first.join("originals/Flights/IMG_20240601_100000.jpg").is_file());
         let found = crate::discover(&home, &catalog).unwrap();
         assert_eq!((found.destinations.len(), found.waiting_to_gather), (1, 0));
+    }
+
+    #[test]
+    fn the_estimate_follows_every_stage_of_the_backup_to_its_end() {
+        use crate::connect::{self, testing::MemorySecrets, Flags, Saved, World};
+        use keevoro_core::estimate::{Kind, State};
+        let (dir, _card, home, catalog) = one_backup();
+        let secrets = MemorySecrets::default();
+        let world = World {
+            secrets: &secrets,
+            ask: &connect::testing::nobody_to_ask,
+        };
+        let to = Saved::from_flags(&Flags {
+            to_folder: Some(dir.path().join("usb")),
+            ..Flags::default()
+        })
+        .unwrap();
+        connect::add(&mut Vec::new(), &catalog, &to, &world).unwrap();
+        let tracker = Tracker::new(keevoro_core::estimate::Remembered::default());
+        let mut seen = Vec::new();
+        everywhere(
+            &mut Vec::new(),
+            &catalog,
+            &home,
+            &world,
+            None,
+            &Stop::default(),
+            &tracker,
+            &mut |_| seen.push(tracker.estimate()),
+            &mut |_| {},
+        )
+        .unwrap();
+        // From the very start, the previews were in the plan.
+        let first = &seen[0];
+        assert!(
+            first.stages.iter().any(|s| s.kind == Kind::SendingPreviews),
+            "{:?}",
+            first.stages
+        );
+        assert!(first
+            .stages
+            .iter()
+            .any(|s| s.kind == Kind::MakingPreviews && s.work == 2));
+        // And at the end every stage is done, the whole backup counted.
+        let end = tracker.estimate();
+        let kinds: Vec<Kind> = end.stages.iter().map(|s| s.kind).collect();
+        assert_eq!(
+            kinds,
+            [
+                Kind::Placing,
+                Kind::SendingOriginals,
+                Kind::MakingPreviews,
+                Kind::SendingPreviews,
+                Kind::WritingIndex
+            ]
+        );
+        assert!(end.stages.iter().all(|s| s.state == State::Done), "{:?}", end.stages);
+        assert_eq!(end.fraction_done, 1.0);
+        // The size of previews was measured, for the next estimate.
+        assert!(tracker.measured().preview_bytes_per_original.is_some());
     }
 
     #[test]
@@ -1027,6 +1284,7 @@ mod tests {
             &world,
             None,
             &Stop::default(),
+            &Tracker::new(keevoro_core::estimate::Remembered::default()),
             &mut |_| {},
             &mut |_| turns += 1,
         )
@@ -1090,7 +1348,7 @@ mod tests {
 
         let to = dir.path().join("usb");
         let mut lines = Vec::new();
-        originals_first(
+        turn_alone(
             &mut Vec::new(),
             &catalog,
             &home,
@@ -1131,7 +1389,7 @@ mod tests {
 
         // Backing up again sends nothing: each is known to be there.
         let mut said = Vec::new();
-        originals_first(
+        turn_alone(
             &mut said,
             &catalog,
             &home,
@@ -1168,10 +1426,10 @@ mod tests {
         crate::scan_into(&mut catalog, &card, Some("Card"), &mut |_| {}).unwrap();
         assert_eq!(crate::discover(&home, &catalog).unwrap().waiting_to_gather, 1);
         let later = send(&catalog, &home, &to);
-        // Only the new photo, then its two previews; the six files from
-        // before are not sent again.
+        // Only the new photo, then its two previews; the two originals from
+        // before, and their four previews, are not sent again.
         assert!(later.contains("Safely backed up 1 file "), "{later}");
-        assert!(later.contains("6 files already there"), "{later}");
+        assert!(later.contains("2 files already there"), "{later}");
         assert!(later.contains("Previews added: 2 files"), "{later}");
         assert!(to
             .join("originals")
@@ -1181,12 +1439,12 @@ mod tests {
     }
 
     #[test]
-    fn the_files_themselves_are_sent_before_any_preview_is_made() {
+    fn the_files_themselves_are_sent_before_any_preview_is_sent() {
         let (dir, _card, home, catalog) = one_backup();
         let to = dir.path().join("Drone footage");
         let mut lines = Vec::new();
         let mut said = Vec::new();
-        originals_first(
+        turn_alone(
             &mut said,
             &catalog,
             &home,
@@ -1195,27 +1453,33 @@ mod tests {
             None,
             &Stop::default(),
             &mut |line| {
-                // Note, each time something is said, whether the originals have arrived.
-                let arrived = to
-                    .join("originals")
-                    .join("Flights")
-                    .join("IMG_20240601_100000.jpg")
-                    .is_file();
+                // Note, each time something is said, whether both originals have arrived.
+                let arrived = ["IMG_20240601_100000.jpg", "IMG_20240601_100500.jpg"]
+                    .iter()
+                    .all(|name| to.join("originals").join("Flights").join(name).is_file());
                 lines.push((line.to_string(), arrived));
             },
         )
         .unwrap();
+        // Previews are made in the background meanwhile, but the first one
+        // sent goes after every original has arrived.
         let first_preview = lines
             .iter()
-            .position(|(line, _)| line.contains("Making previews"))
+            .position(|(line, _)| line.contains("\trenditions/"))
             .unwrap();
         assert!(
             lines[first_preview].1,
-            "the originals were already there when previews began"
+            "the originals were already there when previews were sent"
         );
         assert!(lines[..first_preview]
             .iter()
-            .any(|(line, _)| line.contains("safely backed up")));
+            .any(|(line, _)| line.contains("safely backed up\toriginals/")));
+        assert!(
+            !lines[first_preview..]
+                .iter()
+                .any(|(line, _)| line.contains("\toriginals/")),
+            "no original after a preview: {lines:?}"
+        );
 
         let said = String::from_utf8(said).unwrap();
         let files = said.find("Safely backed up 2 files").unwrap();
@@ -1255,6 +1519,7 @@ mod tests {
             &world,
             None,
             &stop,
+            &Tracker::new(keevoro_core::estimate::Remembered::default()),
             &mut |_| {},
             &mut |_| {},
         )
@@ -1290,7 +1555,7 @@ mod tests {
         let to = dir.path().join("Drone footage");
         let stop = Stop::default();
         let mut said = Vec::new();
-        originals_first(
+        turn_alone(
             &mut said,
             &catalog,
             &home,

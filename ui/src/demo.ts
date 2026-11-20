@@ -23,6 +23,8 @@ import type {
   ScanEvent,
   SurveyProgress,
   Backup,
+  BackupEstimate,
+  BackupStage,
 } from './backend'
 
 const SCENES: [string, string, string][] = [
@@ -123,7 +125,16 @@ export function demoBackend(): Backend {
   const checkListeners = new Set<(event: CheckEvent) => void>()
   const sendListeners = new Set<(e: SendEvent) => void>()
   // What the last backup said when it ended, as the real app keeps it.
-  let lastSaid: SendEvent | null = null
+  // `?stoppedBefore` pretends the last one was stopped part-way.
+  let lastSaid: SendEvent | null = new URLSearchParams(window.location.search).has('stoppedBefore')
+    ? {
+        finished: true,
+        summary: [
+          'Safely backed up 40 files.',
+          'Stopped. Everything backed up so far is safe where it is. Back up again whenever you like and it carries on from here.',
+        ],
+      }
+    : null
   sendListeners.add((e) => {
     if (e.finished) lastSaid = e
   })
@@ -173,6 +184,70 @@ export function demoBackend(): Backend {
       .filter((c) => c.kept && c.gathered < c.photos + c.videos)
       .reduce((n, c) => n + (c.photos * 3.2 + c.videos * 48) * 1024 * 1024, 0)
   let sentSoFar = 0
+  // The send in hand, as the real app's job keeps it: when it started, so
+  // "Running for" carries on across screens, and how far it has got.
+  // `?sending` pretends one began two minutes before the page opened.
+  const sendingAtOpen = new URLSearchParams(window.location.search).has('sending')
+  let sendStarted: number | null = sendingAtOpen ? Date.now() - 2 * 60 * 1000 : null
+  let sendShare = 0
+  const runningFor = (seconds: number) => {
+    const minutes = Math.floor(seconds / 60)
+    if (minutes === 0) return 'less than a minute'
+    const [h, m] = [Math.floor(minutes / 60), minutes % 60]
+    const unit = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+    return h === 0 ? unit(m, 'minute') : m === 0 ? unit(h, 'hour') : `${unit(h, 'hour')} ${unit(m, 'minute')}`
+  }
+  // A made-up 30 GB backup at a steady 12.4 MB a second, with previews made
+  // alongside, as `keevoro_core::estimate` would say it.
+  const demoEstimate = (runningSeconds: number): BackupEstimate => {
+    const GB = 1024 ** 3
+    const stage = (s: Omit<BackupStage, 'to' | 'perSecond'> & { perSecond?: number }): BackupStage => ({
+      to: null,
+      perSecond: null,
+      ...s,
+    })
+    const stages: BackupStage[] = sendingAtOpen
+      ? [
+          stage({ kind: 'placing', state: 'now', unit: 'files', done: 2500, work: 11245, line: 'Working out where each file goes: 2,500 of 11,245' }),
+          stage({ kind: 'sendingOriginals', state: 'next', unit: 'bytes', done: 0, work: 30.1 * GB, line: 'Backing up your files: 30.1 GB' }),
+          stage({ kind: 'makingPreviews', state: 'next', unit: 'files', done: 0, work: 10547, line: 'Making previews: 10,547' }),
+          stage({ kind: 'sendingPreviews', state: 'next', unit: 'bytes', done: 0, work: 4 * GB, line: 'Backing up the previews: 4.0 GB' }),
+          stage({ kind: 'writingIndex', state: 'next', unit: 'files', done: 0, work: 1, line: 'Writing the list of what is there' }),
+        ]
+      : [
+          stage({ kind: 'placing', state: 'done', unit: 'files', done: 11245, work: 11245, line: 'Working out where each file goes' }),
+          stage({
+            kind: 'sendingOriginals',
+            state: 'now',
+            unit: 'bytes',
+            done: (9.6 + 20 * sendShare) * GB,
+            work: 30.1 * GB,
+            perSecond: 12.4 * 1024 * 1024,
+            line: `Backing up your files: ${(9.6 + 20 * sendShare).toFixed(1)} GB of 30.1 GB at 12.4 MB/s`,
+          }),
+          stage({
+            kind: 'makingPreviews',
+            state: 'alongside',
+            unit: 'files',
+            done: Math.round(3200 + 6000 * sendShare),
+            work: 10547,
+            line: `Making previews in the background: ${Math.round(3200 + 6000 * sendShare).toLocaleString('en-GB')} of 10,547`,
+          }),
+          stage({ kind: 'sendingPreviews', state: 'next', unit: 'bytes', done: 0, work: 4 * GB, line: 'Backing up the previews: 4.0 GB' }),
+          stage({ kind: 'writingIndex', state: 'next', unit: 'files', done: 0, work: 1, line: 'Writing the list of what is there' }),
+        ]
+    const secondsLeft = Math.round(((30.1 - 9.6 - 20 * sendShare) * 1024) / 12.4 + 330)
+    const left = `About ${Math.round(secondsLeft / 60)} minutes left`
+    return {
+      secondsLeft,
+      sureness: 'fair',
+      left,
+      fractionDone: Math.min(0.32 + 0.6 * sendShare, 0.99),
+      stages,
+      pausedSeconds: 0,
+      headline: `Running for ${runningFor(runningSeconds)}, ${left.toLowerCase()}`,
+    }
+  }
   const later = (ms: number) => new Promise((done) => setTimeout(done, ms))
   // Tests can ask for everything to happen at once.
   const pace = mode === 'fast' || new URLSearchParams(window.location.search).has('fast') ? 0 : 1
@@ -351,18 +426,18 @@ export function demoBackend(): Backend {
         cores: 20,
       }
     },
-    // A send a third of the way through 30 GB, at a steady 12.4 MB a second.
-    sendProgress: async () => ({
-      bytesDone: 9.6 * 1024 ** 3,
-      bytesTotal: 30.1 * 1024 ** 3,
-      speed: 12.4 * 1024 * 1024,
-      secondsLeft: Math.round(((30.1 - 9.6) * 1024) / 12.4),
-      overNetwork: false,
-      // `?sending` pretends a backup was already running when the screen opened.
-      running: new URLSearchParams(window.location.search).has('sending'),
-      stopping: false,
-      line: new URLSearchParams(window.location.search).has('sending') ? 'Working out where each file goes: 2,500 of 11,245' : '',
-    }),
+    // The send in hand, if there is one: how long it has run and its estimate.
+    sendProgress: async () => {
+      const runningSeconds = sendStarted === null ? 0 : Math.round((Date.now() - sendStarted) / 1000)
+      return {
+        running: sendStarted !== null,
+        stopping: false,
+        line: sendingAtOpen && sendStarted !== null ? 'Working out where each file goes: 2,500 of 11,245' : '',
+        runningSeconds,
+        estimate: sendStarted === null ? null : demoEstimate(runningSeconds),
+        overNetwork: false,
+      }
+    },
     sendHistory: async () => [...sends],
     lastBackupSaid: async () => lastSaid,
     pauseWork: async (paused) => {
@@ -560,6 +635,8 @@ export function demoBackend(): Backend {
       const kept = collections.filter((c) => c.kept)
       const total = kept.reduce((n, c) => n + c.photos + c.videos, 0)
       stopAsked = false
+      sendStarted = Date.now()
+      sendShare = 0
       void (async () => {
         sendListeners.forEach((l) => l({ line: 'Telling apart files that look alike: 0 of 12', finished: false }))
         await later(200 * pace)
@@ -567,7 +644,9 @@ export function demoBackend(): Backend {
           // `?slow` leaves time to press Stop.
           await later(new URLSearchParams(window.location.search).has('slow') ? 500 : 200 * pace)
           const done = Math.round((total * step) / 6)
+          sendShare = step / 6
           if (stopAsked) {
+            sendStarted = null
             sendListeners.forEach((l) =>
               l({
                 finished: true,
@@ -584,6 +663,7 @@ export function demoBackend(): Backend {
           )
         }
         const fresh = total - sentSoFar
+        sendStarted = null
         sends.unshift({ finishedAt: Date.now() / 1000, seconds: 96, bytes: 1.2 * 1024 ** 3, to: sendingTo ?? '', stopped: false })
         sentSoFar = total
         dests.forEach((d) => (d.there = total))

@@ -286,14 +286,16 @@ pub struct JobStatus {
     /// follows the step after a tab.
     pub line: String,
     pub counts: Counts,
-    /// For a backup: how much of what it set out to send has arrived.
-    pub bytes_done: u64,
-    pub bytes_total: u64,
-    /// For a backup or a check: bytes a second, steadied over the last few
-    /// seconds.
-    pub speed: u64,
-    /// `None` while nothing is arriving, when no honest guess can be made.
-    pub seconds_left: Option<u64>,
+    /// Seconds since it started, by the clock: paused time included (a
+    /// backup's estimate says how much of it was paused).
+    #[serde(default)]
+    pub running_seconds: u64,
+    /// For a backup: how long until the whole of it is done, every stage
+    /// it has and the one it is on, worked out by one estimator
+    /// (`keevoro_core::estimate`). Its `headline` says how long it has run
+    /// and how long is left, in the words every front end shows.
+    #[serde(default)]
+    pub estimate: Option<keevoro_core::estimate::Estimate>,
     /// True when what is arriving goes over the network, to cloud storage.
     pub over_network: bool,
     /// True once it has been asked to stop and is finishing what is in hand.
@@ -360,10 +362,8 @@ impl Which<'_> {
 struct Now {
     line: String,
     last: Option<Said>,
-    /// For a backup: what it set out to send, and the running total of
-    /// bytes sent when it began.
-    bytes_total: u64,
-    began_at: u64,
+    /// For a backup: its estimate of the time left.
+    tracker: Option<keevoro_core::estimate::Tracker>,
 }
 
 /// One running job.
@@ -413,10 +413,8 @@ impl Job {
         line.clone_into(&mut lock(&self.now).line);
     }
 
-    pub(crate) fn note_bytes(&self, total: u64, began_at: u64) {
-        let mut now = lock(&self.now);
-        now.bytes_total = total;
-        now.began_at = began_at;
+    pub(crate) fn track(&self, tracker: keevoro_core::estimate::Tracker) {
+        lock(&self.now).tracker = Some(tracker);
     }
 
     fn on_backup(&self, id: &str) -> bool {
@@ -683,8 +681,7 @@ impl Jobs {
                 ended: true,
                 stopping: false,
                 paused: false,
-                seconds_left: None,
-                speed: 0,
+                estimate: None,
                 last: last.clone(),
                 ..Self::status_of(job)
             };
@@ -765,26 +762,21 @@ impl Jobs {
             }
             Some(Said::Send(_) | Said::Surveyed(_)) | None => {}
         }
-        let bytes_done = keevoro_core::meter::totals()
-            .0
-            .saturating_sub(now.began_at)
-            .min(now.bytes_total);
         let sending = matches!(job.kind(), JobKind::BackUp | JobKind::Check);
         let (samples, _) = crate::activity::recent();
-        let (speed, seconds_left) = if sending {
-            crate::activity::speed_and_time_left(&samples, now.bytes_total - bytes_done)
-        } else {
-            (0, None)
-        };
+        let running_seconds = u64::try_from(seconds_now().saturating_sub(job.handle.started_at)).unwrap_or(0);
+        let estimate = now.tracker.as_ref().map(|tracker| {
+            let mut estimate = tracker.estimate();
+            estimate.headline = keevoro_core::estimate::headline(running_seconds, &estimate);
+            estimate
+        });
         JobStatus {
             handle: job.handle.clone(),
             step: now.line.split('\t').next().unwrap_or_default().to_string(),
             line: now.line.clone(),
             counts,
-            bytes_done,
-            bytes_total: now.bytes_total,
-            speed,
-            seconds_left,
+            running_seconds,
+            estimate,
             over_network: sending && samples.iter().rev().take(10).any(|s| s.network > 0.0),
             stopping: job.stopped(),
             paused: keevoro_core::pause::is_paused(),
@@ -808,7 +800,7 @@ impl Jobs {
                 other
                     .running()
                     .into_iter()
-                    .map(|(status, _)| status)
+                    .map(|(status, _)| freshened(status))
                     .filter(|status| backup.is_none_or(|id| status.handle.backup.as_ref().is_some_and(|b| b.id == id))),
             );
         }
@@ -1088,6 +1080,16 @@ impl Work for Jobs {
 }
 
 /// A drive or folder to look through must be there to be looked through.
+/// Another program's status, as it shared it a moment ago, with how long
+/// the job has run brought up to now, so every program says the same.
+fn freshened(mut status: JobStatus) -> JobStatus {
+    status.running_seconds = u64::try_from(seconds_now().saturating_sub(status.handle.started_at)).unwrap_or(0);
+    if let Some(estimate) = status.estimate.as_mut() {
+        estimate.headline = keevoro_core::estimate::headline(status.running_seconds, estimate);
+    }
+    status
+}
+
 fn must_be_there(place: &Path) -> Result<()> {
     if place.is_dir() {
         Ok(())
@@ -1114,6 +1116,8 @@ pub(crate) struct Context {
     pub(crate) jobs: Arc<Jobs>,
     pub(crate) log: Arc<Log>,
     pub(crate) secrets: Arc<dyn SecretStore + Send + Sync>,
+    /// Where the rates measured in backups are remembered.
+    pub(crate) rates: std::path::PathBuf,
 }
 
 /// Ends a job however its thread ends, even by a panic, so its slot is
@@ -1175,6 +1179,7 @@ impl Keevoro {
             jobs: self.jobs.clone(),
             log: self.log_shared(),
             secrets: self.secrets_shared(),
+            rates: self.rates_file(),
         }
     }
 

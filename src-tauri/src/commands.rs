@@ -292,17 +292,16 @@ pub fn send_history(shared: State<'_, Shared>) -> Said<Vec<keevoro_engine::histo
     backup(&shared)?.history().map_err(say)
 }
 
-/// How a send is getting on: how much has arrived, how fast, and roughly
-/// how long is left.
+/// How a send is getting on: how long it has run, and for a backup the one
+/// estimate of how long the whole of it has left, stage by stage.
 #[derive(Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SendProgress {
-    bytes_done: u64,
-    bytes_total: u64,
-    /// Bytes a second, steadied over the last few seconds.
-    speed: u64,
-    /// `None` while nothing is arriving, when no honest guess can be made.
-    seconds_left: Option<u64>,
+    /// Seconds since it started, from the job itself, so coming back to
+    /// the screen does not start the count again.
+    running_seconds: u64,
+    /// For a backup; `None` for a check.
+    estimate: Option<keevoro_api::estimate::Estimate>,
     /// True when this send goes over the network, to cloud storage.
     over_network: bool,
     /// True while a send or a check is under way, so that a screen opened
@@ -326,10 +325,8 @@ pub fn send_progress(shared: State<'_, Shared>) -> SendProgress {
         .into_iter()
         .find(|job| !job.elsewhere && matches!(job.handle.job, JobKind::BackUp | JobKind::Check))
         .map(|job| SendProgress {
-            bytes_done: job.bytes_done,
-            bytes_total: job.bytes_total,
-            speed: job.speed,
-            seconds_left: job.seconds_left,
+            running_seconds: job.running_seconds,
+            estimate: job.estimate,
             over_network: job.over_network,
             running: true,
             stopping: job.stopping,

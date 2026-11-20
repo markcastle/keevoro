@@ -179,6 +179,8 @@ pub struct Offer {
 pub struct Keevoro {
     backups: Backups,
     cache: PathBuf,
+    /// Where rates measured in backups are remembered (`rates.rs`).
+    rates: PathBuf,
     log: Arc<Log>,
     secrets: Arc<dyn SecretStore + Send + Sync>,
     web: Box<dyn Web + Send + Sync>,
@@ -204,6 +206,7 @@ impl Keevoro {
         let keevoro = Self {
             backups: Backups::load(&folders.config, &folders.data),
             cache: folders.cache.clone(),
+            rates: folders.data.join(crate::rates::FILE),
             log,
             secrets: Arc::new(Keychain),
             web: Box::new(GitHub::from_env()),
@@ -253,6 +256,10 @@ impl Keevoro {
 
     pub(crate) fn log_shared(&self) -> Arc<Log> {
         self.log.clone()
+    }
+
+    pub(crate) fn rates_file(&self) -> PathBuf {
+        self.rates.clone()
     }
 
     pub(crate) fn secrets_shared(&self) -> Arc<dyn SecretStore + Send + Sync> {
@@ -413,6 +420,8 @@ impl Keevoro {
             ));
         }
         let done = reset::reset(&self.backups, self.secrets(), &self.cache)?;
+        // What was learnt about this computer's speed goes too.
+        let _ = std::fs::remove_file(&self.rates);
         self.log.say(&format!(
             "Reset to how Keevoro was when first installed: {} backups removed, {} folders left where they are",
             done.removed.len(),

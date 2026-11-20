@@ -169,7 +169,7 @@ Backing up "Drone footage", in the background (job 4123000001). See how it is ge
 
 Then, from any window:
 
-- `keevoro status` says what is running, the step it is on, its speed and roughly how long is left, and who started it.
+- `keevoro status` says what is running, the step it is on, how long it has been running, and who started it. For a backup it says how long the whole of it has left and lists every stage: done, now, and still to come. `keevoro run` and `keevoro follow` show the same line as they go.
 - `keevoro follow` shows it as it goes, until it ends.
 - `keevoro pause` makes it wait once the file in hand is done, and `keevoro carry-on` lets it go on.
 - `keevoro stop` stops it once the file in hand is done. Everything done so far is kept.
@@ -286,7 +286,7 @@ A collection is named by its whole name, such as "Holidays / Cornwall", or by it
 
 | Command | What it does |
 | --- | --- |
-| `keevoro status [JOB]` | What is running: the step, counts, speed, time left, who started it. |
+| `keevoro status [JOB]` | What is running: the step, counts, how long it has run and has left, who started it. |
 | `keevoro follow [JOB]` | Each thing a running job says, as it says it, until it ends. |
 | `keevoro pause` | Makes the work in hand wait after the file it is on. |
 | `keevoro carry-on` | Lets paused work go on from where it was. |

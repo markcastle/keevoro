@@ -199,10 +199,8 @@ fn status_says_what_is_running_and_is_empty_afterwards() {
         "step",
         "line",
         "counts",
-        "bytesDone",
-        "bytesTotal",
-        "speed",
-        "secondsLeft",
+        "runningSeconds",
+        "estimate",
         "overNetwork",
         "stopping",
         "paused",
@@ -448,6 +446,73 @@ fn a_backup_stopped_while_it_is_getting_ready_says_it_was_stopped() {
 }
 
 #[test]
+fn a_stopped_summary_is_never_given_while_a_backup_runs_however_it_is_asked() {
+    let _turn = one_at_a_time();
+    let _after = CarryOnAfter;
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro(dir.path());
+    let (named, _card, _usb) = card_going_to_usb(dir.path(), &keevoro);
+    // What a stopped backup left behind.
+    Backup::open(&named.home)
+        .unwrap()
+        .remember_last_summary(&SendEvent::finished(
+            format!("{}\n", keevoro_engine::send::STOPPED).as_bytes(),
+            None,
+            Outcome::Stopped,
+        ))
+        .unwrap();
+
+    keevoro.pause();
+    let job = keevoro.run_backup(&named, None).unwrap();
+    // Asked the way the app asks on coming back to the screen, the way the
+    // command line and an agent ask, and from another program.
+    let other = self::keevoro(dir.path());
+    for asked in [
+        Backup::open(&named.home).unwrap().last_summary().unwrap(),
+        Some(
+            crate::call(
+                &keevoro,
+                Op::named("backup.last_summary").unwrap(),
+                Some("Card photos"),
+                json!(null),
+            )
+            .unwrap(),
+        )
+        .filter(|v| !v.is_null()),
+        Some(
+            crate::call(
+                &other,
+                Op::named("backup.last_summary").unwrap(),
+                Some("Card photos"),
+                json!(null),
+            )
+            .unwrap(),
+        )
+        .filter(|v| !v.is_null()),
+    ] {
+        assert_eq!(asked, None, "nothing from before is given while it runs");
+    }
+    let status = keevoro.jobs(Some(&named.id));
+    assert!(!status[0].line.starts_with("Stopped"), "{}", status[0].line);
+
+    keevoro.carry_on();
+    let Some(Said::Send(last)) = keevoro.wait(job.id) else {
+        panic!("it says how it ended")
+    };
+    keevoro.wait_for_jobs();
+    assert_eq!(last.outcome, Some(Outcome::Worked));
+    assert_eq!(
+        Backup::open(&named.home).unwrap().last_summary().unwrap(),
+        Some(serde_json::to_value(&last).unwrap())
+    );
+    // How fast it went is remembered for the next estimate, in Keevoro's
+    // own data.
+    let remembered = crate::rates::remembered(&keevoro.rates_file());
+    assert!(remembered.preview_bytes_per_original.is_some(), "{remembered:?}");
+    assert!(keevoro.rates_file().starts_with(dir.path()));
+}
+
+#[test]
 fn a_destination_out_of_reach_is_said_in_a_word_and_in_a_sentence() {
     let _turn = one_at_a_time();
     let dir = tempfile::tempdir().unwrap();
@@ -501,7 +566,12 @@ fn the_step_a_backup_is_on_is_noted_and_cleared() {
     assert!(keevoro.activity().backup_step.is_some());
     let status = keevoro.jobs(Some(&named.id));
     assert_eq!(status[0].line, keevoro.backup_step());
-    assert!(status[0].bytes_total > 0, "it knows what it sets out to send");
+    let estimate = status[0].estimate.as_ref().expect("a backup has an estimate");
+    assert!(
+        estimate.headline.starts_with("Running for less than a minute"),
+        "{}",
+        estimate.headline
+    );
 
     keevoro.carry_on();
     keevoro.wait_for_jobs();
@@ -979,10 +1049,14 @@ fn a_program_that_is_closing_stops_its_own_jobs_and_leaves_the_rest() {
     assert!(matches!(agent.wait(mine.id), Some(Said::Scan(e)) if e.stopped));
     // Both programs are one process here and share its pause, which the
     // closing one lifts to wake its own job. So the other's job may have
-    // finished by now; what matters is that it was never asked to stop.
+    // finished by now, and its duplicate check may have begun; what matters
+    // is that nothing of the other program's was asked to stop.
     let still = command_line.jobs(None);
+    assert!(command_line
+        .wait(theirs.id)
+        .is_none_or(|said| !matches!(said, Said::Scan(e) if e.stopped)));
     assert!(
-        still.iter().all(|job| job.handle.id == theirs.id && !job.stopping),
+        still.iter().all(|job| job.handle.id != mine.id && !job.stopping),
         "the other program's job is left alone: {still:?}"
     );
     command_line.stop(Which::All);

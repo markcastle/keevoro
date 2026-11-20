@@ -15,6 +15,7 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
+pub mod background;
 pub mod connect;
 pub mod deep;
 pub mod discover;
@@ -168,8 +169,9 @@ fn chosen<'a>(catalog: &Catalog, reports: &'a [ScanReport]) -> Result<Vec<&'a Fo
 
 /// The part of getting ready that has to come before anything is sent:
 /// files that look alike are told apart, and every kept file is given its
-/// place. Previews are left for later (see [`make_previews`]), because the
-/// originals are what matter and should start moving first.
+/// place. Previews are made afterwards, in the background while the
+/// originals are sent (see [`background`]), because the originals are what
+/// matter and should start moving first.
 ///
 /// A file that looks like another but could not be read in full to tell
 /// them apart (its source unplugged, say) is given no place, so it is
