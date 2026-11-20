@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.37.0] - 2026-11-20
+
 ### Added
 
 - **Watch the map take shape while Keevoro looks.** While "Find where the photos are" walks a drive or folder, the biggest folders appear as boxes that grow as it goes, so you see what fills the place straight away rather than a spinner. If you have asked your computer for less motion, each new picture simply appears.
@@ -599,7 +603,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.36.1...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.37.0...HEAD
+[0.37.0]: https://github.com/markcastle/keevoro/compare/v0.36.1...v0.37.0
 [0.36.1]: https://github.com/markcastle/keevoro/compare/v0.36.0...v0.36.1
 [0.36.0]: https://github.com/markcastle/keevoro/compare/v0.35.0...v0.36.0
 [0.35.0]: https://github.com/markcastle/keevoro/compare/v0.34.0...v0.35.0
