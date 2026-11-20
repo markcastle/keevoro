@@ -38,6 +38,39 @@ const shot = (name) => page.screenshot({ path: join(shots, `${name}.png`) })
 const text = (selector) => page.locator(selector).first().innerText()
 // The step the list down the side says we are on.
 const currentStep = () => page.locator('.steps li.now').innerText()
+// Nothing on the page reaches past the window's right edge, or past the
+// page's own column, except inside a box that scrolls sideways by itself
+// (a wide table). The window itself never scrolls sideways.
+const spills = () =>
+  page.evaluate(() => {
+    const found = []
+    if (document.documentElement.scrollWidth > window.innerWidth) found.push(`the page is ${document.documentElement.scrollWidth} wide`)
+    const main = document.querySelector('main')
+    const edge = Math.min(window.innerWidth, main ? main.getBoundingClientRect().right : window.innerWidth)
+    const scrollsItself = (el) => {
+      for (let up = el.parentElement; up && up !== main; up = up.parentElement) {
+        const x = getComputedStyle(up).overflowX
+        if ((x === 'auto' || x === 'scroll') && up.getBoundingClientRect().right <= edge + 1) return true
+      }
+      return false
+    }
+    for (const el of document.querySelectorAll('body *')) {
+      const box = el.getBoundingClientRect()
+      if (box.width === 0 || box.right <= edge + 1 || getComputedStyle(el).position === 'fixed') continue
+      if (scrollsItself(el)) continue
+      found.push(`${el.tagName.toLowerCase()}.${String(el.className).split(' ')[0]} reaches ${Math.round(box.right)} of ${Math.round(edge)}`)
+    }
+    return found.slice(0, 5)
+  })
+// Checks the screen as it is at narrow widths, then puts the window back.
+const fitsNarrow = async (screen) => {
+  for (const width of [400, 560]) {
+    await page.setViewportSize({ width, height: 800 })
+    await page.waitForTimeout(50)
+    assert.deepEqual(await spills(), [], `${screen} at ${width} pixels wide spills sideways`)
+  }
+  await page.setViewportSize({ width: 1440, height: 900 })
+}
 
 try {
   // --- A first-time user is asked one thing they can answer: what to call this.
@@ -752,6 +785,38 @@ try {
   await page.getByRole('button', { name: 'Remove from Keevoro' }).click()
   await page.locator('.kept li.source').waitFor({ state: 'detached' })
   assert.ok(await page.locator('.searching').isVisible(), 'and the search carries on')
+
+  // --- Every main screen fits a narrow window: the page never scrolls
+  // sideways, and wide tables scroll inside their own box.
+  await page.goto(`${base}/?fast`)
+  await page.getByRole('heading', { name: 'Which of these should we keep?', level: 1 }).waitFor()
+  await fitsNarrow('Choosing')
+  await page.locator('.steps button').nth(0).click()
+  await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
+  await page.getByRole('button', { name: /^File types on / }).first().click()
+  await fitsNarrow('Finding')
+  await page.locator('.steps button').nth(2).click()
+  await page.getByRole('button', { name: /A folder/ }).click()
+  await page.getByRole('heading', { name: /^Backing up to the folder/ }).waitFor()
+  await page.getByText('How earlier backups went').click()
+  await page.getByText('What is in the backup', { exact: true }).click()
+  await page.getByRole('button', { name: 'Clear unfinished copies…' }).click()
+  await page.getByRole('group', { name: /^Unfinished copies in/ }).waitFor()
+  await fitsNarrow('Backing up')
+  await page.setViewportSize({ width: 400, height: 800 })
+  await page.getByRole('heading', { name: /^Backing up to the folder/ }).scrollIntoViewIfNeeded()
+  await shot('11b-backup-400')
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.getByRole('button', { name: 'Settings' }).click()
+  for (const door of await page.locator('details.advanced').all()) await door.locator('summary').click()
+  await fitsNarrow('Settings')
+  await page.getByRole('button', { name: '‹ Back' }).click()
+  await page.getByRole('button', { name: 'What Keevoro is doing' }).click()
+  await fitsNarrow('What Keevoro is doing')
+  await page.getByRole('button', { name: '‹ Back' }).click()
+  await page.getByRole('button', { name: 'About Keevoro' }).click()
+  await fitsNarrow('About')
+  await page.getByRole('button', { name: '‹ Back' }).click()
 
   // --- An existing library opens on the step that still needs doing, in dark mode too.
   await page.emulateMedia({ colorScheme: 'dark' })
