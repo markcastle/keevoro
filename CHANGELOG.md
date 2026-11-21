@@ -6,14 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
-
-## [0.38.0] - 2026-11-21
-
 ### Added
 
 - **Carry your other files along with your photos.** Keevoro is still for photos and videos, but you can now have it take other files with it: music, documents, project files. In Settings, Advanced, add a kind of file and choose "Other files" (or `keevoro kinds add flac --other`). Any ending can be added this way, even ones Keevoro used to refuse, such as .pdf or .mp3. Keevoro finds them, leaves out exact copies, backs them up and checks every copy exactly like your photos, into an "Other files" folder inside "originals" in the folders they came from, and the note in the backup says so. It never opens them to show a picture or sorts them by date: on "Choose what to keep" they are listed under "Other files" by the folder they came from, each folder kept or left out as a whole, and each opening to a plain list of its files with their size and when they last changed, a tick each, and Show in File Explorer. Counts name them ("238 photos, 11 videos and 40 other files"), "Find where the photos are" can suggest a folder of them, and the map shows them as a kind of their own, with its own pattern in the key. Nothing changes until you add a kind: out of the box Keevoro finds exactly what it always did.
-- **Open source licences, under About.** Keevoro is built on the work of hundreds of open source projects. **Open source licences** on the About page names every one shipped in the app, with its version and licence, and you can find one by name.
 
 ### Changed
 
@@ -22,6 +17,15 @@ Nothing yet.
 ### Fixed
 
 - **Storage keys you give are the ones Keevoro uses.** If `KEEVORO_ACCESS_KEY_ID` and `KEEVORO_SECRET_ACCESS_KEY` were set on your computer, keys you gave when adding cloud storage, in the app, at the command line or through an AI app, were quietly ignored, and the other keys were checked and saved instead. The keys you give now always win. Those set on the computer are used only when you give none, and Keevoro then says so, naming the settings but never the keys, before saving them for that place. A backup uses the keys saved for each place first.
+
+## [0.38.0] - 2026-11-21
+
+### Added
+
+- **Open source licences, under About.** Keevoro is built on the work of hundreds of open source projects. **Open source licences** on the About page names every one shipped in the app, with its version and licence, and you can find one by name.
+
+### Fixed
+
 - **"Where are your photos?" opens without a pause on Windows.** Looking for mapped network drives could hold the window still for up to a second and a half each time the screen was shown or the window was returned to, and longer if a network drive's server was switched off. The answer is now worked out without holding up the window, kept for half a minute, and a drive that is slow to answer is not asked again until it does.
 - **A step of a backup that goes wrong now says so.** If a destination cannot be reached, or some files could not be sent, that step is marked with a red cross and the reason beside it, such as "Couldn't back up 3 files", instead of a green tick or being left as still to come. The same is shown in the backup's history, and said by `keevoro status`, `keevoro history` and to an AI app. The time left no longer waits for a destination that could not be reached.
 - **An AI app can no longer be led out of a folder you allowed by a shortcut changed at just the wrong moment.** Keevoro already judged every folder an AI app named by where it really leads; it now works on that very place, rather than reading the shortcut again afterwards. A destination an AI app adds through a shortcut is listed under where it really is.
