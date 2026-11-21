@@ -69,7 +69,7 @@ Someone other than the owner has now used Keevoro (0.37.1, Windows 11 Home). The
 - [ ] Remove and rename a backup in the app
 - [ ] Stopping the background check for duplicates, and saying plainly what it is doing
 - [ ] Drives appear and leave on their own, with a Refresh button
-- [ ] Keep my folders as they are: a choice asked the first time a backup is set up
+- [x] Keep my folders as they are: a choice asked the first time a backup is set up
 - [ ] The map: calmer colours, a summary ring, small folders merged
 - [ ] Cloud drives as sources: synced cloud folders done properly, then a bucket as a source
 
@@ -535,7 +535,7 @@ Keep my folders as they are
 
 Their source was Pictures / Scans / Family Scans; the backup put the files under By date / 2021 / 2021-01. For scans the file's date is the day of scanning, which means nothing, and they had already arranged them by family.
 
-- [ ] Asked the first time a backup is set up, in one plain sentence: "Arrange by date" or "Keep my folders as they are" (decided by the owner: ask on first use)
+- [x] Asked the first time a backup is set up, in one plain sentence: "Arrange by date" or "Keep my folders as they are" (decided by the owner: ask on first use)
 - [x] "Keep my folders" writes originals / source name / their folders / file, the same arrangement other files use
 - [x] Per source as well, so a camera card can go by date while a folder of scans keeps its folders
 - [x] Changing it later affects only what is sent from then on; nothing already backed up is moved or removed

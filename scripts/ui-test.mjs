@@ -193,6 +193,26 @@ try {
   await shot('3-found')
   await page.getByRole('button', { name: 'See what was found' }).click()
 
+  // --- The first time, moving on asks how to arrange the backup: one
+  // question, the suggestion already chosen and why, as part of finding.
+  await page.getByRole('heading', { name: 'How should we arrange them in the backup?', level: 1 }).waitFor()
+  assert.match(await currentStep(), /Find your photos/, 'the question is part of finding')
+  const arrangeChoices = page.getByRole('radiogroup', { name: 'How should we arrange them in the backup?' })
+  assert.equal(await arrangeChoices.getByRole('radio').count(), 2)
+  assert.equal(await page.getByRole('radio', { name: /^Arrange by date/ }).isChecked(), true, 'the suggestion is chosen to begin with')
+  assert.match(await text('.arrange-choice.on'), /Suggested/)
+  assert.equal(await text('.arrange-why'), 'Suggested because the photos in KINGSTON (E:) look like they came straight from a camera.')
+  assert.match(await text('.arrange-question'), /starting with “KINGSTON”/)
+  assert.match(await text('.arrange-question'), /You can change this later, and for each source, in Settings\. It only changes where files go from then on\./)
+  await shot('3d-how-to-arrange')
+  await fitsNarrow('the question how to arrange')
+  // Back goes to finding; moving on asks again until it is answered.
+  await page.getByRole('button', { name: '‹ Back' }).click()
+  await page.locator('.arrange-question').waitFor({ state: 'detached' })
+  await page.getByRole('button', { name: 'See what was found' }).click()
+  await page.getByRole('heading', { name: 'How should we arrange them in the backup?', level: 1 }).waitFor()
+  await page.locator('.arrange-question').getByRole('button', { name: 'Next' }).click()
+
   // --- Step 2 shows collections, all kept, with one switch each.
   await page.getByRole('heading', { name: 'Which of these should we keep?', level: 1 }).waitFor()
   assert.match(await text('.status'), /sorted what it found into collections.*one source often makes several/s, 'why there is more than one')
@@ -1577,6 +1597,80 @@ try {
   const button = await plain.getByRole('button', { name: 'Choose where they go' }).boundingBox()
   assert.ok(button && button.x + button.width <= 400, `the button stays inside the window (${JSON.stringify(button)})`)
   await plain.close()
+
+  // --- Keep my folders as they are: the first outside tester's folder of
+  // family scans, sorted by family, in a new backup not asked yet.
+  await page.goto(`${base}/?demo=scans&fast`)
+  await page.getByRole('heading', { name: 'How should we arrange them in the backup?', level: 1 }).waitFor()
+  assert.equal(await page.getByRole('radio', { name: /^Keep my folders as they are/ }).isChecked(), true, 'the suggestion is chosen')
+  assert.equal(await text('.arrange-why'), 'Suggested because the photos in Family Scans look like scans.')
+  await page.getByText('You can choose differently for each source later.').waitFor()
+  assert.match(await text('.arrange-question'), /starting with “Family hard drive” and “Family Scans”/)
+  await shot('3e-how-to-arrange-scans')
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await shot('3e2-how-to-arrange-scans-dark')
+  await page.emulateMedia({ colorScheme: 'light' })
+  await fitsNarrow('the question how to arrange, with a suggestion to keep the folders')
+  // Choosing with the keyboard works as for any radio group.
+  await page.getByRole('radio', { name: /^Arrange by date/ }).focus()
+  await page.keyboard.press('ArrowDown')
+  assert.equal(await page.getByRole('radio', { name: /^Keep my folders as they are/ }).isChecked(), true)
+  await page.locator('.arrange-question').getByRole('button', { name: 'Next' }).click()
+
+  // Choose shows the scans in their folders, as they will be in the backup.
+  await page.getByRole('heading', { name: 'Which of these should we keep?', level: 1 }).waitFor()
+  assert.match(await text('.discover .status'), /Files from Family Scans are shown in their folders, as they will be kept\.$/)
+  const keptSection = page.getByRole('region', { name: 'From Family Scans, kept in your folders' })
+  assert.deepEqual(await keptSection.locator('.card h4').allInnerTexts(), ['Family Scans', 'Jones', 'Smith'], 'one card per folder, in folder order')
+  assert.match(await keptSection.innerText(), /Shown as they will be in the backup: the same folders, the same names\./)
+  assert.equal(await page.locator('.hero h2').innerText().then((t) => ['Family Scans', 'Jones', 'Smith'].includes(t)), false, 'not the hero')
+  await page.waitForFunction(() => [...document.images].every((i) => i.complete && i.naturalWidth > 0))
+  await keptSection.scrollIntoViewIfNeeded()
+  await shot('4b-choose-kept-folders')
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await shot('4b2-choose-kept-folders-dark')
+  await page.emulateMedia({ colorScheme: 'light' })
+  await fitsNarrow('the folders kept as they are on Choose')
+  // Asked once: moving on from finding again goes straight to choosing.
+  await page.locator('.steps button').first().click()
+  await page.getByRole('button', { name: 'See what was found' }).click()
+  await page.getByRole('heading', { name: 'Which of these should we keep?', level: 1 }).waitFor()
+  assert.equal(await page.locator('.arrange-question').count(), 0, 'not asked again')
+
+  // Settings has the same choice for the whole backup, and says what a
+  // change means for what is already safe.
+  await page.getByRole('button', { name: 'Settings' }).click()
+  await page.getByText('How files are arranged in the backup', { exact: true }).waitFor()
+  const settingsArrange = page.getByRole('radiogroup', { name: 'How files are arranged in the backup' })
+  assert.equal(await settingsArrange.getByRole('radio', { name: /^Keep my folders as they are/ }).isChecked(), true)
+  assert.match(await text('.backup-arrange'), /Changing this only changes where files go from now on\. Files already backed up stay where they are\./)
+  await settingsArrange.getByRole('radio', { name: /^Arrange by date/ }).check()
+  await page.locator('.backup-arrange').getByRole('status').getByText('From now on, new files are arranged by date.').waitFor()
+  await shot('9p-settings-arranged')
+  await page.getByRole('button', { name: '‹ Back' }).click()
+
+  // One source can keep its folders while the backup goes by date, from
+  // the suggestion beside it, and its card says so.
+  await page.locator('.steps button').first().click()
+  await page.getByRole('button', { name: 'File types on Family Scans' }).click()
+  const scansSelect = page.getByLabel('Arrange files from Family Scans')
+  assert.equal(await scansSelect.inputValue(), 'backup')
+  assert.deepEqual(await scansSelect.locator('option').allInnerTexts(), ['Same as the backup (by date)', 'By date', 'Keep my folders as they are'])
+  assert.match(await text('.source-arrange .suggestion'), /^Suggestion: keep its folders as they are\. These look like scans\./)
+  await page.locator('.source-arrange').scrollIntoViewIfNeeded()
+  await shot('3f-source-arrange')
+  await page.locator('.source-arrange').getByRole('button', { name: 'Keep its folders' }).click()
+  await page.locator('.source-arrange').getByRole('status').getByText(/^Files from Family Scans keep their folders as they are\. From now on/).waitFor()
+  assert.equal(await scansSelect.inputValue(), 'folders')
+  await page.getByText('Kept in its own folders, starting with “Family Scans”.').waitFor()
+  await fitsNarrow('a source keeping its folders')
+
+  // Above Back up now, one quiet line says how it is arranged, with Change.
+  await page.locator('.steps button').nth(2).click()
+  await page.getByRole('heading', { name: 'Where should they go?', level: 1 }).waitFor()
+  assert.equal(await text('.arranged'), 'Arranged by date, except Family Scans, which keeps its folders. Change')
+  await page.locator('.arranged').getByRole('button', { name: 'Change' }).click()
+  await page.getByRole('heading', { name: 'Settings', level: 1 }).waitFor()
 
   // --- An existing library opens on the step that still needs doing, in dark mode too.
   await page.emulateMedia({ colorScheme: 'dark' })

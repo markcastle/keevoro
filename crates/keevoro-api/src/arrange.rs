@@ -186,6 +186,10 @@ pub struct ArrangeView {
     /// be chosen on its own later.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub sources_differ: bool,
+    /// The folder each source's files would start in, kept as they are:
+    /// `Family Scans` for `Pictures/Scans/Family Scans`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub top_folders: Vec<String>,
 }
 
 /// What is said of a backup's arrangement.
@@ -226,6 +230,12 @@ impl Backup {
             said: said_of(arrange),
             suggestion,
             sources_differ,
+            top_folders: self
+                .catalog()
+                .sources()?
+                .iter()
+                .map(|s| keevoro_core::arrange::top_folder(&s.root, &s.name))
+                .collect(),
         })
     }
 

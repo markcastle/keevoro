@@ -72,6 +72,10 @@ const BACKED: &[(&str, &[Op])] = &[
     // Photos and videos, photos only, or videos only: a backup's and a source's.
     ("backup_wants", &[Op::BackupWants]),
     ("set_backup_wants", &[Op::BackupWants]),
+    ("backup_arrange", &[Op::BackupArrange]),
+    ("set_backup_arrange", &[Op::BackupArrange]),
+    ("source_arrange", &[Op::SourcesArrange]),
+    ("set_source_arrange", &[Op::SourcesArrange]),
     ("source_wants", &[Op::SourcesWants]),
     ("set_source_wants", &[Op::SourcesWants]),
     // The kinds of file looked for: one list for the whole of Keevoro.

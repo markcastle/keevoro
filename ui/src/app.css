@@ -4650,3 +4650,119 @@ fieldset.wants input[aria-disabled='true'] {
     animation: none;
   }
 }
+
+/* ---------- how a backup is arranged ---------- */
+
+/* Two large choices, the suggested one marked in words as well as shown chosen. */
+.arrange-choices {
+  display: grid;
+  gap: var(--space-3);
+  max-width: 720px;
+  margin: var(--space-4) 0;
+}
+
+.arrange-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  cursor: pointer;
+}
+
+.arrange-choice.on {
+  border-color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+.arrange-choice input[type='radio'] {
+  width: 18px;
+  height: 18px;
+  margin: 2px 0 0;
+  padding: 0;
+  flex: none;
+  border: 0;
+  box-shadow: none;
+  accent-color: var(--primary);
+}
+
+.arrange-choice:focus-within {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.arrange-text {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.arrange-text b {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.arrange-choice .suggested {
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink);
+  background: var(--pine-soft);
+}
+
+.arrange-why {
+  max-width: 720px;
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--pine);
+  border-radius: var(--radius-sm);
+  background: var(--pine-soft);
+  color: var(--ink);
+}
+
+.arrange-heading {
+  margin-top: var(--space-4);
+}
+
+.settings .backup-arrange .arrange-choices {
+  margin-top: var(--space-2);
+}
+
+.source-arrange {
+  display: grid;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+}
+
+.source-arrange select {
+  max-width: 100%;
+  justify-self: start;
+}
+
+.source-arrange .suggestion .button {
+  margin-left: var(--space-1);
+}
+
+.kept-as {
+  flex-basis: 100%;
+  grid-column: 1 / -1;
+  max-width: 720px;
+  color: var(--ink-muted);
+}
+
+.kept-folders {
+  margin-top: var(--space-6);
+}
+
+.kept-folders h2 {
+  font-size: 20px;
+  margin: 0 0 var(--space-1);
+}
+
+.kept-folders > p {
+  margin: 0 0 var(--space-3);
+}
