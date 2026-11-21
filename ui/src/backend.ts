@@ -243,6 +243,8 @@ export type Looked = {
   notAsSent: number
   /** What to say about it, a sentence each, in Keevoro's own words. */
   said: string[]
+  /** Its folder is on another disk now and holds nothing of a backup: the drive seems unplugged, leaving its folder behind. */
+  otherDisk?: boolean
 }
 
 /**
@@ -300,6 +302,9 @@ export type Removal = {
 /** A backup removed in the last week, which can still be put back. */
 export type RemovedBackup = { id: string; name: string; removedAt: number; keptUntil: number; bytes: number; said: string }
 
+/** The drives plugged in, given when they changed: the quick list to give back, every drive, and those just arrived. */
+export type PlacesNow = { mounts: string[]; places: Place[]; arrived: string[] }
+
 export type AppState = {
   /** The open backup's own folder, or null before the first backup. */
   library: string | null
@@ -337,6 +342,8 @@ export type ScanEvent = {
   /** On the last event: files only in online storage (OneDrive), passed over unopened, and that in words. */
   onlineOnly?: number
   onlineOnlySaid?: string
+  /** On the last event: the drive was unplugged part-way, in a sentence. What was found so far is kept. */
+  unplugged?: string
 }
 
 /** Sent while files a quick search only sampled are read in the background. */
@@ -861,6 +868,15 @@ export interface Backend {
   discover(): Promise<Discover>
   /** The drives plugged in right now, likeliest first. */
   places(): Promise<Place[]>
+  /**
+   * The drives plugged in, only if they are not those `known` (the `mounts`
+   * given last time); null when nothing changed. With `asked` (Refresh, or
+   * the system's notice) they are listed regardless. Cheap enough to ask
+   * every couple of seconds.
+   */
+  placesIfChanged(known: string[] | null, asked: boolean): Promise<PlacesNow | null>
+  /** Heard when the system says a drive arrived or left (on Windows). */
+  onDrives(listener: () => void): () => void
   /** Starts looking through the drive or folder at this path. */
   scanPlace(path: string): Promise<void>
   /**
@@ -1022,6 +1038,8 @@ async function tauriBackend(): Promise<Backend> {
     openPlace: (path) => invoke('open_place', { path }),
     discover: () => invoke('discover'),
     places: () => invoke('places'),
+    placesIfChanged: (known, asked) => invoke('places_if_changed', { known, asked }),
+    onDrives: (listener) => subscribe('drives', () => listener()),
     scanPlace: (path) => invoke('scan_place', { path }),
     surveyPlace: (path) => invoke('survey_place', { path }),
     stopSurvey: () => invoke('stop_survey'),

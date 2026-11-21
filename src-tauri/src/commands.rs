@@ -857,6 +857,22 @@ pub async fn places() -> Said<Vec<keevoro_api::places::Place>> {
         .map_err(say)
 }
 
+/// The drives plugged in, if they are not those the screen last knew
+/// (`known`, the quick list it was given last time): nothing when they are
+/// the same, which is what the first screen hears almost every time it
+/// asks, every couple of seconds while it shows. `asked` lists them in full
+/// regardless: the person pressed Refresh, or the system said a drive came
+/// or went.
+#[tauri::command]
+pub async fn places_if_changed(
+    known: Option<Vec<String>>,
+    asked: bool,
+) -> Said<Option<keevoro_api::places::PlacesNow>> {
+    tauri::async_runtime::spawn_blocking(move || keevoro_api::places::if_changed(known.as_deref(), asked))
+        .await
+        .map_err(say)
+}
+
 /// Is this one of Keevoro's own pages: the project's home, or something
 /// beneath it such as a release or the licence?
 fn is_a_keevoro_page(page: &str) -> bool {

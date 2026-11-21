@@ -784,15 +784,52 @@ function FindScreen(props: {
     [api],
   )
 
-  const look = useCallback(() => {
-    api.places().then(setPlaces).catch(onProblem)
-  }, [api, onProblem])
-  // Drives come and go, so look again whenever the window is returned to.
+  // The quick list of drives last given, to ask whether anything changed.
+  const mounts = useRef<string[] | null>(null)
+  // Drives that have just arrived, brought to notice for a little while.
+  const [arrived, setArrived] = useState<Set<string>>(new Set())
+  const look = useCallback(
+    (asked: boolean) => {
+      api
+        .placesIfChanged(mounts.current, asked)
+        .then((now) => {
+          if (!now) return
+          mounts.current = now.mounts
+          setPlaces(now.places)
+          if (now.arrived.length > 0) setArrived(new Set(now.arrived))
+        })
+        .catch(onProblem)
+    },
+    [api, onProblem],
+  )
   useEffect(() => {
-    look()
-    window.addEventListener('focus', look)
-    return () => window.removeEventListener('focus', look)
-  }, [look])
+    if (arrived.size === 0) return
+    const timer = window.setTimeout(() => setArrived(new Set()), ARRIVED_FOR)
+    return () => window.clearTimeout(timer)
+  }, [arrived])
+  // Drives come and go. Look when the window is returned to, when the
+  // system says one came or went, and every couple of seconds while the
+  // drives are on screen and the window can be seen. Each look asks only
+  // whether the list the system keeps has changed, and lists the drives in
+  // full only when it has.
+  const drivesShowing = !scan && !survey && !asking && !inside && !space
+  useEffect(() => {
+    look(false)
+    const again = () => look(true)
+    window.addEventListener('focus', again)
+    const stopHearing = api.onDrives(again)
+    return () => {
+      window.removeEventListener('focus', again)
+      stopHearing()
+    }
+  }, [api, look])
+  useEffect(() => {
+    if (!drivesShowing) return
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') look(false)
+    }, LOOK_FOR_DRIVES_EVERY)
+    return () => window.clearInterval(timer)
+  }, [drivesShowing, look])
 
   const findFolders = (place: { path: string; name: string }) => {
     setAsking(null)
@@ -896,7 +933,10 @@ function FindScreen(props: {
     else start(place.path)
   }
   const done = new Set(found?.sources.map((s) => s.root.replace(/[\\/]+$/, '')))
-  const removable = places?.filter((p) => p.removable) ?? []
+  // A drive just plugged in comes first, so it is the one seen.
+  const removable = (places?.filter((p) => p.removable) ?? []).sort(
+    (a, b) => Number(arrived.has(b.path)) - Number(arrived.has(a.path)),
+  )
   const fixed = places?.filter((p) => !p.removable) ?? []
   const scroller = () => scrollerOf(document.querySelector('main'))
 
@@ -1076,8 +1116,13 @@ function FindScreen(props: {
       ) : (
         <>
           {justFound && (
-            <div className={justFound.stopped ? 'panel' : 'panel found-it'} role="status">
-              {justFound.stopped ? (
+            <div className={justFound.stopped || justFound.unplugged ? 'panel' : 'panel found-it'} role="status">
+              {justFound.unplugged ? (
+                <>
+                  <h2>Stopped looking through {justFound.name}</h2>
+                  <p>{justFound.unplugged}</p>
+                </>
+              ) : justFound.stopped ? (
                 <>
                   <h2>Stopped looking through {justFound.name}</h2>
                   <p className="quiet">
@@ -1124,7 +1169,13 @@ function FindScreen(props: {
           )}
           <div className="places">
             {removable.map((place) => (
-              <PlaceCard key={place.path} place={place} added={done.has(place.path.replace(/[\\/]+$/, ''))} onClick={() => choose(place)} />
+              <PlaceCard
+                key={place.path}
+                place={place}
+                added={done.has(place.path.replace(/[\\/]+$/, ''))}
+                arrived={arrived.has(place.path)}
+                onClick={() => choose(place)}
+              />
             ))}
             <button className="place" onClick={pick}>
               <FolderIcon large />
@@ -1135,9 +1186,16 @@ function FindScreen(props: {
               <PlaceCard key={place.path} place={place} added={done.has(place.path.replace(/[\\/]+$/, ''))} onClick={() => choose(place)} />
             ))}
           </div>
-          {places && removable.length === 0 && (
-            <p className="quiet small">No USB or external drive is plugged in right now. Plug one in and it will appear here.</p>
-          )}
+          <p className="quiet small drives-said">
+            <span>
+              {places && removable.length === 0
+                ? 'No USB or external drive is plugged in right now. Plug one in and it appears here by itself.'
+                : 'A drive, USB stick or memory card appears here by itself when you plug it in.'}
+            </span>
+            <button className="button small" onClick={() => look(true)} aria-label="Refresh the list of drives">
+              Refresh
+            </button>
+          </p>
           <p className="quiet small look-first">
             Not sure what is in a folder?{' '}
             <button className="link" onClick={pickToLookInside}>
@@ -1264,11 +1322,19 @@ function sourceTitle(source: Source, places: Place[] | null): string {
   return bare(source.root).split(/[\\/]/).pop() || source.root
 }
 
-function PlaceCard(props: { place: Place; added: boolean; onClick: () => void }) {
+/** How long a drive that has just arrived is brought to notice, in milliseconds. */
+const ARRIVED_FOR = 8000
+/** How often the first screen asks whether a drive came or went, in milliseconds, while it can be seen. */
+const LOOK_FOR_DRIVES_EVERY = 2000
+
+function PlaceCard(props: { place: Place; added: boolean; arrived?: boolean; onClick: () => void }) {
   const { place } = props
+  // Brought to notice with a mark of its own and a brief outline, never a
+  // shade, which reads as chosen.
   return (
-    <button className="place" onClick={props.onClick}>
+    <button className={props.arrived ? 'place arrived' : 'place'} onClick={props.onClick}>
       <DriveIcon large />
+      {props.arrived && <small className="just-arrived">Just plugged in</small>}
       <b>{place.name}</b>
       <span>{place.detail}</span>
       {props.added && <em>Looked through. Click to look again.</em>}
@@ -2925,7 +2991,7 @@ function SendPanel(props: {
           )}
           {/* While a backup runs its own progress says what is left; these
               counts are from before it began and would only mislead. */}
-          {!sending && <WhatWasFound destinations={destinations} />}
+          {!sending && <WhatWasFound destinations={destinations} api={api} onChanged={onSent} onProblem={onProblem} />}
           {!sending && <ThereNow destinations={destinations} waiting={props.waiting} safe={props.safe} />}
           {!sending && room && room.needed > 0 && (
             <p className={room.enough ? 'needs' : 'needs short'} role={room.enough ? undefined : 'alert'}>

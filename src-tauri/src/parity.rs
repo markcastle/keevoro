@@ -88,6 +88,8 @@ const BACKED: &[(&str, &[Op])] = &[
     ("removed_backups", &[Op::BackupsRemoved]),
     ("put_back_backup", &[Op::BackupsPutBack]),
     ("clear_away_backup", &[Op::BackupsClearAway]),
+    // The drives plugged in, listed again only when the quick list changed.
+    ("places_if_changed", &[Op::PlacesList]),
     ("check_update", &[Op::KeevoroUpdate]),
     ("reset_everything", &[Op::KeevoroReset]),
     // Clearing unfinished copies from a folder, first saying how much.

@@ -2400,3 +2400,53 @@ fn the_check_for_duplicates_is_paused_and_let_go_on_alone_by_name_with_json() {
         .log_tail(20)
         .contains("Paused the check for duplicates; everything else carries on"));
 }
+
+/// Pulling the card out is made by moving its folder away while it is
+/// looked through; Windows refuses to move a folder that is open, so there
+/// it is proved on a real computer.
+#[cfg(unix)]
+#[test]
+fn a_source_unplugged_while_it_is_looked_through_is_said_plainly_and_nothing_found_is_lost() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro(dir.path());
+    let named = keevoro.start_backup("Card photos").unwrap();
+    let card = card_in(dir.path());
+    let photo = crate::backup::tests::real_jpeg(7);
+    for n in 0..300 {
+        std::fs::write(card.join(format!("DCIM/IMG_{n:04}.jpg")), &photo).unwrap();
+    }
+    let first = keevoro.look(&named, &card, None).unwrap();
+    keevoro.wait(first.id);
+    keevoro.wait_for_jobs();
+    let before = Backup::open(&named.home).unwrap().sources().unwrap()[0].items;
+
+    let away = dir.path().join("In a drawer");
+    let pulled = Arc::new(AtomicBool::new(false));
+    let pull: Listener = {
+        let (card, away, pulled) = (card.clone(), away.clone(), pulled.clone());
+        Arc::new(move |_: &Event| {
+            if !pulled.swap(true, Ordering::SeqCst) {
+                std::fs::rename(&card, &away).unwrap();
+            }
+        })
+    };
+    let again = keevoro.look(&named, &card, Some(pull)).unwrap();
+    let Some(Said::Scan(last)) = keevoro.wait(again.id) else {
+        panic!("a search says how it ended")
+    };
+    keevoro.wait_for_jobs();
+    assert_eq!(
+        last.unplugged.as_deref(),
+        Some("Card could no longer be reached; its drive may have been unplugged. What was found so far is kept; plug it in and look again to carry on."),
+        "{last:?}"
+    );
+    assert_eq!(last.unreadable, 0, "nothing is said to be unreadable");
+    assert_eq!(
+        Backup::open(&named.home).unwrap().sources().unwrap()[0].items,
+        before,
+        "nothing found on it before is forgotten"
+    );
+    assert!(keevoro.log_tail(10).contains("went part-way through looking"));
+    std::fs::rename(&away, &card).unwrap();
+}

@@ -241,7 +241,8 @@ Done when a non-technical tester gets from a drive to a backup without help.
 - [ ] Pause the rest of Keevoro's work by itself when on battery or when the computer is busy with something else
 - [x] Make previews during a backup at low priority, with fewer workers than the foreground and one reader per source, so they give way to everything else
 - [ ] Run the background check for duplicates at low priority, and with fewer readers, so it gives way to everything else
-- [ ] Notice when a drive is plugged in and offer to look through it
+- [x] Notice when a drive is plugged in or taken out: the first screen updates by itself within about two seconds (at once on Windows, from the system's own notice), with a Refresh button and the new drive brought to notice; the web view's own Reload menu is off. Asked for by the first outside tester
+- [ ] Offer to look through a drive when it is plugged in (the seam is `places::if_changed`'s `arrived`; see "Run when a known source is plugged in")
 - [ ] Time left ("About 20 minutes") for a search. Stopping a search is built; gather went in 0.30
 - [ ] "Show folders" view with tick boxes, for people who want control
 - [ ] Old video conversion prompt. Not asked for since the library went; the code was removed after 0.37.1 and git history has it
@@ -483,7 +484,7 @@ Today a backup runs when someone presses "Back up now". These make it run by its
 
 - [ ] Repeat a backup on a schedule: every day, every week, or every month, at a time the person chooses
 - [ ] Each run looks through the sources again first, then sends only what is new
-- [ ] Run when a known source is plugged in (a camera card, a drone's drive), with a choice of "ask me" or "just do it"
+- [ ] Run when a known source is plugged in (a camera card, a drone's drive), with a choice of "ask me" or "just do it". The first half is built: Keevoro notices a drive arriving (`keevoro_api::places::if_changed` gives the drives that `arrived`, and on Windows `watch_for_drives` hears the system's notice); what is left is matching an arrival against each backup's sources and asking
 - [ ] Run when a destination comes back (a backup drive plugged in, the network returns) if a run was missed
 - [ ] Carry on in the background with the window closed: an icon by the clock, and a way to start with the computer
 - [ ] Say what happened: a notification when a run finishes, and louder when one fails or a destination has not been reached for a while

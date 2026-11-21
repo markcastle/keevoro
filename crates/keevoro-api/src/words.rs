@@ -6,6 +6,18 @@ pub use keevoro_core::words::photos_and_videos;
 pub use keevoro_engine::history::duration;
 pub use keevoro_engine::summary::{ago, bytes, count, files, thousands};
 
+/// A search cut short by its drive going: what happened and what to do.
+/// `drive` is what the drive is called when the place looked through is a
+/// whole drive; otherwise the folder's name.
+pub fn unplugged_while_looking(name: &str, drive: bool) -> String {
+    let what = if drive {
+        format!("{name} was unplugged.")
+    } else {
+        format!("{name} could no longer be reached; its drive may have been unplugged.")
+    };
+    format!("{what} What was found so far is kept; plug it in and look again to carry on.")
+}
+
 /// The background check for duplicates, running: what it is doing, said
 /// so that nothing reads as an instruction.
 pub fn checking(done: usize, total: usize) -> String {

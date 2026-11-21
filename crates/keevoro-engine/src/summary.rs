@@ -113,6 +113,20 @@ fn how_well_described(item: &FoundItem) -> (bool, std::cmp::Reverse<usize>, bool
     )
 }
 
+/// The words that mark [`source_unplugged`] among what a backup says.
+pub const UNPLUGGED_PART_WAY: &str = " was unplugged part-way through, so ";
+
+/// A backup that could not read some files because their source went
+/// part-way: the drive unplugged.
+pub fn source_unplugged(name: &str, files: usize) -> String {
+    format!(
+        "{name}{UNPLUGGED_PART_WAY}{} from it {} not backed up. Everything already sent is safe; plug it in and \
+         back up again to carry on.",
+        count(files, "file"),
+        if files == 1 { "was" } else { "were" }
+    )
+}
+
 /// How long ago a moment was, both given in seconds since 1970, as a
 /// person says it: "just now", "5 minutes ago", "3 hours ago", "2 days
 /// ago", and the date beyond a month.

@@ -93,13 +93,36 @@ pub fn scan_into_with(
     if report.stopped {
         return Ok(report);
     }
-    keep_found_before(catalog, &mut report, &options.kinds)?;
+    if report.gone {
+        // The drive was unplugged part-way. What was found so far is kept,
+        // and so is everything found there before that this look did not
+        // reach: it cannot be checked now, and a drive unplugged is no
+        // reason to forget what is on it. Looking again once it is back
+        // puts it right.
+        keep_all_found_before(catalog, &mut report)?;
+    } else {
+        keep_found_before(catalog, &mut report, &options.kinds)?;
+    }
     let fallback = root
         .file_name()
         .map_or_else(|| root.display().to_string(), |n| n.to_string_lossy().to_string());
     on_saving();
     catalog.save_scan(name.unwrap_or(&fallback), &report, now())?;
     Ok(report)
+}
+
+/// Keeps everything found on this source before that `report` does not
+/// have, for a look cut short by the drive going.
+fn keep_all_found_before(catalog: &Catalog, report: &mut ScanReport) -> Result<()> {
+    let Some(before) = catalog.load_reports()?.into_iter().find(|r| r.root == report.root) else {
+        return Ok(());
+    };
+    let found_now: std::collections::HashSet<PathBuf> = report.items.iter().map(|i| i.path.clone()).collect();
+    report
+        .items
+        .extend(before.items.into_iter().filter(|item| !found_now.contains(&item.path)));
+    report.items.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(())
 }
 
 /// Keeps what was found on this source before whose kind is no longer
@@ -336,6 +359,58 @@ mod tests {
             .collect();
         names.sort();
         names
+    }
+
+    /// Moving the folder away while it is walked stands for pulling the
+    /// drive out. Windows refuses to move a folder the walk has open, so
+    /// there it is proved on a real computer.
+    #[cfg(unix)]
+    #[test]
+    fn a_drive_unplugged_while_it_is_looked_through_again_keeps_everything_found_on_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let card = dir.path().join("Card");
+        let photos: Vec<Vec<u8>> = (0..25u8).map(crate::discover::tests::real_jpeg).collect();
+        for folder in 0..40 {
+            let at = card.join(format!("Folder {folder:02}"));
+            fs::create_dir_all(&at).unwrap();
+            for (file, photo) in photos.iter().enumerate() {
+                fs::write(at.join(format!("IMG_{file:04}.jpg")), photo).unwrap();
+            }
+        }
+        let mut catalog = Catalog::in_memory().unwrap();
+        let options = ScanOptions::default();
+        scan_into_with(&mut catalog, &card, Some("Card"), &options, &mut |_| {}, &mut || {}).unwrap();
+        let before = catalog.load_reports().unwrap()[0].items.len();
+        assert_eq!(before, 1000);
+
+        // Looked through again, and pulled out as the first file is said.
+        let away = dir.path().join("In a drawer");
+        let mut pulled = false;
+        let report = scan_into_with(
+            &mut catalog,
+            &card,
+            Some("Card"),
+            &options,
+            &mut |_| {
+                if !pulled {
+                    fs::rename(&card, &away).unwrap();
+                    pulled = true;
+                }
+            },
+            &mut || {},
+        )
+        .unwrap();
+        assert!(report.gone);
+        assert!(
+            report.unreadable.is_empty(),
+            "the files are not unreadable, the card is gone"
+        );
+        assert_eq!(
+            catalog.load_reports().unwrap()[0].items.len(),
+            before,
+            "nothing found on it before is forgotten"
+        );
+        fs::rename(&away, &card).unwrap();
     }
 
     #[test]

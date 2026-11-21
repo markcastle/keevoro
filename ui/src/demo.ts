@@ -29,6 +29,7 @@ import type {
   Backup,
   BackupListing,
   DuplicatesLeft,
+  Place as Drive,
   Removal,
   RemovedBackup,
   BackupEstimate,
@@ -316,18 +317,42 @@ export function demoBackend(): Backend {
     gone?: number
     /** The last look could not reach it. */
     outOfReach?: boolean
+    /** The last look found its folder on another disk and empty: the drive left it behind. */
+    otherDisk?: boolean
   }
   // A test empties the first destination, or unplugs it, by hand, as a
   // person might; Keevoro finds out the next time it looks there.
   let emptyOnLook = false
   let unplugOnLook = false
-  const byHand = window as unknown as { keevoroEmptyTheFolder: () => void; keevoroUnplugTheFolder: () => void }
+  let leaveEmptyOnLook = false
+  const byHand = window as unknown as {
+    keevoroEmptyTheFolder: () => void
+    keevoroUnplugTheFolder: () => void
+    keevoroUnplugLeavingTheFolder: () => void
+  }
   byHand.keevoroEmptyTheFolder = () => (emptyOnLook = true)
   byHand.keevoroUnplugTheFolder = () => (unplugOnLook = true)
+  // On a Mac or Linux an unplugged drive can leave the folder it was
+  // mounted on behind, empty, on the computer's own disk.
+  byHand.keevoroUnplugLeavingTheFolder = () => (leaveEmptyOnLook = true)
   // What Keevoro would say of a destination it has just looked at, in the
   // words keevoro_engine::confirm uses.
   const lookedAt = (d: Place) => {
     const now = Date.now() / 1000
+    if (d.otherDisk) {
+      return {
+        at: now,
+        lastReached: now - 2 * 86_400,
+        fresh: false,
+        reached: false,
+        gone: 0,
+        notAsSent: 0,
+        otherDisk: true,
+        said: [
+          `The drive this backup goes to does not seem to be plugged in: ${d.folder} is there, but on another disk, and holds nothing Keevoro backed up, so nothing is sent there. Plug the drive in, or, if this disk is where the backup should go from now on, choose "Use this folder as it is now". Until Keevoro can reach ${d.name}, what is there can't be confirmed: everything is counted as it was when Keevoro last reached it, 2 days ago.`,
+        ],
+      }
+    }
     if (d.outOfReach) {
       return {
         at: now,
@@ -621,6 +646,21 @@ export function demoBackend(): Backend {
     sentSoFar = kept.sentSoFar
     open = id
   }
+  // The drives plugged in. With `?plugin`, a memory card arrives a moment
+  // after the page opens, as one pushed into a reader would.
+  const openedAt = Date.now()
+  const drivesNow = (): Drive[] => {
+    const card: Drive[] =
+      new URLSearchParams(window.location.search).has('plugin') && Date.now() - openedAt > 1500
+        ? [{ path: 'F:\\', name: 'SanDisk Ultra (F:)', detail: 'USB or external drive \u00b7 32 GB', removable: true, askFirst: false }]
+        : []
+    return [
+      { path: 'E:\\', name: 'KINGSTON (E:)', detail: 'USB or external drive \u00b7 32 GB', removable: true, askFirst: false },
+      ...card,
+      { path: 'C:\\', name: 'Windows (C:)', detail: 'This computer\u2019s disk \u00b7 512 GB', removable: false, askFirst: true },
+    ]
+  }
+
   // Backups removed in the last week, with what each held, to put back.
   const removedRecently: { listed: RemovedBackup; backup: Backup; kept: Kept }[] = []
   const homeOf = (id: string) => `C:\\Users\\You\\AppData\\Roaming\\com.markcastle.keevoro\\backups\\${id}`
@@ -717,6 +757,21 @@ export function demoBackend(): Backend {
           for (let step = 1; step <= 4; step++) {
             // `?slow` leaves time to press Stop.
             await later(new URLSearchParams(window.location.search).has('slow') ? 400 : 220 * pace)
+            // `?unplug` pulls the drive out part-way: what was found so far is kept.
+            if (new URLSearchParams(window.location.search).has('unplug') && added.length > 0) {
+              const kept = { id: Date.now(), name, root, items: photos + videos, bytes: (photos * 3.2 + videos * 48) * 1024 * 1024 }
+              if (!sources.some((s) => s.root === root)) sources.push(kept)
+              scanListeners.forEach((l) =>
+                l({
+                  name,
+                  photos,
+                  videos,
+                  finished: true,
+                  unplugged: `${name} was unplugged. What was found so far is kept; plug it in and look again to carry on.`,
+                }),
+              )
+              return
+            }
             if (stopLooking) {
               // Stopped: nothing from this search is kept.
               added.forEach((c) => collections.splice(collections.indexOf(c), 1))
@@ -1078,6 +1133,10 @@ export function demoBackend(): Backend {
         unplugOnLook = false
         first.outOfReach = true
       }
+      if (first && first.there > 0 && leaveEmptyOnLook) {
+        leaveEmptyOnLook = false
+        first.otherDisk = true
+      }
       const folder = sendingTo?.startsWith('the folder') ? sendingTo.replace('the folder ', '') : null
       // `?full` pretends the chosen disk is nearly full.
       const free = folder ? (new URLSearchParams(window.location.search).has('full') ? 90 * 1024 * 1024 : 118 * 1024 ** 3) : null
@@ -1085,10 +1144,17 @@ export function demoBackend(): Backend {
       return { needed, folder, free, enough: free === null || free > needed + 200 * 1024 * 1024 }
     },
     discover: async () => view(),
-    places: async () => [
-      { path: 'E:\\', name: 'KINGSTON (E:)', detail: 'USB or external drive \u00b7 32 GB', removable: true, askFirst: false },
-      { path: 'C:\\', name: 'Windows (C:)', detail: 'This computer\u2019s disk \u00b7 512 GB', removable: false, askFirst: true },
-    ],
+    places: async () => drivesNow(),
+    // The quick list is each drive's place; it changes when `?plugin` has
+    // a memory card arrive a moment after the page opens.
+    async placesIfChanged(known, asked) {
+      const now = drivesNow()
+      const mounts = now.map((p) => p.path).sort()
+      if (known && !asked && known.join('|') === mounts.join('|')) return null
+      const arrived = known ? mounts.filter((m) => !known.includes(m)) : []
+      return { mounts, places: now, arrived }
+    },
+    onDrives: () => () => {},
     // A made-up survey of a big disk: three real places and one of icons.
     async surveyPlace(path) {
       const drive = path.replace(/[\\/]+$/, '')
@@ -1380,9 +1446,17 @@ export function demoBackend(): Backend {
             : `the bucket ${request.bucket}`
       // Added to the list; a new place has nothing in it yet, so nothing
       // is safe until it has caught up.
-      if (!dests.some((d) => d.name === name)) {
+      const already = dests.find((d) => d.name === name)
+      if (!already) {
         dests.push({ name, kind: request.kind, folder: request.kind === 'folder' ? request.place : null, there: 0 })
         if (dests.length > 1) collections.forEach((c) => (c.gathered = 0))
+      } else if (already.otherDisk) {
+        // Added again as it is now: this disk is the one, and it is empty.
+        already.otherDisk = false
+        already.gone = already.there
+        already.there = 0
+        sentSoFar = 0
+        collections.forEach((c) => (c.gathered = 0))
       }
       said()
       return name

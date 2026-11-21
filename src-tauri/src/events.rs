@@ -106,6 +106,7 @@ pub(crate) mod tests {
             }],
             online_only: 412,
             online_only_said: Some("412 files here are in OneDrive only.".into()),
+            unplugged: Some("KINGSTON (E:) was unplugged.".into()),
         };
         assert_eq!(keys(&scan), fields_of("ScanEvent"), "every field, filled in");
         let send = SendEvent {

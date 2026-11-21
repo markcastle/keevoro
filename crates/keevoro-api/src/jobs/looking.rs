@@ -134,6 +134,10 @@ fn look_through(
     skip: &keevoro_core::SkipRules,
 ) -> ScanEvent {
     let name = name_of(source);
+    // What to call it if it is unplugged part-way: the drive's own name
+    // when the place is a whole drive. From the system's quick list, so it
+    // costs next to nothing and never waits on a network share.
+    let drive = crate::places::drive_name(source);
     let started = Instant::now();
     let log = &ctx.log;
     log.say(&format!("Looking through {}", friendly_path(source)));
@@ -213,6 +217,17 @@ fn look_through(
             )
         });
     let was_stopped = result.as_ref().is_ok_and(|report| report.stopped);
+    let unplugged = result
+        .as_ref()
+        .is_ok_and(|report| report.gone)
+        .then(|| crate::words::unplugged_while_looking(drive.as_deref().unwrap_or(&name), drive.is_some()));
+    if let Some(said) = &unplugged {
+        log.say(&format!(
+            "{} went part-way through looking, after {} files: {said}",
+            friendly_path(source),
+            latest.2
+        ));
+    }
     match &result {
         Ok(report) if report.stopped => log.say(&format!(
             "Stopped looking through {} after {} seconds and {} files. Nothing from it was kept.",
@@ -288,6 +303,7 @@ fn look_through(
             .ok()
             .and_then(|r| keevoro_engine::summary::online_only(r.online_only.len())),
         problem: result.err().map(|e| format!("{e:#}")),
+        unplugged,
     }
 }
 

@@ -261,7 +261,7 @@ pub(crate) mod tests {
     use keevoro_engine::connect::{self, testing, World};
     use std::fs;
 
-    fn real_jpeg(shade: u8) -> Vec<u8> {
+    pub(crate) fn real_jpeg(shade: u8) -> Vec<u8> {
         let img = image::RgbImage::from_pixel(640, 480, image::Rgb([shade, 120, 60]));
         let mut bytes = Vec::new();
         img.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Jpeg)
@@ -469,6 +469,7 @@ pub(crate) mod tests {
             bucket: None,
             base_url: None,
             target: None,
+            volume: None,
         };
         connect::add(&mut Vec::new(), &catalog, &folder, None, &world).unwrap();
 

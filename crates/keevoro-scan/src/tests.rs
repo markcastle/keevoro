@@ -1070,3 +1070,46 @@ mod other_files {
         assert!(photos.hints.iter().all(|h| h.folder != t.root().join("Documents")));
     }
 }
+
+/// Pulling the card out is made by moving its folder away while it is
+/// walked. Windows refuses to move a folder the walk has open, so there it
+/// is proved on a real computer; the rule is the same code everywhere.
+#[cfg(unix)]
+#[test]
+fn a_drive_unplugged_part_way_stops_the_search_and_is_not_taken_for_unreadable_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let card = dir.path().join("Card");
+    for folder in 0..40 {
+        let at = card.join(format!("Folder {folder:02}"));
+        std::fs::create_dir_all(&at).unwrap();
+        for file in 0..50 {
+            std::fs::write(
+                at.join(format!("IMG_{file:04}.jpg")),
+                plain_jpeg(u8::try_from(file).unwrap()),
+            )
+            .unwrap();
+        }
+    }
+    let elsewhere = dir.path().join("Unplugged");
+    let mut pulled = false;
+    let report = scan(&card, &ScanOptions::default(), &mut |_| {
+        // The card is pulled out as the first file is said.
+        if !pulled {
+            std::fs::rename(&card, &elsewhere).unwrap();
+            pulled = true;
+        }
+    });
+    assert!(report.gone, "the search knows the card went");
+    assert!(!report.stopped);
+    assert!(
+        report.unreadable.is_empty(),
+        "{:?}",
+        &report.unreadable[..report.unreadable.len().min(3)]
+    );
+    assert!(report.items.len() < 2000, "it stopped part-way: {}", report.items.len());
+    // Nothing of the card was changed: it is all there once plugged back.
+    std::fs::rename(&elsewhere, &card).unwrap();
+    let whole = scan(&card, &ScanOptions::default(), &mut |_| {});
+    assert!(!whole.gone);
+    assert_eq!(whole.items.len(), 2000);
+}

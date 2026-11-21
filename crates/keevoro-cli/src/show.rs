@@ -1145,7 +1145,9 @@ pub fn last_word(io: &mut Io<'_>, last: Option<&Said>) -> std::io::Result<()> {
             }
         }
         Some(Said::Scan(e)) => {
-            if e.stopped {
+            if let Some(unplugged) = &e.unplugged {
+                writeln!(io.out, "{unplugged}")?;
+            } else if e.stopped {
                 writeln!(
                     io.out,
                     "Stopped. Nothing from this search of {} was kept; what was known before is as it was.",

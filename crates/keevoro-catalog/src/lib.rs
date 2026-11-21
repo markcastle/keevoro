@@ -792,6 +792,7 @@ impl Catalog {
                     // Known only while a search runs.
                     online_only: Vec::new(),
                     stopped: false,
+                    gone: false,
                 })
             })
             .collect()

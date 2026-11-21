@@ -272,6 +272,21 @@ fn everything_a_person_set_and_keevoro_recorded_in_0_37_1_is_there_after_updatin
         json!(["photos"])
     );
 
+    // A folder destination 0.37.1 saved has no disk remembered, and goes on
+    // as before; once it is reached, the disk it is on is remembered, so the
+    // empty folder an unplugged drive can leave behind is never taken for it.
+    let home = places.folders.data.join("backups").join("backup-1");
+    let volume = || {
+        let catalog = keevoro_catalog::Catalog::open_in_library(&home).unwrap();
+        keevoro_engine::connect::destinations(&catalog).unwrap()[0]
+            .volume
+            .clone()
+    };
+    assert_eq!(volume(), None);
+    std::fs::create_dir_all(&places.usb).unwrap();
+    ask(&keevoro, Op::DestinationsRoom, family, Value::Null);
+    assert!(volume().is_some(), "known by its disk once reached");
+
     // A backup 0.37.1 kept can be removed, saying where it went and what it
     // looked through, and put back with everything in its record in place.
     let removal = ask(&keevoro, Op::BackupsForget, None, json!({ "backup": "Family photos" }));

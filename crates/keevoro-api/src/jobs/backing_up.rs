@@ -258,6 +258,8 @@ fn check(
             said.extend_from_slice(format!("At {}:\n", to.describe()).as_bytes());
         }
         let checked = to.open(said, world).and_then(|destination| {
+            // The folder an unplugged drive left behind is not the backup.
+            keevoro_engine::confirm::not_on_another_disk(to, &destination)?;
             keevoro_engine::send::check(said, catalog, destination, to.target.as_deref(), false, progress)
         });
         match checked {

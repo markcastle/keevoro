@@ -51,6 +51,7 @@ fn report(root: &str) -> ScanReport {
         other_files: 41,
         online_only: Vec::new(),
         stopped: false,
+        gone: false,
     }
 }
 

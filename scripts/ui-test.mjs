@@ -838,6 +838,24 @@ try {
   await page.getByText(/^Everything you are keeping was there when Keevoro last looked, 2 days ago: [\d,]+ files\.$/).waitFor()
   await shot('9y-backup-folder-unplugged')
 
+  // --- On a Mac or Linux an unplugged drive can leave the folder it was
+  // mounted on behind, empty, on the computer's own disk. That is never
+  // backed up into by itself; the person can say this disk is the one.
+  await page.goto(`${base}/?fast`)
+  await page.getByRole('button', { name: 'Choose where they go' }).click()
+  await page.getByRole('button', { name: /^A folder/ }).click()
+  await page.getByRole('button', { name: 'Back up now' }).click()
+  await page.getByText(/^Everything you are keeping is there: [\d,]+ files\.$/).waitFor()
+  await page.evaluate(() => window.keevoroUnplugLeavingTheFolder())
+  await page.locator('.steps button').nth(1).click()
+  await page.getByRole('button', { name: 'Next' }).click()
+  const leftBehind = page.getByRole('status', { name: 'What Keevoro found where this backup goes' })
+  await leftBehind.getByText(/^The drive this backup goes to does not seem to be plugged in: F:\\Family Backup is there, but on another disk/).waitFor()
+  await shot('9y2-drive-left-its-folder-behind')
+  await fitsNarrow('A drive that left its folder behind')
+  await leftBehind.getByRole('button', { name: 'Use this folder as it is now' }).click()
+  await leftBehind.getByText(/looks emptied or replaced/).waitFor()
+
   // --- A search can be stopped, and then nothing from it is kept.
   await page.goto(`${base}/?demo=empty&slow`)
   await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
@@ -848,6 +866,37 @@ try {
   assert.equal(await page.locator('.kept li.source').count(), 0, 'the source was not added')
   assert.ok(await page.locator('.steps button').nth(1).isDisabled(), 'and there is nothing to choose from')
   await shot('9j-search-stopped')
+
+  // --- A drive plugged in appears by itself within a couple of seconds,
+  // first and brought to notice, never looking chosen; Refresh is a button.
+  await page.goto(`${base}/?demo=empty&plugin`)
+  await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
+  await page.getByRole('button', { name: 'Refresh the list of drives' }).waitFor()
+  assert.equal(await page.locator('.place').filter({ hasText: 'SanDisk' }).count(), 0, 'not plugged in yet')
+  const arrivedCard = page.locator('.place.arrived').filter({ hasText: 'SanDisk Ultra (F:)' })
+  await arrivedCard.waitFor()
+  assert.match(await arrivedCard.innerText(), /Just plugged in/)
+  assert.match(await page.locator('.places .place').first().innerText(), /SanDisk Ultra \(F:\)/, 'it comes first')
+  const shade = await arrivedCard.evaluate((el) => getComputedStyle(el).backgroundColor)
+  const other = await page.locator('.place').filter({ hasText: 'KINGSTON' }).evaluate((el) => getComputedStyle(el).backgroundColor)
+  assert.equal(shade, other, 'it is not shaded as if chosen')
+  await shot('2c-a-drive-just-plugged-in')
+  await fitsNarrow('A drive just plugged in')
+  await page.getByRole('button', { name: 'Refresh the list of drives' }).click()
+  await page.locator('.place').filter({ hasText: 'SanDisk Ultra (F:)' }).waitFor()
+
+  // --- A drive pulled out while it is looked through is said plainly, and
+  // what was found so far is kept.
+  await page.goto(`${base}/?demo=empty&unplug`)
+  await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
+  await page.getByRole('button', { name: /KINGSTON/ }).click()
+  await page.getByRole('heading', { name: 'Stopped looking through KINGSTON (E:)' }).waitFor()
+  assert.match(
+    await text('.panel'),
+    /KINGSTON \(E:\) was unplugged\. What was found so far is kept; plug it in and look again to carry on\./,
+  )
+  assert.equal(await page.locator('.kept li.source').count(), 1, 'what was found so far is kept')
+  await shot('9j1-search-drive-unplugged')
 
   // --- The check for duplicates that follows a stopped search says what it
   // is doing, has its own Pause and Stop, and offers to be stopped too.

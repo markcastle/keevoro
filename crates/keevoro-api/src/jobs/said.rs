@@ -156,6 +156,10 @@ pub struct ScanEvent {
     pub online_only: usize,
     #[serde(rename = "onlineOnlySaid", default, skip_serializing_if = "Option::is_none")]
     pub online_only_said: Option<String>,
+    /// On the last event: the drive went part-way, a drive unplugged, said
+    /// in a sentence. What was found so far is kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unplugged: Option<String>,
 }
 
 fn is_zero(n: &usize) -> bool {
@@ -376,6 +380,7 @@ mod tests {
                 left_out: Vec::new(),
                 online_only: 412,
                 online_only_said: keevoro_engine::summary::online_only(412),
+                unplugged: Some(crate::words::unplugged_while_looking("KINGSTON (E:)", true)),
             }),
             Said::Survey(SurveyEvent {
                 folders: 1,

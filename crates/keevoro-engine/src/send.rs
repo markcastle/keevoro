@@ -335,7 +335,11 @@ fn originals_first(
     // Anything that could not be sent is said once, with its reason.
     let files_failed = |out: &mut dyn Write| -> Result<()> {
         for line in said(&files).lines() {
-            if line.starts_with("Couldn't back up") || line.starts_with("  ") || line.starts_with("Back up again") {
+            if line.starts_with("Couldn't back up")
+                || line.starts_with("  ")
+                || line.starts_with("Back up again")
+                || line.contains(summary::UNPLUGGED_PART_WAY)
+            {
                 writeln!(out, "{line}")?;
             }
         }
@@ -739,6 +743,44 @@ fn kept_now<'a>(catalog: &Catalog, reports: &'a [keevoro_scan::ScanReport]) -> R
 
 /// Sends everything that has its place and has not reached this
 /// destination yet, then writes the index. `stop` stops it between files.
+/// Of the files that could not be sent, those whose source has gone since
+/// it was looked through (a drive unplugged part-way), counted by the
+/// source's name, and the rest. Only asked when something failed, and then
+/// only whether each source's folder is still there.
+#[allow(clippy::type_complexity)]
+fn from_sources_gone<'f>(
+    catalog: &Catalog,
+    uploads: &[keevoro_publish::Upload],
+    failed: &'f [keevoro_publish::FailedUpload],
+) -> Result<(Vec<(String, usize)>, Vec<&'f keevoro_publish::FailedUpload>)> {
+    if failed.is_empty() {
+        return Ok((Vec::new(), Vec::new()));
+    }
+    let gone: Vec<(PathBuf, String)> = catalog
+        .sources()?
+        .into_iter()
+        .filter(|s| !s.root.is_dir())
+        .map(|s| (s.root, s.name))
+        .collect();
+    let files: std::collections::HashMap<&str, &Path> =
+        uploads.iter().map(|u| (u.key.as_str(), u.file.as_path())).collect();
+    let mut unplugged: Vec<(String, usize)> = Vec::new();
+    let mut rest = Vec::new();
+    for f in failed {
+        let from = files
+            .get(f.key.as_str())
+            .and_then(|file| gone.iter().find(|(root, _)| file.starts_with(root)));
+        match from {
+            Some((_, name)) => match unplugged.iter_mut().find(|(n, _)| n == name) {
+                Some((_, count)) => *count += 1,
+                None => unplugged.push((name.clone(), 1)),
+            },
+            None => rest.push(f),
+        }
+    }
+    Ok((unplugged, rest))
+}
+
 /// Answers how many files could not be sent.
 #[allow(clippy::too_many_arguments)]
 fn run_until(
@@ -808,11 +850,15 @@ fn run_until(
             p.latest
         ));
     }))?;
+    // Files that could not be read because their source went part-way (a
+    // drive unplugged) are said once for that source, not one by one.
+    let (unplugged, failed_here) = from_sources_gone(catalog, &uploads, &report.failed)?;
     // Files that could not be sent mark the stage as gone wrong, saying
     // how many, so it is never shown as done when it was not.
-    match report.failed.len() {
-        0 => tracker.finish(pass.sending, Some(pass.to)),
-        failed => tracker.went_wrong(
+    match (report.failed.len(), unplugged.first()) {
+        (0, _) => tracker.finish(pass.sending, Some(pass.to)),
+        (_, Some((name, _))) => tracker.went_wrong(pass.sending, Some(pass.to), &format!("{name} was unplugged")),
+        (failed, None) => tracker.went_wrong(
             pass.sending,
             Some(pass.to),
             &format!("Couldn't back up {}", summary::count(failed, "file")),
@@ -940,9 +986,12 @@ fn run_until(
     if report.already_there > 0 {
         writeln!(out, "{} already there.", summary::count(report.already_there, "file"))?;
     }
-    if !report.failed.is_empty() {
-        writeln!(out, "Couldn't back up {}:", summary::count(report.failed.len(), "file"))?;
-        for f in &report.failed {
+    for (name, files) in &unplugged {
+        writeln!(out, "{}", summary::source_unplugged(name, *files))?;
+    }
+    if !failed_here.is_empty() {
+        writeln!(out, "Couldn't back up {}:", summary::count(failed_here.len(), "file"))?;
+        for f in &failed_here {
             writeln!(out, "  {}: {}.", f.key, f.reason)?;
         }
         writeln!(out, "Back up again to try them once more.")?;
@@ -1659,6 +1708,7 @@ mod tests {
                 bucket: None,
                 base_url: None,
                 target: Some("folder:gone".into()),
+                volume: None,
             },
         );
         catalog
@@ -1760,6 +1810,49 @@ mod tests {
         let recorded = tracker.record();
         let originals = recorded.iter().find(|r| r.kind == Kind::SendingOriginals).unwrap();
         assert_eq!(originals.problem.as_deref(), Some("Couldn't back up 1 file"));
+    }
+
+    /// The card is pulled out by moving its folder away part-way. Windows
+    /// refuses to move a folder that a preview being made has open, so
+    /// there it is proved on a real computer.
+    #[cfg(unix)]
+    #[test]
+    fn a_source_unplugged_while_its_files_are_sent_is_said_once_in_plain_words() {
+        let (dir, card, home, catalog) = one_backup();
+        let to = dir.path().join("usb");
+        std::fs::create_dir_all(&to).unwrap();
+        // The card is pulled out once the first file has been sent.
+        let away = dir.path().join("In a drawer");
+        let mut said = Vec::new();
+        turn_alone(
+            &mut said,
+            &catalog,
+            &home,
+            Destination::Folder(to.clone()),
+            None,
+            None,
+            &Stop::default(),
+            &mut |line| {
+                if line.starts_with("1 of 2 safely backed up") && card.is_dir() {
+                    std::fs::rename(&card, &away).unwrap();
+                }
+            },
+        )
+        .unwrap();
+        let said = String::from_utf8(said).unwrap();
+        assert!(
+            said.contains(
+                "Card was unplugged part-way through, so 1 file from it was not backed up. Everything already sent \
+                 is safe; plug it in and back up again to carry on."
+            ),
+            "{said}"
+        );
+        assert!(!said.contains("Couldn't back up"), "not listed one by one: {said}");
+        assert!(said.contains("Safely backed up 1 file"), "{said}");
+        // Plugged back in, the next backup sends the other.
+        std::fs::rename(&away, &card).unwrap();
+        let said = send(&catalog, &home, &to);
+        assert!(said.contains("Safely backed up 1 file"), "{said}");
     }
 
     #[test]

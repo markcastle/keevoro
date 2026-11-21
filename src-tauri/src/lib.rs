@@ -30,7 +30,11 @@ mod updates;
 #[cfg(test)]
 mod wiring;
 
-use tauri::{Manager, Runtime};
+use tauri::{Emitter, Manager, Runtime};
+
+/// The window event that says a drive arrived or left, where the system
+/// says so; it carries nothing, and the first screen lists the drives again.
+pub const DRIVES: &str = "drives";
 
 /// What the running app holds in memory.
 pub struct Shared {
@@ -87,6 +91,13 @@ fn app<R: Runtime>(
             let window = app.handle().clone();
             keevoro.listen(move |event| events::to_window(&window, &event.said));
             app.manage(Shared { keevoro });
+            // Where the system says when a drive arrives or leaves
+            // (Windows), the first screen hears it at once, as `drives`;
+            // elsewhere it looks every couple of seconds while it shows.
+            let told = app.handle().clone();
+            keevoro_api::places::watch_for_drives(move || {
+                let _ = told.emit(DRIVES, ());
+            });
             // Backups removed over a week ago are cleared away for good,
             // quietly, off the thread that opens the window.
             let handle = app.handle().clone();
@@ -139,6 +150,7 @@ fn app<R: Runtime>(
             commands::survey_place,
             commands::stop_survey,
             commands::places,
+            commands::places_if_changed,
             commands::check_update,
             commands::keep_checking,
             commands::pause_checking,

@@ -131,6 +131,7 @@ fn a_look_is_trusted_for_a_few_minutes_and_no_longer() {
         problem: None,
         last_reached: Some(at),
         emptied: false,
+        other_disk: false,
     };
     assert!(is_fresh(&looked(1_000), 1_000));
     assert!(is_fresh(&looked(1_000), 1_000 + FRESH_FOR - 1));
@@ -804,4 +805,100 @@ fn against_a_real_server_a_bucket_emptied_is_said_and_sent_again_and_one_refusin
     assert!(!said.contains("no longer holds"), "{said}");
     assert_eq!(t.records(), before);
     empty();
+}
+
+#[test]
+fn only_an_empty_folder_on_another_disk_is_taken_for_a_drive_unplugged() {
+    assert!(on_another_disk(Some("device 2049"), Some("device 66306"), false));
+    assert!(
+        !on_another_disk(Some("device 2049"), Some("device 2049"), false),
+        "the same disk"
+    );
+    assert!(
+        !on_another_disk(Some("device 2049"), Some("device 2065"), true),
+        "the backup's drive, given another number when plugged in again"
+    );
+    assert!(
+        !on_another_disk(None, Some("device 2049"), false),
+        "saved before the disk was kept"
+    );
+    assert!(
+        !on_another_disk(Some("device 2049"), None, false),
+        "the system cannot say"
+    );
+}
+
+/// Remembers the destination as being on another disk than the one its
+/// folder is on now, as a folder a drive was mounted on reads once the
+/// drive is unplugged.
+fn known_on_another_disk(t: &Tester) {
+    let mut all = connect::destinations(&t.catalog).unwrap();
+    all[0].volume = Some("device 1".to_string());
+    t.catalog
+        .set_setting("destinations", &serde_json::to_string(&all).unwrap())
+        .unwrap();
+}
+
+#[test]
+fn the_empty_folder_an_unplugged_drive_leaves_behind_is_never_backed_up_into() {
+    let t = Tester::new();
+    t.run();
+    assert!(t.saved().volume.is_some(), "the disk is remembered when it is added");
+    // The drive is unplugged, leaving the folder it was mounted on, empty,
+    // on the computer's own disk.
+    t.empty_the_folder();
+    known_on_another_disk(&t);
+    let (said, went) = t.run();
+    assert!(
+        said.contains(&format!(
+            "The drive this backup goes to does not seem to be plugged in: {} is there, but on another disk",
+            t.usb().display()
+        )),
+        "{said}"
+    );
+    assert!(t.originals().is_empty(), "nothing is sent onto the wrong disk");
+    assert_eq!(went.reached, 0);
+    let view = t.view();
+    assert!(!view.reached && view.other_disk, "{view:?}");
+    assert_eq!(view.gone, 0, "nothing Keevoro knows about it is forgotten");
+    // "Check they all arrived" refuses it in the same words.
+    let e = not_on_another_disk(&t.saved(), &crate::send::Destination::Folder(t.usb())).unwrap_err();
+    assert!(format!("{e:#}").contains("does not seem to be plugged in"));
+
+    // The person says this disk is where it goes now: added again, it is
+    // known by this disk, and backed up to afresh.
+    connect::add(&mut Vec::new(), &t.catalog, &folder(&t.usb()), None, &t.world()).unwrap();
+    let (said, went) = t.run();
+    assert!(said.contains("Safely backed up 4 files"), "{said}");
+    assert_eq!(went.destinations[0].originals.restored, 4);
+}
+
+#[test]
+fn the_backups_own_drive_given_another_number_is_still_the_backups_and_is_known_by_it_again() {
+    let t = Tester::new();
+    t.run();
+    known_on_another_disk(&t);
+    let (said, went) = t.run();
+    assert_eq!(went.reached, 1, "{said}");
+    assert!(said.contains("4 files already there"), "{said}");
+    assert_ne!(
+        t.saved().volume.as_deref(),
+        Some("device 1"),
+        "known by the number it has now"
+    );
+}
+
+#[test]
+fn a_folder_saved_before_its_disk_was_kept_goes_on_as_before_and_is_known_from_then_on() {
+    let t = Tester::new();
+    t.run();
+    let mut all = connect::destinations(&t.catalog).unwrap();
+    all[0].volume = None;
+    t.catalog
+        .set_setting("destinations", &serde_json::to_string(&all).unwrap())
+        .unwrap();
+    t.empty_the_folder();
+    let (said, _) = t.run();
+    assert!(said.contains("looks emptied or replaced"), "as before: {said}");
+    assert!(t.saved().volume.is_some(), "and its disk is kept once reached");
 }
