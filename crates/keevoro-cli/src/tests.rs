@@ -880,6 +880,25 @@ fn a_key_given_is_never_shown_logged_or_written_down() {
     ];
     ran.push(both.keevoro(&typed));
 
+    // The same for cloud storage added as a source.
+    let source = [
+        "sources",
+        "add-bucket",
+        "--endpoint",
+        "http://127.0.0.1:9",
+        "--bucket",
+        "family",
+        "--prefix",
+        "Photos",
+    ];
+    let mut args = source.to_vec();
+    args.push("--keys-from-stdin");
+    ran.push(from_stdin.keevoro(&args));
+    ran.push(from_env.keevoro(&source));
+    let mut typed = source.to_vec();
+    typed.extend(["--access-key-id", ACCESS, "--secret-access-key", SECRET, "--json"]);
+    ran.push(at.keevoro(&typed));
+
     for said in &ran {
         assert_eq!(said.code, Code::Unreachable, "{}", said.err);
         for text in [&said.out, &said.err] {

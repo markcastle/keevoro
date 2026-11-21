@@ -6,7 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **OneDrive, Dropbox, Google Drive and iCloud Drive on the first screen.** Our first outside tester asked whether Keevoro could back up cloud drives too, and combine several. The first step: the folders these services keep on your computer are now offered by name on "Where are your photos?", beside your drives, for example "OneDrive" with "Synced with Microsoft’s cloud · C:\Users\Mark\OneDrive", or "Dropbox (Acme)" for a work account. Click one to look through it like any folder. Keevoro finds them from what each service itself says about where it keeps them, never by opening anything in them, and the first screen is no slower: it takes well under a millisecond and is remembered for half a minute. `keevoro places` lists them too.
+- **Cloud storage as a source: back up a bucket to a drive, or to cheaper cloud storage.** Also from our first outside tester, who asked about merging old cloud backups into one and moving to a cheaper cloud. A bucket on Cloudflare R2, Amazon S3 or other S3-compatible storage, or a folder in one, can now be a source, with "Add cloud storage as a source…" on "Where are your photos?" and `keevoro sources add-bucket` at the command line. Its keys are checked by listing the bucket, which changes nothing, and kept in your computer's keychain, never shown again. Looking through it only lists it, so nothing is downloaded. Nothing in a source bucket is ever written, replaced or deleted. When it is backed up, each file is brought through this computer one or two at a time, checked, sent, and the copy here removed, and only when there is room for it with 2 GB to spare. A photo that is both in the bucket and on another source is backed up once. A bucket keeps its folders as they are, unless you choose otherwise. Files in Amazon's archive storage, which must be restored before they can be read, are said, with how much they come to. Previews are not made of files in cloud storage, since that would mean downloading them. An AI agent can add cloud storage as a source when you allow changes, but only you can look through it or back up from it.
+
+### Changed
+
+- **How much is only online is now said, not only how many.** Files in OneDrive (or iCloud, Dropbox or Google Drive) that are only online and not on your computer are still never opened, because opening one would download it. Keevoro now remembers each one and its size, from what the folder listing says, so a source says, for example, "412 files, 18.4 GB, are in OneDrive only, not on this computer, so Keevoro did not open them. To include them, make them available offline in OneDrive first, then look again." It names the service the folder belongs to. A source looked through before this version says how many, as it did, until it is next looked through.
 
 ## [0.41.0] - 2026-11-21
 

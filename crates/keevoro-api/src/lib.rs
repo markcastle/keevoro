@@ -31,6 +31,7 @@ pub mod agents;
 pub mod arrange;
 pub mod backup;
 pub mod backups;
+pub mod bucket_sources;
 pub mod destinations;
 pub mod error;
 pub mod file_kinds;
@@ -47,6 +48,7 @@ pub mod register;
 pub mod removing;
 pub mod reset;
 pub mod space;
+pub mod synced;
 pub mod wants;
 pub mod words;
 
@@ -342,7 +344,11 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
         }
         Op::SourcesForget => {
             let r: SourceRequest = read(request)?;
-            answer(open()?.forget_source(r.source)?)
+            answer(keevoro.forget_source(&mut open()?, r.source)?)
+        }
+        Op::SourcesAddBucket => {
+            let r: bucket_sources::AddBucketRequest = read_with_keys(request)?;
+            answer(keevoro.add_bucket_source(&open()?, &r)?)
         }
         Op::SourcesFileTypes => {
             let r: SourceRequest = read(request)?;
@@ -1165,12 +1171,41 @@ mod tests {
         .unwrap();
         assert!(!has_a_key(&added.to_string()), "{added}");
 
+        // Cloud storage as a source holds its keys to the same rules: its
+        // request's Debug form, its error when the storage is out of
+        // reach, and half a pair.
+        let bucket = json!({
+            "kind": "endpoint",
+            "place": "http://127.0.0.1:9",
+            "bucket": "family",
+            "prefix": "Photos",
+            "accessKeyId": ACCESS,
+            "secretAccessKey": SECRET,
+        });
+        let parsed: bucket_sources::AddBucketRequest = serde_json::from_value(bucket.clone()).unwrap();
+        let debug = format!("{parsed:?} {parsed:#?}");
+        assert!(!has_a_key(&debug) && debug.contains("[hidden]"), "{debug}");
+        let e = call(k, op("sources.add_bucket"), None, bucket).unwrap_err();
+        let said = format!("{e} {e:#} {e:?} {}", serde_json::to_string(&e).unwrap());
+        assert!(!has_a_key(&said), "{said}");
+        assert_eq!(e.kind, Kind::Unreachable, "{e}");
+        let e = call(
+            k,
+            op("sources.add_bucket"),
+            None,
+            json!({ "kind": "s3", "place": "eu-west-2", "bucket": "b", "accessKeyId": ACCESS, "extra": SECRET }),
+        )
+        .unwrap_err();
+        assert_eq!(e.kind, Kind::NotUnderstood);
+        assert!(!has_a_key(&format!("{e:?}")), "{e:?}");
+
         // Nor in what any other operation says about the backup.
         for name in [
             "destinations.list",
             "destinations.room",
             "backup.rehearse",
             "backups.list",
+            "sources.list",
             "keevoro.log",
         ] {
             let answer = call(k, op(name), None, Value::Null).unwrap();

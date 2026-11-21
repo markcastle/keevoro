@@ -80,7 +80,7 @@ These are rules the code is built around and automated tests guard, not hopes.
 
 ## ✨ What it can do
 
-- 📂 **Sources:** drives, USB sticks, memory cards, folders, network shares. Several per backup, with duplicates across all of them counted once.
+- 📂 **Sources:** drives, USB sticks, memory cards, folders, network shares, the folders OneDrive, Dropbox, Google Drive and iCloud Drive keep on your computer, offered by name, and cloud storage (Cloudflare R2, Amazon S3 or anything S3-compatible), only ever read, with what reading it out would cost said first. Several per backup, with duplicates across all of them counted once.
 - ⚡ **Quick survey:** find the folders with photos on a whole disk in seconds, opening no file.
 - 🖼️ **Formats:** JPEG, PNG, HEIC, TIFF, WebP, camera raw (DNG, CR2, CR3, NEF, ARW and more), and MP4, MOV, AVI, MTS and other video. Add any other ending your camera uses, or switch one off, in Settings, Advanced (or `keevoro kinds`); a kind Keevoro cannot open is still backed up exactly.
 - 🎵 **Other files, if you want them:** add an ending as "other files" (music, documents, project files) and Keevoro carries them along, backed up and checked exactly like your photos, listed by the folders they came from. It never shows them or groups them by date, and nothing of the sort is taken until you ask.

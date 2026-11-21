@@ -360,7 +360,7 @@ mod tests {
             likely_photos: true,
             already_a_source: false,
             online_only: 2,
-            online_only_said: keevoro_engine::summary::online_only(2),
+            online_only_said: keevoro_engine::summary::online_only(2, None, std::path::Path::new("/media/card")),
         };
         let all = [
             Said::Scan(ScanEvent {
@@ -379,7 +379,7 @@ mod tests {
                 unreadable_names: Vec::new(),
                 left_out: Vec::new(),
                 online_only: 412,
-                online_only_said: keevoro_engine::summary::online_only(412),
+                online_only_said: keevoro_engine::summary::online_only(412, None, std::path::Path::new("/media/card")),
                 unplugged: Some(crate::words::unplugged_while_looking("KINGSTON (E:)", true)),
             }),
             Said::Survey(SurveyEvent {
@@ -413,7 +413,7 @@ mod tests {
                 stopped: false,
                 left_out: Vec::new(),
                 online_only: 2,
-                online_only_said: keevoro_engine::summary::online_only(2),
+                online_only_said: keevoro_engine::summary::online_only(2, None, std::path::Path::new("/media/card")),
             }),
             Said::Send(SendEvent::progress("Getting ready")),
             Said::Send(SendEvent::finished(b"Done.\n", Some("x".into()), Outcome::Unreachable)),

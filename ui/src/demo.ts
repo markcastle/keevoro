@@ -136,6 +136,26 @@ const OTHER_FOLDERS: { folder: string[]; files: [string, number][] }[] = [
 const onlineOnlySaid = (n: number) =>
   `${count(n, 'file')} here ${n === 1 ? 'is' : 'are'} in OneDrive only, not on this computer, so Keevoro did not open ${n === 1 ? 'it' : 'them'}. To include ${n === 1 ? 'it' : 'them'}, make ${n === 1 ? 'it' : 'them'} available offline in OneDrive first, then look again.`
 
+/** Cloud storage added as a source, by its root: where it is in words, and its kind. */
+const bucketPlaces = new Map<string, { place: string; kind: string }>()
+
+/** As Keevoro says what reading from cloud storage would cost (`keevoro_core::egress`). */
+const cloudCost = (source: { root: string }, bytes: number) => {
+  const gb = bytes / 1024 ** 3
+  const size = gb >= 1 ? `${gb.toFixed(1)} GB` : `${(bytes / 1024 ** 2).toFixed(1)} MB`
+  if (source.root.startsWith('r2://')) return `Reading ${size} out of Cloudflare R2 costs about nothing: Cloudflare R2 doesn’t charge for downloading.`
+  if (source.root.startsWith('s3://')) {
+    const pounds = gb * 0.09 * 0.79
+    const said = pounds < 1 ? 'under £1' : `about £${Math.round(pounds).toLocaleString('en-GB')}`
+    return `Reading ${size} out of Amazon S3 costs ${said} at Amazon’s usual price; Cloudflare R2 charges nothing for this. Amazon lets each account download about 100 GB a month free, which may make it less.`
+  }
+  return `Some cloud storage charges about 7p a gigabyte to read files out of it, and Keevoro doesn’t know what this storage charges for ${size}, so check before you start.`
+}
+
+/** As a search says it, knowing how big they are from each file's listing. */
+const onlineOnlySized = (n: number, size: string) =>
+  `${count(n, 'file')}, ${size}, ${n === 1 ? 'is' : 'are'} in OneDrive only, not on this computer, so Keevoro did not open ${n === 1 ? 'it' : 'them'}. To include ${n === 1 ? 'it' : 'them'}, make ${n === 1 ? 'it' : 'them'} available offline in OneDrive first, then look again.`
+
 /**
  * The owner's own case, made up: a Pictures folder that holds a camera roll
  * big enough to need a grid that only draws what is on screen, screen
@@ -215,7 +235,8 @@ export function demoBackend(): Backend {
   const firstHome = 'C:\\Users\\You\\AppData\\Keevoro\\backups\\s1'
   let library: string | null = mode === 'new' ? null : firstHome
   const collections: Collection[] = mode === 'new' || mode === 'empty' ? [] : FOUND.slice(0, 5).map((make) => make())
-  const sources = collections.length > 0 ? [{ id: 1, name: 'Family hard drive', root: 'E:\\', items: 240, bytes: 1.4 * 1024 ** 3 }] : []
+  const sources: { id: number; name: string; root: string; items: number; bytes: number; bucket?: string }[] =
+    collections.length > 0 ? [{ id: 1, name: 'Family hard drive', root: 'E:\\', items: 240, bytes: 1.4 * 1024 ** 3 }] : []
   // The files inside each collection are made up the first time it is opened.
   const inside = new Map<string, PhotoChoice[]>()
   const filesOf = (c: Collection) => {
@@ -722,6 +743,14 @@ export function demoBackend(): Backend {
     return [
       { path: 'E:\\', name: 'KINGSTON (E:)', detail: 'USB or external drive \u00b7 32 GB', removable: true, askFirst: false },
       ...card,
+      {
+        path: 'C:\\Users\\You\\OneDrive',
+        name: 'OneDrive',
+        detail: 'Synced with Microsoft\u2019s cloud \u00b7 C:\\Users\\You\\OneDrive',
+        removable: false,
+        askFirst: false,
+        synced: 'oneDrive',
+      },
       { path: 'C:\\', name: 'Windows (C:)', detail: 'This computer\u2019s disk \u00b7 512 GB', removable: false, askFirst: true },
     ]
   }
@@ -870,8 +899,13 @@ export function demoBackend(): Backend {
         // Looking through a source again replaces what was known about it.
         const known = sources.findIndex((s) => s.root === root)
         // The owner's Pictures folder is kept in OneDrive, part of it online only.
-        const online = root.endsWith('\\Pictures') ? { onlineOnly: 412, onlineOnlySaid: onlineOnlySaid(412) } : {}
-        const entry = { id: known >= 0 ? sources[known].id : Date.now(), name: known >= 0 ? sources[known].name : name, root, items: photos + videos, bytes: (photos * 3.2 + videos * 48) * 1024 * 1024, ...online }
+        const online = root.endsWith('\\Pictures')
+          ? { onlineOnly: 412, onlineOnlySaid: onlineOnlySized(412, '18.4 GB'), onlineOnlyBytes: 19_756_849_561 }
+          : {}
+        // Cloud storage added as a source is said by where it is.
+        const inCloud = bucketPlaces.get(root)
+        const cloud = inCloud ? { bucket: inCloud.place } : {}
+        const entry = { id: known >= 0 ? sources[known].id : Date.now(), name: known >= 0 ? sources[known].name : inCloud ? root.split('/').pop() ?? name : name, root, items: photos + videos, bytes: (photos * 3.2 + videos * 48) * 1024 * 1024, ...online, ...cloud }
         if (known >= 0) sources[known] = entry
         else sources.push(entry)
         scanListeners.forEach((l) => l({ name, photos, videos, finished: true, ...online }))
@@ -1215,7 +1249,26 @@ export function demoBackend(): Backend {
       // `?full` pretends the chosen disk is nearly full.
       const free = folder ? (new URLSearchParams(window.location.search).has('full') ? 90 * 1024 * 1024 : 118 * 1024 ** 3) : null
       const needed = waitingBytes()
-      return { needed, folder, free, enough: free === null || free > needed + 200 * 1024 * 1024 }
+      // Reading from cloud storage can cost money, and is said first.
+      const cloud = sources.filter((s) => s.bucket)
+      const share = cloud.reduce((n, s) => n + s.bytes, 0)
+      const cost =
+        dests.length > 0 && share > 0 && needed > 0
+          ? cloud.map((s) => cloudCost(s, Math.min(needed, s.bytes) * dests.length))
+          : []
+      return { needed, folder, free, enough: free === null || free > needed + 200 * 1024 * 1024, ...(cost.length > 0 ? { cost } : {}) }
+    },
+    async addBucketSource(request) {
+      await later(500 * pace)
+      if (!request.accessKeyId?.trim() || !request.secretAccessKey?.trim()) throw new Error('Enter both keys for the storage.')
+      const prefix = (request.prefix ?? '').replace(/^\/+|\/+$/g, '')
+      const bucket = (request.bucket ?? '').trim()
+      const root = `${request.kind}://${bucket}${prefix ? `/${prefix}` : ''}`
+      const provider = request.kind === 'r2' ? 'Cloudflare R2' : request.kind === 's3' ? 'Amazon S3' : 'cloud storage'
+      const where = `the ${provider} bucket ${bucket}`
+      const place = prefix ? `the folder ${prefix} in ${where}` : where
+      bucketPlaces.set(root, { place, kind: request.kind })
+      return { id: Date.now(), name: prefix.split('/').pop() || bucket, root, place }
     },
     discover: async () => view(),
     places: async () => drivesNow(),

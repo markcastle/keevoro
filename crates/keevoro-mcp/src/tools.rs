@@ -59,7 +59,7 @@ pub fn tool_for(op: Op) -> Option<Tool> {
         // computer.
         .open_world(matches!(
             op,
-            Op::DestinationsAdd | Op::BackupRun | Op::BackupCheck | Op::KeevoroUpdate
+            Op::DestinationsAdd | Op::SourcesAddBucket | Op::BackupRun | Op::BackupCheck | Op::KeevoroUpdate
         ));
     if !read_only {
         annotations = annotations.destructive(op.loses_something());
@@ -141,7 +141,7 @@ mod tests {
         ] {
             assert!(op_named(kept).is_none(), "{kept}");
         }
-        assert_eq!(tools.len(), 47);
+        assert_eq!(tools.len(), 48);
         assert_eq!(title("run_backup"), "Run backup");
         assert_eq!(title("about_keevoro"), "About Keevoro");
     }

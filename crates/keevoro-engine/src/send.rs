@@ -195,6 +195,8 @@ pub struct Going<'a> {
     pub previews: &'a mut Option<Previews>,
     /// What this destination's turn did, for the backup's history.
     pub record: &'a mut crate::history::DestinationRecord,
+    /// The bucket sources, opened once for the whole backup.
+    pub buckets: &'a crate::bucket::Buckets,
 }
 
 /// One pass of sending: which kind of work it is, for the estimate, and
@@ -241,6 +243,7 @@ fn originals_first(
     let files_sent = |out: &mut dyn Write, files: &[u8]| -> Result<()> {
         for line in said(files).lines() {
             if line.starts_with("Safely backed up")
+                || line.contains(" read from cloud storage ")
                 || line.starts_with("Restored ")
                 || line.ends_with("already there.")
                 || line.starts_with("Warning:")
@@ -326,6 +329,7 @@ fn originals_first(
         },
         tracker,
         going.record,
+        going.buckets,
     )?;
     if !keep_going() {
         files_sent(out, &files)?;
@@ -380,6 +384,7 @@ fn originals_first(
         },
         tracker,
         going.record,
+        going.buckets,
     )?;
 
     // Said once, in the order it happened: the files and any that could
@@ -447,6 +452,36 @@ pub fn everywhere(
     catalog: &Catalog,
     home: &Path,
     world: &crate::connect::World<'_>,
+    video_tools: Option<&keevoro_media::VideoTools>,
+    stop: &Stop,
+    tracker: &Tracker,
+    on_progress: &mut dyn FnMut(&str),
+    after_each: &mut dyn FnMut(Turn<'_>),
+) -> Result<Went> {
+    // Cloud storage this backup reads from, opened once with its keys.
+    let buckets = crate::bucket::Buckets::open(catalog, home, world)?;
+    everywhere_reading(
+        out,
+        catalog,
+        home,
+        world,
+        &buckets,
+        video_tools,
+        stop,
+        tracker,
+        on_progress,
+        after_each,
+    )
+}
+
+/// [`everywhere`], reading from bucket sources already opened.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn everywhere_reading(
+    out: &mut dyn Write,
+    catalog: &Catalog,
+    home: &Path,
+    world: &crate::connect::World<'_>,
+    buckets: &crate::bucket::Buckets,
     video_tools: Option<&keevoro_media::VideoTools>,
     stop: &Stop,
     tracker: &Tracker,
@@ -526,6 +561,7 @@ pub fn everywhere(
                     to: name.clone(),
                     previews: &mut previews,
                     record: &mut record,
+                    buckets,
                 },
                 &mut |line| {
                     if several {
@@ -766,7 +802,7 @@ fn from_sources_gone<'f>(
     let gone: Vec<(PathBuf, String)> = catalog
         .sources()?
         .into_iter()
-        .filter(|s| !s.root.is_dir())
+        .filter(|s| s.bucket.is_none() && !s.root.is_dir())
         .map(|s| (s.root, s.name))
         .collect();
     let files: std::collections::HashMap<&str, &Path> =
@@ -801,6 +837,7 @@ fn run_until(
     pass: Pass<'_>,
     tracker: &Tracker,
     record: &mut crate::history::DestinationRecord,
+    buckets: &crate::bucket::Buckets,
 ) -> Result<usize> {
     let reports = catalog.load_reports()?;
     let kept = kept_now(catalog, &reports)?;
@@ -825,7 +862,7 @@ fn run_until(
     let store = store.as_ref();
     let base_url = base_url.map_or(default_url, str::to_string);
 
-    let uploads = uploads_for(home, &kept, pass.sending)?;
+    let uploads = uploads_for(home, &kept, pass.sending, buckets)?;
     let n = summary::thousands;
     let opts = PublishOptions {
         stop: stop.cloned(),
@@ -993,6 +1030,23 @@ fn run_until(
     if report.already_there > 0 {
         writeln!(out, "{} already there.", summary::count(report.already_there, "file"))?;
     }
+    if report.copies_left_out > 0 {
+        writeln!(
+            out,
+            "{} read from cloud storage {}, so {} not sent again.",
+            summary::count(report.copies_left_out, "file"),
+            if report.copies_left_out == 1 {
+                "was an exact copy of a file already being backed up"
+            } else {
+                "were exact copies of files already being backed up"
+            },
+            if report.copies_left_out == 1 {
+                "it was"
+            } else {
+                "they were"
+            },
+        )?;
+    }
     for (name, files) in &unplugged {
         writeln!(out, "{}", summary::source_unplugged(name, *files))?;
     }
@@ -1111,7 +1165,7 @@ pub fn check(
 
 /// What one pass sends: the originals, or the previews. They are never
 /// sent together, so no preview can hold up an original.
-fn uploads_for(home: &Path, kept: &[Kept<'_>], sending: Kind) -> Result<Vec<Upload>> {
+fn uploads_for(home: &Path, kept: &[Kept<'_>], sending: Kind, buckets: &crate::bucket::Buckets) -> Result<Vec<Upload>> {
     let local = |relative: &str| relative.split('/').fold(home.to_path_buf(), |p, s| p.join(s));
     let mut uploads = Vec::new();
     if sending == Kind::SendingPreviews {
@@ -1137,6 +1191,7 @@ fn uploads_for(home: &Path, kept: &[Kept<'_>], sending: Kind) -> Result<Vec<Uplo
                     ),
                     metadata: BTreeMap::new(),
                     learn_fingerprint: false,
+                    fetch: None,
                 });
             }
         }
@@ -1159,6 +1214,8 @@ fn uploads_for(home: &Path, kept: &[Kept<'_>], sending: Kind) -> Result<Vec<Uplo
                 BTreeMap::new()
             },
             learn_fingerprint: !k.item.hashed,
+            // A file in cloud storage is brought through this computer.
+            fetch: buckets.fetch_for(&k.item.path, k.item.bytes),
         });
     }
     Ok(uploads)
@@ -1307,6 +1364,7 @@ mod tests {
                 to: "the folder".into(),
                 previews: &mut previews,
                 record: &mut record,
+                buckets: &crate::bucket::Buckets::none(home),
             },
             on_progress,
         )

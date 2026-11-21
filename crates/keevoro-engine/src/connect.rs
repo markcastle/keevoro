@@ -110,6 +110,14 @@ impl Keys {
         [&self.access, &self.secret]
     }
 
+    pub(crate) fn access(&self) -> &str {
+        &self.access
+    }
+
+    pub(crate) fn secret(&self) -> &str {
+        &self.secret
+    }
+
     fn from_environment(environment: &dyn Fn(&str) -> Option<String>) -> Option<Self> {
         Self::new(&environment(ACCESS_KEY_VAR)?, &environment(SECRET_KEY_VAR)?)
     }
@@ -252,7 +260,7 @@ impl Saved {
         }
     }
 
-    fn preset(&self) -> Option<Preset> {
+    pub(crate) fn preset(&self) -> Option<Preset> {
         match self.kind.as_str() {
             "r2" => Some(Preset::CloudflareR2 {
                 account_id: self.place.clone(),
@@ -308,11 +316,11 @@ impl Saved {
 }
 
 /// The two keys are kept as one keychain entry, one per line.
-fn join_keys(access: &str, secret: &str) -> String {
+pub(crate) fn join_keys(access: &str, secret: &str) -> String {
     format!("{access}\n{secret}")
 }
 
-fn split_keys(stored: &str) -> Option<Keys> {
+pub(crate) fn split_keys(stored: &str) -> Option<Keys> {
     let (access, secret) = stored.split_once('\n')?;
     Keys::new(access, secret)
 }
@@ -482,7 +490,8 @@ fn prove_and_remember(
     Ok(from)
 }
 
-/// The keychain entries this backup's destinations use, each with the
+/// The keychain entries this backup's destinations and bucket sources use,
+/// each with the
 /// destination in words. A folder needs none. Two destinations on one
 /// bucket share an entry, which is given once.
 pub fn keys_kept_for(catalog: &Catalog) -> Result<Vec<(String, String)>> {
@@ -491,6 +500,12 @@ pub fn keys_kept_for(catalog: &Catalog) -> Result<Vec<(String, String)>> {
         let name = saved.secret_name();
         if saved.preset().is_some() && !kept.iter().any(|(n, _)| *n == name) {
             kept.push((name, saved.describe()));
+        }
+    }
+    // Cloud storage it reads from has keys of its own.
+    for source in catalog.sources()? {
+        if let Some(place) = crate::bucket::place_of(source.bucket.as_deref()) {
+            kept.push((place.secret_name(), place.describe()));
         }
     }
     Ok(kept)

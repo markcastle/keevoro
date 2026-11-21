@@ -42,6 +42,14 @@ pub struct SourceView {
     /// The same in words, with how to include them.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub online_only_said: Option<String>,
+    /// How big those files are together, as their listings said; left out
+    /// when not known (looked through by an older version).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub online_only_bytes: Option<u64>,
+    /// Where it is, in words, when it is cloud storage: "the Amazon S3
+    /// bucket family-photos". Left out for a folder.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bucket: Option<String>,
     /// Folders left out of this backup that are in it, or that it is in,
     /// as a person would write them, each with Put back beside it.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -174,6 +182,17 @@ pub struct DestinationView {
     pub looked: Option<crate::confirm::LookedView>,
 }
 
+/// What a backup would read out of one bucket source.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FromCloud {
+    /// Where, in words: "the Amazon S3 bucket family-photos".
+    pub name: String,
+    pub bytes: u64,
+    /// About what reading it costs, in a sentence or two, each with "about".
+    pub cost: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Discover {
@@ -199,6 +218,11 @@ pub struct Discover {
     pub sources: Vec<SourceView>,
     /// Each place this backup goes to, with what has reached it.
     pub destinations: Vec<DestinationView>,
+    /// What backing up now would read out of each bucket source (once for
+    /// each destination it has yet to reach), with about what that costs,
+    /// so it is said before anything starts. Left out when none.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub from_cloud: Vec<FromCloud>,
     /// Newest first; the first is the one to show large.
     pub collections: Vec<CollectionView>,
 }
@@ -392,6 +416,13 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
 
     let mut waiting_to_gather = 0;
     let mut waiting_bytes = 0;
+    // Each bucket source, and what would be read out of it.
+    let mut clouds: Vec<(keevoro_core::bucket::BucketPlace, u64)> = catalog
+        .sources()?
+        .iter()
+        .filter_map(|s| crate::bucket::place_of(s.bucket.as_deref()))
+        .map(|place| (place, 0))
+        .collect();
     let mut collections = Vec::new();
     let keys = keys_of(&summary.collections);
     for (at, c) in summary.collections.iter().enumerate() {
@@ -402,6 +433,12 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
             let is_wanted = wanted(catalog, item)?;
             kept |= is_wanted;
             let (is_in, there) = reach.safe(item)?;
+            if is_wanted && !clouds.is_empty() {
+                let missing = there.iter().filter(|t| !**t).count() as u64;
+                if let Some((_, bytes)) = clouds.iter_mut().find(|(p, _)| p.key_of(&item.path).is_some()) {
+                    *bytes += item.bytes * missing;
+                }
+            }
             if is_wanted {
                 for (there, tally) in there.into_iter().zip(tallies.iter_mut()) {
                     if there {
@@ -482,7 +519,13 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
             items: s.items,
             bytes: s.bytes,
             online_only: s.online_only,
-            online_only_said: crate::summary::online_only(usize::try_from(s.online_only).unwrap_or(usize::MAX)),
+            online_only_said: crate::summary::online_only(
+                usize::try_from(s.online_only).unwrap_or(usize::MAX),
+                s.online_only_bytes,
+                &s.root,
+            ),
+            online_only_bytes: s.online_only_bytes,
+            bucket: crate::bucket::place_of(s.bucket.as_deref()).map(|p| p.describe()),
         })
         .collect();
     Ok(Discover {
@@ -512,6 +555,15 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
             }
             views
         },
+        from_cloud: clouds
+            .into_iter()
+            .filter(|(_, bytes)| *bytes > 0)
+            .map(|(place, bytes)| FromCloud {
+                name: place.describe(),
+                cost: keevoro_core::egress::cost_said(&place.kind, &place.place, bytes, &crate::summary::bytes(bytes)),
+                bytes,
+            })
+            .collect(),
         collections,
     })
 }
@@ -724,6 +776,49 @@ pub(crate) mod tests {
         }
         // Asking twice is harmless.
         assert!(!forget_source(&mut catalog, id).unwrap());
+    }
+
+    /// Says a file is only online when its name says so, as Windows'
+    /// attributes or a Mac's flags would.
+    #[derive(Debug)]
+    struct NamedOnline;
+
+    impl keevoro_scan::OnlineCheck for NamedOnline {
+        fn online_only(&self, file: &Path, _: &std::fs::Metadata) -> bool {
+            file.to_string_lossy().contains("(online)")
+        }
+    }
+
+    #[test]
+    fn a_source_in_onedrive_says_how_many_files_and_how_much_are_only_online_and_how_to_include_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let onedrive = dir.path().join("OneDrive");
+        fs::create_dir_all(onedrive.join("Pictures")).unwrap();
+        fs::write(onedrive.join("Pictures/here.jpg"), real_jpeg(5)).unwrap();
+        fs::write(onedrive.join("Pictures/away (online).jpg"), vec![0u8; 3_000]).unwrap();
+        fs::write(onedrive.join("Pictures/clip (online).mp4"), vec![0u8; 7_000]).unwrap();
+        let library = dir.path().join("Keevoro Library");
+        let mut catalog = Catalog::open_in_library(&library).unwrap();
+        let options = keevoro_scan::ScanOptions {
+            online: std::sync::Arc::new(NamedOnline),
+            ..Default::default()
+        };
+        crate::scan_into_with(&mut catalog, &onedrive, None, &options, &mut |_| {}, &mut || {}).unwrap();
+        let source = &discover(&library, &catalog).unwrap().sources[0];
+        assert_eq!(
+            (source.items, source.online_only, source.online_only_bytes),
+            (1, 2, Some(10_000))
+        );
+        assert_eq!(
+            source.online_only_said.as_deref(),
+            Some(
+                "2 files, 9.8 KB, are in OneDrive only, not on this computer, so Keevoro did not open them. To \
+                 include them, make them available offline in OneDrive first, then look again."
+            )
+        );
+        // Kept for a later step that fetches them: each, with its size.
+        let files = catalog.online_only_files(source.id).unwrap();
+        assert_eq!(files.iter().map(|(_, b)| b).sum::<u64>(), 10_000);
     }
 
     #[test]

@@ -841,6 +841,58 @@ pub async fn connect_destination<R: Runtime>(
     .map_err(|e: keevoro_api::Error| say(e))
 }
 
+/// What the app's form for cloud storage as a source sends. The keys are
+/// only in this request: they go to the system keychain, never to disk or
+/// a log.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BucketSourceRequest {
+    /// `r2`, `s3` or `endpoint`.
+    kind: String,
+    /// The Cloudflare account ID, Amazon region or server address.
+    place: String,
+    bucket: String,
+    #[serde(default)]
+    prefix: Option<String>,
+    #[serde(default)]
+    access_key_id: String,
+    #[serde(default)]
+    secret_access_key: String,
+}
+
+/// Checks cloud storage can be read with these keys, writing nothing, then
+/// adds it as a source. Answers it, with where to look through it.
+#[tauri::command]
+pub async fn add_bucket_source<R: Runtime>(
+    app: AppHandle<R>,
+    shared: State<'_, Shared>,
+    request: BucketSourceRequest,
+) -> Said<keevoro_api::bucket_sources::BucketAdded> {
+    use keevoro_api::bucket_sources::{AddBucketRequest, BucketKind};
+    let library = library(&shared)?;
+    let request = AddBucketRequest {
+        kind: match request.kind.as_str() {
+            "r2" => BucketKind::R2,
+            "s3" => BucketKind::S3,
+            _ => BucketKind::Endpoint,
+        },
+        place: request.place,
+        bucket: request.bucket,
+        prefix: request.prefix,
+        name: None,
+        access_key_id: Some(keevoro_api::Key::new(request.access_key_id)),
+        secret_access_key: Some(keevoro_api::Key::new(request.secret_access_key)),
+    };
+    // Checking talks to the storage, which can take a few seconds.
+    tauri::async_runtime::spawn_blocking(move || {
+        let backup = Backup::open(&library)?;
+        app.state::<Shared>().keevoro.add_bucket_source(&backup, &request)
+    })
+    .await
+    .map_err(say)?
+    .map_err(|e: keevoro_api::Error| say(e))
+}
+
 /// Forgets one destination, or all of them, and removes their keys from
 /// the keychain. Nothing stored at any of them is changed.
 #[tauri::command]

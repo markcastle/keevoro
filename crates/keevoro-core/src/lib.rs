@@ -8,9 +8,11 @@
 
 pub mod arrange;
 pub mod background;
+pub mod bucket;
 pub mod collections;
 pub mod date;
 pub mod doing;
+pub mod egress;
 pub mod estimate;
 pub mod folders;
 pub mod junk;
@@ -22,6 +24,7 @@ pub mod meter;
 pub mod pause;
 pub mod places;
 pub mod skip;
+pub mod synced;
 pub mod wants;
 pub mod words;
 

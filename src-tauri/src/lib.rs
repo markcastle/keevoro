@@ -180,6 +180,7 @@ fn app<R: Runtime>(
             commands::space_map,
             commands::destination,
             commands::connect_destination,
+            commands::add_bucket_source,
             commands::disconnect_destination,
             commands::send,
             commands::check_arrived,

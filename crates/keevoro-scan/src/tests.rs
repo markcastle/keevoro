@@ -758,6 +758,9 @@ mod how_deep {
             .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
             .collect();
         assert_eq!(names, ["away (online).jpg", "clip (online).mp4"]);
+        // Their sizes come from the listing, as the placeholder gives them,
+        // never from opening them.
+        assert_eq!(r.online_only_bytes, [plain_jpeg(2).len() as u64, mp4().len() as u64]);
         assert!(r.unreadable.is_empty(), "nothing online was opened: {:?}", r.unreadable);
         #[cfg(unix)]
         {

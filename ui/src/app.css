@@ -997,6 +997,27 @@ progress::-webkit-progress-value {
   transition: border-color 0.15s, transform 0.15s;
 }
 
+.place.synced span {
+  overflow-wrap: anywhere;
+}
+
+.places .bucket-source {
+  grid-column: 1 / -1;
+}
+
+.cloud-cost {
+  display: grid;
+  gap: 4px;
+  margin: 12px 0;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: var(--surface-raised);
+}
+
+.kept .what .bucket {
+  overflow-wrap: anywhere;
+}
+
 .place:hover {
   border-color: var(--primary);
   transform: translateY(-1px);

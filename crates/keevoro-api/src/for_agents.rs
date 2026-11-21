@@ -20,7 +20,10 @@
 //!   and checking what arrived, only to folders they have allowed agents to
 //!   back up to. Each place is judged by where it really leads (see
 //!   [`crate::agents`]). Cloud storage is not a folder: adding it is a
-//!   change, so it needs changes allowed, and nothing more.
+//!   change, so it needs changes allowed, and nothing more. The same goes
+//!   for adding cloud storage as a source; but looking through one, and a
+//!   backup that reads from one, are the person's: the allowed folders
+//!   cannot hold a bucket ([`BUCKET_FOR_THE_PERSON`]).
 //! - Every call is written to the log: which tool, on which backup, and
 //!   how it went. Never what the request held, so never a key.
 
@@ -35,6 +38,14 @@ use std::path::Path;
 /// to its person, so it says what they can do about it.
 pub const LOOK_ONLY: &str = "Keevoro lets AI agents only look for now, not make changes. The person can allow changes \
      in the Keevoro app, under Settings, AI agents, or by typing: keevoro agents allow-changes on";
+
+/// What an agent is told when it would read from cloud storage that is a
+/// source. The folders a person allows an agent cannot hold a bucket, and
+/// reading from one can cost the person money, so until a person can name
+/// a bucket an agent may read, only they look through it or back up from it.
+pub const BUCKET_FOR_THE_PERSON: &str = "This reads from cloud storage that is a source of the backup, which can \
+     cost the person money, so only they can do it, in the Keevoro app or with the keevoro command. The folders an \
+     AI agent is allowed cannot hold a bucket.";
 
 /// How a person allows a folder, for the end of a refusal.
 const HOW_TO_ALLOW: &str = "The person can allow folders in the Keevoro app, under Settings, AI agents, or with \
@@ -113,6 +124,9 @@ fn allowed(keevoro: &Keevoro, op: Op, backup: Option<&str>, mut request: Value) 
             let one = request.get("source").and_then(Value::as_i64);
             let sources = keevoro.backups().open(backup)?.sources()?;
             for source in sources.iter().filter(|s| one.is_none_or(|id| s.id == id)) {
+                if source.bucket.is_some() {
+                    return Err(Error::refused(BUCKET_FOR_THE_PERSON));
+                }
                 may_look_in(&access, &source.root)?;
             }
         }
@@ -140,7 +154,11 @@ fn allowed(keevoro: &Keevoro, op: Op, backup: Option<&str>, mut request: Value) 
             }
         },
         Op::BackupRun | Op::BackupCheck => {
-            for destination in keevoro.backups().open(backup)?.destinations()? {
+            let opened = keevoro.backups().open(backup)?;
+            if op == Op::BackupRun && opened.sources()?.iter().any(|s| s.bucket.is_some()) {
+                return Err(Error::refused(BUCKET_FOR_THE_PERSON));
+            }
+            for destination in opened.destinations()? {
                 if let Some(folder) = &destination.folder {
                     may_back_up_to(&access, folder)?;
                 }
@@ -303,6 +321,55 @@ mod tests {
         let home = keevoro.start_backup("Card photos").unwrap().home;
         let card = card_looked_through_into(dir.path(), &home);
         (dir, card, keevoro)
+    }
+
+    #[test]
+    fn an_agent_may_add_cloud_storage_as_a_source_with_changes_allowed_but_never_read_from_it() {
+        let (dir, card, keevoro) = for_an_agent();
+        let k = &keevoro;
+        let usb = dir.path().join("USB");
+        std::fs::create_dir_all(&usb).unwrap();
+        let request = json!({
+            "kind": "endpoint",
+            "place": "http://127.0.0.1:9",
+            "bucket": "family",
+            "accessKeyId": "AKIAMARKER",
+            "secretAccessKey": "secret-marker",
+        });
+        // Adding one is a change.
+        allow(k, &[&card], &[&usb], false);
+        let e = call_for_agent(k, Op::SourcesAddBucket, None, request.clone()).unwrap_err();
+        assert_eq!(e.message, LOOK_ONLY);
+        // With changes allowed it is tried (and here, out of reach).
+        allow(k, &[&card], &[&usb], true);
+        let e = call_for_agent(k, Op::SourcesAddBucket, None, request).unwrap_err();
+        assert_eq!(e.kind, Kind::Unreachable, "{e:?}");
+
+        // A bucket source the person added is listed for an agent, but an
+        // agent may neither look through it nor run a backup that reads it.
+        let home = k.backups().open(None).unwrap().home().to_path_buf();
+        let catalog = keevoro_catalog::Catalog::open_in_library(&home).unwrap();
+        let place = keevoro_core::bucket::BucketPlace::new("s3", "eu-west-2", "family", "").unwrap();
+        let id = catalog
+            .add_bucket_source("family", &place.root(), &serde_json::to_string(&place).unwrap(), 1)
+            .unwrap();
+        call_for_agent(
+            k,
+            Op::DestinationsAdd,
+            None,
+            json!({ "kind": "folder", "place": usb.display().to_string() }),
+        )
+        .unwrap();
+        let listed = call_for_agent(k, Op::SourcesList, None, Value::Null).unwrap();
+        assert_eq!(listed[1]["bucket"], "the Amazon S3 bucket family", "{listed}");
+        for (op, request) in [
+            (Op::SourcesLookAgain, json!({ "source": id })),
+            (Op::SourcesLookAgain, json!({})),
+            (Op::BackupRun, json!({})),
+        ] {
+            let e = call_for_agent(k, op, None, request).unwrap_err();
+            assert_eq!(e.message, BUCKET_FOR_THE_PERSON, "{op:?}");
+        }
     }
 
     fn allow(keevoro: &Keevoro, look_in: &[&Path], back_up_to: &[&Path], may_change: bool) {

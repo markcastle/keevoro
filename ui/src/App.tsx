@@ -81,6 +81,9 @@ import { ThereNow, WhatWasFound } from './whatIsThere'
 import { ManageBackups } from './manageBackups'
 import { CheckLine, CheckStopped } from './checking'
 import { certain, outOfReachLine } from './thereWords'
+import { SyncedCard } from './synced'
+import { StorageFields } from './storageForm'
+import { AddBucketSource, CloudCost, CloudSourceIcon } from './bucketSource'
 import type { Theme } from './theme'
 
 type Step = 'find' | 'choose' | 'send'
@@ -978,7 +981,8 @@ function FindScreen(props: {
   const removable = (places?.filter((p) => p.removable) ?? []).sort(
     (a, b) => Number(arrived.has(b.path)) - Number(arrived.has(a.path)),
   )
-  const fixed = places?.filter((p) => !p.removable) ?? []
+  const fixed = places?.filter((p) => !p.removable && !p.synced) ?? []
+  const synced = places?.filter((p) => p.synced) ?? []
   const scroller = () => scrollerOf(document.querySelector('main'))
 
   if (inside) {
@@ -1218,11 +1222,15 @@ function FindScreen(props: {
                 onClick={() => choose(place)}
               />
             ))}
+            {synced.map((place) => (
+              <SyncedCard key={place.path} place={place} added={done.has(place.path.replace(/[\\/]+$/, ''))} onClick={() => choose(place)} />
+            ))}
             <button className="place" onClick={pick}>
               <FolderIcon large />
               <b>Choose a folder…</b>
               <span>Anywhere on this computer or a network</span>
             </button>
+            <AddBucketSource api={api} onAdded={start} />
             {fixed.map((place) => (
               <PlaceCard key={place.path} place={place} added={done.has(place.path.replace(/[\\/]+$/, ''))} onClick={() => choose(place)} />
             ))}
@@ -1265,11 +1273,15 @@ function FindScreen(props: {
             {found.sources.map((s) => (
               <li key={s.id} className="source">
                 <span className="glyph" aria-hidden>
-                  {wholePlace(s.root) ? <DriveIcon large /> : <FolderIcon large />}
+                  {s.bucket ? <CloudSourceIcon /> : wholePlace(s.root) ? <DriveIcon large /> : <FolderIcon large />}
                 </span>
                 <div className="what">
                   <b>{sourceTitle(s, places)}</b>
-                  <FolderLink api={api} path={s.root} onProblem={onProblem} />
+                  {s.bucket ? (
+                    <span className="folder bucket">{s.bucket.replace(/^the /, 'In the ')}</span>
+                  ) : (
+                    <FolderLink api={api} path={s.root} onProblem={onProblem} />
+                  )}
                 </div>
                 <div className="count">
                   <b>{all(s.items, (found.others ?? 0) > 0)}</b>
@@ -1290,6 +1302,8 @@ function FindScreen(props: {
                   </span>
                 ) : (
                   <span className="row-actions">
+                    {!s.bucket && (
+                    <>
                     <button
                       className="button small"
                       onClick={() => lookInside(s.root, { name: sourceTitle(s, places) })}
@@ -1306,6 +1320,8 @@ function FindScreen(props: {
                     >
                       Where the space goes
                     </button>
+                    </>
+                    )}
                     <button
                       className="button small"
                       onClick={() => setTypesOf(typesOf === s.id ? null : s.id)}
@@ -2963,49 +2979,9 @@ function SendPanel(props: {
                 connect(form)
               }}
             >
-              <label>
-                Storage
-                <select
-                  value={form.kind}
-                  onChange={(e) => setForm({ ...form, kind: e.target.value as ConnectRequest['kind'], place: '' })}
-                >
-                  <option value="r2">Cloudflare R2</option>
-                  <option value="s3">Amazon S3</option>
-                  <option value="endpoint">Another S3-compatible service</option>
-                </select>
-              </label>
-              <label>
-                {form.kind === 'r2' ? 'Cloudflare account ID' : form.kind === 's3' ? 'Region' : 'Address'}
-                <input
-                  value={form.place}
-                  onChange={(e) => setForm({ ...form, place: e.target.value })}
-                  placeholder={form.kind === 'r2' ? '32 letters and numbers' : form.kind === 's3' ? 'eu-west-2' : 'https://…'}
-                  required
-                />
-              </label>
-              <label>
-                Bucket name
-                <input value={form.bucket ?? ''} onChange={(e) => setForm({ ...form, bucket: e.target.value })} required />
-              </label>
-              <label>
-                Access key ID
-                <input
-                  value={form.accessKeyId ?? ''}
-                  onChange={(e) => setForm({ ...form, accessKeyId: e.target.value })}
-                  autoComplete="off"
-                  required
-                />
-              </label>
-              <label>
-                Secret access key
-                <input
-                  type="password"
-                  value={form.secretAccessKey ?? ''}
-                  onChange={(e) => setForm({ ...form, secretAccessKey: e.target.value })}
-                  autoComplete="off"
-                  required
-                />
-              </label>
+              {form.kind !== 'folder' && (
+                <StorageFields form={{ ...form, kind: form.kind }} onChange={(answers) => setForm({ ...form, ...answers })} />
+              )}
               <p className="quiet">
                 Use a key that can read and write this one bucket only. It is kept in your computer’s keychain, not in
                 your library.
@@ -3189,6 +3165,7 @@ function SendPanel(props: {
                 </span>
               </span>
             </label>
+            <CloudCost said={room?.cost ?? []} />
             <div className="choices">
               <button
                 className="primary"

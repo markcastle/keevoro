@@ -36,10 +36,9 @@ use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::types::{CompletedMultipartUpload, CompletedPart};
 use aws_sdk_s3::Client;
 use keevoro_storage::{
-    ByteSource, Capabilities, ConnectionReport, ListPage, MultipartLimits, MultipartStore, ObjectInfo, ObjectKey,
-    ObjectStore, PartReceipt, PutOptions, PutReceipt, StorageError, UploadId,
+    ByteSource, Capabilities, ConnectionReport, Downloaded, ListPage, MultipartLimits, MultipartStore, ObjectInfo,
+    ObjectKey, ObjectStore, PartReceipt, PutOptions, PutReceipt, StorageError, UploadId,
 };
-use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const MIB: u64 = 1024 * 1024;
@@ -363,12 +362,14 @@ impl ObjectStore for S3Store {
             .await
         {
             Ok(found) => Ok(Some(ObjectInfo {
-                key: key.clone(),
-                bytes: to_u64(found.content_length()),
                 metadata: found
                     .metadata()
                     .map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
                     .unwrap_or_default(),
+                modified: found.last_modified().map(|t| t.secs()),
+                etag: found.e_tag().map(str::to_string),
+                class: found.storage_class().map(|c| c.as_str().to_string()),
+                ..ObjectInfo::new(key.clone(), to_u64(found.content_length()))
             })),
             Err(e) => match map_err(e, key.as_str()) {
                 StorageError::NotFound(_) => Ok(None),
@@ -433,15 +434,57 @@ impl ObjectStore for S3Store {
             // bucket; they are not keevoro's and are passed over.
             .filter_map(|o| {
                 Some(ObjectInfo {
-                    key: ObjectKey::new(o.key()?).ok()?,
-                    bytes: to_u64(o.size()),
-                    metadata: BTreeMap::new(),
+                    modified: o.last_modified().map(|t| t.secs()),
+                    etag: o.e_tag().map(str::to_string),
+                    class: o.storage_class().map(|c| c.as_str().to_string()),
+                    ..ObjectInfo::new(ObjectKey::new(o.key()?).ok()?, to_u64(o.size()))
                 })
             })
             .collect();
         Ok(ListPage {
             objects,
             next: page.next_continuation_token().map(str::to_string),
+        })
+    }
+
+    async fn download_to(&self, key: &ObjectKey, file: &std::path::Path) -> Result<Downloaded, StorageError> {
+        use tokio::io::AsyncWriteExt;
+        let mut found = self
+            .client
+            .get_object()
+            .bucket(&self.bucket)
+            .key(key.as_str())
+            .send()
+            .await
+            .map_err(|e| map_err(e, key.as_str()))?;
+        // Never over a file already there; only what this made is removed
+        // if the download goes wrong, a dropped connection included.
+        let mut out = tokio::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(file)
+            .await?;
+        let mut hasher = blake3::Hasher::new();
+        let mut bytes = 0u64;
+        let streamed: Result<(), StorageError> = async {
+            while let Some(chunk) = found.body.next().await {
+                let chunk = chunk.map_err(|e| StorageError::Network(e.to_string()))?;
+                hasher.update(&chunk);
+                out.write_all(&chunk).await?;
+                bytes += chunk.len() as u64;
+            }
+            out.sync_all().await?;
+            Ok(())
+        }
+        .await;
+        if let Err(e) = streamed {
+            drop(out);
+            let _ = tokio::fs::remove_file(file).await;
+            return Err(e);
+        }
+        Ok(Downloaded {
+            bytes,
+            blake3: hasher.finalize().to_hex().to_string(),
         })
     }
 

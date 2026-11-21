@@ -12,10 +12,9 @@
 
 use async_trait::async_trait;
 use keevoro_storage::{
-    ByteSource, Capabilities, ConnectionReport, ListPage, MultipartLimits, MultipartStore, ObjectInfo, ObjectKey,
-    ObjectStore, PartReceipt, PutOptions, PutReceipt, StorageError, UploadId,
+    ByteSource, Capabilities, ConnectionReport, Downloaded, ListPage, MultipartLimits, MultipartStore, ObjectInfo,
+    ObjectKey, ObjectStore, PartReceipt, PutOptions, PutReceipt, StorageError, UploadId,
 };
-use std::collections::BTreeMap;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -197,9 +196,12 @@ impl ObjectStore for FolderStore {
     async fn head(&self, key: &ObjectKey) -> Result<Option<ObjectInfo>, StorageError> {
         match fs::metadata(self.path_for(key)?).await {
             Ok(m) if m.is_file() => Ok(Some(ObjectInfo {
-                key: key.clone(),
-                bytes: m.len(),
-                metadata: BTreeMap::new(),
+                modified: m
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .and_then(|d| i64::try_from(d.as_secs()).ok()),
+                ..ObjectInfo::new(key.clone(), m.len())
             })),
             Ok(_) => Ok(None),
             Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
@@ -266,22 +268,21 @@ impl ObjectStore for FolderStore {
         let mut keys = tokio::task::spawn_blocking(move || collect_keys(&root))
             .await
             .map_err(|e| StorageError::Provider(e.to_string()))??;
-        keys.retain(|(k, _)| k.starts_with(&prefix) && continuation.as_deref().is_none_or(|c| k.as_str() > c));
+        keys.retain(|(k, _, _)| k.starts_with(&prefix) && continuation.as_deref().is_none_or(|c| k.as_str() > c));
         keys.sort();
         let more = keys.len() > PAGE_SIZE;
         keys.truncate(PAGE_SIZE);
         let next = if more {
-            keys.last().map(|(k, _)| k.clone())
+            keys.last().map(|(k, _, _)| k.clone())
         } else {
             None
         };
         let objects = keys
             .into_iter()
-            .map(|(k, bytes)| {
+            .map(|(k, bytes, modified)| {
                 Ok(ObjectInfo {
-                    key: ObjectKey::new(k)?,
-                    bytes,
-                    metadata: BTreeMap::new(),
+                    modified,
+                    ..ObjectInfo::new(ObjectKey::new(k)?, bytes)
                 })
             })
             .collect::<Result<_, StorageError>>()?;
@@ -297,14 +298,55 @@ impl ObjectStore for FolderStore {
             .map_err(|e| StorageError::Provider(e.to_string()))??;
         found
             .into_iter()
-            .map(|(k, bytes)| {
+            .map(|(k, bytes, modified)| {
                 Ok(ObjectInfo {
-                    key: ObjectKey::new(k)?,
-                    bytes,
-                    metadata: BTreeMap::new(),
+                    modified,
+                    ..ObjectInfo::new(ObjectKey::new(k)?, bytes)
                 })
             })
             .collect()
+    }
+
+    async fn download_to(&self, key: &ObjectKey, file: &Path) -> Result<Downloaded, StorageError> {
+        let from = self.path_for(key)?;
+        let to = file.to_path_buf();
+        let k = key.clone();
+        tokio::task::spawn_blocking(move || -> Result<Downloaded, StorageError> {
+            use std::io::{Read, Write};
+            let mut input = std::fs::File::open(&from).map_err(|e| not_found_or(e, &k))?;
+            // Never over a file already there; only what this made is
+            // removed if the copy goes wrong.
+            let mut out = std::fs::OpenOptions::new().write(true).create_new(true).open(&to)?;
+            let copied = (|| -> Result<Downloaded, StorageError> {
+                let mut hasher = blake3::Hasher::new();
+                let mut buffer = vec![0u8; COPY_BUFFER];
+                let mut bytes = 0u64;
+                loop {
+                    match input.read(&mut buffer) {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            hasher.update(&buffer[..n]);
+                            out.write_all(&buffer[..n])?;
+                            bytes += n as u64;
+                        }
+                        Err(e) if e.kind() == ErrorKind::Interrupted => {}
+                        Err(e) => return Err(e.into()),
+                    }
+                }
+                out.sync_all()?;
+                Ok(Downloaded {
+                    bytes,
+                    blake3: hasher.finalize().to_hex().to_string(),
+                })
+            })();
+            if copied.is_err() {
+                drop(out);
+                let _ = std::fs::remove_file(&to);
+            }
+            copied
+        })
+        .await
+        .map_err(|e| StorageError::Provider(e.to_string()))?
     }
 
     async fn delete(&self, key: &ObjectKey) -> Result<(), StorageError> {
@@ -547,7 +589,7 @@ fn copy_file(
 }
 
 /// Walks the root and returns `(key, bytes)` for every file outside the work area.
-fn collect_keys(root: &Path) -> Result<Vec<(String, u64)>, StorageError> {
+fn collect_keys(root: &Path) -> Result<Vec<(String, u64, Option<i64>)>, StorageError> {
     let mut out = Vec::new();
     let mut stack = vec![(root.to_path_buf(), String::new())];
     while let Some((dir, prefix)) = stack.pop() {
@@ -566,7 +608,8 @@ fn collect_keys(root: &Path) -> Result<Vec<(String, u64)>, StorageError> {
             if ty.is_dir() {
                 stack.push((entry.path(), key));
             } else if ty.is_file() {
-                out.push((key, entry.metadata()?.len()));
+                let meta = entry.metadata()?;
+                out.push((key, meta.len(), seconds(&meta)));
             }
         }
     }
@@ -584,7 +627,7 @@ fn collect_keys(root: &Path) -> Result<Vec<(String, u64)>, StorageError> {
 /// drive unplugged part-way is never taken for files gone. Only the folder
 /// the prefix names being absent, in a root that is there, means nothing
 /// is there.
-fn list_beneath(root: &Path, prefix: &str, at_once: usize) -> Result<Vec<(String, u64)>, StorageError> {
+fn list_beneath(root: &Path, prefix: &str, at_once: usize) -> Result<Vec<(String, u64, Option<i64>)>, StorageError> {
     // The deepest folder the prefix names whole: `originals/2019/` is the
     // folder `originals/2019`; `originals/IMG` is inside `originals`.
     let whole = match prefix.rfind('/') {
@@ -629,9 +672,9 @@ fn list_beneath(root: &Path, prefix: &str, at_once: usize) -> Result<Vec<(String
                 Err(e) if first && e.kind() == ErrorKind::NotFound && root.is_dir() => return Ok(out),
                 Err(e) => return Err(e.into()),
             };
-            for (key, bytes) in listed.files {
+            for (key, bytes, modified) in listed.files {
                 if key.starts_with(prefix) {
-                    out.push((key, bytes));
+                    out.push((key, bytes, modified));
                 }
             }
             next.extend(listed.folders);
@@ -642,10 +685,17 @@ fn list_beneath(root: &Path, prefix: &str, at_once: usize) -> Result<Vec<(String
     Ok(out)
 }
 
+/// When a file was last written, in seconds since 1970, from what its
+/// listing already gave.
+fn seconds(meta: &std::fs::Metadata) -> Option<i64> {
+    let since = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?;
+    i64::try_from(since.as_secs()).ok()
+}
+
 /// What one folder holds: its files by key with their sizes, and its
 /// folders, to be read next.
 struct Listed {
-    files: Vec<(String, u64)>,
+    files: Vec<(String, u64, Option<i64>)>,
     folders: Vec<(PathBuf, String)>,
 }
 
@@ -670,7 +720,8 @@ fn read_one((dir, prefix): &(PathBuf, String)) -> Result<Listed, std::io::Error>
         if ty.is_dir() {
             listed.folders.push((entry.path(), key));
         } else if ty.is_file() {
-            listed.files.push((key, entry.metadata()?.len()));
+            let meta = entry.metadata()?;
+            listed.files.push((key, meta.len(), seconds(&meta)));
         }
     }
     Ok(listed)

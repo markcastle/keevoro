@@ -143,6 +143,8 @@ export type Place = {
   removable: boolean
   /** A whole disk big enough to ask before looking through all of it. */
   askFirst: boolean
+  /** The cloud service that keeps this folder in step, for a synced folder rather than a drive. */
+  synced?: 'oneDrive' | 'dropbox' | 'googleDrive' | 'iCloud'
 }
 
 /**
@@ -191,6 +193,10 @@ export type Source = {
    */
   onlineOnly?: number
   onlineOnlySaid?: string
+  /** How big those files are together, from each one's listing; left out when not known. */
+  onlineOnlyBytes?: number
+  /** Where it is in words, when it is cloud storage: "the Amazon S3 bucket family-photos". */
+  bucket?: string
   /** Folders left out of this backup that are in it, or that it is in. */
   leftOut?: string[]
   /** Its own way of arranging its photos and videos; left out when it follows the backup. */
@@ -430,7 +436,29 @@ export type ConnectRequest = {
  * are going. `free` is only known for a folder; `enough` is false only when
  * the files are known not to fit.
  */
-export type Room = { needed: number; folder: string | null; free: number | null; enough: boolean }
+export type Room = {
+  needed: number
+  folder: string | null
+  free: number | null
+  enough: boolean
+  /** About what backing up now would cost to read out of each cloud storage source, a sentence each. */
+  cost?: string[]
+}
+
+/** What the form for cloud storage as a source sends. The keys go to the keychain and are never given back. */
+export type BucketSourceRequest = {
+  kind: 'r2' | 's3' | 'endpoint'
+  /** The Cloudflare account ID, Amazon region or server address. */
+  place: string
+  bucket?: string
+  /** A folder in the bucket; the whole bucket when empty. */
+  prefix?: string
+  accessKeyId?: string
+  secretAccessKey?: string
+}
+
+/** Cloud storage added as a source, with where to look through it. */
+export type BucketAdded = { id: number; name: string; root: string; place: string; keys?: string }
 
 /** One second of Keevoro's own use of the computer. */
 export type Sample = {
@@ -1004,6 +1032,8 @@ export interface Backend {
   chooseDestinationFolder(): Promise<string | null>
   /** Checks a destination works, then remembers it. Returns it in words. */
   connectDestination(request: ConnectRequest): Promise<string>
+  /** Adds cloud storage as a source, once its keys can read it. Then look through `root`. */
+  addBucketSource(request: BucketSourceRequest): Promise<BucketAdded>
   /**
    * Stops backing up to one destination, by its place in the list, or to
    * all of them when none is given. Nothing backed up there is touched.
@@ -1132,6 +1162,7 @@ async function tauriBackend(): Promise<Backend> {
     destination: () => invoke('destination'),
     chooseDestinationFolder: () => pickFolder('Choose a folder to back up to'),
     connectDestination: (request) => invoke('connect_destination', { request }),
+    addBucketSource: (request) => invoke('add_bucket_source', { request }),
     disconnectDestination: (at) => invoke('disconnect_destination', { at: at ?? null }),
     send: () => invoke('send'),
     checkArrived: () => invoke('check_arrived'),

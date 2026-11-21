@@ -2988,6 +2988,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "blake3",
+ "futures-util",
  "getrandom 0.3.4",
  "image",
  "keevoro-catalog",
@@ -3098,6 +3099,8 @@ name = "keevoro-storage"
 version = "0.41.0"
 dependencies = [
  "async-trait",
+ "blake3",
+ "tempfile",
  "thiserror 2.0.21",
  "tokio",
 ]
@@ -3119,6 +3122,7 @@ version = "0.41.0"
 dependencies = [
  "async-trait",
  "aws-sdk-s3",
+ "blake3",
  "keevoro-storage",
  "tokio",
 ]

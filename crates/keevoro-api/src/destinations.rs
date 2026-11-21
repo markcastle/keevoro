@@ -31,7 +31,7 @@ impl Key {
         Self(key.into())
     }
 
-    fn reveal(&self) -> &str {
+    pub(crate) fn reveal(&self) -> &str {
         self.0.trim()
     }
 }
@@ -172,6 +172,11 @@ pub struct RoomAtAGlance {
     pub free: Option<u64>,
     /// False only when the files are known not to fit.
     pub enough: bool,
+    /// For each bucket source, about what backing up now would cost to
+    /// read out of it, a sentence each, said before Back up now. Left out
+    /// when the backup reads from no cloud storage.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub cost: Vec<String>,
 }
 
 /// `destinations.room`
@@ -367,13 +372,19 @@ impl Backup {
                 folder: p.folder.clone(),
                 free: p.free,
                 enough: p.enough,
+                cost: Vec::new(),
             },
             None => RoomAtAGlance {
                 needed: found.waiting_bytes,
                 folder: None,
                 free: None,
                 enough: true,
+                cost: Vec::new(),
             },
+        };
+        let at_a_glance = RoomAtAGlance {
+            cost: found.from_cloud.iter().map(|c| c.cost.clone()).collect(),
+            ..at_a_glance
         };
         Ok(Room { places, at_a_glance })
     }
@@ -419,6 +430,8 @@ impl Backup {
                 said.push(room.refusal(Path::new(folder)));
             }
         }
+        // What reading from cloud storage would cost, before anything starts.
+        said.extend(found.from_cloud.iter().map(|c| c.cost.clone()));
         Ok(Rehearsal {
             to,
             files,
@@ -607,7 +620,8 @@ mod tests {
                 needed: found.waiting_bytes,
                 folder: None,
                 free: None,
-                enough: true
+                enough: true,
+                cost: Vec::new(),
             }
         );
         // What the app has always received.

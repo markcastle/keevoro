@@ -214,21 +214,49 @@ pub fn summarise_with<'a>(reports: &'a [ScanReport], rescued: &HashSet<String>) 
 /// counts are said.
 pub use keevoro_core::words::{count, files, thousands};
 
-/// What is said about files here that could be photos or videos but are
-/// only in online storage, not on this computer, so were not opened: how
-/// many, and how to include them. The same on screen, at the command line
-/// and to an AI app. Nothing when there are none.
-pub fn online_only(n: usize) -> Option<String> {
-    online_only_in(n, keevoro_scan::online::SERVICE)
+/// What is said about files in `place` that could be photos or videos but
+/// are only in online storage, not on this computer, so were not opened:
+/// how many, how big together when that is known, which service holds them
+/// (from the folder's own name, else the one this computer's system has),
+/// and how to include them. The same on screen, at the command line and to
+/// an AI app. Nothing when there are none.
+pub fn online_only(n: usize, bytes: Option<u64>, place: &std::path::Path) -> Option<String> {
+    // In a bucket source, these are objects in archive storage.
+    if let Some(provider) = keevoro_core::bucket::provider_of(place) {
+        return archived(n, bytes.unwrap_or_default(), provider);
+    }
+    let service = keevoro_core::synced::service_of(place).map_or(keevoro_scan::online::SERVICE, |s| s.name());
+    online_only_in(n, bytes, service)
 }
 
-fn online_only_in(n: usize, service: &str) -> Option<String> {
+fn online_only_in(n: usize, bytes: Option<u64>, service: &str) -> Option<String> {
     let (are, them) = if n == 1 { ("is", "it") } else { ("are", "them") };
+    let how = format!("To include {them}, make {them} available offline in {service} first, then look again.");
+    (n > 0).then(|| match bytes {
+        Some(bytes) => format!(
+            "{}, {}, {are} in {service} only, not on this computer, so Keevoro did not open {them}. {how}",
+            count(n, "file"),
+            self::bytes(bytes)
+        ),
+        None => format!(
+            "{} here {are} in {service} only, not on this computer, so Keevoro did not open {them}. {how}",
+            count(n, "file")
+        ),
+    })
+}
+
+/// What is said of files in a bucket source that are in archive storage
+/// (Amazon's Glacier Flexible Retrieval or Deep Archive), which cannot be
+/// read until they are restored, so are not backed up.
+fn archived(n: usize, bytes: u64, provider: &str) -> Option<String> {
+    let (is, it) = if n == 1 { ("is", "it") } else { ("are", "them") };
     (n > 0).then(|| {
         format!(
-            "{} here {are} in {service} only, not on this computer, so Keevoro did not open {them}. To include \
-             {them}, make {them} available offline in {service} first, then look again.",
-            count(n, "file")
+            "{}, {}, {is} in archive storage, which can't be read until {} restored. Keevoro can't do that yet; \
+             to include {it}, restore {it} in {provider} first, then look again.",
+            count(n, "file"),
+            self::bytes(bytes),
+            if n == 1 { "it is" } else { "they are" }
         )
     })
 }
@@ -284,19 +312,30 @@ mod tests {
     }
 
     #[test]
-    fn files_only_online_are_said_plainly_with_how_to_include_them() {
+    fn files_only_online_are_said_plainly_with_how_much_and_how_to_include_them() {
         assert_eq!(
-            online_only_in(412, "OneDrive").unwrap(),
+            online_only_in(412, Some(19_756_849_561), "OneDrive").unwrap(),
+            "412 files, 18.4 GB, are in OneDrive only, not on this computer, so Keevoro did not open them. To \
+             include them, make them available offline in OneDrive first, then look again."
+        );
+        assert_eq!(
+            online_only_in(1, Some(2_202_009), "Dropbox").unwrap(),
+            "1 file, 2.1 MB, is in Dropbox only, not on this computer, so Keevoro did not open it. To include it, \
+             make it available offline in Dropbox first, then look again."
+        );
+        // Looked through by a version that only counted them: said as it was.
+        assert_eq!(
+            online_only_in(412, None, "OneDrive").unwrap(),
             "412 files here are in OneDrive only, not on this computer, so Keevoro did not open them. To include \
              them, make them available offline in OneDrive first, then look again."
         );
-        assert_eq!(
-            online_only_in(1, "iCloud").unwrap(),
-            "1 file here is in iCloud only, not on this computer, so Keevoro did not open it. To include it, make \
-             it available offline in iCloud first, then look again."
-        );
-        assert_eq!(online_only(0), None);
-        assert!(online_only(2).unwrap().contains(keevoro_scan::online::SERVICE));
+        assert_eq!(online_only(0, None, std::path::Path::new("/x")), None);
+        // The service is the folder's own when its name says, else this
+        // computer's.
+        let dropbox = online_only(2, None, std::path::Path::new("/Users/mark/Dropbox/Camera Uploads")).unwrap();
+        assert!(dropbox.contains("in Dropbox only"), "{dropbox}");
+        let plain = online_only(2, None, std::path::Path::new("/media/card")).unwrap();
+        assert!(plain.contains(keevoro_scan::online::SERVICE), "{plain}");
     }
 
     fn aug(d: u8) -> Option<(DateSource, PartialDate)> {

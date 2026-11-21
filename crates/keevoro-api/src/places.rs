@@ -39,10 +39,59 @@ pub struct Place {
     /// A whole disk big enough that looking through all of it can take a
     /// long while, so it is worth asking before starting.
     pub ask_first: bool,
+    /// The cloud service that keeps this folder in step with this
+    /// computer, for a OneDrive, Dropbox, Google Drive or iCloud Drive
+    /// folder. Left out for a drive.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub synced: Option<keevoro_core::synced::Service>,
+}
+
+impl Place {
+    /// A folder a cloud service keeps in step, offered by its name.
+    pub fn synced(folder: &keevoro_core::synced::SyncedFolder) -> Self {
+        Self {
+            path: folder.path.clone(),
+            name: folder.name.clone(),
+            detail: folder.detail(),
+            removable: false,
+            // Only photos and videos are opened, and nothing that is only
+            // online, so looking through one is quick: no need to ask.
+            ask_first: false,
+            synced: Some(folder.service),
+        }
+    }
+}
+
+/// Every drive worth offering, removable ones first, and the folders cloud
+/// services keep in step on this computer ([`crate::synced`]). A drive that
+/// is itself a cloud service's (Google Drive's `G:`) is offered once, as
+/// the service.
+pub fn plugged_in() -> Vec<Place> {
+    let mut places = drives();
+    let synced: Vec<Place> = crate::synced::on_this_computer().iter().map(Place::synced).collect();
+    let bare = |p: &str| p.trim_end_matches(['\\', '/']).to_lowercase();
+    places.retain(|drive| !synced.iter().any(|s| bare(&s.path) == bare(&drive.path)));
+    places.extend(synced);
+    places
+}
+
+/// Each drive the system has mounted, as (where, its label), from its
+/// quick list: no sizes asked for, so never a wait on a network share.
+pub fn labels() -> Vec<(String, String)> {
+    Disks::new_with_refreshed_list_specifics(DiskRefreshKind::nothing())
+        .list()
+        .iter()
+        .map(|disk| {
+            (
+                disk.mount_point().display().to_string(),
+                disk.name().to_string_lossy().to_string(),
+            )
+        })
+        .collect()
 }
 
 /// Every drive worth offering, removable ones first.
-pub fn plugged_in() -> Vec<Place> {
+fn drives() -> Vec<Place> {
     let mut places: Vec<Place> = Disks::new_with_refreshed_list()
         .list()
         .iter()
@@ -304,6 +353,7 @@ fn across_a_network(answers: &[(char, bool)]) -> Vec<Place> {
             removable: false,
             // It may be vast, and is slower than a disk: always ask first.
             ask_first: true,
+            synced: None,
         })
         .collect()
 }
@@ -336,6 +386,7 @@ pub fn describe(mount: &str, label: &str, bytes: u64, removable: bool) -> Option
         // through, and is quick. A computer's own disk, or a big external
         // one, is mostly not photos and can take a long time.
         ask_first: !removable || bytes > ASK_ABOVE,
+        synced: None,
     })
 }
 
