@@ -20,6 +20,7 @@ Keevoro rescues family photos and videos from old drives for people who are not 
 - **TDD.** Write the failing test first. Coverage must stay at or above 90% overall and 95% for copy, verify and storage code.
 - **One task at a time** from TASKS.md, top to bottom within the current phase. Tick it in the same commit.
 - **Say what changed, for the user.** Anything a person using Keevoro would notice goes under **Unreleased** in [CHANGELOG.md](CHANGELOG.md) in the same commit, under Added, Changed, Fixed or Removed. The heading decides the next version number (Added or Removed makes a minor release), and the words become the release notes, so write what they will see, not which function moved. See [docs/developing.md](docs/developing.md#cutting-a-release).
+- **Nothing a person set may be lost by an update.** Every change to what Keevoro keeps (a catalog, `settings.json`, anything in its data folder) comes with a conversion and a test that an older catalog and settings file open with everything in place. See [docs/developing.md](docs/developing.md#when-what-keevoro-keeps-changes).
 - **Keep the core pure.** Rules about names, dates, folders, skipping and collections belong in `keevoro-core` with no I/O. I/O crates call into it.
 - **Do not add a crate before a task needs it** (YAGNI). When you add one, add it to the table in PLANNING.md.
 - **Storage providers** implement `ObjectStore` and `MultipartStore` and must pass `keevoro_storage::conformance::run_all`. Never make the engine depend on a provider SDK directly.

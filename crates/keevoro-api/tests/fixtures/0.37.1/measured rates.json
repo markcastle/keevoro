@@ -1,0 +1,8 @@
+{
+  "rates": {
+    "sendingOriginals": 12500000.0,
+    "sendingOriginals:the folder {json:USB}": 31000000.0,
+    "makingPreviews": 14.0
+  },
+  "preview_bytes_per_original": 41000.0
+}

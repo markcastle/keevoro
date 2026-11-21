@@ -404,6 +404,26 @@ Standard output carries the protocol and nothing else, so nothing in Keevoro may
 
 The S3 adapter is tested against a real S3-compatible server. CI starts MinIO for this. Locally those tests skip themselves unless you point them at a server; the variables are listed at the top of `crates/keevoro-storage-s3/src/tests.rs`.
 
+## When what Keevoro keeps changes
+
+People keep Keevoro for years and update it without thinking about it, and from now on some of them are not us. So the rule is simple: **nothing a person has set or backed up, and nothing Keevoro has recorded for them, may be lost by an update.** Version 0.39.0 broke it. It changed how "what this backup is for" was written down, from one word (`"photos"`) to a list (`["photos"]`), without converting what was already there, so anyone who had chosen photos only or videos only quietly got everything again. Nobody noticed, because until then the only user was the person writing the code.
+
+What Keevoro keeps, and where:
+
+| What | Where | Holds |
+| --- | --- | --- |
+| The settings file | `settings.json` in Keevoro's config folder (`keevoro-api/src/backups.rs`) | The backups and which is open, the codecs switch, what AI agents may do, the kinds of file changed |
+| Each backup's catalog | `.keevoro/catalog.sqlite` in the backup's home (`keevoro-catalog`) | What was found, every keep or skip, places, what reached each destination, and the backup's settings: destinations, what it is for, folders and endings left out, previews, history, what the last backup said |
+| Remembered speeds | `measured rates.json` in Keevoro's data folder (`keevoro-api/src/rates.rs`) | How fast earlier backups went, for the next estimate |
+| Caches | Keevoro's cache folder | Previews, remembered maps (`surveys/`) and `look.sqlite`. These may be thrown away and made again, but must be made again quietly, never fail |
+
+When you change any of these:
+
+1. **Write a conversion.** For the catalog, add a step to `MIGRATIONS` in `keevoro-catalog` (never edit an old one): step 10 turns the old one-word choices into lists. For a JSON form, read the old form as well as the new, or give a new field a default that means what an older file meant.
+2. **Read each part on its own.** One part that cannot be understood must cost that part alone. The settings file is read a part at a time (`Settings::from_value`), and a file that could not all be understood is kept beside it as `settings that could not be read.json` before anything is written over it. The history is read an entry at a time, and entries this version cannot read are kept as they were.
+3. **Add to the fixture.** `crates/keevoro-api/tests/fixtures/0.37.1/` holds a settings file, two catalogs and the remembered speeds exactly as 0.37.1, the version our first outside tester had, wrote them, and `crates/keevoro-api/tests/updating.rs` opens them with today's Keevoro and checks everything a person would notice. When you change a stored form, put an example of the old form in the fixture (the catalogs are plain SQL, made from that version's own schema steps, with places in braces filled in by the test) and a line in the test that it reads as it did. When a release has changed a form, add a folder for that version beside `0.37.1` rather than editing the old one: the old fixture stays as proof that people on that version can still update.
+4. **Say it in the changelog** if anything a person had set needed converting, and how it was put right.
+
 ## Cutting a release
 
 The work of a release is done before it, in [CHANGELOG.md](../CHANGELOG.md). Every change a person would notice goes under **Unreleased** as it lands, in one of **Added**, **Changed**, **Fixed** or **Removed**, written for the person using Keevoro: what they will see, not which function moved. Those notes become the GitHub Release, and a release refuses to run while the section is empty.

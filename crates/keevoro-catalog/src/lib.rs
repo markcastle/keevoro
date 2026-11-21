@@ -143,6 +143,18 @@ const MIGRATIONS: &[&str] = &[
     // is sending it again. Everything recorded before was there when it was
     // sent, so it starts as `0`, there, until it is looked for.
     "ALTER TABLE uploaded ADD COLUMN gone INTEGER NOT NULL DEFAULT 0;",
+    // 10: until 0.39.0 a backup, or one source, was for "both", "photos"
+    // or "videos", kept as that one word. 0.39.0 made it a list of what it
+    // is for and read the old word as nothing chosen, so a backup or a
+    // source set to photos only or videos only went back to everything.
+    // Each old word becomes the list that means the same. A list already
+    // there is left alone.
+    "UPDATE settings SET value = '[\"photos\"]'
+     WHERE (key = 'wants' OR substr(key, 1, 6) = 'wants:') AND value = '\"photos\"';
+     UPDATE settings SET value = '[\"videos\"]'
+     WHERE (key = 'wants' OR substr(key, 1, 6) = 'wants:') AND value = '\"videos\"';
+     UPDATE settings SET value = '[\"photos\",\"videos\",\"others\"]'
+     WHERE (key = 'wants' OR substr(key, 1, 6) = 'wants:') AND value = '\"both\"';",
 ];
 
 /// What a look at a destination found of a file Keevoro sent there.

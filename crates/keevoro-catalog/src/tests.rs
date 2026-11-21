@@ -853,3 +853,53 @@ fn how_many_files_were_only_online_is_kept_with_the_source_until_it_is_looked_th
         .unwrap();
     assert_eq!(left, 0, "nothing is kept about a source forgotten");
 }
+
+/// A catalog as 0.38.0 wrote it, with the backup set to photos only, one
+/// source to videos only and another to both, which 0.39.0 read as nothing
+/// chosen.
+#[test]
+fn photos_only_or_videos_only_chosen_before_0_39_is_carried_over() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("catalog.sqlite");
+    {
+        let conn = Connection::open(&file).unwrap();
+        for step in &MIGRATIONS[..8] {
+            conn.execute_batch(step).unwrap();
+        }
+        conn.pragma_update(None, "user_version", 8).unwrap();
+        conn.execute_batch(
+            r#"INSERT INTO sources (id, name, root, scanned_at) VALUES (1, 'Card', '/media/card', 1), (2, 'Drone', '/media/drone', 1), (3, 'Phone', '/media/phone', 1);
+               INSERT INTO settings (key, value) VALUES
+                 ('wants', '"photos"'),
+                 ('wants:/media/card', '"videos"'),
+                 ('wants:/media/drone', '"both"'),
+                 ('left_out_types:/media/card', '["png"]');"#,
+        )
+        .unwrap();
+    }
+    let c = Catalog::open(&file).unwrap();
+    assert_eq!(c.wants().unwrap(), keevoro_core::Wants::only(MediaKind::Photo));
+    assert_eq!(
+        c.source_wants(1).unwrap(),
+        Some(keevoro_core::Wants::only(MediaKind::Video))
+    );
+    assert_eq!(
+        c.source_wants(2).unwrap(),
+        Some(keevoro_core::Wants::default()),
+        "both, chosen for one source, still overrides the backup's photos only"
+    );
+    assert_eq!(
+        c.source_wants(3).unwrap(),
+        None,
+        "a source with no choice still follows its backup"
+    );
+    // Nothing else is touched, and a list written since is left alone.
+    assert_eq!(
+        c.setting("left_out_types:/media/card").unwrap().as_deref(),
+        Some(r#"["png"]"#)
+    );
+    c.set_wants(keevoro_core::Wants::only(MediaKind::Video)).unwrap();
+    drop(c);
+    let c = Catalog::open(&file).unwrap();
+    assert_eq!(c.wants().unwrap(), keevoro_core::Wants::only(MediaKind::Video));
+}
