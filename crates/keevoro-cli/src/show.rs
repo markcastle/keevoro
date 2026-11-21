@@ -798,6 +798,24 @@ pub fn wants(io: &mut Io<'_>, _: &ArgMatches, view: &Value) -> Said_ {
 
 pub fn arrange(io: &mut Io<'_>, _: &ArgMatches, view: &Value) -> Said_ {
     writeln!(io.out, "{}", s(view, "said"))?;
+    // A suggestion is said while there is still something to choose: for
+    // a backup, until it is chosen; for a source, when it differs.
+    let undecided = view.get("asked").and_then(Value::as_bool) != Some(true);
+    if let Some(said) = view
+        .get("suggestion")
+        .and_then(|v| v.get("said"))
+        .and_then(Value::as_str)
+    {
+        if undecided || view.get("own").is_some() {
+            writeln!(io.out, "{said}")?;
+        }
+    }
+    if view.get("sourcesDiffer").and_then(Value::as_bool) == Some(true) && undecided {
+        writeln!(
+            io.out,
+            "Its sources suggest different ways: each can be chosen with `keevoro sources arrange`."
+        )?;
+    }
     Ok(Code::Worked)
 }
 

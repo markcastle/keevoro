@@ -97,6 +97,53 @@ pub struct SourceArrangeView {
     /// In words: "Files from Family Scans keep their folders as they are."
     /// with what is shared, and after a change, what stays where it is.
     pub said: String,
+    /// What its files suggest, when that is not what it does now.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggestion: Option<SuggestionView>,
+}
+
+/// What a source's photos and videos, as found, suggest. Pure arithmetic
+/// over what the catalog holds: nothing is read from the source.
+pub fn suggestion_for(
+    root: &std::path::Path,
+    name: &str,
+    items: &[keevoro_scan::FoundItem],
+) -> Option<keevoro_core::arrange::Suggestion> {
+    use keevoro_core::arrange::{FileSeen, SourceFacts};
+    let root_name = keevoro_core::arrange::top_folder(root, name);
+    let files = items
+        .iter()
+        .filter(|i| i.kind != keevoro_core::MediaKind::Other)
+        .map(|i| FileSeen {
+            folders: i
+                .path
+                .strip_prefix(root)
+                .ok()
+                .and_then(std::path::Path::parent)
+                .map(|p| p.iter().filter_map(std::ffi::OsStr::to_str).collect())
+                .unwrap_or_default(),
+            album: &i.folder.album,
+            date: i.date,
+            name: i.path.file_name().and_then(std::ffi::OsStr::to_str).unwrap_or_default(),
+            kind: i.kind,
+        })
+        .collect();
+    keevoro_core::arrange::suggest(&SourceFacts {
+        root_name: &root_name,
+        files,
+    })
+}
+
+/// "Suggestion: keep its folders as they are. These look like scans."
+fn for_a_source(suggestion: &keevoro_core::arrange::Suggestion) -> SuggestionView {
+    let what = match suggestion.arrange {
+        Arrange::Folders => "Suggestion: keep its folders as they are.",
+        Arrange::ByDate => "Suggestion: arrange it by date.",
+    };
+    SuggestionView {
+        arrange: suggestion.arrange,
+        said: format!("{what} {}", suggestion.why_for_the_source()),
+    }
 }
 
 /// What is said of one source's arrangement.
@@ -106,6 +153,18 @@ pub fn source_said(name: &str, arrange: Arrange, own: bool) -> String {
         (true, Arrange::ByDate) => format!("Files from {name} are arranged by date."),
         (false, arrange) => format!("Files from {name} are arranged as the backup is: {}.", arrange.words()),
     }
+}
+
+/// An arrangement worth suggesting, and why, in words.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SuggestionView {
+    /// `byDate` or `folders`.
+    pub arrange: Arrange,
+    /// "Suggested because 412 of the 420 photos in Family Scans have the
+    /// same date, 14 March 2021, which is probably when they were copied
+    /// or scanned, not taken."
+    pub said: String,
 }
 
 /// How a backup is arranged, and what that means.
@@ -119,6 +178,14 @@ pub struct ArrangeView {
     pub asked: bool,
     /// In words: "This backup is arranged by date."
     pub said: String,
+    /// What the files found suggest, for the whole backup: the suggestion
+    /// that covers most of its photos and videos, by size.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggestion: Option<SuggestionView>,
+    /// True when its sources suggest different arrangements, so each can
+    /// be chosen on its own later.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub sources_differ: bool,
 }
 
 /// What is said of a backup's arrangement.
@@ -152,11 +219,58 @@ impl Backup {
     pub fn arrangement(&self) -> Result<ArrangeView> {
         let chosen = self.catalog().arrange()?;
         let arrange = chosen.unwrap_or_default();
+        let (suggestion, sources_differ) = self.suggestion()?;
         Ok(ArrangeView {
             arrange,
             asked: chosen.is_some() || self.catalog().placed_and_sent()? > 0,
             said: said_of(arrange),
+            suggestion,
+            sources_differ,
         })
+    }
+
+    /// What the files found suggest for the whole backup: of each source's
+    /// suggestion (or none), the one covering most bytes of photos and
+    /// videos, saying why from the biggest source it came from; and whether
+    /// the sources differ.
+    fn suggestion(&self) -> Result<(Option<SuggestionView>, bool)> {
+        // Each outcome (or none), the bytes it covers, and why, from the
+        // biggest source that suggested it, with that source's bytes.
+        type Why = Option<(u64, String)>;
+        let mut by_outcome: Vec<(Option<Arrange>, u64, Why)> = Vec::new();
+        for source in self.catalog().sources()? {
+            let items = self.catalog().found_on(source.id)?;
+            let bytes: u64 = items
+                .iter()
+                .filter(|i| i.kind != keevoro_core::MediaKind::Other)
+                .map(|i| i.bytes)
+                .sum();
+            let suggested = suggestion_for(&source.root, &source.name, &items);
+            let outcome = suggested.as_ref().map(|s| s.arrange);
+            let why = suggested.map(|s| (bytes, s.why_for_the_backup(&source.name)));
+            match by_outcome.iter_mut().find(|(o, _, _)| *o == outcome) {
+                Some((_, total, best)) => {
+                    *total += bytes;
+                    if let Some(why) = why {
+                        if best.as_ref().is_none_or(|(b, _)| why.0 > *b) {
+                            *best = Some(why);
+                        }
+                    }
+                }
+                None => by_outcome.push((outcome, bytes, why)),
+            }
+        }
+        let differ = by_outcome.iter().filter(|(o, _, _)| o.is_some()).count() > 1;
+        let biggest = by_outcome.into_iter().max_by_key(|(_, bytes, _)| *bytes);
+        Ok((
+            biggest.and_then(|(outcome, _, why)| {
+                Some(SuggestionView {
+                    arrange: outcome?,
+                    said: format!("Suggested because {}", why?.1),
+                })
+            }),
+            differ,
+        ))
     }
 
     /// `backup.arrange`, set. Only what is sent from now on follows it.
@@ -176,25 +290,36 @@ impl Backup {
 }
 
 impl Backup {
-    /// `sources.arrange`, read.
+    /// `sources.arrange`, read. Asks only the record, never the whole
+    /// Discover view, so each source's card can ask it quickly.
     pub fn source_arrangement(&self, source: i64) -> Result<SourceArrangeView> {
-        let view = self
-            .sources()?
-            .into_iter()
-            .find(|s| s.id == source)
+        let sources = self.catalog().sources()?;
+        let at = sources
+            .iter()
+            .position(|s| s.id == source)
             .ok_or_else(|| Error::not_found("That source isn't part of this backup."))?;
+        let choices = self.catalog().choices()?;
+        let (kept_as, shares_folder_with, shared) = keevoro_engine::discover::kept_as(&sources, &choices)
+            .into_iter()
+            .nth(at)
+            .unwrap_or_default();
+        let found = &sources[at];
         let own = self.catalog().source_arrange(source)?;
-        let arrange = own.unwrap_or(self.catalog().arrange()?.unwrap_or_default());
-        let mut said = source_said(&view.name, arrange, own.is_some());
-        if let Some(shared) = &view.shared_said {
+        let arrange = choices.arrangement_in(&found.root);
+        let mut said = source_said(&found.name, arrange, own.is_some());
+        if let Some(shared) = shared {
             said = format!("{said} {shared}");
         }
+        let suggestion = suggestion_for(&found.root, &found.name, &self.catalog().found_on(source)?)
+            .filter(|s| s.arrange != arrange)
+            .map(|s| for_a_source(&s));
         Ok(SourceArrangeView {
             arrange,
             own: own.is_some(),
-            kept_as: view.kept_as,
-            shares_folder_with: view.shares_folder_with,
+            kept_as,
+            shares_folder_with,
             said,
+            suggestion,
         })
     }
 
@@ -335,6 +460,49 @@ mod tests {
         assert_eq!(
             backup.set_source_arrangement(9999, None).unwrap_err().kind,
             crate::Kind::NotFound
+        );
+    }
+
+    #[test]
+    fn a_folder_of_scans_all_dated_the_same_day_is_suggested_to_keep_its_folders() {
+        use keevoro_scan::FoundItem;
+        let root = std::path::PathBuf::from("/m/Family");
+        let one = |i: usize| FoundItem {
+            path: root.join(format!("{i:04}.jpg")),
+            kind: keevoro_core::MediaKind::Photo,
+            mime: "image/jpeg".into(),
+            bytes: 1,
+            blake3: None,
+            hashed: true,
+            date: Some(keevoro_core::DateGuess {
+                date: keevoro_core::PartialDate::parse(if i < 412 { "2021-03-14" } else { "2020-01-02" }).unwrap(),
+                source: keevoro_core::DateSource::Exif,
+            }),
+            folder: keevoro_core::FolderHints::default(),
+            width: None,
+            height: None,
+            junk: None,
+        };
+        let items: Vec<FoundItem> = (0..420).map(one).collect();
+        let s = suggestion_for(&root, "Family", &items).unwrap();
+        assert_eq!(s.arrange, Arrange::Folders);
+        assert_eq!(
+            for_a_source(&s).said,
+            "Suggestion: keep its folders as they are. 412 of its 420 photos have the same date, 14 March 2021, \
+             which is probably when they were copied or scanned, not taken."
+        );
+        // The tester's own folder says what it is by its name.
+        let scans = std::path::PathBuf::from("/m/Family Scans");
+        let moved: Vec<FoundItem> = items
+            .into_iter()
+            .map(|mut i| {
+                i.path = scans.join(i.path.file_name().unwrap());
+                i
+            })
+            .collect();
+        assert_eq!(
+            for_a_source(&suggestion_for(&scans, "Family Scans", &moved).unwrap()).said,
+            "Suggestion: keep its folders as they are. These look like scans."
         );
     }
 }

@@ -351,7 +351,7 @@ A collection is named by its whole name, such as "Holidays / Cornwall", or by it
 | `keevoro history` | How earlier backups went: when, where, how much, how long, numbered from the newest. |
 | `keevoro history N` | Everything recorded about one of them, by its number. |
 | `keevoro last-backup` | What the last backup said when it ended. |
-| `keevoro arrange [by-date or folders]` | How the backup arranges photos and videos where it sends them: `by-date` (a folder for each year and month, keeping folders with real names) or `folders` (the same folders and names as on the source, starting with the source's own folder). It only changes where files go from now on: nothing already backed up is moved, sent again or counted missing. A backup made before this choice existed is by date. |
+| `keevoro arrange [by-date or folders]` | How the backup arranges photos and videos where it sends them: `by-date` (a folder for each year and month, keeping folders with real names) or `folders` (the same folders and names as on the source, starting with the source's own folder). It only changes where files go from now on: nothing already backed up is moved, sent again or counted missing. A backup made before this choice existed is by date. Until you choose, it says what Keevoro suggests and why ("Suggested because the photos in Family Scans look like scans."). |
 | `keevoro wants [KINDS]` | What the backup is for: one or more of `photos`, `videos` and `others` (other files, once a kind of them is on the list), as words of their own or with commas. It counts at once on what was found; nothing already backed up is touched. |
 | `keevoro previews [on or off]` | Whether the backup also makes previews for a gallery, or sends the originals alone. |
 

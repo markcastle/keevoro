@@ -958,6 +958,12 @@ impl Catalog {
             .collect()
     }
 
+    /// Everything found on one source, as it was found: every album as
+    /// read from its folders, nothing left out.
+    pub fn found_on(&self, source: i64) -> Result<Vec<FoundItem>> {
+        self.items_of(source)
+    }
+
     fn items_of(&self, source: i64) -> Result<Vec<FoundItem>> {
         let mut q = self.conn.prepare(
             "SELECT path, kind, mime, bytes, blake3, date, date_source, album, folder_date, width, height, junk,

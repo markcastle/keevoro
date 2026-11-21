@@ -349,6 +349,37 @@ pub fn safe_by_folder(catalog: &Catalog) -> Result<std::collections::HashMap<std
     Ok(by_folder)
 }
 
+/// Where each source's files go at the top of the backup when it keeps its
+/// folders as they are, which other sources share that folder (as a person
+/// would write them), and that in words. Nothing is read but the record.
+pub fn kept_as(
+    sources: &[keevoro_catalog::Source],
+    choices: &keevoro_core::Choices,
+) -> Vec<(Option<String>, Vec<String>, Option<String>)> {
+    let arranged: Vec<keevoro_core::arrange::SourceArranged<'_>> = sources
+        .iter()
+        .map(|s| keevoro_core::arrange::SourceArranged {
+            root: &s.root,
+            name: &s.name,
+            arrange: choices.arrangement_in(&s.root),
+        })
+        .collect();
+    let sharing = keevoro_core::arrange::sharing_a_folder(&arranged);
+    arranged
+        .iter()
+        .zip(&sharing)
+        .map(|(s, with)| {
+            let top = (s.arrange == keevoro_core::Arrange::Folders)
+                .then(|| keevoro_core::arrange::top_folder(s.root, s.name));
+            let with: Vec<String> = with.iter().map(|&j| friendly_path(arranged[j].root)).collect();
+            let said = top
+                .as_deref()
+                .and_then(|top| keevoro_core::arrange::shared_words(top, &with));
+            (top, with, said)
+        })
+        .collect()
+}
+
 /// Builds the Discover view from everything the backup remembers.
 pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
     let reports = catalog.load_reports()?;
@@ -426,25 +457,7 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
     let left_out = catalog.left_out_folders()?;
     let found = catalog.sources()?;
     let choices = catalog.choices()?;
-    let arranged: Vec<keevoro_core::arrange::SourceArranged<'_>> = found
-        .iter()
-        .map(|s| keevoro_core::arrange::SourceArranged {
-            root: &s.root,
-            name: &s.name,
-            arrange: choices.arrangement_in(&s.root),
-        })
-        .collect();
-    let sharing = keevoro_core::arrange::sharing_a_folder(&arranged);
-    let mut kept_as = Vec::with_capacity(found.len());
-    for (s, with) in arranged.iter().zip(&sharing) {
-        let top =
-            (s.arrange == keevoro_core::Arrange::Folders).then(|| keevoro_core::arrange::top_folder(s.root, s.name));
-        let with: Vec<String> = with.iter().map(|&j| friendly_path(arranged[j].root)).collect();
-        let said = top
-            .as_deref()
-            .and_then(|top| keevoro_core::arrange::shared_words(top, &with));
-        kept_as.push((top, with, said));
-    }
+    let kept_as = kept_as(&found, &choices);
     let sources = found
         .iter()
         .cloned()
