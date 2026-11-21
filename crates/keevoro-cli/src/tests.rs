@@ -516,7 +516,12 @@ fn exit_codes_say_what_happened_without_reading_the_words() {
     let ran = at.keevoro(&["run"]);
     assert_eq!(ran.code, Code::Unreachable, "{}{}", ran.out, ran.err);
     assert_eq!(at.keevoro(&["check"]).code, Code::Unreachable);
+    // A folder that has gone is never made again by a backup: it is
+    // plugged back in, as it were.
     std::fs::remove_file(&usb).unwrap();
+    assert_eq!(at.keevoro(&["run"]).code, Code::Unreachable);
+    assert!(!usb.exists());
+    std::fs::create_dir(&usb).unwrap();
 
     // A file gone from its source since it was found cannot be backed up.
     std::fs::remove_file(card.join("DCIM/100CANON/IMG_20120304_153012.jpg")).unwrap();
