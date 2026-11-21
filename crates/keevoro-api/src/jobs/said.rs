@@ -15,6 +15,10 @@ pub struct SurveyEvent {
     pub files: usize,
     pub photos: usize,
     pub videos: usize,
+    /// Other files a person put on the list, seen so far. Never said when
+    /// there are none.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub others: usize,
     /// Every suggestion is final; the folders Keevoro never looks through
     /// are being sized for the map of where the space goes.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -42,6 +46,11 @@ pub struct TopView {
     pub photo_bytes: u64,
     pub video_bytes: u64,
     pub other_bytes: u64,
+    /// Other files a person put on the list, to be carried along.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub carried: u64,
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub carried_bytes: u64,
     /// For the smaller folders together, how many.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub folders: u64,
@@ -53,7 +62,7 @@ fn is_zero_u64(n: &u64) -> bool {
 
 impl From<&keevoro_scan::map::TopBox> for TopView {
     fn from(b: &keevoro_scan::map::TopBox) -> Self {
-        use keevoro_scan::map::TopItem;
+        use keevoro_scan::map::{Kind, TopItem};
         let (node, folders) = match b.item {
             TopItem::Folder => ("folder", 0),
             TopItem::FilesHere => ("files", 0),
@@ -64,12 +73,14 @@ impl From<&keevoro_scan::map::TopBox> for TopView {
             name: b.name.to_string(),
             node: node.to_string(),
             bytes: b.bytes(),
-            photos: k[0].files,
-            videos: k[1].files,
-            others: k[2].files,
-            photo_bytes: k[0].bytes,
-            video_bytes: k[1].bytes,
-            other_bytes: k[2].bytes,
+            photos: k[Kind::Photo.index()].files,
+            videos: k[Kind::Video.index()].files,
+            others: k[Kind::Other.index()].files,
+            photo_bytes: k[Kind::Photo.index()].bytes,
+            video_bytes: k[Kind::Video.index()].bytes,
+            other_bytes: k[Kind::Other.index()].bytes,
+            carried: k[Kind::Carried.index()].files,
+            carried_bytes: k[Kind::Carried.index()].bytes,
             folders,
         }
     }
@@ -91,6 +102,9 @@ pub struct ScanEvent {
     pub name: String,
     pub photos: u64,
     pub videos: u64,
+    /// Other files a person put on the list. Never said when there are none.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub others: u64,
     /// Every file looked at so far, photos or not.
     pub files: u64,
     /// The folder being looked in right now, for the curious.
@@ -206,6 +220,9 @@ pub struct HintView {
     pub folder: String,
     pub photos: usize,
     pub videos: usize,
+    /// Other files a person put on the list. Never said when there are none.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub others: usize,
     pub bytes: u64,
     /// False when the pictures are so small they are probably not photos.
     pub likely_photos: bool,
@@ -319,6 +336,7 @@ mod tests {
             folder: "DCIM".into(),
             photos: 1,
             videos: 2,
+            others: 0,
             bytes: 3,
             likely_photos: true,
             already_a_source: false,
@@ -330,6 +348,7 @@ mod tests {
                 name: "Card".into(),
                 photos: 1,
                 videos: 2,
+                others: 0,
                 files: 3,
                 folder: String::new(),
                 reading: None,
@@ -348,6 +367,7 @@ mod tests {
                 files: 2,
                 photos: 3,
                 videos: 4,
+                others: 0,
                 sizing: false,
                 top: vec![TopView {
                     name: "Camera Roll".into(),
@@ -359,6 +379,8 @@ mod tests {
                     photo_bytes: 8,
                     video_bytes: 0,
                     other_bytes: 1,
+                    carried: 0,
+                    carried_bytes: 0,
                     folders: 0,
                 }],
             }),
@@ -461,6 +483,7 @@ mod tests {
             files: 40,
             photos: 30,
             videos: 1,
+            others: 0,
             sizing: false,
             top: Vec::new(),
         };

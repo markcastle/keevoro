@@ -2,9 +2,15 @@
 //!
 //! Keevoro comes with a list of endings it knows as photos and videos (the
 //! built-in list). A person can add endings of their own, change whether
-//! one is a photo or a video, switch any of them off, remove their own,
-//! and put the built-in list back. One list serves the whole of Keevoro,
-//! not one backup.
+//! one is a photo, a video or an other file, switch any of them off, remove
+//! their own, and put the built-in list back. One list serves the whole of
+//! Keevoro, not one backup.
+//!
+//! An other file is one a person asks Keevoro to take along: music, a
+//! document, a project file. Any ending can be added as one, even those
+//! Keevoro passes over as never photos or videos; nothing is, until a
+//! person adds it. Keevoro backs them up exactly, but cannot show them or
+//! group them by date ([`OTHER_FILES_SAID`]).
 //!
 //! Only the person's changes are kept ([`FileKinds`]): the endings they
 //! added, and the built-in ones they changed. So the list always starts as
@@ -22,11 +28,14 @@
 //!   camcorder files, and every kind a person adds) the ending is enough:
 //!   the file is found as the photo or video the list says, even when
 //!   Keevoro has no way to open it.
+//! - A kind on the list as an other file is found by its ending alone. It
+//!   is read only to be fingerprinted, never to be judged or shown.
 //! - Any other file that is not plainly a program, a document or music is
 //!   still opened and judged by what is inside, so a photo with an odd
 //!   name is not missed.
 
 use crate::media::{never_media_extension, MediaKind};
+use crate::wants::Wants;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
@@ -136,6 +145,9 @@ fn built_in(ending: &str) -> Option<&'static BuiltIn> {
 /// The longest ending accepted. Real ones are three or four letters.
 pub const LONGEST_ENDING: usize = 10;
 
+/// What to expect of other files, said wherever one is added.
+pub const OTHER_FILES_SAID: &str = "Keevoro will back these up exactly, but cannot show them or group them by date.";
+
 /// One change a person made to the list: an ending they added, or a
 /// built-in one they changed. This is what the settings file keeps.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -166,7 +178,7 @@ pub struct FileKind {
     /// Looked for. A kind switched off is passed over.
     pub on: bool,
     /// Part of the built-in list: it can be switched off and changed
-    /// between photo and video, but not renamed or removed.
+    /// between photo, video and other file, but not renamed or removed.
     pub built_in: bool,
 }
 
@@ -177,7 +189,8 @@ pub enum KindRefusal {
     TooLong,
     /// Holds a space, a dot or a character that belongs in a path.
     NotAnEnding(String),
-    /// A program, a document, music or an archive: never a memory.
+    /// A program, a document, music or an archive, asked for as a photo or
+    /// a video: it can only be added as an other file.
     NeverMedia(String),
     AlreadyListed(String),
     NotListed(String),
@@ -199,7 +212,7 @@ impl fmt::Display for KindRefusal {
             ),
             Self::NeverMedia(ending) => write!(
                 f,
-                "Files ending .{ending} are programs, documents, music or archives, never photos or videos, so Keevoro doesn't look inside them."
+                "Files ending .{ending} are programs, documents, music or archives, never photos or videos. To back them up as they are, add .{ending} as an other file."
             ),
             Self::AlreadyListed(ending) => write!(f, "Keevoro already looks for .{ending} files."),
             Self::NotListed(ending) => write!(f, "Keevoro doesn't have .{ending} files on its list."),
@@ -279,15 +292,21 @@ impl FileKinds {
         self.list().into_iter().find(|k| k.ending == ending)
     }
 
-    /// Adds an ending as a photo or a video, switched on.
+    /// Is anything on the list an other file, switched on or off? Only
+    /// then are other files spoken of anywhere.
+    pub fn has_other(&self) -> bool {
+        self.0.iter().any(|c| c.kind == MediaKind::Other)
+    }
+
+    /// Adds an ending as a photo, a video or an other file, switched on.
+    /// An ending that is plainly not a photo or video (a document, music)
+    /// can only be added as an other file.
     pub fn add(&mut self, typed: &str, kind: MediaKind) -> Result<FileKind, KindRefusal> {
         let ending = plain_ending(typed)?;
         if self.line(&ending).is_some() {
             return Err(KindRefusal::AlreadyListed(ending));
         }
-        if never_media_extension(&ending) {
-            return Err(KindRefusal::NeverMedia(ending));
-        }
+        refuse_as_media(&ending, kind)?;
         self.0.push(KindChoice {
             ending: ending.clone(),
             kind,
@@ -319,15 +338,13 @@ impl FileKinds {
             if self.line(to).is_some() {
                 return Err(KindRefusal::AlreadyListed(to.clone()));
             }
-            if never_media_extension(to) {
-                return Err(KindRefusal::NeverMedia(to.clone()));
-            }
         }
         let wanted = KindChoice {
             ending: renamed.unwrap_or_else(|| ending.clone()),
             kind: change.kind.unwrap_or(now.kind),
             on: change.on.unwrap_or(now.on),
         };
+        refuse_as_media(&wanted.ending, wanted.kind)?;
         let same_as_it_came = built_in(&wanted.ending).is_some_and(|b| b.kind == wanted.kind && wanted.on);
         match self.0.iter().position(|c| c.ending == ending) {
             // A built-in kind put back as it came needs no note of it.
@@ -387,6 +404,14 @@ impl FileKinds {
     }
 }
 
+/// A document, music, a program or an archive is never a photo or a video.
+fn refuse_as_media(ending: &str, kind: MediaKind) -> Result<(), KindRefusal> {
+    if kind.is_media() && never_media_extension(ending) {
+        return Err(KindRefusal::NeverMedia(ending.to_string()));
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Looked {
     kind: MediaKind,
@@ -420,16 +445,28 @@ impl Kinds {
         }
     }
 
-    /// The same list, looking for one kind only: for a survey for a backup
-    /// that wants photos only, or videos only.
+    /// The same list, looking only for the kinds a backup wants: for a
+    /// survey for a backup of photos only, say.
     #[must_use]
-    pub fn only(mut self, kind: MediaKind) -> Kinds {
+    pub fn wanted_by(mut self, wants: Wants) -> Kinds {
         for looked in self.by_ending.values_mut() {
-            if looked.kind != kind {
+            if !wants.takes(looked.kind) {
                 looked.on = false;
             }
         }
         self
+    }
+
+    /// Is any kind on the list an other file, on or off? Only then are
+    /// other files spoken of.
+    pub fn lists_other(&self) -> bool {
+        self.by_ending.values().any(|l| l.kind == MediaKind::Other)
+    }
+
+    /// Is this ending looked for as an other file? Such a file is found by
+    /// its ending alone, and never opened to see what it is.
+    pub fn is_other(&self, ending: &str) -> bool {
+        self.looked_for(ending) == Some(MediaKind::Other)
     }
 
     /// The kind a file with this ending is looked for as, or `None` if it
@@ -551,8 +588,55 @@ mod tests {
         }
         assert_eq!(
             KindRefusal::NeverMedia("exe".into()).to_string(),
-            "Files ending .exe are programs, documents, music or archives, never photos or videos, so Keevoro doesn't look inside them."
+            "Files ending .exe are programs, documents, music or archives, never photos or videos. To back them up as they are, add .exe as an other file."
         );
+        assert!(!kinds.has_other());
+    }
+
+    #[test]
+    fn any_ending_can_be_added_as_an_other_file_but_never_a_document_as_a_photo() {
+        let mut kinds = FileKinds::default();
+        for ending in ["flac", "PDF", "docx", "zip", "blend", "sys"] {
+            let added = kinds.add(ending, MediaKind::Other).unwrap();
+            assert_eq!((added.kind, added.on, added.built_in), (MediaKind::Other, true, false));
+        }
+        assert!(kinds.has_other());
+        // Changed to a photo: refused, as adding one would be.
+        let photo = KindChange {
+            kind: Some(MediaKind::Photo),
+            ..KindChange::default()
+        };
+        assert_eq!(
+            kinds.change("flac", &photo),
+            Err(KindRefusal::NeverMedia("flac".into()))
+        );
+        // An other file of your own can take an ending Keevoro passes over.
+        kinds.add("xyz", MediaKind::Other).unwrap();
+        let renamed = KindChange {
+            ending: Some("mp3".into()),
+            ..KindChange::default()
+        };
+        assert_eq!(kinds.change("xyz", &renamed).unwrap().ending, "mp3");
+        // A built-in kind can be carried as an other file too.
+        let as_other = KindChange {
+            kind: Some(MediaKind::Other),
+            ..KindChange::default()
+        };
+        assert_eq!(kinds.change("tif", &as_other).unwrap().kind, MediaKind::Other);
+        let lookup = kinds.lookup();
+        assert!(lookup.lists_other());
+        assert!(lookup.is_other("FLAC") && lookup.is_other("tif") && !lookup.is_other("jpg"));
+        assert_eq!(lookup.looked_for("pdf"), Some(MediaKind::Other));
+        assert!(OTHER_FILES_SAID.contains("exactly"));
+    }
+
+    #[test]
+    fn nothing_is_an_other_file_until_a_person_adds_one() {
+        let kinds = Kinds::default();
+        assert!(!kinds.lists_other());
+        for ending in ["mp3", "pdf", "docx", "zip", "flac", "txt"] {
+            assert_eq!(kinds.looked_for(ending), None, "{ending}");
+        }
     }
 
     #[test]
@@ -673,10 +757,18 @@ mod tests {
     }
 
     #[test]
-    fn a_list_for_one_kind_only_looks_for_that_kind() {
-        let photos = Kinds::default().only(MediaKind::Photo);
+    fn a_list_for_what_a_backup_wants_looks_for_only_that() {
+        let photos = Kinds::default().wanted_by(Wants::only(MediaKind::Photo));
         assert_eq!(photos.looked_for("jpg"), Some(MediaKind::Photo));
         assert_eq!(photos.looked_for("mov"), None);
+        let mut mine = FileKinds::default();
+        mine.add("flac", MediaKind::Other).unwrap();
+        let no_others = mine.lookup().wanted_by(Wants {
+            others: false,
+            ..Wants::default()
+        });
+        assert_eq!(no_others.looked_for("flac"), None);
+        assert_eq!(no_others.looked_for("mov"), Some(MediaKind::Video));
     }
 
     #[test]

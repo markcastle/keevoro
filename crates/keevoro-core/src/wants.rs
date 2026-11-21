@@ -12,8 +12,9 @@
 //! 3. The kinds of file Keevoro looks for at all, for the whole of
 //!    Keevoro. A kind switched off there is not found, so a file of it is
 //!    only ever seen when looking inside a folder.
-//! 4. Photos or videos: the source's own choice when it has one, otherwise
-//!    the backup's. A source can differ from its backup either way.
+//! 4. What it is for (photos, videos, other files): the source's own
+//!    choice when it has one, otherwise the backup's. A source can differ
+//!    from its backup either way.
 //! 5. Each ending on a source, included or left out (`.png`, say): the
 //!    fine control.
 //!
@@ -28,49 +29,138 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-/// What a backup or a source wants.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Wants {
-    /// Photos and videos.
-    #[default]
-    Both,
-    Photos,
-    Videos,
+/// What a backup or a source is for: any of photos, videos and other
+/// files, at least one. Everything Keevoro looks for unless the person
+/// chooses: so a backup for "photos and videos" takes other files too as
+/// soon as a person adds a kind of other file, and nothing changes for
+/// anyone who never does.
+///
+/// Written as the list of what it is for: `["photos", "videos"]`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Wants {
+    pub photos: bool,
+    pub videos: bool,
+    pub others: bool,
 }
 
+impl Default for Wants {
+    fn default() -> Self {
+        Self {
+            photos: true,
+            videos: true,
+            others: true,
+        }
+    }
+}
+
+/// The words a [`Wants`] is written in, in order.
+const WORDS: [(&str, MediaKind); 3] = [
+    ("photos", MediaKind::Photo),
+    ("videos", MediaKind::Video),
+    ("others", MediaKind::Other),
+];
+
 impl Wants {
+    /// For one kind only.
+    pub fn only(kind: MediaKind) -> Self {
+        Self {
+            photos: kind == MediaKind::Photo,
+            videos: kind == MediaKind::Video,
+            others: kind == MediaKind::Other,
+        }
+    }
+
     /// Does it want a file of this kind?
     pub fn takes(self, kind: MediaKind) -> bool {
-        match self {
-            Wants::Both => true,
-            Wants::Photos => kind == MediaKind::Photo,
-            Wants::Videos => kind == MediaKind::Video,
+        match kind {
+            MediaKind::Photo => self.photos,
+            MediaKind::Video => self.videos,
+            MediaKind::Other => self.others,
         }
     }
 
-    /// In a few words: "photos and videos", "photos only", "videos only".
-    pub fn words(self) -> &'static str {
-        match self {
-            Wants::Both => "photos and videos",
-            Wants::Photos => "photos only",
-            Wants::Videos => "videos only",
-        }
+    /// True when it is for nothing at all, which is never allowed.
+    pub fn is_nothing(self) -> bool {
+        !(self.photos || self.videos || self.others)
     }
 
-    /// The one kind it wants, if only one.
-    pub fn only(self) -> Option<MediaKind> {
-        match self {
-            Wants::Both => None,
-            Wants::Photos => Some(MediaKind::Photo),
-            Wants::Videos => Some(MediaKind::Video),
+    /// True when it takes everything a person can see a choice of: other
+    /// files only count when some kind of other file is on the list.
+    pub fn is_everything(self, others_listed: bool) -> bool {
+        self.photos && self.videos && (self.others || !others_listed)
+    }
+
+    /// Its words: `photos`, `videos`, `others`.
+    pub fn tokens(self) -> Vec<&'static str> {
+        WORDS
+            .iter()
+            .filter(|(_, kind)| self.takes(*kind))
+            .map(|(word, _)| *word)
+            .collect()
+    }
+
+    /// Read from its words, in any order and any case. `None` for a word
+    /// that is not one of them, or for none at all.
+    pub fn from_tokens<'a>(words: impl IntoIterator<Item = &'a str>) -> Option<Self> {
+        let mut wants = Self {
+            photos: false,
+            videos: false,
+            others: false,
+        };
+        for word in words {
+            match word.trim().to_lowercase().as_str() {
+                "photos" | "photo" => wants.photos = true,
+                "videos" | "video" => wants.videos = true,
+                "others" | "other" => wants.others = true,
+                _ => return None,
+            }
         }
+        (!wants.is_nothing()).then_some(wants)
+    }
+
+    /// In a few words: "photos and videos", "photos only", "videos only",
+    /// "photos and other files only", "photos, videos and other files".
+    /// Other files are only spoken of when some kind of other file is on
+    /// the list (`others_listed`), so a person who never adds one hears
+    /// exactly what they always did.
+    pub fn words(self, others_listed: bool) -> String {
+        let named: Vec<&str> = [
+            (self.photos, "photos"),
+            (self.videos, "videos"),
+            (self.others && others_listed, "other files"),
+        ]
+        .into_iter()
+        .filter_map(|(on, word)| on.then_some(word))
+        .collect();
+        let joined = match named.as_slice() {
+            [] => "other files".to_string(),
+            [one] => (*one).to_string(),
+            [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+        };
+        if self.is_everything(others_listed) {
+            joined
+        } else {
+            format!("{joined} only")
+        }
+    }
+}
+
+impl Serialize for Wants {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.tokens().serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Wants {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let words = Vec::<String>::deserialize(deserializer)?;
+        Wants::from_tokens(words.iter().map(String::as_str))
+            .ok_or_else(|| serde::de::Error::custom("say what it is for: one or more of photos, videos and others"))
     }
 }
 
 /// The choice that left a file out.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LeftOutBy {
     /// It is in a folder Keevoro made.
     MadeByKeevoro,
@@ -78,27 +168,45 @@ pub enum LeftOutBy {
     Folder,
     /// Keevoro does not look for this kind of file at all.
     Kinds,
-    /// The backup wants only the other kind.
-    Backup,
-    /// This source wants only the other kind.
-    Source,
+    /// The backup is not for this kind: what it is for.
+    Backup(Wants),
+    /// This source is not for this kind: what it is for.
+    Source(Wants),
     /// Files with this ending are left out of this source.
     Ending,
 }
 
 impl LeftOutBy {
-    /// Why, in words for a person, for a file of `kind`.
-    pub fn why(self, kind: MediaKind) -> &'static str {
-        match (self, kind) {
-            (LeftOutBy::MadeByKeevoro, _) => "Keevoro made this folder, so it is not a source",
-            (LeftOutBy::Folder, _) => "you left this folder out of this backup",
-            (LeftOutBy::Kinds, _) => "Keevoro doesn\u{2019}t look for this kind of file (Settings, Advanced)",
-            (LeftOutBy::Backup, MediaKind::Photo) => "this backup is for videos only",
-            (LeftOutBy::Backup, MediaKind::Video) => "this backup is for photos only",
-            (LeftOutBy::Source, MediaKind::Photo) => "this source is set to videos only",
-            (LeftOutBy::Source, MediaKind::Video) => "this source is set to photos only",
-            (LeftOutBy::Ending, _) => "files with this ending are left out of this source",
+    /// Why, in words for a person. Other files are only spoken of when
+    /// some kind of other file is on the list (`others_listed`).
+    pub fn why(self, others_listed: bool) -> String {
+        match self {
+            LeftOutBy::MadeByKeevoro => "Keevoro made this folder, so it is not a source".into(),
+            LeftOutBy::Folder => "you left this folder out of this backup".into(),
+            LeftOutBy::Kinds => "Keevoro doesn\u{2019}t look for this kind of file (Settings, Advanced)".into(),
+            LeftOutBy::Backup(wants) => format!("this backup is for {}", wants.words(others_listed)),
+            LeftOutBy::Source(wants) => format!("this source is set to {}", wants.words(others_listed)),
+            LeftOutBy::Ending => "files with this ending are left out of this source".into(),
         }
+    }
+
+    /// Its name for a program: `madeByKeevoro`, `folder`, `kinds`,
+    /// `backup`, `source` or `ending`.
+    pub fn name(self) -> &'static str {
+        match self {
+            LeftOutBy::MadeByKeevoro => "madeByKeevoro",
+            LeftOutBy::Folder => "folder",
+            LeftOutBy::Kinds => "kinds",
+            LeftOutBy::Backup(_) => "backup",
+            LeftOutBy::Source(_) => "source",
+            LeftOutBy::Ending => "ending",
+        }
+    }
+}
+
+impl Serialize for LeftOutBy {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.name())
     }
 }
 
@@ -107,7 +215,7 @@ impl LeftOutBy {
 pub struct SourceChoices {
     /// Where it is, as the computer gives its full path.
     pub root: PathBuf,
-    /// Its own choice of photos or videos; `None` to follow the backup.
+    /// Its own choice of what it is for; `None` to follow the backup.
     pub wants: Option<Wants>,
     /// Endings left out, lower case without the dot.
     pub endings_left_out: BTreeSet<String>,
@@ -178,8 +286,8 @@ impl Choices {
             return Err(LeftOutBy::Kinds);
         }
         match source.and_then(|s| s.wants) {
-            Some(own) if !own.takes(file.kind) => return Err(LeftOutBy::Source),
-            None if !self.backup.takes(file.kind) => return Err(LeftOutBy::Backup),
+            Some(own) if !own.takes(file.kind) => return Err(LeftOutBy::Source(own)),
+            None if !self.backup.takes(file.kind) => return Err(LeftOutBy::Backup(self.backup)),
             _ => {}
         }
         let ending = file
@@ -197,7 +305,7 @@ impl Choices {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use MediaKind::{Photo, Video};
+    use MediaKind::{Other, Photo, Video};
 
     fn found(path: &str, kind: MediaKind) -> FileFacts<'_> {
         FileFacts {
@@ -226,29 +334,41 @@ mod tests {
     #[test]
     fn a_backup_for_photos_only_leaves_videos_out_and_says_so() {
         let choices = Choices {
-            backup: Wants::Photos,
+            backup: Wants::only(Photo),
             sources: vec![card(None, &[])],
             ..Choices::default()
         };
         assert_eq!(choices.offered(&found("/card/a.jpg", Photo)), Ok(()));
-        assert_eq!(choices.offered(&found("/card/a.mp4", Video)), Err(LeftOutBy::Backup));
-        assert_eq!(LeftOutBy::Backup.why(Video), "this backup is for photos only");
+        assert_eq!(
+            choices.offered(&found("/card/a.mp4", Video)),
+            Err(LeftOutBy::Backup(Wants::only(Photo)))
+        );
+        assert_eq!(
+            LeftOutBy::Backup(Wants::only(Photo)).why(false),
+            "this backup is for photos only"
+        );
     }
 
     #[test]
     fn a_source_can_differ_from_its_backup_either_way() {
         let more = Choices {
-            backup: Wants::Photos,
-            sources: vec![card(Some(Wants::Both), &[])],
+            backup: Wants::only(Photo),
+            sources: vec![card(Some(Wants::default()), &[])],
             ..Choices::default()
         };
         assert_eq!(more.offered(&found("/card/a.mp4", Video)), Ok(()));
         let fewer = Choices {
-            sources: vec![card(Some(Wants::Videos), &[])],
+            sources: vec![card(Some(Wants::only(Video)), &[])],
             ..Choices::default()
         };
-        assert_eq!(fewer.offered(&found("/card/a.jpg", Photo)), Err(LeftOutBy::Source));
-        assert_eq!(LeftOutBy::Source.why(Photo), "this source is set to videos only");
+        assert_eq!(
+            fewer.offered(&found("/card/a.jpg", Photo)),
+            Err(LeftOutBy::Source(Wants::only(Video)))
+        );
+        assert_eq!(
+            LeftOutBy::Source(Wants::only(Video)).why(false),
+            "this source is set to videos only"
+        );
         // Outside the source, its choice does not apply.
         assert_eq!(fewer.offered(&found("/elsewhere/a.jpg", Photo)), Ok(()));
     }
@@ -256,20 +376,23 @@ mod tests {
     #[test]
     fn the_ending_is_the_fine_control_asked_last() {
         let choices = Choices {
-            backup: Wants::Photos,
+            backup: Wants::only(Photo),
             sources: vec![card(None, &["png", "mp4"])],
             ..Choices::default()
         };
         assert_eq!(choices.offered(&found("/card/a.PNG", Photo)), Err(LeftOutBy::Ending));
         assert_eq!(choices.offered(&found("/card/a.jpg", Photo)), Ok(()));
         // Left out by the backup's choice and its ending: the broader is said.
-        assert_eq!(choices.offered(&found("/card/a.mp4", Video)), Err(LeftOutBy::Backup));
+        assert_eq!(
+            choices.offered(&found("/card/a.mp4", Video)),
+            Err(LeftOutBy::Backup(Wants::only(Photo)))
+        );
     }
 
     #[test]
     fn a_folder_left_out_takes_everything_beneath_it_and_nothing_beside_it() {
         let choices = Choices {
-            backup: Wants::Photos,
+            backup: Wants::only(Photo),
             sources: vec![card(None, &["png"])],
             left_out_folders: vec![PathBuf::from("/card/Games")],
         };
@@ -290,13 +413,13 @@ mod tests {
             choices.left_out_folder(Path::new("/card/Games/x")),
             Some(Path::new("/card/Games"))
         );
-        assert_eq!(LeftOutBy::Folder.why(Photo), "you left this folder out of this backup");
+        assert_eq!(LeftOutBy::Folder.why(false), "you left this folder out of this backup");
     }
 
     #[test]
     fn each_choice_is_said_in_order_broadest_first() {
         let choices = Choices {
-            backup: Wants::Videos,
+            backup: Wants::only(Video),
             sources: vec![card(None, &["jpg"])],
             left_out_folders: vec![PathBuf::from("/card/Out")],
         };
@@ -317,32 +440,112 @@ mod tests {
         file.made_by_keevoro = false;
         assert_eq!(choices.offered(&file), Err(LeftOutBy::Kinds));
         file.looked_for = true;
-        assert_eq!(choices.offered(&file), Err(LeftOutBy::Backup));
-        assert!(LeftOutBy::Kinds.why(Photo).contains("Settings, Advanced"));
+        assert_eq!(choices.offered(&file), Err(LeftOutBy::Backup(Wants::only(Video))));
+        assert!(LeftOutBy::Kinds.why(false).contains("Settings, Advanced"));
     }
 
     #[test]
     fn the_deepest_source_holding_a_file_is_its_source() {
         let choices = Choices {
             sources: vec![
-                card(Some(Wants::Photos), &[]),
+                card(Some(Wants::only(Photo)), &[]),
                 SourceChoices {
                     root: PathBuf::from("/card/Videos"),
-                    wants: Some(Wants::Videos),
+                    wants: Some(Wants::only(Video)),
                     endings_left_out: BTreeSet::new(),
                 },
             ],
             ..Choices::default()
         };
         assert_eq!(choices.offered(&found("/card/Videos/a.mp4", Video)), Ok(()));
-        assert_eq!(choices.offered(&found("/card/a.mp4", Video)), Err(LeftOutBy::Source));
+        assert_eq!(
+            choices.offered(&found("/card/a.mp4", Video)),
+            Err(LeftOutBy::Source(Wants::only(Photo)))
+        );
     }
 
     #[test]
     fn choices_are_written_as_plain_words() {
-        assert_eq!(serde_json::to_string(&Wants::Photos).unwrap(), "\"photos\"");
-        assert_eq!(Wants::Videos.words(), "videos only");
-        assert_eq!(Wants::Photos.only(), Some(Photo));
-        assert_eq!(Wants::Both.only(), None);
+        assert_eq!(serde_json::to_string(&Wants::only(Photo)).unwrap(), r#"["photos"]"#);
+        assert_eq!(
+            serde_json::to_string(&Wants::default()).unwrap(),
+            r#"["photos","videos","others"]"#
+        );
+        let read: Wants = serde_json::from_str(r#"["Videos","others"]"#).unwrap();
+        assert_eq!(
+            read,
+            Wants {
+                photos: false,
+                ..Wants::default()
+            }
+        );
+        assert!(serde_json::from_str::<Wants>("[]").is_err(), "at least one");
+        assert!(serde_json::from_str::<Wants>(r#"["music"]"#).is_err());
+        assert!(serde_json::from_str::<Wants>(r#""both""#).is_err());
+        assert_eq!(
+            serde_json::to_string(&LeftOutBy::Backup(Wants::default())).unwrap(),
+            r#""backup""#
+        );
+    }
+
+    #[test]
+    fn with_no_kind_of_other_file_listed_the_words_are_what_they_always_were() {
+        let photos_only = Wants {
+            videos: false,
+            ..Wants::default()
+        };
+        let videos_only = Wants {
+            photos: false,
+            ..Wants::default()
+        };
+        for (wants, said) in [
+            (Wants::default(), "photos and videos"),
+            (photos_only, "photos only"),
+            (videos_only, "videos only"),
+            (Wants::only(Photo), "photos only"),
+        ] {
+            assert_eq!(wants.words(false), said);
+        }
+        assert!(Wants::default().is_everything(false));
+        assert!(Wants {
+            others: false,
+            ..Wants::default()
+        }
+        .is_everything(false));
+    }
+
+    #[test]
+    fn with_other_files_listed_they_are_named_too() {
+        for (wants, said) in [
+            (Wants::default(), "photos, videos and other files"),
+            (
+                Wants {
+                    others: false,
+                    ..Wants::default()
+                },
+                "photos and videos only",
+            ),
+            (
+                Wants {
+                    videos: false,
+                    ..Wants::default()
+                },
+                "photos and other files only",
+            ),
+            (Wants::only(Other), "other files only"),
+            (Wants::only(Video), "videos only"),
+        ] {
+            assert_eq!(wants.words(true), said);
+        }
+        assert_eq!(
+            LeftOutBy::Backup(Wants::only(Photo)).why(true),
+            "this backup is for photos only"
+        );
+        let mine = Choices {
+            backup: Wants::only(Other),
+            ..Choices::default()
+        };
+        assert_eq!(mine.offered(&found("/a/song.flac", Other)), Ok(()));
+        assert!(mine.offered(&found("/a/b.jpg", Photo)).is_err());
     }
 }

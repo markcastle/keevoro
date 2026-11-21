@@ -15,6 +15,8 @@ import { PictureQueue, fileKey, photoKey } from './pictureQueue'
 export type Photo = {
   id: string
   isVideo: boolean
+  /** An other file carried along: shown by its name and kind, never as a picture. */
+  isOther?: boolean
   name: string
   sourcePath: string
   thumbnail: string | null
@@ -27,6 +29,12 @@ export type Collection = {
   parents: string[]
   photos: number
   videos: number
+  /** Other files in it; only a folder of other files has any. */
+  others?: number
+  /** A folder of other files, listed under "Other files" by the folder it came from. */
+  byFolder?: boolean
+  /** For a folder of other files, the room its files take. */
+  bytes?: number
   kept: boolean
   gathered: number
   cover: Photo
@@ -34,7 +42,14 @@ export type Collection = {
 }
 
 /** One file inside a collection, or one picture set aside as junk. */
-export type PhotoChoice = Photo & { taken: string | null; kept: boolean; junkReason: string | null }
+export type PhotoChoice = Photo & {
+  taken: string | null
+  kept: boolean
+  junkReason: string | null
+  /** For an other file: the day it last changed, and its size. */
+  changed?: string
+  bytes?: number
+}
 
 /**
  * A file found more than once. The photo itself is the copy being kept;
@@ -53,6 +68,8 @@ export type Hint = {
   folder: string
   photos: number
   videos: number
+  /** Other files a person put on the kinds list. */
+  others?: number
   bytes: number
   /** False when the pictures are so small they are probably icons, not photos. */
   likelyPhotos: boolean
@@ -90,6 +107,8 @@ export type SurveyProgress = {
   files: number
   photos: number
   videos: number
+  /** Other files a person put on the kinds list, seen so far. */
+  others?: number
   sizing?: boolean
   /** The top of the map as it grows: at most twice a second, the biggest first. */
   top?: TopBox[]
@@ -107,6 +126,9 @@ export type TopBox = {
   photoBytes: number
   videoBytes: number
   otherBytes: number
+  /** Other files a person put on the kinds list, to be carried along. */
+  carried?: number
+  carriedBytes?: number
   /** For the smaller folders together, how many. */
   folders?: number
 }
@@ -137,14 +159,19 @@ export type FileType = {
   why?: string
 }
 
-/** Photos and videos, photos only, or videos only. */
-export type Wants = 'both' | 'photos' | 'videos'
+/** One thing a backup or a source can be for. */
+export type WantsWord = 'photos' | 'videos' | 'others'
 
-/** What a backup or a source wants, and what that means, in words. */
+/** What a backup or a source is for: one or more of photos, videos and other files. */
+export type Wants = WantsWord[]
+
+/** What a backup or a source is for, and what that means, in words. */
 export type WantsView = {
   wants: Wants
   /** For a source: true when it has its own choice rather than the backup's. */
   own?: boolean
+  /** True once a kind of other file is on the list, so "Other files" is a choice. */
+  offersOthers?: boolean
   said: string
 }
 
@@ -169,6 +196,8 @@ export type Source = {
 export type Discover = {
   photos: number
   videos: number
+  /** Other files a person asked Keevoro to carry along. */
+  others?: number
   bytes: number
   duplicates: number
   /** The room those extra copies would have taken: what leaving them out saves. */
@@ -218,6 +247,8 @@ export type ScanEvent = {
   name: string
   photos: number
   videos: number
+  /** Other files a person put on the kinds list. */
+  others?: number
   /** Every file looked at so far, photos or not. */
   files?: number
   /** The folder being looked in right now. */
@@ -448,7 +479,8 @@ export type AgentAccess = { lookIn: string[]; backUpTo: string[]; mayChange: boo
  */
 export type FileKind = {
   ending: string
-  kind: 'photo' | 'video'
+  /** A photo, a video, or an other file carried along (backed up exactly, never shown or grouped by date). */
+  kind: ListedAs
   /** Looked for. One switched off is passed over. */
   on: boolean
   /** Comes with Keevoro: it can be switched off, not removed or renamed. */
@@ -456,7 +488,10 @@ export type FileKind = {
 }
 
 /** A change to one kind of file. Anything left out stays as it is. */
-export type FileKindChange = { kind?: 'photo' | 'video'; on?: boolean; to?: string }
+export type FileKindChange = { kind?: ListedAs; on?: boolean; to?: string }
+
+/** What files with an ending are listed as. */
+export type ListedAs = 'photo' | 'video' | 'other'
 
 /**
  * What clearing Keevoro's unfinished copies from a folder did or, asked
@@ -482,6 +517,8 @@ export type FolderView = {
   relative: string
   photos: number
   videos: number
+  /** Other files a person put on the kinds list. */
+  others?: number
   bytes: number
   /** Of them, how many are only in online storage (OneDrive), never opened. */
   onlineOnly: number
@@ -499,6 +536,7 @@ export type FoldersView = {
   folders: FolderView[]
   photos: number
   videos: number
+  others?: number
   bytes: number
   onlineOnly: number
   /** The folder left out of this backup that the place is in, or is, if any. */
@@ -510,6 +548,8 @@ export type FileView = {
   path: string
   name: string
   isVideo: boolean
+  /** An other file: a row with its name and kind, never a picture. */
+  isOther?: boolean
   bytes: number
   /** When it was last changed (not taken), in seconds since 1970. */
   modified: number
@@ -524,7 +564,7 @@ export type FileView = {
 /** The order a folder's files are given in: by name, or by the file's date (not the date taken). */
 export type FilesSort = 'name' | 'newest' | 'oldest'
 /** Which of a folder's files are given. */
-export type FilesShow = 'all' | 'photos' | 'videos'
+export type FilesShow = 'all' | 'photos' | 'videos' | 'others'
 
 /** Asks for one page of a folder's photos and videos. */
 export type FilesRequest = { place: string; from: number; count: number; sort: FilesSort; only: FilesShow }
@@ -536,6 +576,7 @@ export type FilesView = {
   total: number
   photos: number
   videos: number
+  others?: number
   onlineOnly: number
   files: FileView[]
 }
@@ -552,6 +593,9 @@ export type MapRequest = {
   smallest?: number
 }
 
+/** What a box on the map holds most of, or an ending is: `carried` for other files a person put on the list, `other` for everything else. */
+export type MapKind = 'photo' | 'video' | 'other' | 'carried'
+
 /** One box on the map: a folder, one of the biggest files, or several together. */
 export type MapNode = {
   /** A folder's or file's name; for several together "Photos", "Videos", "Other files" or "Smaller folders". */
@@ -559,8 +603,8 @@ export type MapNode = {
   /** A folder, written whole. */
   path?: string
   node: 'folder' | 'file' | 'files' | 'smaller'
-  /** For a file, or files together, which kind. */
-  kind?: 'photo' | 'video' | 'other'
+  /** For a file, or files together, which kind: `other` is everything Keevoro does not look for, `carried` other files a person put on the list. */
+  kind?: MapKind
   bytes: number
   photos: number
   videos: number
@@ -568,6 +612,9 @@ export type MapNode = {
   photoBytes: number
   videoBytes: number
   otherBytes: number
+  /** Other files a person put on the kinds list, to be carried along. */
+  carried?: number
+  carriedBytes?: number
   /** Of its bytes, those only in online storage, never opened. */
   onlineOnlyBytes?: number
   /** Folders inside it; for smaller folders together, how many. */
@@ -610,7 +657,7 @@ export type TrailStep = { name: string; folder: string }
 export type KindView = {
   /** Lower case without the dot; empty for no ending, "…" for rarer ones. */
   ending: string
-  kind: 'photo' | 'video' | 'other'
+  kind: MapKind
   files: number
   bytes: number
   /** Why files with it here would not be backed up, when they would not. */
@@ -673,7 +720,7 @@ export interface Backend {
   agentAccess(): Promise<AgentAccess>
   /** Changes what an AI agent may do. Each part given replaces what was there. */
   setAgentAccess(change: Partial<AgentAccess>): Promise<AgentAccess>
-  /** Whether this backup is for photos and videos, photos only, or videos only. */
+  /** What this backup is for: photos, videos and, once a kind of them is listed, other files. */
   backupWants(): Promise<WantsView>
   setBackupWants(wants: Wants): Promise<WantsView>
   /** Whether one source follows its backup's choice ('backup') or has its own. */
@@ -681,9 +728,9 @@ export interface Backend {
   setSourceWants(id: number, wants: Wants | 'backup'): Promise<WantsView>
   /** The kinds of file Keevoro looks for, the built-in ones first. */
   fileKinds(): Promise<FileKind[]>
-  /** Adds an ending to look for, as photos or videos. */
-  addFileKind(ending: string, kind: 'photo' | 'video'): Promise<FileKind>
-  /** Changes one kind: photo or video, on or off, or a new ending for one you added. */
+  /** Adds an ending to look for, as photos, videos or other files. */
+  addFileKind(ending: string, kind: ListedAs): Promise<FileKind>
+  /** Changes one kind: photo, video or other file, on or off, or a new ending for one you added. */
   changeFileKind(ending: string, change: FileKindChange): Promise<FileKind>
   /** Takes an ending you added off the list. */
   removeFileKind(ending: string): Promise<FileKind>

@@ -36,8 +36,10 @@ fn each(v: &Value) -> impl Iterator<Item = &Value> {
     v.as_array().into_iter().flatten()
 }
 
-fn photos_and_videos(photos: usize, videos: usize) -> String {
-    format!("{} and {}", count(photos, "photo"), count(videos, "video"))
+/// "30 photos and 2 videos", with any other files carried along after:
+/// what was found in `v`, said the one way (`keevoro_api::words`).
+fn found_in(v: &Value) -> String {
+    keevoro_api::words::photos_and_videos(n(v, "photos"), n(v, "videos"), n(v, "others"))
 }
 
 /// For answers that a job says as it goes, so nothing more is needed.
@@ -71,7 +73,7 @@ pub fn backups(io: &mut Io<'_>, _: &ArgMatches, list: &Value) -> Said_ {
                     "  {} · {} · {} · {waiting}",
                     count(n(found, "sources"), "source"),
                     count(n(found, "destinations"), "destination"),
-                    photos_and_videos(n(found, "photos"), n(found, "videos")),
+                    found_in(found),
                 )?;
             }
         }
@@ -201,12 +203,7 @@ pub fn file_types(io: &mut Io<'_>, m: &ArgMatches, answer: &Value) -> Said_ {
 }
 
 pub fn found(io: &mut Io<'_>, _: &ArgMatches, found: &Value) -> Said_ {
-    writeln!(
-        io.out,
-        "Found {} ({}).",
-        photos_and_videos(n(found, "photos"), n(found, "videos")),
-        bytes(b(found, "bytes"))
-    )?;
+    writeln!(io.out, "Found {} ({}).", found_in(found), bytes(b(found, "bytes")))?;
     if n(found, "duplicates") > 0 {
         writeln!(
             io.out,
@@ -238,9 +235,22 @@ pub fn collections(io: &mut Io<'_>, _: &ArgMatches, list: &Value) -> Said_ {
     if each(list).next().is_none() {
         writeln!(io.out, "Nothing has been found yet.")?;
     }
+    let mut by_folder = false;
     for c in each(list) {
+        if yes(c, "byFolder") && !by_folder {
+            by_folder = true;
+            writeln!(
+                io.out,
+                "Other files, by the folder they came from (keep or leave out a folder as a whole):"
+            )?;
+        }
         let left_out = if yes(c, "kept") { "" } else { "  (left out)" };
-        writeln!(io.out, "{}  {}{left_out}", s(c, "key"), s(c, "summary"))?;
+        let size = if by_folder {
+            format!(" \u{b7} {}", bytes(b(c, "bytes")))
+        } else {
+            String::new()
+        };
+        writeln!(io.out, "{}  {}{size}{left_out}", s(c, "key"), s(c, "summary"))?;
     }
     Ok(Code::Worked)
 }
@@ -252,12 +262,21 @@ fn photo_line(io: &mut Io<'_>, photo: &Value) -> std::io::Result<()> {
         .and_then(Value::as_str)
         .map(|why| format!("  {why}"))
         .unwrap_or_default();
+    // An other file is said by its size and when it last changed, as a
+    // file manager says it; it has no date taken.
+    let when = match photo.get("changed").and_then(Value::as_str) {
+        Some(changed) => format!("{}, changed {changed}", bytes(b(photo, "bytes"))),
+        None => photo
+            .get("taken")
+            .and_then(Value::as_str)
+            .unwrap_or("no date")
+            .to_string(),
+    };
     writeln!(
         io.out,
-        "{}  {}  {}{reason}{left_out}",
+        "{}  {}  {when}{reason}{left_out}",
         s(photo, "id"),
         s(photo, "name"),
-        photo.get("taken").and_then(Value::as_str).unwrap_or("no date")
     )
 }
 
@@ -348,7 +367,7 @@ pub fn folders(io: &mut Io<'_>, _: &ArgMatches, view: &Value) -> Said_ {
     writeln!(
         io.out,
         "{} in {}, in {}:",
-        photos_and_videos(n(view, "photos"), n(view, "videos")),
+        found_in(view),
         s(view, "place"),
         count(each(view.get("folders").unwrap_or(&Value::Null)).count(), "folder")
     )?;
@@ -361,7 +380,7 @@ pub fn folders(io: &mut Io<'_>, _: &ArgMatches, view: &Value) -> Said_ {
             io.out,
             "{:>9}  {}{online}  {}",
             bytes(b(folder, "bytes")),
-            photos_and_videos(n(folder, "photos"), n(folder, "videos")),
+            found_in(folder),
             s(folder, "folder")
         )?;
     }
@@ -558,7 +577,7 @@ pub fn files(io: &mut Io<'_>, _: &ArgMatches, view: &Value) -> Said_ {
     writeln!(
         io.out,
         "{} in {}{}",
-        photos_and_videos(n(view, "photos"), n(view, "videos")),
+        found_in(view),
         s(view, "folder"),
         if list.len() < n(view, "total") {
             format!(", {} of them here:", thousands(list.len()))
@@ -570,6 +589,7 @@ pub fn files(io: &mut Io<'_>, _: &ArgMatches, view: &Value) -> Said_ {
         let what = match file.get("seconds").and_then(Value::as_f64) {
             Some(seconds) => format!("video {:>7}", keevoro_api::words::length(seconds)),
             None if yes(file, "isVideo") => "video        ".to_string(),
+            None if yes(file, "isOther") => "other file   ".to_string(),
             None => "photo        ".to_string(),
         };
         let online = if yes(file, "onlineOnly") {
@@ -974,9 +994,16 @@ pub fn kinds(io: &mut Io<'_>, _: &ArgMatches, list: &Value) -> Said_ {
 
 pub fn kind_changed(io: &mut Io<'_>, _: &ArgMatches, kind: &Value) -> Said_ {
     let ending = s(kind, "ending");
-    let what = if s(kind, "kind") == "video" { "videos" } else { "photos" };
+    let what = match s(kind, "kind") {
+        "video" => "videos",
+        "other" => "other files",
+        _ => "photos",
+    };
     if yes(kind, "on") {
         writeln!(io.out, "Keevoro looks for .{ending} files, as {what}.")?;
+        if s(kind, "kind") == "other" {
+            writeln!(io.out, "{}", keevoro_api::OTHER_FILES_SAID)?;
+        }
     } else {
         writeln!(
             io.out,
@@ -1070,9 +1097,10 @@ pub fn last_word(io: &mut Io<'_>, last: Option<&Said>) -> std::io::Result<()> {
                     io.out,
                     "Looked through {}: found {}.",
                     e.name,
-                    photos_and_videos(
+                    keevoro_api::words::photos_and_videos(
                         usize::try_from(e.photos).unwrap_or(usize::MAX),
-                        usize::try_from(e.videos).unwrap_or(usize::MAX)
+                        usize::try_from(e.videos).unwrap_or(usize::MAX),
+                        usize::try_from(e.others).unwrap_or(usize::MAX),
                     )
                 )?;
             }
@@ -1115,7 +1143,7 @@ pub fn last_word(io: &mut Io<'_>, last: Option<&Said>) -> std::io::Result<()> {
                     io.out,
                     "{:>9}  {}  {}{note}",
                     bytes(hint.bytes),
-                    photos_and_videos(hint.photos, hint.videos),
+                    keevoro_api::words::photos_and_videos(hint.photos, hint.videos, hint.others),
                     hint.folder
                 )?;
                 if let Some(online) = &hint.online_only_said {

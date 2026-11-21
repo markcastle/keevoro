@@ -11,6 +11,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 pub struct Summary {
     pub photos: usize,
     pub videos: usize,
+    /// Other files a person asked Keevoro to carry along.
+    pub others: usize,
     /// Bytes of unique files.
     pub bytes: u64,
     /// `None` when hashing was off, so duplicates are unknown.
@@ -153,6 +155,7 @@ pub fn summarise_with<'a>(reports: &'a [ScanReport], rescued: &HashSet<String>) 
     let summary = Summary {
         photos: unique.iter().filter(|i| i.kind == MediaKind::Photo).count(),
         videos: unique.iter().filter(|i| i.kind == MediaKind::Video).count(),
+        others: unique.iter().filter(|i| i.kind == MediaKind::Other).count(),
         bytes: unique.iter().map(|i| i.bytes).sum(),
         duplicates,
         junk,
@@ -165,26 +168,9 @@ pub fn summarise_with<'a>(reports: &'a [ScanReport], rescued: &HashSet<String>) 
     (summary, unique)
 }
 
-/// "1 photo", "9,870 photos".
-pub fn count(n: usize, word: &str) -> String {
-    if n == 1 {
-        format!("1 {word}")
-    } else {
-        format!("{} {word}s", thousands(n))
-    }
-}
-
-pub fn thousands(n: usize) -> String {
-    let s = n.to_string();
-    let mut out = String::new();
-    for (i, c) in s.chars().enumerate() {
-        if i > 0 && (s.len() - i) % 3 == 0 {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    out
-}
+/// "1 photo", "9,870 photos": [`keevoro_core::words::count`], the one way
+/// counts are said.
+pub use keevoro_core::words::{count, files, thousands};
 
 /// What is said about files here that could be photos or videos but are
 /// only in online storage, not on this computer, so were not opened: how

@@ -46,9 +46,18 @@ pub const PARTS: [Part; 3] = [
     },
 ];
 
+/// What the guide adds when the backup holds other files: where they are.
+/// Said only then, so a backup of photos and videos alone reads exactly as
+/// it always did.
+pub const OTHER_FILES_PART: &str = "Other files you asked Keevoro to carry along, such as music and \
+     documents, are in \"Other files\" inside \"originals\", in the folders they came from, starting \
+     with the name of the folder or drive they were on. They are exact copies too, but Keevoro made \
+     no renditions of them, and the index lists them in albums named after their folders.";
+
 /// The guide as plain text. Lines end the way Windows Notepad expects,
-/// which every other editor also reads.
-pub fn guide() -> String {
+/// which every other editor also reads. `with_other_files` when the backup
+/// holds other files, which the guide then says where to find.
+pub fn guide(with_other_files: bool) -> String {
     let mut text = String::from(
         "What is in this backup\r\n\
          ======================\r\n\r\n\
@@ -64,6 +73,10 @@ pub fn guide() -> String {
         text.push_str(&"-".repeat(part.folder.len()));
         text.push_str("\r\n");
         text.push_str(&wrapped(part.what, 76));
+        if with_other_files && part.folder == keevoro_core::layout::ORIGINALS {
+            text.push_str("\r\n");
+            text.push_str(&wrapped(OTHER_FILES_PART, 76));
+        }
     }
     text.push_str(
         "\r\nGetting your photos back\r\n\
@@ -104,7 +117,7 @@ mod tests {
 
     #[test]
     fn the_guide_explains_every_part_and_what_a_rendition_is() {
-        let guide = guide();
+        let guide = guide(false);
         for part in &PARTS {
             assert!(
                 guide.contains(&format!("\r\n{}\r\n", part.folder)),
@@ -117,8 +130,17 @@ mod tests {
     }
 
     #[test]
+    fn the_guide_says_where_other_files_are_only_when_there_are_some() {
+        assert!(!guide(false).contains("Other files"));
+        let with = guide(true);
+        assert!(with.contains("\"Other files\" inside \"originals\""));
+        assert!(with.lines().all(|l| l.len() <= 80));
+        assert!(!with.replace("\r\n", "").contains('\n'));
+    }
+
+    #[test]
     fn the_guide_reads_in_notepad_and_fits_a_narrow_window() {
-        let guide = guide();
+        let guide = guide(false);
         assert!(
             !guide.replace("\r\n", "").contains('\n'),
             "every line ends the Windows way"

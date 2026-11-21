@@ -56,12 +56,12 @@ pub use destinations::{
     RoomAtAGlance, WaitingAt,
 };
 pub use error::{Error, Kind, Result};
-pub use file_kinds::PhotoOrVideo;
+pub use file_kinds::ListedAs;
 pub use for_agents::{call_for_agent, read_for_agent};
 pub use jobs::{Event, FrontEnd, JobHandle, JobId, JobKind, JobStatus, Listener, Outcome, Said, Which, PROGRESS_EVERY};
 pub use keevoro::{BackupListing, Codecs, Folders, Keevoro, Offer, SettingsView};
 pub use keevoro_core::estimate;
-pub use keevoro_core::{FileKind, KindChange, MediaKind};
+pub use keevoro_core::{FileKind, KindChange, MediaKind, OTHER_FILES_SAID};
 pub use keevoro_engine::connect::SecretStore;
 pub use keevoro_engine::history;
 pub use picture::{Picture, PictureRequest, PictureSize};
@@ -297,9 +297,11 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
         }
         Op::BackupsStart => {
             let r: StartBackupRequest = read(request)?;
+            // What it is for is checked before anything is started.
+            let wants = r.wants.as_deref().map(wants::wants_of).transpose()?;
             let started = keevoro.start_backup(&r.name)?;
-            if let Some(choice) = r.wants {
-                keevoro.set_backup_wants(&Backup::open(&started.home)?, choice.into())?;
+            if let Some(wants) = wants {
+                keevoro.set_backup_wants(&Backup::open(&started.home)?, wants)?;
             }
             answer(started)
         }
@@ -325,7 +327,7 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
         }
         Op::SourcesFileTypes => {
             let r: SourceRequest = read(request)?;
-            answer(open()?.file_types(r.source)?)
+            answer(open()?.file_types(r.source, keevoro.lists_other_files())?)
         }
         Op::SourcesIncludeType => {
             let r: IncludeTypeRequest = read(request)?;
@@ -440,20 +442,20 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
             read::<Nothing>(request)?;
             answer(open()?.last_summary()?)
         }
-        Op::BackupPhotosOrVideos => {
+        Op::BackupWants => {
             let r: wants::BackupWantsRequest = read(request)?;
             let backup = open()?;
             match r.wants {
-                Some(choice) => answer(keevoro.set_backup_wants(&backup, choice.into())?),
-                None => answer(backup.wants()?),
+                Some(words) => answer(keevoro.set_backup_wants(&backup, wants::wants_of(&words)?)?),
+                None => answer(backup.wants(keevoro.lists_other_files())?),
             }
         }
-        Op::SourcesPhotosOrVideos => {
+        Op::SourcesWants => {
             let r: wants::SourceWantsRequest = read(request)?;
             let backup = open()?;
             match r.wants {
-                Some(choice) => answer(keevoro.set_source_wants(&backup, r.source, choice.into())?),
-                None => answer(backup.source_wants(r.source)?),
+                Some(choice) => answer(keevoro.set_source_wants(&backup, r.source, choice.wants()?)?),
+                None => answer(backup.source_wants(r.source, keevoro.lists_other_files())?),
             }
         }
         Op::BackupPreviews => {

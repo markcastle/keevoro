@@ -1,0 +1,135 @@
+// What a backup, or one source, is for: photos, videos and, once a kind of
+// other file is on Keevoro's list, other files. Ordinary tick boxes, at
+// least one always ticked. "Other files" is only offered once there is
+// something it could mean, so a person who never adds a kind of other file
+// sees "Photos" and "Videos" and nothing more.
+//
+// What the choice means is said once it is made, including that nothing
+// already backed up is touched. The words come from the API, so the
+// screens and the command line say the same.
+
+import { useEffect, useState } from 'react'
+import type { Wants, WantsView } from './backend'
+import { shownWords, toggled } from './wantsRule'
+
+/** The tick boxes themselves. */
+function Ticks(props: {
+  legend: string
+  view: WantsView
+  disabled?: boolean
+  choose: (wants: Wants) => void
+}) {
+  const offers = !!props.view.offersOthers
+  return (
+    <fieldset className="wants" disabled={props.disabled}>
+      <legend>{props.legend}</legend>
+      {shownWords(offers).map(([word, label]) => {
+        const on = props.view.wants.includes(word)
+        const next = toggled(props.view.wants, word, !on, offers)
+        return (
+          <label key={word}>
+            <input
+              type="checkbox"
+              checked={on}
+              // The last one ticked stays ticked: a backup is always for something.
+              aria-disabled={next === null}
+              onChange={() => next && props.choose(next)}
+            />
+            {label}
+          </label>
+        )
+      })}
+      {offers && (
+        <p className="quiet small">Other files are backed up exactly, but cannot be shown or grouped by date.</p>
+      )}
+    </fieldset>
+  )
+}
+
+/** What a whole backup is for. */
+export function BackupWants(props: {
+  load: () => Promise<WantsView>
+  choose: (wants: Wants) => Promise<WantsView>
+  onChanged?: () => void
+  onProblem: (error: unknown) => void
+}) {
+  const { load, onProblem } = props
+  const [view, setView] = useState<WantsView | null>(null)
+  const [said, setSaid] = useState<string | null>(null)
+  useEffect(() => {
+    load().then(setView).catch(onProblem)
+    // Asked once, when it is first shown.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  if (!view) return null
+  return (
+    <>
+      <Ticks
+        legend="This backup is for"
+        view={view}
+        choose={(wants) =>
+          props
+            .choose(wants)
+            .then((changed) => {
+              setView(changed)
+              setSaid(changed.said)
+              props.onChanged?.()
+            })
+            .catch(onProblem)
+        }
+      />
+      {said && (
+        <p className="quiet small" role="status">
+          {said} This counts at once, with no need to look again.
+        </p>
+      )}
+    </>
+  )
+}
+
+/** What one source is for: the same as its backup, or a choice of its own. */
+export function SourceWants(props: {
+  name: string
+  load: () => Promise<WantsView>
+  choose: (wants: Wants | 'backup') => Promise<WantsView>
+  onChanged?: () => void
+  onProblem: (error: unknown) => void
+}) {
+  const { load, onProblem } = props
+  const [view, setView] = useState<WantsView | null>(null)
+  const [said, setSaid] = useState<string | null>(null)
+  useEffect(() => {
+    load().then(setView).catch(onProblem)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  if (!view) return null
+  const choose = (wants: Wants | 'backup') =>
+    props
+      .choose(wants)
+      .then((changed) => {
+        setView(changed)
+        setSaid(changed.said)
+        props.onChanged?.()
+      })
+      .catch(onProblem)
+  return (
+    <div className="source-wants">
+      <label className="follow">
+        <input
+          type="checkbox"
+          checked={!view.own}
+          // Ticked again, it follows the backup; unticked, its own choice
+          // starts as what it follows now.
+          onChange={() => choose(view.own ? 'backup' : view.wants)}
+        />
+        From {props.name}, back up the same as the backup
+      </label>
+      {view.own && <Ticks legend={`From ${props.name}, back up`} view={view} choose={choose} />}
+      {said && (
+        <p className="quiet small" role="status">
+          {said} This counts at once, with no need to look again.
+        </p>
+      )}
+    </div>
+  )
+}

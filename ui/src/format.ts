@@ -7,12 +7,19 @@ export function count(n: number, word: string) {
   return `${thousands(n)} ${word}${n === 1 ? '' : 's'}`
 }
 
-/** "12,431 photos and 312 videos", leaving out whichever there are none of. */
-export function photosAndVideos(photos: number, videos: number) {
+/**
+ * "238 photos, 11 videos and 40 other files", leaving out whichever there
+ * are none of, and "0 photos" when there is nothing at all. With no other
+ * files, "12,431 photos and 312 videos" as ever. The same rule as
+ * `keevoro_core::words::files`, and both are tested against one table of
+ * cases, `countWords.json`, so the screens and the engine never disagree.
+ */
+export function files(photos: number, videos: number, others = 0) {
   const parts = []
-  if (photos > 0 || videos === 0) parts.push(count(photos, 'photo'))
+  if (photos > 0 || (videos === 0 && others === 0)) parts.push(count(photos, 'photo'))
   if (videos > 0) parts.push(count(videos, 'video'))
-  return parts.join(' and ')
+  if (others > 0) parts.push(count(others, 'other file'))
+  return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts.join('')
 }
 
 /**

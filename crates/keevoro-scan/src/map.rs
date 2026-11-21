@@ -41,23 +41,32 @@ use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
 use std::path::{Path, PathBuf};
 
-/// The three kinds a map tells apart.
+/// How many kinds a map tells apart.
+pub const KINDS: usize = 4;
+
+/// The kinds a map tells apart: the three a person can ask Keevoro to back
+/// up, and everything else.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Kind {
     Photo,
     Video,
-    /// Everything that is not on Keevoro's list of photos and videos.
+    /// Everything that is not on Keevoro's list of kinds.
     Other,
+    /// Other files a person put on the list, to be carried along.
+    Carried,
 }
 
 impl Kind {
-    pub const ALL: [Kind; 3] = [Kind::Photo, Kind::Video, Kind::Other];
+    pub const ALL: [Kind; KINDS] = [Kind::Photo, Kind::Video, Kind::Other, Kind::Carried];
+    /// What a backup can take: photos, videos and other files carried.
+    pub const LISTED: [Kind; 3] = [Kind::Photo, Kind::Video, Kind::Carried];
 
     /// The kind of a file that is on Keevoro's list as `media`, or is not.
     pub fn of(media: Option<MediaKind>) -> Kind {
         match media {
             Some(MediaKind::Photo) => Kind::Photo,
             Some(MediaKind::Video) => Kind::Video,
+            Some(MediaKind::Other) => Kind::Carried,
             None => Kind::Other,
         }
     }
@@ -66,11 +75,12 @@ impl Kind {
         self as usize
     }
 
-    /// The photo or video it is, if it is one.
+    /// The kind on Keevoro's list it is, if it is one.
     pub fn media(self) -> Option<MediaKind> {
         match self {
             Kind::Photo => Some(MediaKind::Photo),
             Kind::Video => Some(MediaKind::Video),
+            Kind::Carried => Some(MediaKind::Other),
             Kind::Other => None,
         }
     }
@@ -101,8 +111,8 @@ impl KindSum {
     }
 }
 
-/// The three sums of a folder or a box, photos, videos and other, added up.
-pub fn all_of(sums: &[KindSum; 3]) -> KindSum {
+/// The sums of a folder or a box, every kind, added up.
+pub fn all_of(sums: &[KindSum; KINDS]) -> KindSum {
     let mut all = KindSum::default();
     for sum in sums {
         all.add(*sum);
@@ -175,11 +185,11 @@ pub struct Uncounted {
     /// Photos and videos of a kind this survey was not looking for (switched
     /// off, or the other kind for a backup that wants only one): counted
     /// as other files by the suggestions.
-    pub off: [KindSum; 2],
+    pub off: [KindSum; KINDS],
     /// Files the suggestions do not count at all: system files such as
     /// `Thumbs.db`, and anything in a folder Keevoro never looks through that
     /// was counted into this one past the folder bound.
-    pub unseen: [KindSum; 3],
+    pub unseen: [KindSum; KINDS],
 }
 
 /// One folder.
@@ -190,7 +200,7 @@ pub struct FolderNode {
     pub name: Box<str>,
     /// What it holds directly, by [`Kind`], including what was counted into
     /// it from folders past the folder bound.
-    pub direct: [KindSum; 3],
+    pub direct: [KindSum; KINDS],
     /// Of those bytes, how many are only in online storage.
     pub online_only_bytes: u64,
     /// Of the photos and videos looked for, how many are only online.
@@ -217,7 +227,7 @@ impl FolderNode {
         FolderNode {
             parent,
             name: name.into(),
-            direct: [KindSum::default(); 3],
+            direct: [KindSum::default(); KINDS],
             online_only_bytes: 0,
             online_only_media: 0,
             skipped: None,
@@ -304,7 +314,7 @@ pub struct FileSeen<'a> {
 /// then handed to the [`Builder`] in one go.
 #[derive(Debug, Clone, Default)]
 pub struct Listing {
-    sums: [KindSum; 3],
+    sums: [KindSum; KINDS],
     uncounted: Uncounted,
     online_only_bytes: u64,
     online_only_media: u32,
@@ -426,7 +436,7 @@ impl PartialOrd for BySize {
 pub struct TopBox {
     pub name: Box<str>,
     pub item: TopItem,
-    pub kinds: [KindSum; 3],
+    pub kinds: [KindSum; KINDS],
 }
 
 /// What a [`TopBox`] is.
@@ -458,7 +468,7 @@ pub struct Builder {
     /// What each folder in the place surveyed holds so far, everything
     /// inside it counted in, by its place among the place's subfolders;
     /// kept as the walk goes so the map can be shown growing.
-    top: Vec<[KindSum; 3]>,
+    top: Vec<[KindSum; KINDS]>,
 }
 
 impl Builder {
@@ -537,7 +547,7 @@ impl Builder {
             at.children = u32::try_from(found.len()).unwrap_or(0);
         }
         if parent == 0 {
-            self.top = vec![[KindSum::default(); 3]; found.len()];
+            self.top = vec![[KindSum::default(); KINDS]; found.len()];
         }
         Some(first)
     }
@@ -559,7 +569,7 @@ impl Builder {
     }
 
     /// Adds what was found in `node` to the box at the top it is in.
-    fn add_to_top(&mut self, node: u32, sums: &[KindSum; 3], bytes_only: bool) {
+    fn add_to_top(&mut self, node: u32, sums: &[KindSum; KINDS], bytes_only: bool) {
         let Some(at) = self.top_of(node).and_then(|i| self.top.get_mut(i)) else {
             return;
         };
@@ -606,7 +616,7 @@ impl Builder {
             let mut smaller = TopBox {
                 name: "Smaller folders".into(),
                 item: TopItem::Smaller(0),
-                kinds: [KindSum::default(); 3],
+                kinds: [KindSum::default(); KINDS],
             };
             for gone in boxes.split_off(most - 1) {
                 for (kept, more) in smaller.kinds.iter_mut().zip(gone.kinds) {
@@ -692,10 +702,8 @@ impl Builder {
         }
         if uncounted != Uncounted::default() {
             let kept = at.uncounted.get_or_insert_with(Box::default);
-            for i in 0..2 {
+            for i in 0..KINDS {
                 kept.off[i].add(uncounted.off[i]);
-            }
-            for i in 0..3 {
                 kept.unseen[i].add(uncounted.unseen[i]);
             }
         }
@@ -751,10 +759,8 @@ impl Builder {
         }
         at.online_only_bytes += sizes.online_only_bytes;
         if let Some(kept) = at.uncounted.as_deref_mut() {
-            for i in 0..2 {
+            for i in 0..KINDS {
                 kept.off[i].bytes += sizes.uncounted.off[i].bytes;
-            }
-            for i in 0..3 {
                 kept.unseen[i].bytes += sizes.uncounted.unseen[i].bytes;
             }
         }
@@ -819,7 +825,7 @@ impl Builder {
 /// What a folder holds, everything beneath it counted in.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Totals {
-    pub kinds: [KindSum; 3],
+    pub kinds: [KindSum; KINDS],
     pub online_only_bytes: u64,
     /// Folders beneath it, including those counted into others.
     pub folders: u64,
@@ -855,7 +861,7 @@ impl Map {
             }
             let child = totals[i];
             let up = &mut totals[parent];
-            for k in 0..3 {
+            for k in 0..KINDS {
                 up.kinds[k].add(child.kinds[k]);
             }
             up.online_only_bytes += child.online_only_bytes;
@@ -963,15 +969,22 @@ impl Map {
         let n = &self.nodes[node];
         let none = Uncounted::default();
         let u = n.uncounted.as_deref().unwrap_or(&none);
-        let photos = n.direct[0].less(u.off[0]).less(u.unseen[0]);
-        let videos = n.direct[1].less(u.off[1]).less(u.unseen[1]);
-        let others = n.direct[2].files.saturating_sub(u.unseen[2].files) + u.off[0].files + u.off[1].files;
+        let wanted = |kind: Kind| {
+            let i = kind.index();
+            n.direct[i].less(u.off[i]).less(u.unseen[i])
+        };
+        let (photos, videos, carried) = (wanted(Kind::Photo), wanted(Kind::Video), wanted(Kind::Carried));
+        let rest = Kind::Other.index();
+        let others = n.direct[rest].files.saturating_sub(u.unseen[rest].files)
+            + Kind::LISTED.iter().map(|k| u.off[k.index()].files).sum::<u64>();
+        let count = |n: u64| usize::try_from(n).unwrap_or(usize::MAX);
         crate::survey::Tally {
             folder,
-            photos: usize::try_from(photos.files).unwrap_or(usize::MAX),
-            videos: usize::try_from(videos.files).unwrap_or(usize::MAX),
-            bytes: photos.bytes + videos.bytes,
-            others: usize::try_from(others).unwrap_or(usize::MAX),
+            photos: count(photos.files),
+            videos: count(videos.files),
+            carried: count(carried.files),
+            bytes: photos.bytes + videos.bytes + carried.bytes,
+            others: count(others),
             online_only: n.online_only_media as usize,
         }
     }
@@ -989,7 +1002,7 @@ impl Map {
                 !n.passed_by() && n.has(flag::LISTED)
             })
             .map(|i| self.tally(i as usize, self.path_of(i)))
-            .filter(|t| t.photos + t.videos > 0)
+            .filter(|t| t.photos + t.videos + t.carried > 0)
             .collect();
         found.sort_by(|a, b| a.folder.cmp(&b.folder));
         found
@@ -1051,9 +1064,9 @@ impl Map {
             never.insert(*at, passed);
             let mut offer = FolderOffer::default();
             if !passed {
-                let media = node.direct[0].files + node.direct[1].files > 0;
+                let media = Kind::LISTED.iter().any(|k| node.direct[k.index()].files > 0);
                 if media && node.has(flag::ENDINGS_DROPPED) {
-                    for kind in [Kind::Photo, Kind::Video] {
+                    for kind in Kind::LISTED {
                         offer.judge(kind, node.direct[kind.index()].bytes, offered(&path, kind, ""));
                     }
                 } else if media {
@@ -1072,7 +1085,7 @@ impl Map {
                 // counted in from a folder Keevoro passes by: never more than
                 // what is left once those are taken away.
                 if let Some(u) = node.uncounted.as_deref() {
-                    for kind in [Kind::Photo, Kind::Video] {
+                    for kind in Kind::LISTED {
                         let i = kind.index();
                         let most = node.direct[i].bytes.saturating_sub(u.unseen[i].bytes);
                         offer.bytes[i] = offer.bytes[i].min(most);
@@ -1087,7 +1100,7 @@ impl Map {
         // From the bottom up, each folder's own plus everything beneath.
         let mut beneath: HashMap<u32, u64> = HashMap::new();
         for at in order.iter().rev() {
-            let own = by_folder.get(at).map_or(0, |o| o.bytes[0] + o.bytes[1]);
+            let own = by_folder.get(at).map_or(0, |o| o.bytes.iter().sum::<u64>());
             let total = own + beneath.get(at).copied().unwrap_or(0);
             beneath.insert(*at, total);
             if *at != top {
@@ -1103,28 +1116,29 @@ impl Map {
     }
 }
 
-/// What a backup would take of one folder's own photos and videos.
+/// What a backup would take of one folder's own photos, videos and other
+/// files.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FolderOffer<E> {
-    /// Bytes of photos and of videos offered.
-    pub bytes: [u64; 2],
-    /// Why some of its photos, or videos, are not: the choice that left
-    /// out the most.
-    pub why_not: [Option<(E, u64)>; 2],
+    /// Bytes of each kind offered, by [`Kind::index`]; never any of
+    /// everything else.
+    pub bytes: [u64; KINDS],
+    /// Why some of each kind are not: the choice that left out the most.
+    pub why_not: [Option<(E, u64)>; KINDS],
 }
 
 impl<E> Default for FolderOffer<E> {
     fn default() -> Self {
         FolderOffer {
-            bytes: [0; 2],
-            why_not: [None, None],
+            bytes: [0; KINDS],
+            why_not: [None, None, None, None],
         }
     }
 }
 
 impl<E: Copy> FolderOffer<E> {
     fn judge(&mut self, kind: Kind, bytes: u64, said: Result<(), E>) {
-        let i = kind.index().min(1);
+        let i = kind.index();
         match said {
             Ok(()) => self.bytes[i] += bytes,
             Err(why) => {
@@ -1165,7 +1179,7 @@ pub enum Item {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ViewNode {
     pub item: Item,
-    pub kinds: [KindSum; 3],
+    pub kinds: [KindSum; KINDS],
     pub online_only_bytes: u64,
     /// For a folder, the folders beneath it; for merged subfolders, how many.
     pub folders: u64,
@@ -1354,7 +1368,7 @@ fn open(map: &Map, totals: &[Totals], folder: u32, depth: u8, smallest: u64) -> 
     }
     let mut smaller = ViewNode {
         item: Item::Smaller,
-        kinds: [KindSum::default(); 3],
+        kinds: [KindSum::default(); KINDS],
         online_only_bytes: 0,
         folders: 0,
         children: Vec::new(),
@@ -1366,7 +1380,7 @@ fn open(map: &Map, totals: &[Totals], folder: u32, depth: u8, smallest: u64) -> 
         if t.bytes() >= smallest {
             shown.children.push(open(map, totals, child, depth - 1, smallest));
         } else {
-            for k in 0..3 {
+            for k in 0..KINDS {
                 smaller.kinds[k].add(t.kinds[k]);
             }
             smaller.online_only_bytes += t.online_only_bytes;
@@ -1384,7 +1398,7 @@ fn open(map: &Map, totals: &[Totals], folder: u32, depth: u8, smallest: u64) -> 
         }
         let k = file.kind.index();
         rest[k] = rest[k].less(KindSum::one(file.bytes));
-        let mut kinds = [KindSum::default(); 3];
+        let mut kinds = [KindSum::default(); KINDS];
         kinds[k] = KindSum::one(file.bytes);
         shown.children.push(ViewNode {
             item: Item::File(start + i),
@@ -1401,7 +1415,7 @@ fn open(map: &Map, totals: &[Totals], folder: u32, depth: u8, smallest: u64) -> 
         if sum.files == 0 {
             continue;
         }
-        let mut kinds = [KindSum::default(); 3];
+        let mut kinds = [KindSum::default(); KINDS];
         kinds[kind.index()] = sum;
         shown.children.push(ViewNode {
             item: Item::Files(kind),
@@ -1864,7 +1878,7 @@ mod tests {
         );
         let roll = at(&map, "Camera Roll");
         let own = offered.by_folder[&roll];
-        assert_eq!(own.bytes, [7_000_000, 0]);
+        assert_eq!(own.bytes, [7_000_000, 0, 0, 0]);
         assert_eq!(own.why_not[0], Some(("ending", 500)));
         let captures = offered.by_folder[&at(&map, "Captures")];
         assert_eq!(captures.why_not[1], Some(("videos", 92_000_000)));

@@ -923,3 +923,150 @@ fn a_file_is_fingerprinted_on_its_own_exactly_as_a_search_does() {
         }
     }
 }
+
+/// Other files a person asked Keevoro to carry along.
+mod other_files {
+    use super::how_deep::NamedOnline;
+    use super::*;
+    use crate::survey::survey;
+
+    fn with_others(endings: &[&str]) -> keevoro_core::FileKinds {
+        let mut kinds = keevoro_core::FileKinds::default();
+        for ending in endings {
+            kinds.add(ending, MediaKind::Other).unwrap();
+        }
+        kinds
+    }
+
+    #[test]
+    fn an_other_file_is_found_by_its_ending_fingerprinted_whole_and_kept_in_its_folder() {
+        let t = Tree::new();
+        // A JPEG inside, but its ending is on the list as an other file:
+        // the ending decides, and nothing inside is looked at.
+        t.add("Documents/Tax 2019/scan.dat", &plain_jpeg(3));
+        t.add("Documents/Tax 2019/return.pdf", b"%PDF-1.4 a tax return");
+        t.add("Music/song.flac", &[0u8; 1]);
+        t.add("Documents/notes.txt", b"not on the list");
+        t.add("photo.jpg", &plain_jpeg(1));
+
+        let before = t.scan();
+        let kinds: Vec<MediaKind> = before.items.iter().map(|i| i.kind).collect();
+        assert_eq!(
+            kinds,
+            [MediaKind::Photo, MediaKind::Photo],
+            "nothing is carried until a person adds a kind"
+        );
+        let r = scan_with(&t, &with_others(&["pdf", "flac", "dat"]));
+        assert_eq!(r.items.len(), 4, "{:?}", r.items);
+        let root_name = t.root().file_name().unwrap().to_string_lossy().to_string();
+        for (name, folders) in [
+            ("scan.dat", vec!["Documents", "Tax 2019"]),
+            ("return.pdf", vec!["Documents", "Tax 2019"]),
+            ("song.flac", vec!["Music"]),
+        ] {
+            let found = item(&r, name);
+            assert_eq!(found.kind, MediaKind::Other, "{name}");
+            assert_eq!(found.mime, "application/octet-stream", "never sniffed");
+            assert!(found.hashed);
+            assert_eq!(
+                found.blake3.as_deref(),
+                Some(whole_hash(&found.path).unwrap().as_str()),
+                "fingerprinted from every byte"
+            );
+            let mut album = vec![root_name.clone()];
+            album.extend(folders.iter().map(|f| (*f).to_string()));
+            assert_eq!(found.folder.album, album, "{name}: the folders as they are");
+            assert_eq!(found.junk, None, "a one-byte song is never junk");
+            assert_eq!((found.width, found.height), (None, None));
+            assert_eq!(found.date.map(|d| d.source), Some(DateSource::Modified));
+        }
+        assert_eq!(item(&r, "photo.jpg").kind, MediaKind::Photo, "photos as ever");
+    }
+
+    #[test]
+    fn a_big_other_file_is_sampled_by_a_quick_search_like_any_other() {
+        let t = Tree::new();
+        t.add("big.iso", &vec![9u8; 2 * 1024 * 1024]);
+        let opts = ScanOptions {
+            kinds: with_others(&["iso"]).lookup(),
+            quick: true,
+            ..ScanOptions::default()
+        };
+        let r = scan(t.root(), &opts, &mut |_| {});
+        assert!(!item(&r, "big.iso").hashed, "to be read in full before it counts");
+    }
+
+    #[test]
+    fn an_other_file_only_in_online_storage_is_counted_and_never_opened() {
+        let t = Tree::new();
+        let away = t.add("OneDrive/Documents/report (online).pdf", b"words");
+        t.add("OneDrive/Documents/here.pdf", b"words here");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&away, fs::Permissions::from_mode(0o000)).unwrap();
+        }
+        let opts = ScanOptions {
+            kinds: with_others(&["pdf"]).lookup(),
+            online: std::sync::Arc::new(NamedOnline),
+            ..ScanOptions::default()
+        };
+        let r = scan(t.root(), &opts, &mut |_| {});
+        assert_eq!(r.items.len(), 1);
+        assert_eq!(r.online_only, std::slice::from_ref(&away));
+        assert!(r.unreadable.is_empty(), "nothing online was opened: {:?}", r.unreadable);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&away, fs::Permissions::from_mode(0o644)).unwrap();
+        }
+    }
+
+    #[test]
+    fn a_survey_suggests_a_folder_of_other_files_once_they_are_wanted_and_only_then() {
+        let t = Tree::new();
+        for n in 0..40 {
+            t.add(&format!("Documents/letter {n}.pdf"), &[0u8; 100]);
+        }
+        for n in 0..10 {
+            t.add(&format!("Pictures/IMG_{n}.jpg"), &[0u8; 100_000]);
+        }
+        for n in 0..200 {
+            t.add(&format!("Tools/part {n}.dll"), &[0u8; 10]);
+        }
+        let run = |kinds: &Kinds| {
+            survey(
+                t.root(),
+                &SkipRules::default(),
+                kinds,
+                &NamedOnline,
+                crate::map::Limits::default(),
+                None,
+                &mut |_| {},
+            )
+        };
+        let plain = run(&Kinds::default());
+        let folders: Vec<_> = plain.hints.iter().map(|h| h.folder.clone()).collect();
+        assert_eq!(folders, [t.root().join("Pictures")]);
+        assert_eq!(plain.hints[0].others, 0);
+
+        let wanted = run(&with_others(&["pdf"]).lookup());
+        let documents = wanted
+            .hints
+            .iter()
+            .find(|h| h.folder == t.root().join("Documents"))
+            .expect("a folder of documents is suggested");
+        assert_eq!((documents.photos, documents.videos, documents.others), (0, 0, 40));
+        assert_eq!(documents.bytes, 4_000);
+        // The map counts them as a kind of their own, not as everything else.
+        let totals = wanted.map.totals();
+        assert_eq!(totals[0].kinds[crate::map::Kind::Carried.index()].files, 40);
+        assert_eq!(totals[0].kinds[crate::map::Kind::Other.index()].files, 200, "the tools");
+        // Not wanted by a backup of photos only.
+        let photos_only = with_others(&["pdf"])
+            .lookup()
+            .wanted_by(keevoro_core::Wants::only(MediaKind::Photo));
+        let photos = run(&photos_only);
+        assert!(photos.hints.iter().all(|h| h.folder != t.root().join("Documents")));
+    }
+}

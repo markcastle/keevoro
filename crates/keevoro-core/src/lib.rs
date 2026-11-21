@@ -22,13 +22,14 @@ pub mod pause;
 pub mod places;
 pub mod skip;
 pub mod wants;
+pub mod words;
 
-pub use collections::{date_range_label, group_into_collections, Collection, CollectionInput};
+pub use collections::{date_range_label, group_into_collections, Collection, CollectionInput, NOT_IN_A_FOLDER};
 pub use date::{best_date, date_from_filename, date_from_folder, DateGuess, DateSource, FolderDate, PartialDate};
 pub use folders::{folder_hints, FolderHints};
 pub use junk::{junk_hint, JunkInput, JunkReason};
-pub use kinds::{plain_ending, FileKind, FileKinds, KindChange, KindRefusal, Kinds};
-pub use layout::{library_folder, numbered_name, safe_name};
+pub use kinds::{plain_ending, FileKind, FileKinds, KindChange, KindRefusal, Kinds, OTHER_FILES_SAID};
+pub use layout::{library_folder, numbered_name, safe_name, OTHER_FILES};
 pub use libraries::{holds_originals, library_album_segments, photo_library, PhotoLibrary};
 pub use media::{is_raw_extension, kind_from_mime, never_media_extension, MediaKind};
 pub use skip::{folder_made_by_keevoro, made_by_keevoro, SkipReason, SkipRules, BACKUP_GUIDE, RECORD};

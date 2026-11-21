@@ -11,7 +11,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import type { Backend, SurveyProgress } from './backend'
-import { count, photosAndVideos } from './format'
+import { count, files } from './format'
 import { LiveMap } from './liveMap'
 
 export type Surveying = { progress: SurveyProgress | null; stopping: boolean }
@@ -89,7 +89,7 @@ export function SurveyingPanel(props: { name: string; surveying: Surveying; onSt
       <span className="spinner" aria-hidden />
       <h2>Finding what is in {props.name}…</h2>
       <p className="big-count" role="status">
-        {progress ? photosAndVideos(progress.photos, progress.videos) : 'Starting…'}
+        {progress ? files(progress.photos, progress.videos, progress.others ?? 0) : 'Starting…'}
       </p>
       <p className="quiet">
         spotted so far, by name. This only reads the list of what is in each folder. No file is opened, and nothing is

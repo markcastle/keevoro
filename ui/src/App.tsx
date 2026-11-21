@@ -31,8 +31,7 @@ import type {
   Activity,
   AgentAccess,
   FileKind,
-  Wants,
-  WantsView,
+  ListedAs,
   LeftOut,
   LeftOutFolder,
   StageRecord,
@@ -56,7 +55,7 @@ import type {
   Backup,
   Update,
 } from './backend'
-import { about, count, photosAndVideos, size, thousands, wholePlace } from './format'
+import { about, count, files, size, thousands, wholePlace } from './format'
 import { heldShare } from './held'
 import lockupDarkLargeUrl from './assets/keevoro-lockup-reversed-large.png'
 import lockupShadowUrl from './assets/keevoro-lockup-shadow.png'
@@ -72,6 +71,8 @@ import { ForgetMapsSetting } from './forgetMaps'
 import { OpenSourceLicences } from './licences'
 import { LeaveOutButton, LeftOutByYou, LeftOutSaid, leftOutByYou } from './leaveOut'
 import { VirtualTiles } from './tiles'
+import { BackupWants, SourceWants } from './wants'
+import { OtherFilesScreen, OtherFilesSection } from './otherFiles'
 import type { Theme } from './theme'
 
 type Step = 'find' | 'choose' | 'send'
@@ -84,7 +85,9 @@ const STEPS: { id: Step; title: string }[] = [
   { id: 'send', title: 'Back them up somewhere safe' },
 ]
 
-const all = (n: number) => (n === 1 ? '1 photo or video' : `${n.toLocaleString()} photos and videos`)
+/** How many are kept, in words: photos and videos as ever, or files once other files are among them. */
+const all = (n: number, withOthers = false) =>
+  withOthers ? count(n, 'file') : n === 1 ? '1 photo or video' : `${n.toLocaleString()} photos and videos`
 
 export function App() {
   const [api, setApi] = useState<Backend | null>(null)
@@ -411,6 +414,16 @@ export function App() {
           />
         ) : overlay === 'duplicates' ? (
           <DuplicatesScreen api={api} onBack={() => setOverlay(null)} onProblem={report} />
+        ) : overlay !== 'setAside' && overlay?.collection.byFolder ? (
+          <OtherFilesScreen
+            api={api}
+            folder={overlay.collection}
+            onBack={() => {
+              setOverlay(null)
+              void refresh(api)
+            }}
+            onProblem={report}
+          />
         ) : overlay ? (
           <PhotosScreen
             api={api}
@@ -436,7 +449,7 @@ export function App() {
             next={
               anythingFound && !scan ? (
                 <Next
-                  say={`${photosAndVideos(found?.photos ?? 0, found?.videos ?? 0)} found so far.`}
+                  say={`${files(found?.photos ?? 0, found?.videos ?? 0, found?.others ?? 0)} found so far.`}
                   button="See what was found"
                   onClick={() => go('choose')}
                 />
@@ -457,7 +470,11 @@ export function App() {
                   back={() => go('find')}
                   say={
                     <>
-                      Keeping <b>{all(waiting + safe)}</b> in {count(kept.length, 'collection')}.
+                      Keeping <b>{all(waiting + safe, (found?.others ?? 0) > 0)}</b> in{' '}
+                      {kept.some((c) => c.byFolder)
+                        ? `${count(kept.filter((c) => !c.byFolder).length, 'collection')} and ${count(kept.filter((c) => c.byFolder).length, 'folder')} of other files`
+                        : count(kept.length, 'collection')}
+                      .
                     </>
                   }
                   button="Choose where they go"
@@ -856,7 +873,7 @@ function FindScreen(props: {
         <div className="panel searching">
           <Spinner />
           <h2>Looking through {scan.name}…</h2>
-          <p className="big-count">{photosAndVideos(scan.photos, scan.videos)}</p>
+          <p className="big-count">{files(scan.photos, scan.videos, scan.others ?? 0)}</p>
           <p className="quiet">found so far. Nothing on it is being changed. You can leave this running.</p>
           {!scan.saving && (
             <p className="choices stop">
@@ -900,7 +917,7 @@ function FindScreen(props: {
           <Spinner />
           <h2>Finding where the photos are on {survey.name}…</h2>
           <p className="big-count">
-            {survey.progress ? photosAndVideos(survey.progress.photos, survey.progress.videos) : 'Starting…'}
+            {survey.progress ? files(survey.progress.photos, survey.progress.videos, survey.progress.others ?? 0) : 'Starting…'}
           </p>
           <p className="quiet">
             spotted so far, by name. This only reads the list of what is in each folder. No file is opened.
@@ -908,8 +925,8 @@ function FindScreen(props: {
           <LiveMap name={survey.name} top={survey.progress?.top} />
           {survey.progress?.sizing && (
             <p className="quiet">
-              Every folder with photos and videos is found. Now measuring the rest, such as system and app folders, so
-              you can see where the space goes.
+              Every folder with {(survey.progress.others ?? 0) > 0 ? 'photos, videos and other files' : 'photos and videos'} is
+              found. Now measuring the rest, such as system and app folders, so you can see where the space goes.
             </p>
           )}
           <p className="choices stop">
@@ -984,7 +1001,7 @@ function FindScreen(props: {
               ) : (
                 <>
                   <h2>
-                    Found {photosAndVideos(justFound.photos, justFound.videos)} on {justFound.name}
+                    Found {files(justFound.photos, justFound.videos, justFound.others ?? 0)} on {justFound.name}
                   </h2>
                   <p className="quiet">You can add another place below, or carry on.</p>
                   {(justFound.unreadable ?? 0) > 0 && (
@@ -1061,7 +1078,7 @@ function FindScreen(props: {
                   <FolderLink api={api} path={s.root} onProblem={onProblem} />
                 </div>
                 <div className="count">
-                  <b>{all(s.items)}</b>
+                  <b>{all(s.items, (found.others ?? 0) > 0)}</b>
                   <span className="quiet small">{size(s.bytes)}</span>
                 </div>
                 {removing === s.id ? (
@@ -1165,61 +1182,6 @@ function PlaceCard(props: { place: Place; added: boolean; onClick: () => void })
 }
 
 /**
- * Photos and videos, photos only, or videos only, as ordinary radio
- * buttons. What the choice means is said once it is made, including that
- * nothing already backed up is touched.
- */
-function WantsChoice<T extends string>(props: {
-  legend: string
-  load: () => Promise<WantsView>
-  choose: (wants: T) => Promise<WantsView>
-  options: [T, string][]
-  selected: (view: WantsView) => T
-  onChanged?: () => void
-  onProblem: (error: unknown) => void
-}) {
-  const { load, onProblem } = props
-  const [view, setView] = useState<WantsView | null>(null)
-  const [said, setSaid] = useState<string | null>(null)
-  useEffect(() => {
-    load().then(setView).catch(onProblem)
-    // Asked once, when it is first shown.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-  if (!view) return null
-  return (
-    <fieldset className="wants">
-      <legend>{props.legend}</legend>
-      {props.options.map(([value, label]) => (
-        <label key={value}>
-          <input
-            type="radio"
-            name={props.legend}
-            checked={props.selected(view) === value}
-            onChange={() =>
-              props
-                .choose(value)
-                .then((changed) => {
-                  setView(changed)
-                  setSaid(changed.said)
-                  props.onChanged?.()
-                })
-                .catch(onProblem)
-            }
-          />
-          {label}
-        </label>
-      ))}
-      {said && (
-        <p className="quiet small" role="status">
-          {said} This counts at once, with no need to look again.
-        </p>
-      )}
-    </fieldset>
-  )
-}
-
-/**
  * For people who want it: the kinds of file found on one source, each with
  * a switch. It stays folded away, so adding a source is still one click
  * for everyone else.
@@ -1234,17 +1196,10 @@ function FileTypes(props: { api: Backend; source: Source; onChanged: () => void;
   if (!kinds) return null
   return (
     <div className="types explain">
-      <WantsChoice
-        legend={`From ${source.name}, back up`}
+      <SourceWants
+        name={source.name}
         load={() => api.sourceWants(source.id)}
         choose={(wants) => api.setSourceWants(source.id, wants)}
-        options={[
-          ['backup', 'The same as the backup'],
-          ['both', 'Photos and videos'],
-          ['photos', 'Photos only'],
-          ['videos', 'Videos only'],
-        ]}
-        selected={(view) => (view.own ? view.wants : 'backup')}
         onChanged={() => {
           void reload()
           props.onChanged()
@@ -1688,6 +1643,9 @@ function SettingsScreen(props: {
 }) {
   const { api, state, onProblem } = props
   const [log, setLog] = useState<string | null>(null)
+  // Counts each change to the kinds of file, so what the backup is for is
+  // asked again: "Other files" is a choice once a kind of them is listed.
+  const [kindsChanged, setKindsChanged] = useState(0)
   const [checked, setChecked] = useState<'no' | 'checking' | 'current'>('no')
   const [theme, setTheme] = useState<Theme>(savedTheme)
   const [speed, setSpeed] = useState<Acceleration | null>(null)
@@ -1730,16 +1688,10 @@ function SettingsScreen(props: {
         </p>
         <details className="advanced">
           <summary>Advanced</summary>
-          <WantsChoice<Wants>
-            legend="This backup is for"
+          <BackupWants
+            key={kindsChanged}
             load={() => api.backupWants()}
             choose={(wants) => api.setBackupWants(wants)}
-            options={[
-              ['both', 'Photos and videos'],
-              ['photos', 'Photos only'],
-              ['videos', 'Videos only'],
-            ]}
-            selected={(view) => view.wants}
             onChanged={() => props.onLibrary(state)}
             onProblem={onProblem}
           />
@@ -1872,7 +1824,12 @@ function SettingsScreen(props: {
 
       <details className="advanced">
         <summary>Advanced</summary>
-        <FileKindsSetting api={api} onSources={props.onSources} onProblem={onProblem} />
+        <FileKindsSetting
+          api={api}
+          onSources={props.onSources}
+          onChanged={() => setKindsChanged((n) => n + 1)}
+          onProblem={onProblem}
+        />
         <ForgetMapsSetting api={api} onProblem={onProblem} />
         <div className="setting">
           <h3>Unfinished copies</h3>
@@ -2032,15 +1989,22 @@ const dotted = (ending: string) => `.${ending}`
 
 /**
  * The kinds of file Keevoro looks for, for the whole of Keevoro. A built-in
- * kind can be switched off and made a photo or a video; one of your own can
- * also be renamed and removed. A change counts from the next time a source is
+ * kind can be switched off and made a photo, a video or an other file; one
+ * of your own can also be renamed and removed. Any ending can be added as an
+ * other file (music, documents), carried along and backed up exactly, but
+ * never shown or grouped by date. A change counts from the next time a source is
  * looked through, and never takes away anything already found or backed up.
  */
-function FileKindsSetting(props: { api: Backend; onSources: () => void; onProblem: (error: unknown) => void }) {
+function FileKindsSetting(props: {
+  api: Backend
+  onSources: () => void
+  onChanged: () => void
+  onProblem: (error: unknown) => void
+}) {
   const { api, onProblem } = props
   const [kinds, setKinds] = useState<FileKind[] | null>(null)
   // Which line is being edited ('' for a new one), with what is typed.
-  const [editing, setEditing] = useState<{ was: string; ending: string; kind: 'photo' | 'video' } | null>(null)
+  const [editing, setEditing] = useState<{ was: string; ending: string; kind: ListedAs } | null>(null)
   const [refusal, setRefusal] = useState<string | null>(null)
   const [removing, setRemoving] = useState<string | null>(null)
   const [changed, setChanged] = useState(false)
@@ -2051,17 +2015,18 @@ function FileKindsSetting(props: { api: Backend; onSources: () => void; onProble
 
   const done = () => {
     setChanged(true)
+    props.onChanged()
     setEditing(null)
     setRefusal(null)
     setRemoving(null)
     return load()
   }
-  const save = () => {
-    if (!editing) return
+  const save = (kind = editing?.kind) => {
+    if (!editing || !kind) return
     const asked =
       editing.was === ''
-        ? api.addFileKind(editing.ending, editing.kind)
-        : api.changeFileKind(editing.was, { kind: editing.kind, to: editing.ending })
+        ? api.addFileKind(editing.ending, kind)
+        : api.changeFileKind(editing.was, { kind, to: editing.ending })
     asked.then(done).catch((e) => setRefusal(sentence(e)))
   }
   const switchOn = (kind: FileKind) =>
@@ -2095,12 +2060,22 @@ function FileKindsSetting(props: { api: Backend; onSources: () => void; onProble
           They are
           <select
             value={editing.kind}
-            onChange={(e) => setEditing({ ...editing, kind: e.target.value as 'photo' | 'video' })}
+            onChange={(e) => {
+              setRefusal(null)
+              setEditing({ ...editing, kind: e.target.value as ListedAs })
+            }}
           >
             <option value="photo">Photos</option>
             <option value="video">Videos</option>
+            <option value="other">Other files</option>
           </select>
         </label>
+        {editing.kind === 'other' && (
+          <p className="quiet small what-to-expect">
+            Other files are anything you want kept with your photos, such as music or documents. Keevoro will back
+            these up exactly, but cannot show them or group them by date.
+          </p>
+        )}
         <span className="choices">
           <button type="submit" className="primary">
             {editing.was === '' ? 'Add' : 'Save'}
@@ -2118,6 +2093,14 @@ function FileKindsSetting(props: { api: Backend; onSources: () => void; onProble
         {refusal && (
           <p className="refusal" role="alert">
             {refusal}
+            {editing.kind !== 'other' && /as an other file/.test(refusal) && (
+              <>
+                {' '}
+                <button type="button" className="link" onClick={() => save('other')}>
+                  Add it as other files
+                </button>
+              </>
+            )}
           </p>
         )}
       </form>
@@ -2189,7 +2172,7 @@ function FileKindsSetting(props: { api: Backend; onSources: () => void; onProble
                 ) : (
                   <tr key={kind.ending} className={kind.on ? undefined : 'off'}>
                     <td className="ending">{dotted(kind.ending)}</td>
-                    <td>{kind.kind === 'photo' ? 'Photo' : 'Video'}</td>
+                    <td>{kind.kind === 'photo' ? 'Photo' : kind.kind === 'video' ? 'Video' : 'Other file'}</td>
                     <td>{kind.builtIn ? 'Built in' : 'Yours'}</td>
                     <td>
                       <button
@@ -2273,7 +2256,9 @@ function ChooseScreen(props: {
   next: ReactNode
 }) {
   const { found } = props
-  const [hero, ...rest] = found?.collections ?? []
+  // Folders of other files are listed apart, by folder, under the collections.
+  const [hero, ...rest] = (found?.collections ?? []).filter((c) => !c.byFolder)
+  const folders = (found?.collections ?? []).filter((c) => c.byFolder)
 
   return (
     <section className="discover">
@@ -2285,7 +2270,9 @@ function ChooseScreen(props: {
           click a collection to look inside and choose photo by photo.
         </p>
       </header>
-      {found && hero && <Tally found={found} onDuplicates={props.onDuplicates} onSetAside={props.onSetAside} />}
+      {found && (hero || folders.length > 0) && (
+        <Tally found={found} onDuplicates={props.onDuplicates} onSetAside={props.onSetAside} />
+      )}
 
       {hero && (
         <article className={hero.kept ? 'hero' : 'hero skipped'}>
@@ -2329,6 +2316,12 @@ function ChooseScreen(props: {
         </div>
       )}
 
+      <OtherFilesSection
+        folders={folders}
+        onOpen={props.onOpen}
+        keep={(folder) => <KeepButton collection={folder} onKeep={props.onKeep} small />}
+      />
+
       {props.next}
     </section>
   )
@@ -2365,15 +2358,15 @@ function KeepButton(props: { collection: Collection; onKeep: (c: Collection, kep
  */
 function Tally(props: { found: Discover; onDuplicates: () => void; onSetAside?: () => void }) {
   const { found } = props
-  const keeping = found.collections.filter((c) => c.kept).reduce((n, c) => n + c.photos + c.videos, 0)
-  const all = found.photos + found.videos + found.duplicates
+  const keeping = found.collections.filter((c) => c.kept).reduce((n, c) => n + c.photos + c.videos + (c.others ?? 0), 0)
+  const all = found.photos + found.videos + (found.others ?? 0) + found.duplicates
   return (
     <dl className="tally" aria-label="This backup in figures">
       <div>
         <dt>Keeping</dt>
         <dd>{thousands(keeping)}</dd>
         <dd className="quiet small">
-          of {photosAndVideos(found.photos, found.videos)} found · {size(found.bytes)}
+          of {files(found.photos, found.videos, found.others ?? 0)} found · {size(found.bytes)}
         </dd>
       </div>
       <button className="stat" onClick={props.onDuplicates} disabled={found.duplicates === 0}>
@@ -2423,6 +2416,7 @@ function SendScreen(props: {
       <SendPanel
         api={props.api}
         destinations={props.found?.destinations ?? []}
+        withOtherFiles={(props.found?.others ?? 0) > 0}
         waiting={props.waiting}
         safe={props.safe}
         onProblem={props.onProblem}
@@ -2442,6 +2436,8 @@ function SendPanel(props: {
   api: Backend
   /** Each place this backup goes to, with what has reached it. */
   destinations: Destination[]
+  /** The backup holds other files, so what is in it says where they go. */
+  withOtherFiles?: boolean
   onProblem: (error: unknown) => void
   waiting: number
   safe: number
@@ -2996,6 +2992,14 @@ function SendPanel(props: {
                 folder is the backup. Inside, there is one folder per
                 collection, and <code>By date</code> for anything that did not
                 belong to one.
+                {props.withOtherFiles && (
+                  <>
+                    {' '}
+                    Other files you asked Keevoro to carry along, such as music and documents, are in{' '}
+                    <code>Other files</code> inside it, in the folders they came from. Keevoro makes no renditions of
+                    them.
+                  </>
+                )}
               </dd>
               <dt>
                 <code>renditions</code>
@@ -3528,13 +3532,16 @@ function SurveyResult(props: {
   const picked = found.hints.filter((h) => chosen.has(h.folder) && !outNow.has(h.folder))
   const photos = picked.reduce((n, h) => n + h.photos, 0)
   const videos = picked.reduce((n, h) => n + h.videos, 0)
+  const others = picked.reduce((n, h) => n + (h.others ?? 0), 0)
   const bytes = picked.reduce((n, h) => n + h.bytes, 0)
+  // Other files are only spoken of when some are among the suggestions.
+  const what = found.hints.some((h) => (h.others ?? 0) > 0) ? 'photos, videos and other files' : 'photos and videos'
   return (
     <div className="panel survey">
       <h2>
         {found.hints.length === 0
           ? `No photos or videos were spotted on ${props.name}`
-          : `${count(found.hints.length, 'folder')} on ${props.name} ${found.hints.length === 1 ? 'seems' : 'seem'} to hold photos and videos`}
+          : `${count(found.hints.length, 'folder')} on ${props.name} ${found.hints.length === 1 ? 'seems' : 'seem'} to hold ${what}`}
       </h2>
       <p className="quiet">
         Looked at {count(found.files, 'file')} in {count(found.folders, 'folder')} in{' '}
@@ -3556,7 +3563,7 @@ function SurveyResult(props: {
                 <span className="where">{hint.folder}</span>
               </label>
               <span className="quiet small">
-                {photosAndVideos(hint.photos, hint.videos)} · {size(hint.bytes)}
+                {files(hint.photos, hint.videos, hint.others ?? 0)} · {size(hint.bytes)}
               </span>
               <button
                 className="button small"
@@ -3628,7 +3635,7 @@ function SurveyResult(props: {
         </button>
         {picked.length > 0 && (
           <span className="quiet small">
-            About {photosAndVideos(photos, videos)}, {size(bytes)}.
+            About {files(photos, videos, others)}, {size(bytes)}.
           </span>
         )}
       </p>

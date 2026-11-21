@@ -214,7 +214,6 @@ pub fn code_for(last: Option<&Said>) -> Code {
 
 /// The step a job is on, in a line.
 fn step(said: &Said) -> String {
-    let n = |n: u64| keevoro_api::words::thousands(usize::try_from(n).unwrap_or(usize::MAX));
     match said {
         Said::Send(e) => e
             .line
@@ -225,23 +224,23 @@ fn step(said: &Said) -> String {
             .unwrap_or_default()
             .to_string(),
         Said::Scan(e) if e.saving => format!("Looked through {}; saving what was found", e.name),
-        Said::Scan(e) => format!(
-            "Looking through {}: {} photos and {} videos so far",
-            e.name,
-            n(e.photos),
-            n(e.videos)
-        ),
+        Said::Scan(e) => {
+            let n = |n: u64| usize::try_from(n).unwrap_or(usize::MAX);
+            format!(
+                "Looking through {}: {} so far",
+                e.name,
+                keevoro_api::words::photos_and_videos(n(e.photos), n(e.videos), n(e.others))
+            )
+        }
         Said::Survey(e) if e.sizing => format!(
-            "Found {} photos and {} videos by name. Now measuring everything else for the map, {} folders so far",
-            keevoro_api::words::thousands(e.photos),
-            keevoro_api::words::thousands(e.videos),
+            "Found {} by name. Now measuring everything else for the map, {} folders so far",
+            keevoro_api::words::photos_and_videos(e.photos, e.videos, e.others),
             keevoro_api::words::thousands(e.folders)
         ),
         Said::Survey(e) => format!(
-            "Looked in {} folders: {} photos and {} videos by name so far",
+            "Looked in {} folders: {} by name so far",
             keevoro_api::words::thousands(e.folders),
-            keevoro_api::words::thousands(e.photos),
-            keevoro_api::words::thousands(e.videos)
+            keevoro_api::words::photos_and_videos(e.photos, e.videos, e.others)
         ),
         Said::Check(e) => format!(
             "Checking for duplicates: {} of {}",
@@ -398,6 +397,7 @@ mod tests {
             files: 9_000,
             photos: 30,
             videos: 2,
+            others: 0,
             sizing: false,
             top: Vec::new(),
         };
@@ -412,6 +412,8 @@ mod tests {
             photo_bytes: 8,
             video_bytes: 0,
             other_bytes: 1,
+            carried: 0,
+            carried_bytes: 0,
             folders: 0,
         }];
         let line = step(&Said::Survey(grown));

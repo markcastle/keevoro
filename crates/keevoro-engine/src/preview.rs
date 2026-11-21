@@ -40,8 +40,14 @@ pub fn preview(
     preview_at(library, catalog, cache, id, video_tools, Look::Small)
 }
 
+/// What is said when a picture of an other file is asked for: none is ever
+/// made, and the file is never opened to try.
+pub const NO_PICTURE_OF_OTHER_FILES: &str =
+    "Keevoro doesn't make pictures of other files. Use Show in File Explorer to open it.";
+
 /// A WebP preview at the size asked for. A video's still is the same
-/// picture at either size, so it is made and cached once.
+/// picture at either size, so it is made and cached once. An other file
+/// has none, and is never opened to try.
 pub fn preview_at(
     library: &Path,
     catalog: &Catalog,
@@ -54,12 +60,15 @@ pub fn preview_at(
         bail!("That photo isn't known to this backup.");
     };
     let id = &hash[..hash.len().min(16)];
+    if kind == MediaKind::Other {
+        bail!(NO_PICTURE_OF_OTHER_FILES);
+    }
 
     if catalog.collected_path(&hash)?.is_some() {
         let rendition = match (kind, look) {
             (MediaKind::Photo, Look::Small) => Rendition::Thumb,
             (MediaKind::Photo, Look::Closer) => Rendition::Display,
-            (MediaKind::Video, _) => Rendition::Poster,
+            (MediaKind::Video | MediaKind::Other, _) => Rendition::Poster,
         };
         let in_library = rendition_path(rendition, id)
             .split('/')
@@ -84,6 +93,7 @@ pub fn preview_at(
     let bytes = match kind {
         MediaKind::Photo => render_photo(&source).map(|r| if closer_photo { r.display } else { r.thumb }),
         MediaKind::Video => video::still(video_tools, &source).map(|still| still.webp),
+        MediaKind::Other => bail!(NO_PICTURE_OF_OTHER_FILES),
     }
     .with_context(|| {
         if source.exists() {

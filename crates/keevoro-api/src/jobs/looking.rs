@@ -139,12 +139,13 @@ fn look_through(
     log.say(&format!("Looking through {}", friendly_path(source)));
     job.note_line(&format!("Looking through {name}"));
     let mut every = Every::after(ctx.jobs.progress_every());
-    let mut latest = (0, 0, 0);
+    let mut latest = (0, 0, 0, 0);
     let mut announced: Option<PathBuf> = None;
     let event = |p: &keevoro_scan::ScanProgress, saving: bool| ScanEvent {
         name: name.clone(),
         photos: p.photos,
         videos: p.videos,
+        others: p.others,
         files: p.files_seen,
         folder: friendly_path(&p.folder),
         reading: p.reading.as_ref().map(|(path, bytes)| (friendly_path(path), *bytes)),
@@ -181,7 +182,7 @@ fn look_through(
                     ..Default::default()
                 },
                 &mut |p| {
-                    latest = (p.photos, p.videos, p.files_seen);
+                    latest = (p.photos, p.videos, p.files_seen, p.others);
                     **last_progress.borrow_mut() = p.clone();
                     // A large file starting is always said at once: it may
                     // be the last thing to change for minutes.
@@ -220,11 +221,25 @@ fn look_through(
             latest.2
         )),
         Ok(report) => {
+            let of = |kind| report.items.iter().filter(|i| i.kind == kind).count();
+            let carried = of(keevoro_core::MediaKind::Other);
+            // Said as ever, unless other files were carried along too.
+            let (found, rest) = if carried == 0 {
+                (format!("{} photos and videos", report.items.len()), "other files")
+            } else {
+                (
+                    keevoro_core::words::files(
+                        of(keevoro_core::MediaKind::Photo),
+                        of(keevoro_core::MediaKind::Video),
+                        carried,
+                    ),
+                    "files Keevoro does not look for",
+                )
+            };
             log.say(&format!(
-                "Looked through {} in {} seconds: {} photos and videos, {} other files, {} folders skipped, {} unreadable",
+                "Looked through {} in {} seconds: {found}, {} {rest}, {} folders skipped, {} unreadable",
                 friendly_path(source),
                 started.elapsed().as_secs(),
-                report.items.len(),
                 report.other_files,
                 report.skipped.len(),
                 report.unreadable.len()
@@ -249,6 +264,7 @@ fn look_through(
         name,
         photos: latest.0,
         videos: latest.1,
+        others: latest.3,
         files: latest.2,
         folder: String::new(),
         reading: None,

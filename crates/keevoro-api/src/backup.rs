@@ -25,12 +25,19 @@ pub struct Backup {
     catalog: Catalog,
 }
 
+fn is_none_of_them(n: &usize) -> bool {
+    *n == 0
+}
+
 /// What a backup holds, in numbers: the top of the Discover screen.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Found {
     pub photos: usize,
     pub videos: usize,
+    /// Other files carried along. Never said when there are none.
+    #[serde(default, skip_serializing_if = "is_none_of_them")]
+    pub others: usize,
     /// The size of everything found, in bytes.
     pub bytes: u64,
     /// Extra copies of files that are kept once.
@@ -46,7 +53,7 @@ pub struct Found {
 }
 
 /// One kind of file found on a source, for the "File types" list.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileTypeView {
     /// Lower case, without the dot: `jpg`, `mp4`. Empty for files whose
@@ -106,6 +113,7 @@ impl Backup {
         Ok(Found {
             photos: d.photos,
             videos: d.videos,
+            others: d.others,
             bytes: d.bytes,
             duplicates: d.duplicates,
             duplicate_bytes: d.duplicate_bytes,
@@ -126,14 +134,15 @@ impl Backup {
         Ok(keevoro_engine::forget_source(&mut self.catalog, source)?)
     }
 
-    /// `sources.file_types`, most numerous first.
-    pub fn file_types(&self, source: i64) -> Result<Vec<FileTypeView>> {
+    /// `sources.file_types`, most numerous first. Other files are only
+    /// spoken of when some kind of them is on the list (`others_listed`).
+    pub fn file_types(&self, source: i64, others_listed: bool) -> Result<Vec<FileTypeView>> {
         Ok(self
             .catalog
             .file_types(source)?
             .into_iter()
             .map(|kind| FileTypeView {
-                why: kind.left_out_by.map(|by| by.why(kind.kind).to_string()),
+                why: kind.left_out_by.map(|by| by.why(others_listed)),
                 left_out_by: kind.left_out_by,
                 ending: kind.ending,
                 files: kind.files,
@@ -352,7 +361,7 @@ pub(crate) mod tests {
     fn kinds_of_file_on_a_source_can_be_left_out_and_brought_back() {
         let (_dir, card, backup) = one_backup();
         let id = backup.sources().unwrap()[0].id;
-        let types = backup.file_types(id).unwrap();
+        let types = backup.file_types(id, false).unwrap();
         let endings: Vec<(&str, u64, bool)> = types.iter().map(|t| (t.ending.as_str(), t.files, t.included)).collect();
         assert_eq!(endings, [("jpg", 4, true), ("png", 1, true)]);
         // What the app has always received.
@@ -361,13 +370,16 @@ pub(crate) mod tests {
         assert_eq!(json["included"], true);
 
         backup.include_type(id, ".JPG", false).unwrap();
-        assert!(!backup.file_types(id).unwrap()[0].included);
+        assert!(!backup.file_types(id, false).unwrap()[0].included);
         assert_eq!(backup.found().unwrap().photos, 0);
         assert!(card.join("DCIM/100CANON/IMG_20120304_153012.jpg").is_file());
         backup.include_type(id, "jpg", true).unwrap();
         assert_eq!(backup.found().unwrap().photos, 3);
 
-        assert!(backup.file_types(9999).unwrap().is_empty(), "no such source, no kinds");
+        assert!(
+            backup.file_types(9999, false).unwrap().is_empty(),
+            "no such source, no kinds"
+        );
     }
 
     #[test]

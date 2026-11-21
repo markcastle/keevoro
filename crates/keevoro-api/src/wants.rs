@@ -1,93 +1,116 @@
-//! `backup.photos_or_videos` and `sources.photos_or_videos`: whether a
-//! backup, or one of its sources, wants photos and videos, photos only, or
-//! videos only.
+//! `backup.wants` and `sources.wants`: what a backup, or one of its
+//! sources, is for: any of photos, videos and other files, at least one.
 //!
 //! It is a choice about what is offered and backed up from now on, made
 //! over what was already found (see `keevoro_core::wants` for how it
 //! composes with the kinds of file Keevoro looks for and each ending's own
 //! choice). So it counts at once, with no new search, and every count,
 //! the plan of a backup and the room it needs follow it. Nothing already
-//! backed up is touched: photos or videos sent before stay where they
-//! are, and are simply no longer kept in the selection.
+//! backed up is touched: files sent before stay where they are, and are
+//! simply no longer kept in the selection.
+//!
+//! Other files are only offered as a choice, and only spoken of, once some
+//! kind of other file is on Keevoro's list (`offersOthers`), so a person who
+//! never adds one sees photos and videos as ever.
 
 use crate::backup::Backup;
 use crate::error::{Error, Result};
 use keevoro_core::Wants;
 use serde::{Deserialize, Serialize};
 
-/// Photos and videos, photos only, or videos only, as a request says it.
+/// One thing a backup can be for, as a request says it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
-pub enum WantsChoice {
-    /// Photos and videos.
-    Both,
+pub enum WantsWord {
     Photos,
     Videos,
+    /// Other files a person put on the kinds list.
+    Others,
 }
 
-impl From<WantsChoice> for Wants {
-    fn from(choice: WantsChoice) -> Self {
-        match choice {
-            WantsChoice::Both => Wants::Both,
-            WantsChoice::Photos => Wants::Photos,
-            WantsChoice::Videos => Wants::Videos,
+impl WantsWord {
+    fn word(self) -> &'static str {
+        match self {
+            WantsWord::Photos => "photos",
+            WantsWord::Videos => "videos",
+            WantsWord::Others => "others",
         }
     }
+}
+
+/// What it is for, from the words a request gives; at least one.
+pub fn wants_of(words: &[WantsWord]) -> Result<Wants> {
+    Wants::from_tokens(words.iter().map(|w| w.word()))
+        .ok_or_else(|| Error::not_understood("Say what it is for: one or more of photos, videos and others."))
+}
+
+/// Following the backup, as a request for a source says it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum FollowBackup {
+    /// The same as the backup.
+    Backup,
 }
 
 /// A source's choice: the backup's, or its own.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(untagged)]
 pub enum SourceWantsChoice {
-    /// The same as the backup.
-    Backup,
-    Both,
-    Photos,
-    Videos,
+    /// `backup`: the same as the backup.
+    Backup(FollowBackup),
+    /// Its own: one or more of `photos`, `videos` and `others`.
+    Own(Vec<WantsWord>),
 }
 
-impl From<SourceWantsChoice> for Option<Wants> {
-    fn from(choice: SourceWantsChoice) -> Self {
-        match choice {
-            SourceWantsChoice::Backup => None,
-            SourceWantsChoice::Both => Some(Wants::Both),
-            SourceWantsChoice::Photos => Some(Wants::Photos),
-            SourceWantsChoice::Videos => Some(Wants::Videos),
+impl SourceWantsChoice {
+    pub fn wants(&self) -> Result<Option<Wants>> {
+        match self {
+            SourceWantsChoice::Backup(_) => Ok(None),
+            SourceWantsChoice::Own(words) => wants_of(words).map(Some),
         }
     }
 }
 
-/// `backup.photos_or_videos`: without `wants` it only reads.
+/// `backup.wants`: without `wants` it only reads.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BackupWantsRequest {
-    /// `both` (photos and videos), `photos` or `videos`. Left out, nothing changes.
+    /// One or more of `photos`, `videos` and `others`. Left out, nothing
+    /// changes.
     #[serde(default)]
-    pub wants: Option<WantsChoice>,
+    pub wants: Option<Vec<WantsWord>>,
 }
 
-/// `sources.photos_or_videos`: without `wants` it only reads.
+/// `sources.wants`: without `wants` it only reads.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SourceWantsRequest {
     /// The source's id, as `sources.list` gives it.
     pub source: i64,
-    /// `backup` (the same as the backup), `both`, `photos` or `videos`.
-    /// Left out, nothing changes.
+    /// `backup` (the same as the backup), or one or more of `photos`,
+    /// `videos` and `others`. Left out, nothing changes.
     #[serde(default)]
     pub wants: Option<SourceWantsChoice>,
 }
 
-/// What a backup or a source wants, and what that means now.
+fn not(b: &bool) -> bool {
+    !b
+}
+
+/// What a backup or a source is for, and what that means now.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WantsView {
-    /// `both`, `photos` or `videos`: what is in effect.
+    /// What is in effect: one or more of `photos`, `videos` and `others`.
     pub wants: Wants,
     /// For a source: true when it has its own choice, false when it
     /// follows the backup's.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub own: Option<bool>,
+    /// True once some kind of other file is on Keevoro's list, so "Other
+    /// files" is a choice to offer.
+    #[serde(skip_serializing_if = "not")]
+    pub offers_others: bool,
     /// In words: "This backup is for photos only."
     pub said: String,
 }
@@ -98,28 +121,30 @@ pub const ALREADY_SAFE: &str =
     "Anything already backed up stays backed up; it is just no longer kept in what this backup chooses.";
 
 impl Backup {
-    /// `backup.photos_or_videos`, read.
-    pub fn wants(&self) -> Result<WantsView> {
+    /// `backup.wants`, read. Other files are spoken of only when some kind
+    /// of them is on the list (`others_listed`).
+    pub fn wants(&self, others_listed: bool) -> Result<WantsView> {
         let wants = self.catalog().wants()?;
         Ok(WantsView {
             wants,
             own: None,
-            said: format!("This backup is for {}.", wants.words()),
+            offers_others: others_listed,
+            said: format!("This backup is for {}.", wants.words(others_listed)),
         })
     }
 
-    /// `backup.photos_or_videos`, set.
-    pub fn set_wants(&self, wants: Wants) -> Result<WantsView> {
+    /// `backup.wants`, set.
+    pub fn set_wants(&self, wants: Wants, others_listed: bool) -> Result<WantsView> {
         self.catalog().set_wants(wants)?;
-        let mut view = self.wants()?;
-        if wants != Wants::Both {
+        let mut view = self.wants(others_listed)?;
+        if !wants.is_everything(others_listed) {
             view.said = format!("{} {ALREADY_SAFE}", view.said);
         }
         Ok(view)
     }
 
-    /// `sources.photos_or_videos`, read.
-    pub fn source_wants(&self, source: i64) -> Result<WantsView> {
+    /// `sources.wants`, read.
+    pub fn source_wants(&self, source: i64, others_listed: bool) -> Result<WantsView> {
         if !self.sources()?.iter().any(|s| s.id == source) {
             return Err(Error::not_found("That source isn't part of this backup."));
         }
@@ -128,21 +153,21 @@ impl Backup {
         Ok(WantsView {
             wants,
             own: Some(own.is_some()),
+            offers_others: others_listed,
             said: match own {
-                Some(own) => format!("This source is set to {}.", own.words()),
-                None => format!("This source follows the backup: {}.", wants.words()),
+                Some(own) => format!("This source is set to {}.", own.words(others_listed)),
+                None => format!("This source follows the backup: {}.", wants.words(others_listed)),
             },
         })
     }
 
-    /// `sources.photos_or_videos`, set: its own choice, or with `None` the
-    /// backup's.
-    pub fn set_source_wants(&self, source: i64, wants: Option<Wants>) -> Result<WantsView> {
+    /// `sources.wants`, set: its own choice, or with `None` the backup's.
+    pub fn set_source_wants(&self, source: i64, wants: Option<Wants>, others_listed: bool) -> Result<WantsView> {
         if !self.catalog().set_source_wants(source, wants)? {
             return Err(Error::not_found("That source isn't part of this backup."));
         }
-        let mut view = self.source_wants(source)?;
-        if view.wants != Wants::Both {
+        let mut view = self.source_wants(source, others_listed)?;
+        if !view.wants.is_everything(others_listed) {
             view.said = format!("{} {ALREADY_SAFE}", view.said);
         }
         Ok(view)
@@ -152,16 +177,19 @@ impl Backup {
 #[cfg(test)]
 mod tests {
     use crate::backup::tests::one_backup;
-    use keevoro_core::Wants;
+    use keevoro_core::{MediaKind, Wants};
 
     #[test]
     fn photos_only_counts_at_once_everywhere_and_a_source_can_differ() {
         let (_dir, _card, backup) = one_backup();
         let before = backup.found().unwrap();
         assert!(before.photos > 0);
-        assert_eq!(backup.wants().unwrap().said, "This backup is for photos and videos.");
+        assert_eq!(
+            backup.wants(false).unwrap().said,
+            "This backup is for photos and videos."
+        );
 
-        let set = backup.set_wants(Wants::Videos).unwrap();
+        let set = backup.set_wants(Wants::only(MediaKind::Video), false).unwrap();
         assert!(set
             .said
             .starts_with("This backup is for videos only. Anything already backed up stays backed up"));
@@ -175,24 +203,43 @@ mod tests {
 
         let source = backup.sources().unwrap()[0].id;
         assert_eq!(
-            backup.source_wants(source).unwrap().said,
+            backup.source_wants(source, false).unwrap().said,
             "This source follows the backup: videos only."
         );
-        let own = backup.set_source_wants(source, Some(Wants::Both)).unwrap();
+        let own = backup.set_source_wants(source, Some(Wants::default()), false).unwrap();
         assert_eq!(own.own, Some(true));
         assert_eq!(backup.found().unwrap().photos, before.photos);
-        let types = backup.file_types(source).unwrap();
+        let types = backup.file_types(source, false).unwrap();
         assert!(types.iter().all(|t| t.left_out_by.is_none()));
 
-        backup.set_source_wants(source, None).unwrap();
-        let types = backup.file_types(source).unwrap();
+        backup.set_source_wants(source, None, false).unwrap();
+        let types = backup.file_types(source, false).unwrap();
         let jpg = types.iter().find(|t| t.ending == "jpg").unwrap();
         assert_eq!(jpg.why.as_deref(), Some("this backup is for videos only"));
-        assert_eq!(backup.source_wants(9999).unwrap_err().kind, crate::Kind::NotFound);
         assert_eq!(
-            backup.set_source_wants(9999, None).unwrap_err().kind,
+            backup.source_wants(9999, false).unwrap_err().kind,
             crate::Kind::NotFound
         );
+        assert_eq!(
+            backup.set_source_wants(9999, None, false).unwrap_err().kind,
+            crate::Kind::NotFound
+        );
+        // With other files on the list, they are named too.
+        backup.set_wants(Wants::default(), true).unwrap();
+        assert_eq!(
+            backup.wants(true).unwrap().said,
+            "This backup is for photos, videos and other files."
+        );
+        let photos = Wants {
+            videos: false,
+            others: false,
+            ..Wants::default()
+        };
+        assert!(backup
+            .set_wants(photos, true)
+            .unwrap()
+            .said
+            .starts_with("This backup is for photos only."));
     }
 
     #[test]
@@ -205,12 +252,19 @@ mod tests {
             &k,
             Op::BackupsStart,
             None,
-            json!({ "name": "Drone", "wants": "videos" }),
+            json!({ "name": "Drone", "wants": ["videos"] }),
         )
         .unwrap();
-        let read = call_for_agent(&k, Op::BackupPhotosOrVideos, Some("Drone"), json!({})).unwrap();
-        assert_eq!(read["wants"], "videos");
-        let e = call_for_agent(&k, Op::BackupPhotosOrVideos, Some("Drone"), json!({ "wants": "both" })).unwrap_err();
+        let read = call_for_agent(&k, Op::BackupWants, Some("Drone"), json!({})).unwrap();
+        assert_eq!(read["wants"], json!(["videos"]));
+        assert!(read.get("offersOthers").is_none(), "{read}");
+        let e = call_for_agent(
+            &k,
+            Op::BackupWants,
+            Some("Drone"),
+            json!({ "wants": ["photos", "videos"] }),
+        )
+        .unwrap_err();
         assert_eq!(e.message, crate::for_agents::LOOK_ONLY);
         k.set_agent_access(crate::AgentsAccessRequest {
             look_in: None,
@@ -218,14 +272,10 @@ mod tests {
             may_change: Some(true),
         })
         .unwrap();
-        let set = call_for_agent(
-            &k,
-            Op::BackupPhotosOrVideos,
-            Some("Drone"),
-            json!({ "wants": "photos" }),
-        )
-        .unwrap();
-        assert_eq!(set["wants"], "photos");
+        let set = call_for_agent(&k, Op::BackupWants, Some("Drone"), json!({ "wants": ["photos"] })).unwrap();
+        assert_eq!(set["wants"], json!(["photos"]));
+        let e = call_for_agent(&k, Op::BackupWants, Some("Drone"), json!({ "wants": [] })).unwrap_err();
+        assert_eq!(e.kind, crate::Kind::NotUnderstood, "at least one");
         assert!(k
             .log_tail(10)
             .contains("This backup is now for photos only. Nothing already backed up was changed"));

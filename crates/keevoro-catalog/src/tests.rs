@@ -699,9 +699,9 @@ fn photos_only_or_videos_only_is_a_filter_over_what_was_found_for_a_backup_or_on
     let mut c = Catalog::in_memory().unwrap();
     let id = c.save_scan("Card", &drone_report(), 1).unwrap();
     let kinds = |c: &Catalog| -> Vec<MediaKind> { c.load_reports().unwrap()[0].items.iter().map(|i| i.kind).collect() };
-    assert_eq!(c.wants().unwrap(), Wants::Both);
+    assert_eq!(c.wants().unwrap(), Wants::default());
 
-    c.set_wants(Wants::Photos).unwrap();
+    c.set_wants(Wants::only(MediaKind::Photo)).unwrap();
     assert!(kinds(&c).iter().all(|k| *k == MediaKind::Photo) && kinds(&c).len() == 4);
     let why = |c: &Catalog, ending: &str| {
         c.file_types(id)
@@ -711,28 +711,30 @@ fn photos_only_or_videos_only_is_a_filter_over_what_was_found_for_a_backup_or_on
             .unwrap()
             .left_out_by
     };
-    assert_eq!(why(&c, "mp4"), Some(LeftOutBy::Backup));
+    assert_eq!(why(&c, "mp4"), Some(LeftOutBy::Backup(Wants::only(MediaKind::Photo))));
     assert_eq!(why(&c, "jpg"), None);
 
     // This source differs: everything.
-    assert!(c.set_source_wants(id, Some(Wants::Both)).unwrap());
+    assert!(c.set_source_wants(id, Some(Wants::default())).unwrap());
     assert_eq!(kinds(&c).len(), 5);
-    assert_eq!(c.source_wants(id).unwrap(), Some(Wants::Both));
-    c.set_source_wants(id, Some(Wants::Videos)).unwrap();
+    assert_eq!(c.source_wants(id).unwrap(), Some(Wants::default()));
+    c.set_source_wants(id, Some(Wants::only(MediaKind::Video))).unwrap();
     assert_eq!(kinds(&c), [MediaKind::Video]);
-    assert_eq!(why(&c, "jpg"), Some(LeftOutBy::Source));
+    assert_eq!(why(&c, "jpg"), Some(LeftOutBy::Source(Wants::only(MediaKind::Video))));
 
     // Back to the backup's choice, and the choice is the place's, so it
     // outlasts the source being looked through again.
     c.set_source_wants(id, None).unwrap();
     assert_eq!(c.source_wants(id).unwrap(), None);
-    c.set_source_wants(id, Some(Wants::Videos)).unwrap();
+    c.set_source_wants(id, Some(Wants::only(MediaKind::Video))).unwrap();
     let again = c.save_scan("Card", &drone_report(), 2).unwrap();
-    assert_eq!(c.source_wants(again).unwrap(), Some(Wants::Videos));
+    assert_eq!(c.source_wants(again).unwrap(), Some(Wants::only(MediaKind::Video)));
     assert!(!c.set_source_wants(9999, None).unwrap(), "no such source");
+    // Kept as the list of what it is for.
+    assert_eq!(c.setting("wants").unwrap().as_deref(), Some(r#"["photos"]"#));
 
     // Nothing found was forgotten.
-    c.set_wants(Wants::Both).unwrap();
+    c.set_wants(Wants::default()).unwrap();
     c.set_source_wants(again, None).unwrap();
     assert_eq!(kinds(&c).len(), 5);
 }

@@ -103,6 +103,25 @@ const FOUND: (() => Collection)[] = [
   () => collection('Undated', '', 9, 0),
 ]
 
+/**
+ * Other files on the family hard drive, by the folder they are in, with
+ * their sizes: found only once a person puts their kind on the list as
+ * other files and looks again, as the real search does.
+ */
+const OTHER_FOLDERS: { folder: string[]; files: [string, number][] }[] = [
+  {
+    folder: ['Documents'],
+    files: ['Letter to Gran.pdf', 'House insurance.pdf', 'Wedding speech.docx', 'Recipes.pdf'].map((n, i) => [n, (180 + i * 97) * 1024]),
+  },
+  { folder: ['Documents', 'Tax 2019'], files: ['Return.pdf', 'P60.pdf', 'Receipts.pdf'].map((n, i) => [n, (420 + i * 61) * 1024]) },
+  {
+    folder: ['Music', 'Holiday mix'],
+    files: ['01 Summer Breeze.flac', '02 Sea Song.flac', '03 Long Road Home.flac', '04 Harbour Lights.flac', '05 Cornish Air.flac'].map(
+      (n, i) => [n, (28 + i * 3) * 1024 ** 2],
+    ),
+  },
+]
+
 /** As Keevoro says it of files only in OneDrive, passed over unopened. */
 const onlineOnlySaid = (n: number) =>
   `${count(n, 'file')} here ${n === 1 ? 'is' : 'are'} in OneDrive only, not on this computer, so Keevoro did not open ${n === 1 ? 'it' : 'them'}. To include ${n === 1 ? 'it' : 'them'}, make ${n === 1 ? 'it' : 'them'} available offline in OneDrive first, then look again.`
@@ -206,6 +225,50 @@ export function demoBackend(): Backend {
     { ...photo('1952 scan.png'), taken: null, kept: false, junkReason: 'Tiny images (under 300 px)' },
   ]
   const junk: PhotoChoice[] = collections.length === 0 ? [] : junkFound()
+  // Other files found by the last look, by ending; each file's row, once made.
+  const carriedFound = new Set<string>()
+  const otherRows = new Map<string, PhotoChoice>()
+  const otherSent = new Set<string>()
+  const endingOfName = (name: string) => name.split('.').pop()?.toLowerCase() ?? ''
+  const otherFolders = (): Collection[] => {
+    if (sources.length === 0 || !backupWants.includes('others')) return []
+    return OTHER_FOLDERS.flatMap(({ folder, files }) => {
+      const found = files.filter(([name]) => carriedFound.has(endingOfName(name)))
+      if (found.length === 0) return []
+      const rows = found.map(([name, bytes]) => {
+        const where = `E:\\${[...folder, name].join('\\')}`
+        let row = otherRows.get(where)
+        if (!row) {
+          const id = (nextId++).toString(16).padStart(16, '0')
+          row = { id, isVideo: false, isOther: true, name, sourcePath: where, thumbnail: null, taken: null, changed: '2019-03-03', bytes, kept: true, junkReason: null }
+          otherRows.set(where, row)
+        }
+        return row
+      })
+      const n = rows.length
+      return [
+        {
+          key: ['Other files', ...folder].join(' / '),
+          title: folder[folder.length - 1],
+          summary: `${n} other file${n === 1 ? '' : 's'}`,
+          parents: folder.slice(0, -1),
+          photos: 0,
+          videos: 0,
+          others: n,
+          byFolder: true,
+          bytes: rows.reduce((t, r) => t + (r.bytes ?? 0), 0),
+          kept: rows.some((r) => r.kept),
+          gathered: rows.filter((r) => r.kept && otherSent.has(r.id)).length,
+          cover: rows[0],
+          previews: [],
+        },
+      ]
+    })
+  }
+  const otherRowsIn = (key: string) => {
+    const folder = OTHER_FOLDERS.find((f) => ['Other files', ...f.folder].join(' / ') === key)
+    return folder ? [...otherRows.values()].filter((r) => r.sourcePath === `E:\\${[...folder.folder, r.name].join('\\')}`) : []
+  }
   const scanListeners = new Set<(e: ScanEvent) => void>()
   const surveyListeners = new Set<(e: SurveyProgress) => void>()
   // The places surveyed, so looking inside one surveys it first, as the real one does.
@@ -261,15 +324,29 @@ export function demoBackend(): Backend {
   let systemCodecs = true
   let agents = { lookIn: [] as string[], backUpTo: [] as string[], mayChange: false }
   let previews = true
-  // Photos and videos, photos only or videos only: the backup's, and each source's own.
-  let backupWants: Wants = 'both'
+  // What the backup is for, and each source's own choice, as keevoro_core::Wants says them.
+  let backupWants: Wants = ['photos', 'videos', 'others']
   const sourceChoices = new Map<number, Wants>()
-  const words = { both: 'photos and videos', photos: 'photos only', videos: 'videos only' }
+  // Other files are only spoken of once a kind of them is on the list.
+  const othersListed = () => lookedFor.some((k) => k.kind === 'other')
+  const listedAsOther = (ending: string) => lookedFor.some((k) => k.kind === 'other' && k.on && k.ending === ending)
+  const everything = (wants: Wants) =>
+    wants.includes('photos') && wants.includes('videos') && (wants.includes('others') || !othersListed())
+  const words = (wants: Wants) => {
+    const named = [
+      wants.includes('photos') ? 'photos' : '',
+      wants.includes('videos') ? 'videos' : '',
+      wants.includes('others') && othersListed() ? 'other files' : '',
+    ].filter(Boolean)
+    const joined = named.length === 0 ? 'other files' : named.length === 1 ? named[0] : `${named.slice(0, -1).join(', ')} and ${named[named.length - 1]}`
+    return everything(wants) ? joined : `${joined} only`
+  }
   const safe = ' Anything already backed up stays backed up; it is just no longer kept in what this backup chooses.'
   const wantsView = (wants: Wants, own?: boolean, changed = false) => ({
     wants,
     own,
-    said: `This backup is for ${words[wants]}.${changed && wants !== 'both' ? safe : ''}`,
+    ...(othersListed() ? { offersOthers: true } : {}),
+    said: `This backup is for ${words(wants)}.${changed && !everything(wants) ? safe : ''}`,
   })
   const sourceView = (id: number, changed = false) => {
     const own = sourceChoices.get(id)
@@ -277,9 +354,10 @@ export function demoBackend(): Backend {
     return {
       wants,
       own: own !== undefined,
+      ...(othersListed() ? { offersOthers: true } : {}),
       said:
-        (own ? `This source is set to ${words[own]}.` : `This source follows the backup: ${words[wants]}.`) +
-        (changed && wants !== 'both' ? safe : ''),
+        (own ? `This source is set to ${words(own)}.` : `This source follows the backup: ${words(wants)}.`) +
+        (changed && !everything(wants) ? safe : ''),
     }
   }
   // The kinds of file looked for, as Keevoro comes with them, and one added.
@@ -297,9 +375,12 @@ export function demoBackend(): Backend {
     if (!ending) throw new Error('Type the ending of the files, such as heif.')
     if (!/^[\p{L}\p{N}]+$/u.test(ending))
       throw new Error(`"${typed.trim()}" can’t be the ending of a file name. Use letters and numbers only, with no spaces or dots, such as heif.`)
-    if (['exe', 'pdf', 'mp3', 'zip', 'txt', 'docx'].includes(ending))
-      throw new Error(`Files ending .${ending} are programs, documents, music or archives, never photos or videos, so Keevoro doesn’t look inside them.`)
     return ending
+  }
+  // A document, music, a program or an archive is never a photo or video.
+  const refuseAsMedia = (ending: string, kind: FileKind['kind']) => {
+    if (kind !== 'other' && ['exe', 'pdf', 'mp3', 'flac', 'zip', 'txt', 'docx'].includes(ending))
+      throw new Error(`Files ending .${ending} are programs, documents, music or archives, never photos or videos. To back them up as they are, add .${ending} as an other file.`)
   }
   const kindNamed = (typed: string) => {
     const found = lookedFor.find((k) => k.ending === typed.trim().replace(/^\./, '').toLowerCase())
@@ -495,25 +576,32 @@ export function demoBackend(): Backend {
   })
   const view = (): Discover => {
     const kept = collections.filter((c) => c.kept)
+    const folders = otherFolders()
+    const others = folders.reduce((n, c) => n + (c.others ?? 0), 0)
+    const keptOthers = [...otherRows.values()].filter((r) => r.kept && folders.some((f) => otherRowsIn(f.key).includes(r)))
+    const waitingOthers = keptOthers.filter((r) => !otherSent.has(r.id))
     return {
       photos: collections.reduce((n, c) => n + c.photos, 0),
       videos: collections.reduce((n, c) => n + c.videos, 0),
-      bytes: collections.reduce((n, c) => n + (c.photos * 3.2 + c.videos * 48) * 1024 * 1024, 0),
+      ...(others > 0 ? { others } : {}),
+      bytes:
+        collections.reduce((n, c) => n + (c.photos * 3.2 + c.videos * 48) * 1024 * 1024, 0) +
+        folders.reduce((n, c) => n + (c.bytes ?? 0), 0),
       duplicates: collections.length * 31,
       duplicateBytes: collections.length * 31 * 3.4 * 1024 * 1024,
       junk: junk.length,
-      waitingToGather: kept.reduce((n, c) => n + c.photos + c.videos - c.gathered, 0),
-      waitingBytes: waitingBytes(),
+      waitingToGather: kept.reduce((n, c) => n + c.photos + c.videos - c.gathered, 0) + waitingOthers.length,
+      waitingBytes: waitingBytes() + waitingOthers.reduce((n, r) => n + (r.bytes ?? 0), 0),
       sources: sources.map((s) => ({
         ...s,
         leftOut: [...leftOutFolders].filter((f) => within(f, s.root) || within(s.root, f)),
       })),
       destinations: dests.map((d) => {
-        const all = kept.reduce((n, c) => n + c.photos + c.videos, 0)
+        const all = kept.reduce((n, c) => n + c.photos + c.videos, 0) + keptOthers.length
         const there = Math.min(d.there, all)
         return { name: d.name, kind: d.kind, folder: d.folder, there, waiting: all - there, waitingBytes: (all - there) * 3.2 * 1024 * 1024 }
       }),
-      collections: collections.map((c) => ({ ...c })),
+      collections: [...collections.map((c) => ({ ...c })), ...folders],
     }
   }
 
@@ -553,6 +641,8 @@ export function demoBackend(): Backend {
           added.push(found)
         }
         if (junk.length === 0) junk.push(...junkFound())
+        // Other files of the kinds on the list now are found too.
+        lookedFor.filter((k) => k.kind === 'other' && k.on).forEach((k) => carriedFound.add(k.ending))
         // Looking through a source again replaces what was known about it.
         const known = sources.findIndex((s) => s.root === root)
         // The owner's Pictures folder is kept in OneDrive, part of it online only.
@@ -675,6 +765,7 @@ export function demoBackend(): Backend {
     addFileKind: async (typed, kind) => {
       const ending = plainEnding(typed)
       if (lookedFor.some((k) => k.ending === ending)) throw new Error(`Keevoro already looks for .${ending} files.`)
+      refuseAsMedia(ending, kind)
       const added = { ending, kind, on: true, builtIn: false }
       lookedFor = [...lookedFor, added]
       return { ...added }
@@ -688,6 +779,7 @@ export function demoBackend(): Backend {
         if (lookedFor.some((k) => k.ending === ending)) throw new Error(`Keevoro already looks for .${ending} files.`)
       }
       const changed = { ...now, ending, kind: change.kind ?? now.kind, on: change.on ?? now.on }
+      refuseAsMedia(changed.ending, changed.kind)
       lookedFor = lookedFor.map((k) => (k === now ? changed : k))
       return { ...changed }
     },
@@ -764,6 +856,7 @@ export function demoBackend(): Backend {
             files: step * 120_000,
             photos: Math.min(step, 3) * 3_100,
             videos: Math.min(step, 3) * 90,
+            ...(othersListed() ? { others: Math.min(step, 3) * 1_450 } : {}),
             ...(step > 3 ? { sizing: true } : {}),
             top: topSoFar(drive, step / 5),
           }),
@@ -777,6 +870,13 @@ export function demoBackend(): Backend {
           { folder: `${drive}\\Users\\Mark\\Pictures`, photos: 11_204, videos: 310, bytes: 61 * 1024 ** 3, likelyPhotos: true, alreadyASource: false, onlineOnly: 412, onlineOnlySaid: onlineOnlySaid(412) },
           { folder: `${drive}\\Old laptop backup\\Photos`, photos: 902, videos: 12, bytes: 3.4 * 1024 ** 3, likelyPhotos: true, alreadyASource: false },
           { folder: `${drive}\\Games\\Launcher\\assets`, photos: 1_840, videos: 0, bytes: 9 * 1024 ** 2, likelyPhotos: false, alreadyASource: false },
+          // Other files carried along, once their kind is on the list.
+          ...(listedAsOther('pdf')
+            ? [{ folder: `${drive}\\Users\\Mark\\Documents`, photos: 0, videos: 0, others: 4_120, bytes: 2.1 * 1024 ** 3, likelyPhotos: true, alreadyASource: false }]
+            : []),
+          ...(listedAsOther('flac')
+            ? [{ folder: `${drive}\\Users\\Mark\\Music`, photos: 0, videos: 0, others: 240, bytes: 7.2 * 1024 ** 3, likelyPhotos: true, alreadyASource: false }]
+            : []),
         ].filter((hint) => !leftOutOf(hint.folder)),
         folders: 36_412,
         files: 481_907,
@@ -833,12 +933,15 @@ export function demoBackend(): Backend {
     },
     openReleasePage: async () => {},
     async keepCollection(key, keep) {
+      otherRowsIn(key).forEach((row) => (row.kept = keep))
       const found = collections.find((c) => c.key === key)
       if (!found) return
       found.kept = keep
       inside.get(key)?.forEach((file) => (file.kept = keep))
     },
     async collectionPhotos(key) {
+      const rows = otherRowsIn(key)
+      if (rows.length > 0) return rows.map((row) => ({ ...row }))
       const found = collections.find((c) => c.key === key)
       if (!found) throw new Error('That collection isn\u2019t there any more.')
       return filesOf(found).map((file) => ({ ...file }))
@@ -884,11 +987,10 @@ export function demoBackend(): Backend {
         const isVideo = ['mov', 'mp4', 'mts', 'avi'].includes(k.ending)
         const own = sourceChoices.get(id)
         const wants = own ?? backupWants
-        const left = (wants === 'photos' && isVideo) || (wants === 'videos' && !isVideo)
+        const left = !wants.includes(isVideo ? 'videos' : 'photos')
         if (left) {
           const level = own ? 'source' : 'backup'
-          const other = isVideo ? 'photos only' : 'videos only'
-          return { ...k, leftOutBy: level, why: `this ${level} is ${level === 'backup' ? 'for' : 'set to'} ${other}` }
+          return { ...k, leftOutBy: level, why: `this ${level} is ${level === 'backup' ? 'for' : 'set to'} ${words(wants)}` }
         }
         return k.included ? { ...k } : { ...k, leftOutBy: 'ending' as const, why: 'files with this ending are left out of this source' }
       }),
@@ -922,6 +1024,8 @@ export function demoBackend(): Backend {
       if (sources.length === 0) junk.length = 0
     },
     async keepPhoto(id, keep) {
+      const row = [...otherRows.values()].find((r) => r.id === id)
+      if (row) row.kept = keep
       const at = junk.findIndex((file) => file.id === id)
       if (at >= 0 && keep) {
         junk.splice(at, 1)
@@ -976,7 +1080,8 @@ export function demoBackend(): Backend {
       await later(40 * pace)
       const root = [...surveyed].find((r) => place === r || place.startsWith(`${r}\\`)) ?? place
       const stale = old !== null && !mappedAgain.has(root)
-      const map = demoMap(request, leftOutOf, Math.floor(Date.now() / 1000) - (stale ? 3 * 24 * 3600 : 120))
+      const carried = new Set(lookedFor.filter((k) => k.kind === 'other' && k.on).map((k) => k.ending))
+      const map = demoMap(request, leftOutOf, Math.floor(Date.now() / 1000) - (stale ? 3 * 24 * 3600 : 120), carried)
       return map && stale ? { ...map, refresh: old === 'network' ? 'askFirst' : 'byItself' } : map
     },
     forgetMaps: async () => {
@@ -1046,7 +1151,8 @@ export function demoBackend(): Backend {
     },
     async send() {
       const kept = collections.filter((c) => c.kept)
-      const total = kept.reduce((n, c) => n + c.photos + c.videos, 0)
+      const keptOthers = otherFolders().flatMap((f) => otherRowsIn(f.key)).filter((r) => r.kept)
+      const total = kept.reduce((n, c) => n + c.photos + c.videos, 0) + keptOthers.length
       stopAsked = false
       sendStarted = Date.now()
       sendShare = 0
@@ -1116,6 +1222,7 @@ export function demoBackend(): Backend {
         dests.forEach((d) => (d.there = total))
         // Sent means safe: nothing is waiting any more.
         kept.forEach((c) => (c.gathered = c.photos + c.videos))
+        keptOthers.forEach((r) => otherSent.add(r.id))
         sendListeners.forEach((l) =>
           l({
             finished: true,

@@ -23,6 +23,10 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+fn is_none_of_them(n: &usize) -> bool {
+    *n == 0
+}
+
 /// Reads one variable of the environment, as storage keys set for scripts
 /// are read.
 pub type Environment = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
@@ -100,6 +104,9 @@ pub struct BackupCounts {
     pub destinations: usize,
     pub photos: usize,
     pub videos: usize,
+    /// Other files carried along. Never said when there are none.
+    #[serde(skip_serializing_if = "is_none_of_them")]
+    pub others: usize,
     /// Files being kept that are not yet safely everywhere they should be,
     /// and the room they need.
     pub waiting: usize,
@@ -111,9 +118,10 @@ pub struct BackupCounts {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StartBackupRequest {
     pub name: String,
-    /// `both` (photos and videos, as when left out), `photos` or `videos`.
+    /// What it is for: one or more of `photos`, `videos` and `others`.
+    /// Left out, everything Keevoro looks for.
     #[serde(default)]
-    pub wants: Option<crate::wants::WantsChoice>,
+    pub wants: Option<Vec<crate::wants::WantsWord>>,
 }
 
 /// `backups.rename`
@@ -354,6 +362,7 @@ impl Keevoro {
                         destinations: d.destinations.len(),
                         photos: d.photos,
                         videos: d.videos,
+                        others: d.others,
                         waiting: d.waiting_to_gather,
                         waiting_bytes: d.waiting_bytes,
                     }),
@@ -372,24 +381,31 @@ impl Keevoro {
         Ok(started)
     }
 
-    /// `backup.photos_or_videos`, set, and said in the log.
+    /// Is some kind of other file on the list? Only then are other files
+    /// offered as a choice, or spoken of.
+    pub fn lists_other_files(&self) -> bool {
+        self.backups.read().file_kinds.has_other()
+    }
+
+    /// `backup.wants`, set, and said in the log.
     pub fn set_backup_wants(&self, backup: &Backup, wants: keevoro_core::Wants) -> Result<crate::wants::WantsView> {
-        let view = backup.set_wants(wants)?;
+        let others = self.lists_other_files();
+        let view = backup.set_wants(wants, others)?;
         self.log.say(&format!(
             "This backup is now for {}. Nothing already backed up was changed",
-            wants.words()
+            wants.words(others)
         ));
         Ok(view)
     }
 
-    /// `sources.photos_or_videos`, set, and said in the log.
+    /// `sources.wants`, set, and said in the log.
     pub fn set_source_wants(
         &self,
         backup: &Backup,
         source: i64,
         wants: Option<keevoro_core::Wants>,
     ) -> Result<crate::wants::WantsView> {
-        let view = backup.set_source_wants(source, wants)?;
+        let view = backup.set_source_wants(source, wants, self.lists_other_files())?;
         self.log.say(&format!(
             "{} Nothing already backed up was changed",
             view.said

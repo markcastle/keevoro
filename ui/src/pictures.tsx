@@ -9,6 +9,7 @@ import { createPortal } from 'react-dom'
 import { length } from './format'
 import { NotNeeded, photoKey } from './pictureQueue'
 import type { Backend, Photo } from './backend'
+import { FileTile } from './otherFiles'
 
 /**
  * A small picture, with a shimmer while it is on its way and words in its
@@ -105,6 +106,8 @@ export function Picture(props: {
 /** The small picture of a photo a search found. */
 export function FoundPicture(props: { api: Backend; photo: Photo }) {
   const { api, photo } = props
+  // An other file is never opened to be shown: its name and kind instead.
+  if (photo.isOther) return <FileTile photo={photo} />
   return (
     <Picture
       id={photo.id}

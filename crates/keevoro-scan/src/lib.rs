@@ -1,10 +1,13 @@
-//! Finds photos and videos under a source folder or drive.
+//! Finds photos and videos under a source folder or drive, and any other
+//! files a person asked Keevoro to carry along.
 //!
 //! The scanner only ever reads. It walks the tree once, passes over files
 //! that are plainly programs, documents or music without opening them, and
 //! opens the rest a few at a time: it detects media by content rather than
 //! extension, hashes each file with BLAKE3 while reading it, and collects
-//! every date clue it can find.
+//! every date clue it can find. A file whose ending is on the list as an
+//! other file is found by that ending alone and read only to fingerprint
+//! it: nothing in it is looked at.
 //!
 //! Problems never stop a scan. Unreadable files and folders are reported so
 //! the user can try again later.
@@ -77,7 +80,7 @@ impl Default for ScanOptions {
     }
 }
 
-/// One photo or video found on a source.
+/// One photo, video or other file found on a source.
 #[derive(Debug, Clone, Serialize)]
 pub struct FoundItem {
     pub path: PathBuf,
@@ -145,7 +148,9 @@ pub struct ScanProgress {
     pub files_seen: u64,
     pub photos: u64,
     pub videos: u64,
-    /// Bytes of photos and videos read so far.
+    /// Other files a person asked for, found so far.
+    pub others: u64,
+    /// Bytes of photos, videos and other files read so far.
     pub bytes: u64,
     /// The folder of the file most recently looked at.
     pub folder: PathBuf,
@@ -264,6 +269,7 @@ pub fn scan(root: &Path, opts: &ScanOptions, on_progress: &mut dyn FnMut(&ScanPr
                     match item.kind {
                         MediaKind::Photo => progress.photos += 1,
                         MediaKind::Video => progress.videos += 1,
+                        MediaKind::Other => progress.others += 1,
                     }
                     progress.bytes += item.bytes;
                     found.push((order, *item));
@@ -378,6 +384,10 @@ fn walk(
 
 /// Looks at one file. `Ok(None)` means it is not a photo or video.
 fn examine(root: &Path, path: &Path, opts: &ScanOptions) -> std::io::Result<Option<FoundItem>> {
+    let ending = path.extension().map(|e| e.to_string_lossy()).unwrap_or_default();
+    if opts.kinds.is_other(&ending) {
+        return examine_other(root, path, opts).map(Some);
+    }
     let mut file = File::open(path)?;
     let mut head = vec![0u8; SNIFF_BYTES];
     let n = read_up_to(&mut file, &mut head)?;
@@ -452,6 +462,7 @@ fn examine(root: &Path, path: &Path, opts: &ScanOptions) -> std::io::Result<Opti
                 });
             }
         }
+        MediaKind::Other => {}
     }
     let file_name = path
         .file_name()
@@ -500,6 +511,59 @@ fn examine(root: &Path, path: &Path, opts: &ScanOptions) -> std::io::Result<Opti
         width: size.map(|s| s.0),
         height: size.map(|s| s.1),
     }))
+}
+
+/// Finds one other file: read only to be fingerprinted, never sniffed,
+/// sized or dated from inside. It belongs to the folder it came from, from
+/// the source's own folder's name down, exactly as the person arranged it,
+/// and its date is when it last changed, as a file manager shows it. It is
+/// never set aside as junk: a person asked for it.
+fn examine_other(root: &Path, path: &Path, opts: &ScanOptions) -> std::io::Result<FoundItem> {
+    let mut file = File::open(path)?;
+    let meta = file.metadata()?;
+    let (blake3, hashed) = if !opts.hash {
+        (None, false)
+    } else if opts.quick && meta.len() > QUICK_ABOVE {
+        (Some(quick_fingerprint(&mut file, meta.len())?), false)
+    } else {
+        (Some(hash_rest(&mut file, &[])?), true)
+    };
+    let mut album: Vec<String> = root
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .into_iter()
+        .collect();
+    album.extend(
+        path.strip_prefix(root)
+            .ok()
+            .and_then(Path::parent)
+            .into_iter()
+            .flat_map(Path::components)
+            .map(|c| c.as_os_str().to_string_lossy().to_string()),
+    );
+    let date = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .and_then(|d| i64::try_from(d.as_secs()).ok())
+        .and_then(PartialDate::from_unix_seconds)
+        .map(|date| DateGuess {
+            date,
+            source: DateSource::Modified,
+        });
+    Ok(FoundItem {
+        path: path.to_path_buf(),
+        kind: MediaKind::Other,
+        mime: "application/octet-stream".to_string(),
+        bytes: meta.len(),
+        blake3,
+        hashed,
+        date,
+        folder: FolderHints { album, date: None },
+        width: None,
+        height: None,
+        junk: None,
+    })
 }
 
 /// True when `dir` sits directly inside a Photos, iPhoto or Aperture library.

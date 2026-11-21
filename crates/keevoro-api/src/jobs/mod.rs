@@ -1240,14 +1240,13 @@ impl Keevoro {
     /// which of them are already its sources; nothing is changed.
     pub fn survey(&self, place: &Path, backup: Option<&Named>, listener: Option<Listener>) -> Result<JobHandle> {
         must_be_there(place)?;
-        // A backup for photos only, or videos only, is offered only those.
+        // A backup for photos only, say, is offered only those.
         let mut kinds = self.kinds_to_look_for();
-        let only = backup
+        let wants = backup
             .and_then(|b| crate::backup::Backup::open_existing(&b.home))
-            .and_then(|b| b.catalog().wants().ok())
-            .and_then(keevoro_core::Wants::only);
-        if let Some(kind) = only {
-            kinds = kinds.only(kind);
+            .and_then(|b| b.catalog().wants().ok());
+        if let Some(wants) = wants {
+            kinds = kinds.wanted_by(wants);
         }
         surveying::start(
             &self.context(),

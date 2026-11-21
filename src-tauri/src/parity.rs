@@ -70,10 +70,10 @@ const BACKED: &[(&str, &[Op])] = &[
     ("agent_access", &[Op::AgentsAccess]),
     ("set_agent_access", &[Op::AgentsAccess]),
     // Photos and videos, photos only, or videos only: a backup's and a source's.
-    ("backup_wants", &[Op::BackupPhotosOrVideos]),
-    ("set_backup_wants", &[Op::BackupPhotosOrVideos]),
-    ("source_wants", &[Op::SourcesPhotosOrVideos]),
-    ("set_source_wants", &[Op::SourcesPhotosOrVideos]),
+    ("backup_wants", &[Op::BackupWants]),
+    ("set_backup_wants", &[Op::BackupWants]),
+    ("source_wants", &[Op::SourcesWants]),
+    ("set_source_wants", &[Op::SourcesWants]),
     // The kinds of file looked for: one list for the whole of Keevoro.
     ("file_kinds", &[Op::FileKindsList]),
     ("add_file_kind", &[Op::FileKindsAdd]),
