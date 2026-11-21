@@ -1386,7 +1386,11 @@ impl Keevoro {
     /// `sources.look`: looks through a drive or folder quickly and adds it
     /// to the backup as a source.
     pub fn look(&self, backup: &Named, place: &Path, listener: Option<Listener>) -> Result<JobHandle> {
-        must_be_there(place)?;
+        // Cloud storage is not a folder on this computer: it is looked
+        // through by its listing, once it has been added as a source.
+        if !keevoro_core::bucket::is_bucket_path(place) {
+            must_be_there(place)?;
+        }
         looking::not_left_out(backup, place)?;
         looking::start(
             &self.context(),

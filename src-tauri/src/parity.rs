@@ -56,6 +56,7 @@ const BACKED: &[(&str, &[Op])] = &[
     // reached each, which the API does quickly.
     ("destination", &[Op::DestinationsList]),
     ("connect_destination", &[Op::DestinationsAdd]),
+    ("add_bucket_source", &[Op::SourcesAddBucket]),
     ("disconnect_destination", &[Op::DestinationsRemove]),
     ("room", &[Op::DestinationsRoom]),
     ("send_history", &[Op::BackupHistory]),

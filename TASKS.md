@@ -71,7 +71,7 @@ Someone other than the owner has now used Keevoro (0.37.1, Windows 11 Home). The
 - [ ] Drives appear and leave on their own, with a Refresh button
 - [x] Keep my folders as they are: a choice asked the first time a backup is set up
 - [x] The map: calmer colours, a summary ring, small folders merged
-- [ ] Cloud drives as sources: synced cloud folders done properly, then a bucket as a source
+- [x] Cloud drives as sources: synced cloud folders done properly, then a bucket as a source (fetching online-only files waits on the owner; previews from a bucket, its map and agents' named buckets are later)
 
 ### 4. Other kinds of file, carried along
 
@@ -559,7 +559,13 @@ Cloud drives as sources
 - [x] Remember each file that is online only, with its size from the listing, and say how much: "412 files, 18.4 GB, are in OneDrive only, not on this computer"
 - [ ] For files that are online only, offer "Fetch these and back them up", a few at a time, freeing each afterwards so the disk does not fill. Waiting on the owner: freeing a fetched file sets a small attribute on a file in the person's cloud folder, an exception to "sources are never edited". What is kept for it is ready (`Catalog::online_only_files`); until then the screen says to make them available offline first
 - [ ] Prove on real computers which synced folders are found: OneDrive personal and work, Dropbox personal and business, Google Drive streamed (its own drive) and mirrored, iCloud for Windows; on a Mac, each service under ~/Library/CloudStorage and iCloud Drive
-- [ ] A bucket as a source: read from Amazon S3, Cloudflare R2 and compatible storage, so a backup can be moved to a cheaper cloud or two merged
+- [x] A bucket as a source: read from Amazon S3, Cloudflare R2 and compatible storage, so a backup can be moved to a cheaper cloud or two merged, with what reading it out costs said first
+- [ ] Previews of a bucket's photos and videos, made from the copy at a folder destination after the originals pass, and dates read from the start of each photo by ranged reads, with their cost said (C2.4)
+- [ ] The map of where the space goes for a bucket, from its listing (C2.5)
+- [ ] Let a person name a bucket an AI agent may read, so an agent can look through a bucket source and back up from it (C2.5)
+- [ ] Copy from one bucket to another within one provider without bringing the files through this computer, only where both report the same full-object checksum: the owner decides, as it relaxes "every copy is proved with BLAKE3" (C2.5)
+- [ ] Restore files from Amazon's archive storage before backing them up, with the cost and the wait said first
+- [ ] Prove a bucket source against real Cloudflare R2 and Amazon S3, not only MinIO: listing dates and tags, a large video through staging, and a dropped connection part-way
 
 Already answered
 

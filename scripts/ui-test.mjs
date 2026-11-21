@@ -134,7 +134,7 @@ try {
   await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
   assert.match(await currentStep(), /Find your photos/)
   const places = page.locator('.places .place')
-  assert.equal(await places.count(), 4, 'the USB drive, OneDrive, a folder, and this computer’s disk')
+  assert.equal(await places.count(), 5, 'the USB drive, OneDrive, a folder, cloud storage, and this computer’s disk')
   assert.match(await places.first().innerText(), /^KINGSTON \(E:\)\s+USB or external drive · 32 GB$/)
   // A folder OneDrive keeps in step is offered by its name, after the
   // drives plugged in, and never looks chosen.
@@ -1652,6 +1652,45 @@ try {
   assert.equal(await page.getByRole('status').filter({ hasText: 'remembered map' }).innerText(), 'Forgot 1 remembered map.')
   await page.locator('.setting', { hasText: 'Remembered maps' }).scrollIntoViewIfNeeded()
   await shot('9u-settings-forget-maps')
+
+  // --- Cloud storage as a source, from our first outside tester: the same
+  // questions as a destination's, looked through by listing, and what
+  // reading it would cost said before Back up now.
+  await page.goto(`${base}/?fast`)
+  await page.getByRole('heading', { name: 'Which of these should we keep?', level: 1 }).waitFor()
+  await page.locator('.steps button').nth(0).click()
+  await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
+  await page.getByRole('button', { name: /^Add cloud storage as a source/ }).click()
+  const bucketForm = page.getByRole('form', { name: 'Add cloud storage as a source' })
+  await bucketForm.getByLabel('Storage').selectOption('s3')
+  await bucketForm.getByLabel('Region').fill('eu-west-2')
+  await bucketForm.getByLabel('Bucket name').fill('old-family-backup')
+  await bucketForm.getByLabel('Folder in the bucket (optional)').fill('Photos')
+  await bucketForm.getByLabel('Access key ID').fill('AKIAEXAMPLE')
+  await bucketForm.getByLabel('Secret access key').fill('not-a-real-secret')
+  assert.match(await bucketForm.innerText(), /Nothing in it is ever changed or deleted, so a key that can only read is enough\./)
+  await bucketForm.scrollIntoViewIfNeeded()
+  await shot('2e-cloud-storage-as-a-source')
+  await fitsNarrow('Adding cloud storage as a source')
+  await bucketForm.getByRole('button', { name: 'Add and look through it' }).click()
+  const bucketSource = page.locator('.kept li.source').filter({ hasText: 'old-family-backup' })
+  await bucketSource.waitFor()
+  assert.match(await bucketSource.innerText(), /In the folder Photos in the Amazon S3 bucket old-family-backup/)
+  assert.equal(await bucketSource.getByRole('button', { name: /^Look inside/ }).count(), 0, 'nothing is downloaded to look inside it')
+  await bucketSource.scrollIntoViewIfNeeded()
+  await shot('2f-cloud-storage-looked-through')
+  await page.locator('.steps button').nth(2).click()
+  await page.getByRole('button', { name: /A folder/ }).click()
+  await page.getByRole('heading', { name: /^Backing up to the folder/ }).waitFor()
+  const cloudCost = page.locator('.cloud-cost')
+  await cloudCost.waitFor()
+  assert.match(
+    await cloudCost.innerText(),
+    /^Reading from cloud storage can cost money\s+Reading [\d.]+ (GB|MB) out of Amazon S3 costs (about £[\d,]+|under £1) at Amazon’s usual price; Cloudflare R2 charges nothing for this\. Amazon lets each account download about 100 GB a month free, which may make it less\.$/,
+  )
+  await cloudCost.scrollIntoViewIfNeeded()
+  await shot('11c-cloud-cost-before-backing-up')
+  await fitsNarrow('What reading from cloud storage costs')
 
   // --- Every main screen fits a narrow window: the page never scrolls
   // sideways, and wide tables scroll inside their own box.

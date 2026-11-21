@@ -12,6 +12,7 @@ pub mod bucket;
 pub mod collections;
 pub mod date;
 pub mod doing;
+pub mod egress;
 pub mod estimate;
 pub mod folders;
 pub mod junk;

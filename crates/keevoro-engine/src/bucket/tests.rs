@@ -248,6 +248,17 @@ fn a_bucket_is_backed_up_to_a_folder_exactly_and_nothing_in_it_is_ever_written()
     let before = everything_in(&b.dir.path().join("bucket"));
     b.look();
     b.to_usb();
+    // Before anything starts, what it would read out of the bucket, and
+    // about what that costs, is known.
+    let total: u64 = [10, 60, 120].iter().map(|s| photo(*s).len() as u64).sum();
+    let found = crate::discover(&b.home, &b.catalog).unwrap();
+    assert_eq!(found.from_cloud.len(), 1);
+    assert_eq!(found.from_cloud[0].bytes, total);
+    assert!(
+        found.from_cloud[0].cost.contains("so check before you start"),
+        "{:?}",
+        found.from_cloud
+    );
     // The connection drops once part-way through a file: tried again, and
     // nothing half-fetched is left behind.
     b.store.drop_next.store(1, Ordering::SeqCst);
@@ -264,6 +275,10 @@ fn a_bucket_is_backed_up_to_a_folder_exactly_and_nothing_in_it_is_ever_written()
         ]
     );
     assert_eq!(b.staged(), 0, "nothing fetched is left on this computer");
+    assert!(
+        crate::discover(&b.home, &b.catalog).unwrap().from_cloud.is_empty(),
+        "nothing left to read"
+    );
     assert_eq!(
         b.store.downloads.load(Ordering::SeqCst),
         4,
@@ -304,6 +319,10 @@ fn a_photo_in_the_bucket_and_on_a_folder_source_is_backed_up_once() {
     b.to_usb();
     let (said, went) = b.back_up();
     assert_eq!(went.failed_files, 0, "{said}");
+    assert!(
+        said.contains("1 file read from cloud storage was an exact copy of a file already being backed up, so it was not sent again."),
+        "{said}"
+    );
     let at_usb = b.originals_at_usb();
     let copies = at_usb.iter().filter(|(_, body)| *body == photo(10)).count();
     assert_eq!(copies, 1, "{at_usb:?}");

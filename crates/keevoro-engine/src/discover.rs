@@ -182,6 +182,17 @@ pub struct DestinationView {
     pub looked: Option<crate::confirm::LookedView>,
 }
 
+/// What a backup would read out of one bucket source.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FromCloud {
+    /// Where, in words: "the Amazon S3 bucket family-photos".
+    pub name: String,
+    pub bytes: u64,
+    /// About what reading it costs, in a sentence or two, each with "about".
+    pub cost: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Discover {
@@ -207,6 +218,11 @@ pub struct Discover {
     pub sources: Vec<SourceView>,
     /// Each place this backup goes to, with what has reached it.
     pub destinations: Vec<DestinationView>,
+    /// What backing up now would read out of each bucket source (once for
+    /// each destination it has yet to reach), with about what that costs,
+    /// so it is said before anything starts. Left out when none.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub from_cloud: Vec<FromCloud>,
     /// Newest first; the first is the one to show large.
     pub collections: Vec<CollectionView>,
 }
@@ -400,6 +416,13 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
 
     let mut waiting_to_gather = 0;
     let mut waiting_bytes = 0;
+    // Each bucket source, and what would be read out of it.
+    let mut clouds: Vec<(keevoro_core::bucket::BucketPlace, u64)> = catalog
+        .sources()?
+        .iter()
+        .filter_map(|s| crate::bucket::place_of(s.bucket.as_deref()))
+        .map(|place| (place, 0))
+        .collect();
     let mut collections = Vec::new();
     let keys = keys_of(&summary.collections);
     for (at, c) in summary.collections.iter().enumerate() {
@@ -410,6 +433,12 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
             let is_wanted = wanted(catalog, item)?;
             kept |= is_wanted;
             let (is_in, there) = reach.safe(item)?;
+            if is_wanted && !clouds.is_empty() {
+                let missing = there.iter().filter(|t| !**t).count() as u64;
+                if let Some((_, bytes)) = clouds.iter_mut().find(|(p, _)| p.key_of(&item.path).is_some()) {
+                    *bytes += item.bytes * missing;
+                }
+            }
             if is_wanted {
                 for (there, tally) in there.into_iter().zip(tallies.iter_mut()) {
                     if there {
@@ -526,6 +555,15 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
             }
             views
         },
+        from_cloud: clouds
+            .into_iter()
+            .filter(|(_, bytes)| *bytes > 0)
+            .map(|(place, bytes)| FromCloud {
+                name: place.describe(),
+                cost: keevoro_core::egress::cost_said(&place.kind, &place.place, bytes, &crate::summary::bytes(bytes)),
+                bytes,
+            })
+            .collect(),
         collections,
     })
 }

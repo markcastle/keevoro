@@ -243,6 +243,7 @@ fn originals_first(
     let files_sent = |out: &mut dyn Write, files: &[u8]| -> Result<()> {
         for line in said(files).lines() {
             if line.starts_with("Safely backed up")
+                || line.contains(" read from cloud storage ")
                 || line.starts_with("Restored ")
                 || line.ends_with("already there.")
                 || line.starts_with("Warning:")
@@ -1028,6 +1029,23 @@ fn run_until(
     }
     if report.already_there > 0 {
         writeln!(out, "{} already there.", summary::count(report.already_there, "file"))?;
+    }
+    if report.copies_left_out > 0 {
+        writeln!(
+            out,
+            "{} read from cloud storage {}, so {} not sent again.",
+            summary::count(report.copies_left_out, "file"),
+            if report.copies_left_out == 1 {
+                "was an exact copy of a file already being backed up"
+            } else {
+                "were exact copies of files already being backed up"
+            },
+            if report.copies_left_out == 1 {
+                "it was"
+            } else {
+                "they were"
+            },
+        )?;
     }
     for (name, files) in &unplugged {
         writeln!(out, "{}", summary::source_unplugged(name, *files))?;

@@ -75,6 +75,9 @@ pub struct BucketAdded {
     /// The source's id, to look through it with `sources.look_again`.
     pub id: i64,
     pub name: String,
+    /// Where it is as its files' paths start, `s3://family-photos/Photos`:
+    /// what `sources.look` is given to look through it.
+    pub root: String,
     /// Where it is, in words: "the Amazon S3 bucket family-photos".
     pub place: String,
     /// Said only when no keys were given and those set in the environment
@@ -139,6 +142,7 @@ impl Backup {
         Ok(BucketAdded {
             id,
             name,
+            root: place.root(),
             place: place.describe(),
             keys: (from == KeysFrom::Environment).then(|| {
                 format!(

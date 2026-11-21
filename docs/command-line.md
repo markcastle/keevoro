@@ -234,6 +234,22 @@ Keys you give are always the ones checked and saved, whatever the environment ho
 
 Keevoro warns you if strangers are able to list the bucket's contents. The bucket itself is told never to replace an original.
 
+### Cloud storage as a source
+
+A bucket, or a folder in one, can be a source too: to move an old cloud backup somewhere cheaper, merge two, or bring one down to a drive. It is only ever read. Make a key that can only **list and read** that bucket, then:
+
+```sh
+keevoro sources add-bucket --s3 eu-west-2 --bucket old-family-backup --prefix Photos --keys-from-stdin
+```
+
+```text
+Keevoro can read the folder Photos in the Amazon S3 bucket old-family-backup, and added it as the source "Photos". Nothing in it will ever be changed.
+Its keys are kept in this computer's keychain, and nowhere else.
+Look through it next, which only lists it and downloads nothing: keevoro look --again "Photos"
+```
+
+The keys are taken the same four ways as above, checked by listing the bucket (which changes nothing), and kept in the keychain under the source's own name. Looking through it reads only the bucket's listing; nothing is downloaded. A source bucket keeps its folders as they are in the backup unless you choose otherwise with `keevoro sources arrange`. When it is backed up, each file is brought through this computer, checked, sent, and removed from this computer again, one or two at a time, and only when there is room for it with 2 GB to spare. `keevoro backup --dry-run` says first about what reading it out will cost, for example "Reading 120 GB out of Amazon S3 costs about £9 at Amazon’s usual price; Cloudflare R2 charges nothing for this." Files in Amazon's archive storage are said, with how much they come to, and are not backed up until they are restored. `keevoro sources forget` takes it off the backup and its keys out of the keychain; nothing in the bucket is touched.
+
 ## For scripts
 
 Every command takes `--json` and then answers with exactly what Keevoro's API answers, the same the app receives. A job (`look`, `survey`, `run`, `check`) prints a line saying how it started, then one line for each thing it says as it goes, the same events the app hears, the last one last. Progress and problems go to standard error, and what was asked for to standard output.
@@ -282,6 +298,7 @@ The words each command shows in `keevoro --help` come from the same list the app
 | `keevoro forget-maps` | Forgets every survey Keevoro remembers, and so every map. Nothing on any drive is touched. |
 | `keevoro look PLACE` | Looks through a drive or folder and adds it as a source. |
 | `keevoro look --again [SOURCE]` | Looks through one source, or all of them, for what is new. |
+| `keevoro sources add-bucket --r2 ID\|--s3 REGION\|--endpoint URL --bucket NAME [--prefix FOLDER] [--name NAME]` | Adds cloud storage as a source, after checking its keys can read it. Nothing in it is ever changed. Then `keevoro look --again NAME` lists it. |
 | `keevoro sources` | The backup's sources, each with its number. |
 | `keevoro sources forget SOURCE` | Takes a source off the backup. Nothing on it is touched. |
 | `keevoro sources types SOURCE` | The kinds of file on a source, and which are included. |

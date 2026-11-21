@@ -198,8 +198,14 @@ pub async fn publish(
     let sent_now = &sent_now;
     let mut waiting = uploads.iter();
     let mut in_flight = FuturesUnordered::new();
+    // Files being fetched to this computer first, never more than
+    // FETCHED_AT_ONCE of them on its disk at once.
+    let mut fetching = 0;
     loop {
         while in_flight.len() < opts.at_once.max(1) {
+            if fetching >= FETCHED_AT_ONCE && waiting.as_slice().first().is_some_and(|u| u.fetch.is_some()) {
+                break;
+            }
             // Pausing holds back new files; those already going finish.
             while keevoro_core::pause::is_paused() && !stop_asked() {
                 tokio::time::sleep(Duration::from_millis(150)).await;
@@ -221,6 +227,7 @@ pub async fn publish(
                 continue;
             }
             let was_gone = recorded.is_some();
+            fetching += usize::from(upload.fetch.is_some());
             in_flight.push(async move {
                 (
                     upload,
@@ -232,6 +239,7 @@ pub async fn publish(
         let Some((upload, was_gone, sent)) = in_flight.next().await else {
             break;
         };
+        fetching -= usize::from(upload.fetch.is_some());
         match sent {
             Ok(Outcome::Copy(whole)) => {
                 if upload.learn_fingerprint {
@@ -285,6 +293,11 @@ pub async fn put_document(
     with_retries(opts, || store.put(key, ByteSource::Bytes(body.clone()), &put)).await?;
     Ok(())
 }
+
+/// The most files brought to this computer from cloud storage at once, to
+/// be sent on: whatever is being sent at once, never more than this is on
+/// its disk.
+pub const FETCHED_AT_ONCE: usize = 2;
 
 /// Reading a file back means holding it in memory. Files larger than this
 /// (long videos) are checked by presence and size only.

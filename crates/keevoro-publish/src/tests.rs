@@ -887,7 +887,11 @@ impl Fetch for FromTheCloud {
             return Err(StorageError::Network("connection reset".into()));
         }
         std::fs::create_dir_all(&self.staging)?;
-        let file = self.staging.join(format!("fetch-{n}"));
+        // Each fetch has a file of its own, as the real one has.
+        static EVERY: AtomicU32 = AtomicU32::new(0);
+        let file = self
+            .staging
+            .join(format!("fetch-{n}-{}", EVERY.fetch_add(1, Ordering::SeqCst)));
         std::fs::write(&file, &self.contents)?;
         Ok(Fetched {
             file,
@@ -989,5 +993,27 @@ async fn a_fetched_file_that_is_not_what_keevoro_labelled_it_is_refused() {
         .await
         .unwrap()
         .is_none());
+    assert_eq!(w.staged(), 0);
+}
+
+#[tokio::test]
+async fn never_more_than_two_files_from_cloud_storage_are_on_this_computer_at_once() {
+    let w = World::new().await;
+    let mut uploads = Vec::new();
+    let mut clouds = Vec::new();
+    for n in 0..8 {
+        let (upload, cloud) = w.in_the_cloud(&format!("originals/{n}.jpg"), &pattern(20_000 + n), 0);
+        uploads.push(upload);
+        clouds.push(cloud);
+    }
+    let opts = PublishOptions { at_once: 6, ..quick() };
+    let mut most = 0;
+    let report = publish(&w.store, &w.catalog, "test", &uploads, &opts, &mut |_| {
+        most = most.max(w.staged());
+    })
+    .await
+    .unwrap();
+    assert_eq!(report.uploaded, 8);
+    assert!(most <= FETCHED_AT_ONCE, "{most} were here at once");
     assert_eq!(w.staged(), 0);
 }
