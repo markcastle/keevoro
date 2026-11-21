@@ -141,7 +141,7 @@ pub(super) fn start(ctx: &Context, backup: &Named, kind: JobKind, listener: Opti
         let last = Said::Send(last);
         ctx.jobs.heard(job, last.clone(), true);
         // Whatever the backup did not fingerprint is picked up again now.
-        super::duplicates::start(ctx, &backup);
+        super::duplicates::start(ctx, &backup, None);
         ending.with(Some(last));
     })?;
     Ok(handle)

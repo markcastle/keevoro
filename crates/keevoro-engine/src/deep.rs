@@ -56,6 +56,21 @@ pub fn deep_look(
     on_progress: &mut dyn FnMut(DeepProgress<'_>),
     keep_going: &dyn Fn() -> bool,
 ) -> Result<DeepReport> {
+    deep_look_where(catalog, cache, only, &|_| true, on_progress, keep_going)
+}
+
+/// [`deep_look`], reading only the files `may_read` allows. The rest are
+/// left as they are, with their quick fingerprint, for a check that may
+/// read them. It is how a check that follows an AI agent's search keeps to
+/// the folders that agent may read.
+pub fn deep_look_where(
+    catalog: &Catalog,
+    cache: Option<&Path>,
+    only: Option<&HashSet<String>>,
+    may_read: &dyn Fn(&Path) -> bool,
+    on_progress: &mut dyn FnMut(DeepProgress<'_>),
+    keep_going: &dyn Fn() -> bool,
+) -> Result<DeepReport> {
     let _busy = keevoro_core::doing::doing(keevoro_core::doing::Work::CheckingForDuplicates);
     let unhashed = catalog.unhashed()?;
     let mut sharing = std::collections::HashMap::<&str, usize>::new();
@@ -70,6 +85,7 @@ pub fn deep_look(
     let waiting: Vec<_> = unhashed
         .iter()
         .filter(|file| only.is_none_or(|wanted| wanted.contains(&file.quick)))
+        .filter(|file| may_read(&file.path))
         .collect();
     let mut report = DeepReport::default();
     for (done, file) in waiting.iter().enumerate() {
@@ -165,6 +181,27 @@ mod tests {
         let found = discover(&library, &catalog).unwrap();
         assert_eq!(found.photos, 3, "the lookalike is its own photo");
         assert_eq!(found.duplicates, 1, "and the backup copy is a true duplicate");
+    }
+
+    #[test]
+    fn a_check_kept_to_some_folders_reads_nothing_outside_them() {
+        let (_dir, drive, _library, catalog) = world();
+        let backup = std::fs::canonicalize(drive.join("Backup")).unwrap();
+        let mut read = Vec::new();
+        let report = deep_look_where(
+            &catalog,
+            None,
+            None,
+            &|path| path.starts_with(&backup),
+            &mut |p| read.push(p.reading.to_path_buf()),
+            &|| true,
+        )
+        .unwrap();
+        assert_eq!(report.checked, 1);
+        assert_eq!(read, [backup.join("IMG_20100101_100000.jpg")]);
+        let left: Vec<PathBuf> = catalog.unhashed().unwrap().into_iter().map(|f| f.path).collect();
+        assert_eq!(left.len(), 2, "left for a check that may read them: {left:?}");
+        assert!(left.iter().all(|path| !path.starts_with(&backup)));
     }
 
     #[test]

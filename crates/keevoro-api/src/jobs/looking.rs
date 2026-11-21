@@ -6,6 +6,7 @@
 //! for duplicates, which this starts again when it ends.
 
 use super::{spawn, Context, Every, Job, JobHandle, JobKind, Listener, Said, ScanEvent};
+use crate::agents::AgentAccess;
 use crate::backups::Named;
 use crate::error::{Error, Result};
 use keevoro_catalog::Catalog;
@@ -61,17 +62,26 @@ pub(super) fn not_left_out(backup: &Named, place: &Path) -> Result<()> {
     }
 }
 
-/// Starts looking through `places`, one after another, for the `kinds`
-/// of file the settings named as it started.
+/// What a search is to look for, and how: the `kinds` of file the
+/// settings named as it started, the folders to pass by, and, for a search
+/// an AI agent asked for, what that agent may look in, which the check for
+/// duplicates that follows is kept to.
+pub(super) struct HowToLook {
+    pub(super) kinds: Kinds,
+    pub(super) skip: keevoro_core::SkipRules,
+    pub(super) for_agent: Option<AgentAccess>,
+}
+
+/// Starts looking through `places`, one after another.
 pub(super) fn start(
     ctx: &Context,
     backup: &Named,
     places: Vec<PathBuf>,
     kind: JobKind,
-    kinds: Kinds,
-    skip: keevoro_core::SkipRules,
+    how: HowToLook,
     listener: Option<Listener>,
 ) -> Result<JobHandle> {
+    let HowToLook { kinds, skip, for_agent } = how;
     let job = ctx.jobs.begin(kind, Some(backup), listener)?;
     let handle = job.handle.clone();
     // Said at once, so anyone who asks straight away hears it.
@@ -101,7 +111,7 @@ pub(super) fn start(
         if let Some(said) = &last {
             ctx.jobs.heard(job, said.clone(), true);
         }
-        super::duplicates::start(ctx, &backup);
+        super::duplicates::start(ctx, &backup, for_agent);
         ending.with(last);
     })?;
     Ok(handle)

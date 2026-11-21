@@ -9,6 +9,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Fixed
 
 - **An AI app can no longer be led out of a folder you allowed by a shortcut changed at just the wrong moment.** Keevoro already judged every folder an AI app named by where it really leads; it now works on that very place, rather than reading the shortcut again afterwards. A destination an AI app adds through a shortcut is listed under where it really is.
+- **After an AI app looks through a folder, Keevoro's check for duplicates stays in the folders you allowed it.** The check Keevoro starts by itself after a search used to read, in full, large files from every source of the backup, including ones the AI app was not allowed to look in. Those are now left for the next check you start, or the next backup.
 
 ## [0.37.1] - 2026-11-20
 

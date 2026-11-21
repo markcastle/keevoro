@@ -6,8 +6,15 @@
 //! backup reads the same files, and fingerprints them as it goes, so
 //! checking alongside it would read them twice over. Each of those starts
 //! it again when it ends, and it carries on from where it was.
+//!
+//! After a search an AI agent asked for, it reads only files in folders
+//! that agent may look in: the agent started it, so it is held to the
+//! agent's folders like the search was. What it leaves is read by the
+//! next check started any other way, or by a backup, which reads what it
+//! needs as it sends.
 
 use super::{spawn, CheckEvent, Context, Every, JobHandle, JobKind, Said};
+use crate::agents::AgentAccess;
 use crate::backups::Named;
 use keevoro_catalog::Catalog;
 use keevoro_engine::friendly_path;
@@ -53,8 +60,10 @@ impl<'a> GiveWayWhen<'a> {
     }
 }
 
-/// Starts the check on this backup, unless one is running already.
-pub(crate) fn start(ctx: &Context, backup: &Named) -> Option<JobHandle> {
+/// Starts the check on this backup, unless one is running already. With
+/// `within`, the folders an AI agent may look in, only files inside them
+/// are read.
+pub(crate) fn start(ctx: &Context, backup: &Named, within: Option<AgentAccess>) -> Option<JobHandle> {
     let job = ctx.jobs.begin_only_one(JobKind::Duplicates, backup)?;
     let handle = job.handle.clone();
     let home = backup.home.clone();
@@ -69,10 +78,12 @@ pub(crate) fn start(ctx: &Context, backup: &Named) -> Option<JobHandle> {
         let result = Catalog::open_in_library(&home)
             .map_err(anyhow::Error::from)
             .and_then(|catalog| {
-                keevoro_engine::deep::deep_look(
+                let may_read = |file: &std::path::Path| within.as_ref().is_none_or(|agent| agent.may_look_in(file));
+                keevoro_engine::deep::deep_look_where(
                     &catalog,
                     Some(&ctx.cache),
                     None,
+                    &may_read,
                     &mut |p| {
                         total = p.total;
                         if p.done == 0 {
