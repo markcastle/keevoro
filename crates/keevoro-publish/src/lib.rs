@@ -53,6 +53,35 @@ pub struct Upload {
     /// pass over the file, and the answer comes back in the report, so the
     /// file never has to be read once to fingerprint it and again to send.
     pub learn_fingerprint: bool,
+    /// For a file in cloud storage (a bucket source), how to bring it to
+    /// this computer first: `file` is then only its name, never opened.
+    /// It is fetched as its turn comes, sent from there, and the copy here
+    /// removed, so no more are on this computer at once than are being
+    /// sent at once.
+    pub fetch: Option<std::sync::Arc<dyn Fetch>>,
+}
+
+/// Brings one file from where it is (a bucket source) to this computer, to
+/// be sent from there.
+#[async_trait::async_trait]
+pub trait Fetch: Send + Sync + std::fmt::Debug {
+    async fn fetch(&self) -> Result<Fetched, StorageError>;
+}
+
+/// A file fetched to this computer, and its fingerprint, worked out as it
+/// was written. The copy is removed when this is dropped, however sending
+/// it went.
+#[derive(Debug)]
+pub struct Fetched {
+    pub file: PathBuf,
+    pub bytes: u64,
+    pub blake3: String,
+}
+
+impl Drop for Fetched {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.file);
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -101,6 +130,9 @@ pub struct FailedUpload {
 
 #[derive(Debug, Default, Serialize)]
 pub struct PublishReport {
+    /// Files fetched from cloud storage that turned out, once read, to be
+    /// exact copies of a file already given its place: not sent again.
+    pub copies_left_out: usize,
     pub uploaded: usize,
     pub uploaded_bytes: u64,
     pub already_there: usize,
@@ -129,6 +161,9 @@ enum Outcome {
     /// Sent now, with its fingerprint if that was asked for and found.
     Sent(Option<String>),
     AlreadyThere,
+    /// Fetched and found to be an exact copy of a file already given its
+    /// place (whose fingerprint this is), so not sent.
+    Copy(String),
 }
 
 /// Sends `uploads` to `store`, skipping whatever the catalog says is
@@ -157,6 +192,10 @@ pub async fn publish(
     // Up to `at_once` files are on their way at any moment. They take
     // turns on this one task, so the catalog is still only ever touched
     // from here, one thing at a time.
+    // The fingerprints of files fetched and sent in this pass, by where
+    // each went, so a second copy fetched later is known for one.
+    let sent_now = std::sync::Mutex::new(std::collections::HashMap::<String, String>::new());
+    let sent_now = &sent_now;
     let mut waiting = uploads.iter();
     let mut in_flight = FuturesUnordered::new();
     loop {
@@ -182,12 +221,24 @@ pub async fn publish(
                 continue;
             }
             let was_gone = recorded.is_some();
-            in_flight.push(async move { (upload, was_gone, send(store, catalog, target, upload, opts).await) });
+            in_flight.push(async move {
+                (
+                    upload,
+                    was_gone,
+                    send_one(store, catalog, target, upload, opts, sent_now).await,
+                )
+            });
         }
         let Some((upload, was_gone, sent)) = in_flight.next().await else {
             break;
         };
         match sent {
+            Ok(Outcome::Copy(whole)) => {
+                if upload.learn_fingerprint {
+                    report.learned.push((upload.key.to_string(), whole));
+                }
+                report.copies_left_out += 1;
+            }
             Ok(outcome) => {
                 catalog.mark_uploaded(target, upload.key.as_str(), upload.bytes)?;
                 match outcome {
@@ -200,6 +251,7 @@ pub async fn publish(
                         report.restored += usize::from(was_gone);
                     }
                     Outcome::AlreadyThere => report.already_there += 1,
+                    Outcome::Copy(_) => {}
                 }
             }
             Err(SendError::Catalog(e)) => return Err(e),
@@ -341,6 +393,8 @@ pub fn plain_reason(e: &StorageError) -> String {
         // account ID, are passed on as they are.
         StorageError::Provider(said) if said.starts_with("That doesn't look like") => said.clone(),
         StorageError::Provider(said) if said.starts_with("The storage address") => said.clone(),
+        StorageError::Provider(said) if said.starts_with("There isn't room") => said.clone(),
+        StorageError::Provider(said) if said.starts_with("Keevoro needs the storage keys") => said.clone(),
         other => format!("The storage reported a problem ({other})"),
     }
 }
@@ -360,6 +414,65 @@ impl From<CatalogError> for SendError {
     fn from(e: CatalogError) -> Self {
         Self::Catalog(e)
     }
+}
+
+/// Sends one upload, fetching it first when it is in cloud storage.
+///
+/// A fetched file is checked before it is sent: if Keevoro labelled it
+/// with its fingerprint when it backed it up, what was read must match;
+/// and if it is an exact copy of a file already given its place (in the
+/// catalog, or sent in this pass), it is not sent again. Then it is sent
+/// as any file is, from the copy here, labelled with the fingerprint
+/// worked out as it was fetched, so a folder proves its copy against it.
+async fn send_one(
+    store: &dyn MultipartStore,
+    catalog: &Catalog,
+    target: &str,
+    upload: &Upload,
+    opts: &PublishOptions,
+    sent_now: &std::sync::Mutex<std::collections::HashMap<String, String>>,
+) -> Result<Outcome, SendError> {
+    let Some(fetch) = &upload.fetch else {
+        return send(store, catalog, target, upload, opts).await;
+    };
+    let fetched = with_retries(opts, || fetch.fetch()).await?;
+    if let Some(label) = upload.metadata.get("blake3") {
+        if *label != fetched.blake3 {
+            return Err(StorageError::NotTheSame(
+                "what was read from the cloud storage is not the file Keevoro labelled it as".into(),
+            )
+            .into());
+        }
+    }
+    let whole = fetched.blake3.clone();
+    let key = upload.key.to_string();
+    let placed_elsewhere = catalog.collected_path(&whole)?.is_some_and(|place| place != key);
+    let sent_elsewhere = sent_now
+        .lock()
+        .map(|sent| sent.get(&whole).is_some_and(|other| *other != key))
+        .unwrap_or(false);
+    if placed_elsewhere || sent_elsewhere {
+        return Ok(Outcome::Copy(whole));
+    }
+    let mut metadata = upload.metadata.clone();
+    metadata.insert("blake3".to_string(), whole.clone());
+    let here = Upload {
+        file: fetched.file.clone(),
+        bytes: fetched.bytes,
+        metadata,
+        learn_fingerprint: false,
+        fetch: None,
+        ..upload.clone()
+    };
+    let outcome = send(store, catalog, target, &here, opts).await?;
+    drop(fetched);
+    if let Ok(mut sent) = sent_now.lock() {
+        sent.insert(whole.clone(), key);
+    }
+    Ok(match outcome {
+        Outcome::Sent(_) => Outcome::Sent(upload.learn_fingerprint.then_some(whole)),
+        other => other,
+    })
 }
 
 async fn send(

@@ -240,7 +240,11 @@ fn to_preview(catalog: &Catalog, reports: &[keevoro_scan::ScanReport], whole_onl
     let root_of = |item: &FoundItem| reports.iter().position(|r| item.path.starts_with(&r.root)).unwrap_or(0);
     let mut by_source: Vec<Vec<FoundItem>> = vec![Vec::new(); reports.len().max(1)];
     for item in unique {
-        if (whole_only && !item.hashed) || !crate::wanted(catalog, item)? {
+        // A file in cloud storage is not downloaded to make its previews.
+        if (whole_only && !item.hashed)
+            || keevoro_core::bucket::is_bucket_path(&item.path)
+            || !crate::wanted(catalog, item)?
+        {
             continue;
         }
         let at = root_of(item).min(by_source.len() - 1);
@@ -262,7 +266,7 @@ pub fn still_to_make(catalog: &Catalog) -> Result<(u64, u64)> {
     let (mut photos, mut videos) = (0, 0);
     for item in unique {
         let Some(hash) = item.blake3.as_deref() else { continue };
-        if !crate::wanted(catalog, item)? {
+        if keevoro_core::bucket::is_bucket_path(&item.path) || !crate::wanted(catalog, item)? {
             continue;
         }
         match item.kind {
@@ -297,7 +301,7 @@ pub fn without_previews(catalog: &Catalog) -> Result<(u64, u64)> {
     let (mut photos, mut videos) = (0, 0);
     for item in unique {
         let Some(hash) = item.blake3.as_deref() else { continue };
-        if !crate::wanted(catalog, item)? {
+        if keevoro_core::bucket::is_bucket_path(&item.path) || !crate::wanted(catalog, item)? {
             continue;
         }
         match item.kind {

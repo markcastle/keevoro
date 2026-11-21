@@ -270,6 +270,11 @@ impl ReadOnly {
         self.0.check_reading(prefix).await
     }
 
+    /// See [`ObjectStore::list_page`].
+    pub async fn list_page(&self, prefix: &str, continuation: Option<String>) -> Result<ListPage, StorageError> {
+        self.0.list_page(prefix, continuation).await
+    }
+
     /// See [`ObjectStore::list_all`].
     pub async fn list_all(&self, prefix: &str) -> Result<Vec<ObjectInfo>, StorageError> {
         self.0.list_all(prefix).await

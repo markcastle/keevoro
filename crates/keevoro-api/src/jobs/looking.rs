@@ -133,6 +133,9 @@ fn look_through(
     kinds: &Kinds,
     skip: &keevoro_core::SkipRules,
 ) -> ScanEvent {
+    if keevoro_core::bucket::is_bucket_path(source) {
+        return look_through_bucket(ctx, job, home, source, kinds, skip);
+    }
     let name = name_of(source);
     // What to call it if it is unplugged part-way: the drive's own name
     // when the place is a whole drive. From the system's quick list, so it
@@ -301,6 +304,94 @@ fn look_through(
         online_only_said: result.as_ref().ok().and_then(online_only_said),
         problem: result.err().map(|e| format!("{e:#}")),
         unplugged,
+    }
+}
+
+/// Looks through a bucket source by listing it, downloading nothing, and
+/// gives the last event as a search of a folder would.
+fn look_through_bucket(
+    ctx: &Context,
+    job: &Arc<Job>,
+    home: &Path,
+    source: &Path,
+    kinds: &Kinds,
+    skip: &keevoro_core::SkipRules,
+) -> ScanEvent {
+    let started = Instant::now();
+    let mut name = name_of(source);
+    let mut latest = keevoro_scan::ScanProgress::default();
+    let result = (|| -> anyhow::Result<keevoro_scan::ScanReport> {
+        let mut catalog = Catalog::open_in_library(home)?;
+        let found = catalog.sources()?.into_iter().find(|s| s.root == source);
+        let Some((place, kept_name)) =
+            found.and_then(|s| Some((keevoro_engine::bucket::place_of(s.bucket.as_deref())?, s.name)))
+        else {
+            anyhow::bail!("That source isn't part of this backup.");
+        };
+        name = kept_name;
+        ctx.log.say(&format!("Looking through {}", place.describe()));
+        job.note_line(&format!("Looking through {name}"));
+        let world = keevoro_engine::connect::World {
+            secrets: &*ctx.secrets,
+            environment: &*ctx.environment,
+        };
+        let (keys, from) = keevoro_engine::bucket::keys_for(&place, &world)?;
+        if from == keevoro_engine::connect::KeysFrom::Environment {
+            ctx.log.say(&format!(
+                "Using the storage keys set in {} and {} for {}, as none are saved in this computer's keychain for it.",
+                keevoro_engine::send::ACCESS_KEY_VAR,
+                keevoro_engine::send::SECRET_KEY_VAR,
+                place.describe()
+            ));
+        }
+        let store = keevoro_engine::bucket::open(&place, &keys)?;
+        let mut every = Every::after(ctx.jobs.progress_every());
+        keevoro_engine::bucket::look_through(
+            &mut catalog,
+            &name,
+            &place,
+            &store,
+            kinds,
+            skip,
+            &|| job.stopped(),
+            &mut |p| {
+                latest = p.clone();
+                let event = ScanEvent {
+                    name: name.clone(),
+                    photos: p.photos,
+                    videos: p.videos,
+                    others: p.others,
+                    files: p.files_seen,
+                    folder: place.describe(),
+                    ..ScanEvent::default()
+                };
+                ctx.jobs.heard(job, Said::Scan(event), every.due());
+            },
+        )
+    })();
+    match &result {
+        Ok(report) if report.stopped => ctx.log.say(&format!("Stopped looking through {name}. Nothing from it was kept.")),
+        Ok(report) => ctx.log.say(&format!(
+            "Looked through {name} in {} seconds by its listing, downloading nothing: {} files Keevoro looks for, {} others",
+            started.elapsed().as_secs(),
+            report.items.len(),
+            report.other_files
+        )),
+        Err(e) => ctx.log.say(&format!("Looking through {name} failed: {e:#}")),
+    }
+    ScanEvent {
+        name,
+        photos: latest.photos,
+        videos: latest.videos,
+        others: latest.others,
+        files: latest.files_seen,
+        stopped: result.as_ref().is_ok_and(|r| r.stopped),
+        finished: true,
+        left_out: result.as_ref().map_or_else(|_| Vec::new(), |r| left_out_of(r, &[])),
+        online_only: result.as_ref().map_or(0, |r| r.online_only.len()),
+        online_only_said: result.as_ref().ok().and_then(online_only_said),
+        problem: result.err().map(|e| format!("{e:#}")),
+        ..ScanEvent::default()
     }
 }
 

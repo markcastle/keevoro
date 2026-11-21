@@ -710,6 +710,16 @@ pub static ROWS: &[Row] = &[
         },
         show: show::picture,
     },
+    Row {
+        words: &["sources", "add-bucket"],
+        ops: &[Op::SourcesAddBucket],
+        about: Some(
+            "Adds cloud storage as a source: a bucket, or a folder in it with --prefix. Its keys are tested by listing, which writes nothing, and go to this computer's keychain. Nothing in the bucket is ever changed. Then look through it with: keevoro look --again NAME.",
+        ),
+        args: crate::keys::bucket_args,
+        ask: |_, m, io| Ok((Op::SourcesAddBucket, crate::keys::bucket_request(m, io)?)),
+        show: show::bucket_added,
+    },
     // Destinations
     Row {
         words: &["destinations"],

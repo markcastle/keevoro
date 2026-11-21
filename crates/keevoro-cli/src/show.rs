@@ -695,6 +695,28 @@ pub fn added(io: &mut Io<'_>, m: &ArgMatches, added: &Value) -> Said_ {
     Ok(Code::Worked)
 }
 
+pub fn bucket_added(io: &mut Io<'_>, _: &ArgMatches, added: &Value) -> Said_ {
+    writeln!(
+        io.out,
+        "Keevoro can read {}, and added it as the source \"{}\". Nothing in it will ever be changed.",
+        s(added, "place"),
+        s(added, "name")
+    )?;
+    match added.get("keys").and_then(Value::as_str) {
+        Some(keys) => writeln!(io.out, "{keys}")?,
+        None => writeln!(
+            io.out,
+            "Its keys are kept in this computer's keychain, and nowhere else."
+        )?,
+    }
+    writeln!(
+        io.out,
+        "Look through it next, which only lists it and downloads nothing: keevoro look --again \"{}\"",
+        s(added, "name")
+    )?;
+    Ok(Code::Worked)
+}
+
 pub fn removed(io: &mut Io<'_>, _: &ArgMatches, gone: &Value) -> Said_ {
     for name in each(gone).filter_map(Value::as_str) {
         writeln!(

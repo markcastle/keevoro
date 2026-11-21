@@ -144,6 +144,9 @@ register! {
     SourcesLook = "sources.look",
         "Looks through a drive or folder and adds it as a source",
         changes: Always, job: true, command_line: true, agents: Agents::Yes, implemented: true;
+    SourcesAddBucket = "sources.add_bucket",
+        "Adds a bucket, or a folder in one, as a source that is only ever read",
+        changes: Always, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     SourcesLookAgain = "sources.look_again",
         "Looks through one source, or all of them, for what is new",
         changes: Always, job: true, command_line: true, agents: Agents::Yes, implemented: true;
@@ -426,6 +429,7 @@ impl Op {
             Op::PhotosKeep => schema::<KeepPhotoRequest>(),
             Op::PhotosPicture => schema::<PictureRequest>(),
             Op::DestinationsAdd => schema::<Add>(),
+            Op::SourcesAddBucket => schema::<crate::bucket_sources::AddBucketRequest>(),
             Op::DestinationsRemove => schema::<Remove>(),
             Op::BackupPreviews => schema::<PreviewsRequest>(),
             Op::JobsStatus => schema::<StatusRequest>(),
@@ -543,6 +547,15 @@ impl Op {
                 "look_again",
                 "Looks through a backup's sources again, or just one, to find photos added since last time. Only \
                  reads the sources. It starts a job and gives back its id at once; follow it with job_status.",
+            ),
+            Op::SourcesAddBucket => (
+                "add_bucket_source",
+                "Adds cloud storage as a source of a backup: a bucket, or a folder in one (prefix), on Cloudflare \
+                 R2 (kind \"r2\", place the account ID), Amazon S3 (kind \"s3\", place the region) or other \
+                 S3-compatible storage (kind \"endpoint\", place its address), with its keys. The keys are tested \
+                 by listing, which writes nothing, kept in the computer's keychain, and can never be read back. \
+                 Nothing in the bucket is ever written. Looking through it and backing up from it are for the \
+                 person: the folders an agent is allowed cannot hold a bucket.",
             ),
             Op::SourcesForget => (
                 "forget_source",
@@ -822,7 +835,7 @@ mod tests {
 
     #[test]
     fn the_register_has_every_operation_in_the_plan() {
-        assert_eq!(Op::ALL.len(), 61);
+        assert_eq!(Op::ALL.len(), 62);
         // Each entry is the one for its own operation.
         for op in Op::ALL {
             assert_eq!(op.entry().op, *op);
@@ -955,6 +968,7 @@ mod tests {
         "where_the_space_goes",
         "list_sources",
         "look_through",
+        "add_bucket_source",
         "look_again",
         "forget_source",
         "source_wants",

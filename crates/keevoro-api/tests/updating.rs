@@ -174,6 +174,11 @@ fn everything_a_person_set_and_keevoro_recorded_in_0_37_1_is_there_after_updatin
     // 0.37.1 only counted them, so their size is not known (catalog step
     // 13 keeps it from the next look) and they are said as before.
     assert_eq!(sources[0].get("onlineOnlyBytes"), None, "{sources}");
+    // Catalog step 14: every source before was a folder, and still is.
+    assert!(
+        sources.as_array().unwrap().iter().all(|s| s.get("bucket").is_none()),
+        "{sources}"
+    );
     let said = sources[0]["onlineOnlySaid"].as_str().unwrap();
     assert!(
         said.starts_with("3 files here are in ") && said.ends_with("first, then look again."),

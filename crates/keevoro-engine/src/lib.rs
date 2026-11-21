@@ -16,6 +16,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 pub mod background;
+pub mod bucket;
 pub mod confirm;
 pub mod connect;
 pub mod deep;
@@ -207,7 +208,11 @@ pub fn make_previews(
     on_step: &mut dyn FnMut(ReadyStep),
 ) -> Result<()> {
     let reports = catalog.load_reports()?;
-    let chosen = chosen(catalog, &reports)?;
+    // A file in cloud storage is not downloaded to make its previews.
+    let chosen: Vec<&FoundItem> = chosen(catalog, &reports)?
+        .into_iter()
+        .filter(|i| !keevoro_core::bucket::is_bucket_path(&i.path))
+        .collect();
     keevoro_collect::make_previews_while(
         home,
         catalog,
@@ -285,6 +290,12 @@ pub fn check_and_place(
     }
     let mut to_check = std::collections::HashSet::new();
     for item in reports.iter().flat_map(|r| &r.items) {
+        // A file in cloud storage has a quick fingerprint of its own that
+        // nothing else shares: it is told apart from copies once it is
+        // read, as it is backed up, never downloaded twice to do it here.
+        if keevoro_core::bucket::is_bucket_path(&item.path) {
+            continue;
+        }
         if let (false, Some(quick)) = (item.hashed, &item.blake3) {
             let alike = looks_like.get(quick.as_str()).copied().unwrap_or(0) > 1 || checked.contains(quick);
             if alike && wanted(catalog, item)? {
@@ -322,6 +333,7 @@ pub fn check_and_place(
     }
     let alike = |item: &FoundItem| {
         !item.hashed
+            && !keevoro_core::bucket::is_bucket_path(&item.path)
             && item
                 .blake3
                 .as_deref()

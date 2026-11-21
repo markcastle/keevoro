@@ -528,6 +528,32 @@ impl Keevoro {
         Ok(added)
     }
 
+    /// `sources.add_bucket`, with the keychain and environment, saying in
+    /// the log when the environment's keys were used (naming the
+    /// variables, never the keys).
+    pub fn add_bucket_source(
+        &self,
+        backup: &Backup,
+        request: &crate::bucket_sources::AddBucketRequest,
+    ) -> Result<crate::bucket_sources::BucketAdded> {
+        let added = backup.add_bucket_source(request, self.secrets(), &*self.environment)?;
+        self.log.say(&format!("Added {} as a source", added.place));
+        if let Some(keys) = &added.keys {
+            self.log.say(keys);
+        }
+        Ok(added)
+    }
+
+    /// `sources.forget`: a bucket source's keys go from the keychain too.
+    pub fn forget_source(&self, backup: &mut Backup, source: i64) -> Result<bool> {
+        let secret = backup.bucket_secret(source)?;
+        let forgotten = backup.forget_source(source)?;
+        if let (true, Some(secret)) = (forgotten, secret) {
+            self.secrets().delete(&secret)?;
+        }
+        Ok(forgotten)
+    }
+
     /// The outside world a destination is reached through: the keychain,
     /// and the environment for scripts' keys.
     pub(crate) fn world(&self) -> keevoro_engine::connect::World<'_> {

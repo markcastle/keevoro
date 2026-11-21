@@ -11,7 +11,8 @@
 //!    environment's and says so, as it does for the app and an agent.
 //! 4. Asked for at the keyboard, the secret without being shown.
 //!
-//! Keys given go straight into the request for `destinations.add`, and
+//! Keys given go straight into the request for `destinations.add` or
+//! `sources.add_bucket`, and
 //! from there to the computer's keychain and nowhere else. Nothing here
 //! prints, logs or keeps them.
 
@@ -27,9 +28,17 @@ pub fn args(command: Command) -> Command {
     let place = |name: &'static str, value: &'static str, help: &'static str| {
         Arg::new(name).long(name).value_name(value).help(help)
     };
-    command
-        .arg(place("folder", "FOLDER", "A folder: an external drive, a network share, anywhere on disk"))
-        .arg(place("r2", "ACCOUNT_ID", "Cloudflare R2, by your Cloudflare account ID"))
+    let command = command
+        .arg(place(
+            "folder",
+            "FOLDER",
+            "A folder: an external drive, a network share, anywhere on disk",
+        ))
+        .arg(place(
+            "r2",
+            "ACCOUNT_ID",
+            "Cloudflare R2, by your Cloudflare account ID",
+        ))
         .arg(place("s3", "REGION", "Amazon S3, by its region, such as eu-west-2"))
         .arg(place(
             "endpoint",
@@ -46,7 +55,66 @@ pub fn args(command: Command) -> Command {
                 .long("bucket")
                 .value_name("NAME")
                 .help("The bucket, for cloud storage"),
-        )
+        );
+    key_args(command)
+}
+
+/// What `keevoro sources add-bucket` takes: where the cloud storage is,
+/// the bucket and a folder in it, and the keys.
+pub fn bucket_args(command: Command) -> Command {
+    let place = |name: &'static str, value: &'static str, help: &'static str| {
+        Arg::new(name).long(name).value_name(value).help(help)
+    };
+    let command = command
+        .arg(place(
+            "r2",
+            "ACCOUNT_ID",
+            "Cloudflare R2, by your Cloudflare account ID",
+        ))
+        .arg(place("s3", "REGION", "Amazon S3, by its region, such as eu-west-2"))
+        .arg(place(
+            "endpoint",
+            "URL",
+            "Other storage that speaks S3 (MinIO, a NAS), by its address",
+        ))
+        .group(ArgGroup::new("where").args(["r2", "s3", "endpoint"]).required(true))
+        .arg(place("bucket", "NAME", "The bucket to read from").required(true))
+        .arg(place(
+            "prefix",
+            "FOLDER",
+            "A folder in the bucket to read from, such as Photos/2019; the whole bucket if left out",
+        ))
+        .arg(place(
+            "name",
+            "NAME",
+            "What to call the source; the folder's or bucket's name if left out",
+        ));
+    key_args(command)
+}
+
+/// The request for `sources.add_bucket`, with the keys in it.
+pub fn bucket_request(m: &ArgMatches, io: &mut Io<'_>) -> Result<Value, Failure> {
+    let given = |name: &str| m.get_one::<String>(name).cloned();
+    let (kind, place) = ["r2", "s3", "endpoint"]
+        .into_iter()
+        .find_map(|kind| given(kind).map(|place| (kind, place)))
+        .unwrap_or_default();
+    let mut request = json!({ "kind": kind, "place": place, "bucket": given("bucket").unwrap_or_default() });
+    for (field, name) in [("prefix", "prefix"), ("name", "name")] {
+        if let Some(value) = given(name) {
+            request[field] = Value::String(value);
+        }
+    }
+    if let Some((access, secret)) = keys(m, io)? {
+        request["accessKeyId"] = Value::String(access);
+        request["secretAccessKey"] = Value::String(secret);
+    }
+    Ok(request)
+}
+
+/// The ways storage keys can be given.
+fn key_args(command: Command) -> Command {
+    command
         .arg(
             Arg::new("keys-from-stdin")
                 .long("keys-from-stdin")

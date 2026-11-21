@@ -8,6 +8,7 @@
 
 pub mod arrange;
 pub mod background;
+pub mod bucket;
 pub mod collections;
 pub mod date;
 pub mod doing;

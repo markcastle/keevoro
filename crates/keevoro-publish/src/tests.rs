@@ -155,6 +155,7 @@ impl World {
             content_type: Some("image/jpeg".into()),
             metadata: BTreeMap::new(),
             learn_fingerprint: false,
+            fetch: None,
         }
     }
     async fn publish(&self, uploads: &[Upload], opts: &PublishOptions) -> PublishReport {
@@ -846,6 +847,7 @@ async fn asked_to_stop_it_finishes_nothing_more_and_says_so() {
                 content_type: None,
                 metadata: BTreeMap::new(),
                 learn_fingerprint: false,
+                fetch: None,
             }
         })
         .collect();
@@ -864,4 +866,128 @@ async fn asked_to_stop_it_finishes_nothing_more_and_says_so() {
     assert_eq!((report.uploaded, report.stopped), (1, true));
     assert!(catalog.is_uploaded("t", "originals/0.jpg").unwrap());
     assert!(!catalog.is_uploaded("t", "originals/1.jpg").unwrap());
+}
+
+/// Stands in for a file in cloud storage: each fetch writes it into a
+/// staging folder here, and drops the connection first as often as asked.
+#[derive(Debug)]
+struct FromTheCloud {
+    contents: Vec<u8>,
+    staging: PathBuf,
+    drops: AtomicU32,
+    fetches: AtomicU32,
+}
+
+#[async_trait]
+impl Fetch for FromTheCloud {
+    async fn fetch(&self) -> Result<Fetched, StorageError> {
+        let n = self.fetches.fetch_add(1, Ordering::SeqCst);
+        if self.drops.load(Ordering::SeqCst) > 0 {
+            self.drops.fetch_sub(1, Ordering::SeqCst);
+            return Err(StorageError::Network("connection reset".into()));
+        }
+        std::fs::create_dir_all(&self.staging)?;
+        let file = self.staging.join(format!("fetch-{n}"));
+        std::fs::write(&file, &self.contents)?;
+        Ok(Fetched {
+            file,
+            bytes: self.contents.len() as u64,
+            blake3: blake3_hex(&self.contents),
+        })
+    }
+}
+
+impl World {
+    /// A file in cloud storage, to be fetched when its turn comes.
+    fn in_the_cloud(&self, key: &str, contents: &[u8], drops: u32) -> (Upload, std::sync::Arc<FromTheCloud>) {
+        let cloud = std::sync::Arc::new(FromTheCloud {
+            contents: contents.to_vec(),
+            staging: self.dir.path().join("staging"),
+            drops: AtomicU32::new(drops),
+            fetches: AtomicU32::new(0),
+        });
+        let upload = Upload {
+            key: ObjectKey::new(key).unwrap(),
+            // Never opened: the file is fetched.
+            file: PathBuf::from(format!("s3://bucket/{key}")),
+            bytes: contents.len() as u64,
+            write_once: true,
+            content_type: Some("image/jpeg".into()),
+            metadata: BTreeMap::new(),
+            learn_fingerprint: true,
+            fetch: Some(cloud.clone()),
+        };
+        (upload, cloud)
+    }
+
+    fn staged(&self) -> usize {
+        std::fs::read_dir(self.dir.path().join("staging")).map_or(0, |d| d.count())
+    }
+}
+
+#[tokio::test]
+async fn a_file_in_cloud_storage_is_fetched_sent_proved_and_its_copy_here_removed() {
+    let w = World::new().await;
+    let body = pattern(300_000);
+    // The connection drops twice while it is fetched: tried again.
+    let (upload, cloud) = w.in_the_cloud("originals/Spain/IMG_1.jpg", &body, 2);
+    let report = w.publish(std::slice::from_ref(&upload), &quick()).await;
+    assert_eq!((report.uploaded, report.failed.len()), (1, 0), "{:?}", report.failed);
+    assert_eq!(w.stored("originals/Spain/IMG_1.jpg").await, body);
+    assert_eq!(
+        report.learned,
+        [("originals/Spain/IMG_1.jpg".to_string(), blake3_hex(&body))]
+    );
+    assert_eq!(cloud.fetches.load(Ordering::SeqCst), 3);
+    assert_eq!(w.staged(), 0, "nothing is left on this computer");
+    // Once it is there it is never fetched again: nothing already safely
+    // sent is read a second time.
+    let again = w.publish(&[upload], &quick()).await;
+    assert_eq!((again.already_there, cloud.fetches.load(Ordering::SeqCst)), (1, 3));
+}
+
+#[tokio::test]
+async fn a_fetched_file_that_is_a_copy_of_one_already_placed_is_not_sent_again() {
+    let w = World::new().await;
+    let body = pattern(5_000);
+    // The same photo, already given its place from a folder source.
+    w.catalog
+        .mark_placed(&blake3_hex(&body), "originals/Card/IMG_1.jpg", 5_000)
+        .unwrap();
+    let (upload, _) = w.in_the_cloud("originals/Bucket/IMG_1.jpg", &body, 0);
+    let report = w.publish(&[upload], &quick()).await;
+    assert_eq!((report.uploaded, report.copies_left_out), (0, 1));
+    assert_eq!(
+        report.learned.len(),
+        1,
+        "its fingerprint is learnt, so it goes by it from now on"
+    );
+    assert!(!w.catalog.is_uploaded("test", "originals/Bucket/IMG_1.jpg").unwrap());
+    assert_eq!(w.staged(), 0);
+
+    // Two copies fetched in one pass: the second is not sent.
+    let w = World::new().await;
+    let (one, _) = w.in_the_cloud("originals/A/x.jpg", &body, 0);
+    let (two, _) = w.in_the_cloud("originals/B/x.jpg", &body, 0);
+    let report = w.publish(&[one, two], &quick()).await;
+    assert_eq!((report.uploaded, report.copies_left_out), (1, 1));
+}
+
+#[tokio::test]
+async fn a_fetched_file_that_is_not_what_keevoro_labelled_it_is_refused() {
+    let w = World::new().await;
+    let (mut upload, _) = w.in_the_cloud("originals/IMG_1.jpg", b"changed since", 0);
+    upload
+        .metadata
+        .insert("blake3".into(), blake3_hex(b"what was labelled"));
+    upload.learn_fingerprint = false;
+    let report = w.publish(&[upload], &quick()).await;
+    assert_eq!((report.uploaded, report.failed.len()), (0, 1));
+    assert!(w
+        .store
+        .head(&ObjectKey::new("originals/IMG_1.jpg").unwrap())
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(w.staged(), 0);
 }

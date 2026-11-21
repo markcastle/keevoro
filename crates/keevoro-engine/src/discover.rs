@@ -46,6 +46,10 @@ pub struct SourceView {
     /// when not known (looked through by an older version).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub online_only_bytes: Option<u64>,
+    /// Where it is, in words, when it is cloud storage: "the Amazon S3
+    /// bucket family-photos". Left out for a folder.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bucket: Option<String>,
     /// Folders left out of this backup that are in it, or that it is in,
     /// as a person would write them, each with Put back beside it.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -492,6 +496,7 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
                 &s.root,
             ),
             online_only_bytes: s.online_only_bytes,
+            bucket: crate::bucket::place_of(s.bucket.as_deref()).map(|p| p.describe()),
         })
         .collect();
     Ok(Discover {

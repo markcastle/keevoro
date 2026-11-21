@@ -809,7 +809,10 @@ fn raw_files_wrongly_set_aside_by_an_earlier_version_are_put_back() {
         // Rewind to before the fix, so opening again applies it, taking
         // away what later steps add so that they can add it again.
         c.conn
-            .execute_batch("ALTER TABLE uploaded DROP COLUMN gone; DROP TABLE online_only;")
+            .execute_batch(
+                "ALTER TABLE uploaded DROP COLUMN gone; DROP TABLE online_only;
+                 ALTER TABLE sources DROP COLUMN kind; ALTER TABLE sources DROP COLUMN place;",
+            )
             .unwrap();
         c.conn.pragma_update(None, "user_version", 6).unwrap();
     }
@@ -932,6 +935,44 @@ fn how_many_files_were_only_online_is_kept_with_the_source_until_it_is_looked_th
         )
         .unwrap();
     assert_eq!(left, 0, "nothing is kept about a source forgotten");
+}
+
+#[test]
+fn cloud_storage_is_a_source_whose_place_outlives_each_look_and_whose_files_are_never_read_in_the_background() {
+    let mut c = Catalog::in_memory().unwrap();
+    let place = r#"{"kind":"s3","place":"eu-west-2","bucket":"family","prefix":""}"#;
+    let id = c.add_bucket_source("family", "s3://family", place, 5).unwrap();
+    let source = &c.sources().unwrap()[0];
+    assert_eq!((source.id, source.items), (id, 0));
+    assert_eq!(source.bucket.as_deref(), Some(place));
+    // Added again: the same source.
+    assert_eq!(c.add_bucket_source("family", "s3://family", place, 6).unwrap(), id);
+
+    let mut found = report("s3://family");
+    for item in &mut found.items {
+        item.path = PathBuf::from(format!(
+            "s3://family/{}",
+            item.path.file_name().unwrap().to_string_lossy()
+        ));
+        item.hashed = false;
+    }
+    c.save_scan("family", &found, 10).unwrap();
+    let source = &c.sources().unwrap()[0];
+    assert_eq!(
+        source.bucket.as_deref(),
+        Some(place),
+        "still cloud storage after a look"
+    );
+    assert!(source.items > 0);
+    assert!(
+        c.unhashed().unwrap().is_empty(),
+        "never downloaded by the background check"
+    );
+    assert_eq!(c.unhashed_count().unwrap(), 0);
+
+    // A folder is a folder, as every source was before.
+    c.save_scan("Card", &report("/media/card"), 10).unwrap();
+    assert_eq!(c.sources().unwrap()[1].bucket, None);
 }
 
 #[test]

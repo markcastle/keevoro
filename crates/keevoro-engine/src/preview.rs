@@ -45,6 +45,11 @@ pub fn preview(
 pub const NO_PICTURE_OF_OTHER_FILES: &str =
     "Keevoro doesn't make pictures of other files. Use Show in File Explorer to open it.";
 
+/// What is said when a picture of a file in cloud storage is asked for:
+/// none is made, as it would mean downloading it.
+pub const NO_PICTURE_IN_CLOUD_STORAGE: &str =
+    "Keevoro doesn't make pictures of files in cloud storage, as that would mean downloading them.";
+
 /// A WebP preview at the size asked for. A video's still is the same
 /// picture at either size, so it is made and cached once. An other file
 /// has none, and is never opened to try.
@@ -62,6 +67,10 @@ pub fn preview_at(
     let id = &hash[..hash.len().min(16)];
     if kind == MediaKind::Other {
         bail!(NO_PICTURE_OF_OTHER_FILES);
+    }
+    // A file in cloud storage is never downloaded to make a picture.
+    if keevoro_core::bucket::is_bucket_path(&source) && catalog.collected_path(&hash)?.is_none() {
+        bail!(NO_PICTURE_IN_CLOUD_STORAGE);
     }
 
     if catalog.collected_path(&hash)?.is_some() {

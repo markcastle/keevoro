@@ -151,6 +151,18 @@ pub fn summary(op: Op, answer: &Value) -> String {
                 None => works,
             }
         }
+        Op::SourcesAddBucket => {
+            let added = format!(
+                "Keevoro can read {}, and added it as the source \"{}\". Nothing in it will ever be changed. The \
+                 person looks through it and backs it up: reading from it can cost them money.",
+                s(answer, "place"),
+                s(answer, "name")
+            );
+            match answer.get("keys").and_then(Value::as_str) {
+                Some(keys) => format!("{added} {keys}"),
+                None => added,
+            }
+        }
         Op::DestinationsRemove => {
             let gone: Vec<&str> = each(answer).filter_map(Value::as_str).collect();
             format!(

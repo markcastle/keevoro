@@ -183,6 +183,12 @@ const MIGRATIONS: &[&str] = &[
          bytes     INTEGER NOT NULL
      );
      CREATE INDEX online_only_by_source ON online_only(source_id);",
+    // 14: a source can now be cloud storage (a bucket, or a folder in one)
+    // as well as a folder. `kind` says which; every source before was a
+    // folder, so that is what each is. `place` holds where a bucket is, as
+    // JSON with nothing secret in it (the keys are in the keychain).
+    "ALTER TABLE sources ADD COLUMN kind TEXT NOT NULL DEFAULT 'folder';
+     ALTER TABLE sources ADD COLUMN place TEXT;",
 ];
 
 /// What a look at a destination found of a file Keevoro sent there.
@@ -271,6 +277,9 @@ pub struct Source {
     /// is not known: a source last looked through by a version that only
     /// counted them.
     pub online_only_bytes: Option<u64>,
+    /// Where it is when it is cloud storage, as the JSON
+    /// `keevoro_core::bucket::BucketPlace` is kept as; `None` for a folder.
+    pub bucket: Option<String>,
 }
 
 /// One kind of file found on a source, by the ending of its name.
@@ -334,6 +343,11 @@ fn ending_of(path: &Path) -> String {
         .map(|e| e.to_string_lossy().to_lowercase())
         .unwrap_or_default()
 }
+
+/// Added to a question about items: only files on a disk. A file in cloud
+/// storage is never read by the background check for duplicates, which
+/// would download it; it is read once, when it is backed up.
+const ON_A_DISK: &str = " AND source_id IN (SELECT id FROM sources WHERE kind = 'folder')";
 
 /// A file known only by a quick fingerprint so far.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -416,6 +430,14 @@ impl Catalog {
                 known.insert((r.get(0)?, r.get(1)?), r.get(2)?);
             }
         }
+        // What kind of source it is, and where a bucket is, belong to the
+        // source, not to what was found, so they carry over.
+        let (kind, place): (String, Option<String>) = tx
+            .query_row("SELECT kind, place FROM sources WHERE root = ?1", [&root], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .optional()?
+            .unwrap_or_else(|| ("folder".to_string(), None));
         tx.execute("DELETE FROM sources WHERE root = ?1", [&root])?;
         tx.execute("DELETE FROM settings WHERE key = ?1", [online_only_key(&root)])?;
         if !report.online_only.is_empty() {
@@ -425,8 +447,8 @@ impl Catalog {
             )?;
         }
         tx.execute(
-            "INSERT INTO sources (name, root, other_files, scanned_at) VALUES (?1, ?2, ?3, ?4)",
-            params![name, root, to_i64(report.other_files), scanned_at],
+            "INSERT INTO sources (name, root, other_files, scanned_at, kind, place) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![name, root, to_i64(report.other_files), scanned_at, kind, place],
         )?;
         let source = tx.last_insert_rowid();
         {
@@ -489,7 +511,8 @@ impl Catalog {
                     (SELECT COUNT(*) FROM items i WHERE i.source_id = s.id),
                     (SELECT COALESCE(SUM(i.bytes), 0) FROM items i WHERE i.source_id = s.id),
                     (SELECT CAST(value AS INTEGER) FROM settings WHERE key = 'online_only:' || s.root),
-                    (SELECT SUM(o.bytes) FROM online_only o WHERE o.source_id = s.id)
+                    (SELECT SUM(o.bytes) FROM online_only o WHERE o.source_id = s.id),
+                    CASE s.kind WHEN 'bucket' THEN s.place END
              FROM sources s ORDER BY s.id",
         )?;
         let rows = q.query_map([], |r| {
@@ -505,6 +528,7 @@ impl Catalog {
                     .and_then(|n| u64::try_from(n).ok())
                     .unwrap_or(0),
                 online_only_bytes: r.get::<_, Option<i64>>(7)?.and_then(|n| u64::try_from(n).ok()),
+                bucket: r.get(8)?,
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -528,12 +552,33 @@ impl Catalog {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    /// Adds cloud storage as a source, with nothing found on it yet, so it
+    /// can be looked through. `place` is where it is, as JSON with nothing
+    /// secret in it. A source already at `root` keeps what was found there
+    /// and has its place brought up to date. Answers its id.
+    pub fn add_bucket_source(&self, name: &str, root: &str, place: &str, at: i64) -> Result<i64> {
+        let changed = self.conn.execute(
+            "UPDATE sources SET kind = 'bucket', place = ?2 WHERE root = ?1",
+            params![root, place],
+        )?;
+        if changed == 0 {
+            self.conn.execute(
+                "INSERT INTO sources (name, root, other_files, scanned_at, kind, place)
+                 VALUES (?1, ?2, 0, ?3, 'bucket', ?4)",
+                params![name, root, at, place],
+            )?;
+        }
+        Ok(self
+            .conn
+            .query_row("SELECT id FROM sources WHERE root = ?1", [root], |r| r.get(0))?)
+    }
+
     /// Every file whose fingerprint is still a quick one: its path, that
     /// quick fingerprint and its size, in the order found.
     pub fn unhashed(&self) -> Result<Vec<Unhashed>> {
-        let mut q = self
-            .conn
-            .prepare("SELECT path, blake3, bytes FROM items WHERE hashed = 0 AND blake3 IS NOT NULL ORDER BY id")?;
+        let mut q = self.conn.prepare(&format!(
+            "SELECT path, blake3, bytes FROM items WHERE hashed = 0 AND blake3 IS NOT NULL{ON_A_DISK} ORDER BY id"
+        ))?;
         let rows = q.query_map([], |r| {
             Ok(Unhashed {
                 path: PathBuf::from(r.get::<_, String>(0)?),
@@ -549,7 +594,7 @@ impl Catalog {
     /// the index kept for it.
     pub fn unhashed_count(&self) -> Result<usize> {
         let n: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM items WHERE hashed = 0 AND blake3 IS NOT NULL",
+            &format!("SELECT COUNT(*) FROM items WHERE hashed = 0 AND blake3 IS NOT NULL{ON_A_DISK}"),
             [],
             |r| r.get(0),
         )?;

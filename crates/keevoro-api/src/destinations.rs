@@ -31,7 +31,7 @@ impl Key {
         Self(key.into())
     }
 
-    fn reveal(&self) -> &str {
+    pub(crate) fn reveal(&self) -> &str {
         self.0.trim()
     }
 }

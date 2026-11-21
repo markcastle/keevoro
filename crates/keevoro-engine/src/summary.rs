@@ -221,6 +221,10 @@ pub use keevoro_core::words::{count, files, thousands};
 /// and how to include them. The same on screen, at the command line and to
 /// an AI app. Nothing when there are none.
 pub fn online_only(n: usize, bytes: Option<u64>, place: &std::path::Path) -> Option<String> {
+    // In a bucket source, these are objects in archive storage.
+    if let Some(provider) = keevoro_core::bucket::provider_of(place) {
+        return archived(n, bytes.unwrap_or_default(), provider);
+    }
     let service = keevoro_core::synced::service_of(place).map_or(keevoro_scan::online::SERVICE, |s| s.name());
     online_only_in(n, bytes, service)
 }
@@ -238,6 +242,22 @@ fn online_only_in(n: usize, bytes: Option<u64>, service: &str) -> Option<String>
             "{} here {are} in {service} only, not on this computer, so Keevoro did not open {them}. {how}",
             count(n, "file")
         ),
+    })
+}
+
+/// What is said of files in a bucket source that are in archive storage
+/// (Amazon's Glacier Flexible Retrieval or Deep Archive), which cannot be
+/// read until they are restored, so are not backed up.
+fn archived(n: usize, bytes: u64, provider: &str) -> Option<String> {
+    let (is, it) = if n == 1 { ("is", "it") } else { ("are", "them") };
+    (n > 0).then(|| {
+        format!(
+            "{}, {}, {is} in archive storage, which can't be read until {} restored. Keevoro can't do that yet; \
+             to include {it}, restore {it} in {provider} first, then look again.",
+            count(n, "file"),
+            self::bytes(bytes),
+            if n == 1 { "it is" } else { "they are" }
+        )
     })
 }
 
