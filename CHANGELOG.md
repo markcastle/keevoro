@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.41.0] - 2026-11-21
+
 ### Added
 
 - **Keep my folders as they are.** Our first outside tester backed up a folder of family scans they had sorted by family, and found them under "By date / 2021 / 2021-01", the day they were scanned. A backup can now keep your folders exactly as they are instead: the same folders and names as on your sources, starting with the source's own folder ("Family Scans / Smith / ..."), never sorted by date. The first time you set up a backup, moving on from "Find your photos" asks one question, "How should we arrange them in the backup?", with two choices, "Arrange by date" and "Keep my folders as they are", the one Keevoro suggests already chosen and marked "Suggested", and why. You can change it later in Settings, under "How files are arranged in the backup", and for each source under File types beside it ("Arrange files from Family Scans"), where a suggestion that differs from what the source does comes with a button to take it. On "Choose what to keep", folders kept as they are are shown as they will be in the backup, a card for each folder under "From Family Scans, kept in your folders", and the backup screen says how it is arranged above "Back up now", with Change. Choose it at the command line with `keevoro arrange folders` (or `keevoro backups start NAME --arrange folders`), and `keevoro arrange by-date` to go back. Each source can choose for itself too, so a camera card can go by date while a folder of scans keeps its folders: `keevoro sources arrange "Family Scans" folders`. Two sources whose folders have the same name (two called "Photos", say) share one "Photos" folder in the backup, and each source says so. When the same photo is in a source that keeps its folders and one arranged by date, the copy in your folders is the one backed up. Keevoro suggests which to choose, and says why: "These look like scans.", or "412 of its 420 photos have the same date, 14 March 2021, which is probably when they were copied or scanned, not taken.", or for a camera card, "These look like they came straight from a camera." Changing it only changes where files go from then on: a file already backed up stays exactly where it is, is not sent again, and is not counted as missing. The note in each backup says which way it is arranged, and from when it was changed. Backups made before this version are arranged by date, as they always were.
@@ -677,7 +681,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.40.0...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.41.0...HEAD
+[0.41.0]: https://github.com/markcastle/keevoro/compare/v0.40.0...v0.41.0
 [0.40.0]: https://github.com/markcastle/keevoro/compare/v0.39.1...v0.40.0
 [0.39.1]: https://github.com/markcastle/keevoro/compare/v0.39.0...v0.39.1
 [0.39.0]: https://github.com/markcastle/keevoro/compare/v0.38.0...v0.39.0
