@@ -179,18 +179,24 @@ impl Other {
             .flat_map(|s| s.running.iter())
             .map(|r| r.status.handle.job)
             .find(|kind| kind.slot().is_some());
-        let what = match kind {
-            Some(JobKind::BackUp) => format!("backing up \"{backup}\""),
-            Some(JobKind::Check) => format!("checking what has reached the destinations of \"{backup}\""),
-            Some(JobKind::Look) => format!("looking through a source for \"{backup}\""),
-            Some(JobKind::LookAgain) => format!("looking through the sources of \"{backup}\" again"),
-            _ => format!("working on \"{backup}\""),
-        };
-        format!(
-            "Keevoro is already {what} {}. Let that finish, or stop it, first.",
-            self.holder.by.words()
-        )
+        busy_words(kind, backup, self.holder.by)
     }
+}
+
+/// "Keevoro is already backing up "Family" in the Keevoro app. Let that
+/// finish, or stop it, first."
+pub(crate) fn busy_words(kind: Option<JobKind>, backup: &str, by: crate::jobs::FrontEnd) -> String {
+    let what = match kind {
+        Some(JobKind::BackUp) => format!("backing up \"{backup}\""),
+        Some(JobKind::Check) => format!("checking what has reached the destinations of \"{backup}\""),
+        Some(JobKind::Look) => format!("looking through a source for \"{backup}\""),
+        Some(JobKind::LookAgain) => format!("looking through the sources of \"{backup}\" again"),
+        _ => format!("working on \"{backup}\""),
+    };
+    format!(
+        "Keevoro is already {what} {}. Let that finish, or stop it, first.",
+        by.words()
+    )
 }
 
 /// The keeper of one hold: what it needs to know between ticks.

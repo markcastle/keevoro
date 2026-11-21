@@ -107,7 +107,16 @@ register! {
         "Gives a backup a new name",
         changes: Always, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     BackupsForget = "backups.forget",
-        "Removes a backup from Keevoro. Nothing at any destination or source is touched",
+        "Removes a backup from Keevoro, to put back for a week. No source or destination is touched",
+        changes: OnlyWhenAsked, job: false, command_line: true, agents: Agents::No, implemented: true;
+    BackupsRemoved = "backups.removed",
+        "The backups removed in the last week, which can still be put back",
+        changes: Never, job: false, command_line: true, agents: Agents::No, implemented: true;
+    BackupsPutBack = "backups.put_back",
+        "Puts back a backup removed in the last week, exactly as it was",
+        changes: Always, job: false, command_line: true, agents: Agents::No, implemented: true;
+    BackupsClearAway = "backups.clear_away",
+        "Clears away a removed backup now, with its keys no other backup uses. It can't then be put back",
         changes: Always, job: false, command_line: true, agents: Agents::No, implemented: true;
 
     // Finding
@@ -176,6 +185,9 @@ register! {
     DuplicatesList = "duplicates.list",
         "Files found more than once: the copy kept, the copies left out, and whether confirmed",
         changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
+    DuplicatesCheck = "duplicates.check",
+        "Checks for duplicates now, in the background, even after it was stopped",
+        changes: Always, job: true, command_line: true, agents: Agents::No, implemented: true;
     PhotosPicture = "photos.picture",
         "A small or screen-sized picture of a found file, or of any photo or video in a folder",
         changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
@@ -228,7 +240,7 @@ register! {
         "Each thing a running job says, as it says it",
         changes: Never, job: false, command_line: true, agents: Agents::Instead(Op::JobsStatus), implemented: true;
     JobsPause = "jobs.pause",
-        "Makes every heavy job wait after the file in hand",
+        "Makes every heavy job wait after the file in hand, or only the check for duplicates",
         changes: Always, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     JobsCarryOn = "jobs.carry_on",
         "Lets paused jobs go on from where they were",
@@ -316,6 +328,9 @@ impl Op {
                 | Op::BackupsStart
                 | Op::BackupsRename
                 | Op::BackupsForget
+                | Op::BackupsRemoved
+                | Op::BackupsPutBack
+                | Op::BackupsClearAway
                 | Op::PlacesList
                 | Op::PlacesForgetMaps
                 | Op::JobsPause
@@ -343,7 +358,7 @@ impl Op {
     pub const fn loses_something(self) -> bool {
         matches!(
             self,
-            Op::SourcesForget | Op::DestinationsRemove | Op::BackupsForget | Op::KeevoroReset
+            Op::SourcesForget | Op::DestinationsRemove | Op::BackupsForget | Op::BackupsClearAway | Op::KeevoroReset
         )
     }
 
@@ -360,7 +375,9 @@ impl Op {
                 Op::BackupWants | Op::SourcesWants => given("wants"),
                 Op::KeevoroSettings => given("ownCodecs"),
                 // Asked only what it would clear, it clears nothing.
-                Op::DestinationsTidy => request.get("dryRun").and_then(serde_json::Value::as_bool) != Some(true),
+                Op::DestinationsTidy | Op::BackupsForget => {
+                    request.get("dryRun").and_then(serde_json::Value::as_bool) != Some(true)
+                }
                 Op::AgentsAccess => given("lookIn") || given("backUpTo") || given("mayChange"),
                 // Through the API, only the check: installing is the app's.
                 Op::KeevoroUpdate => false,
@@ -377,7 +394,8 @@ impl Op {
         use crate::destinations::{AddDestinationRequest as Add, RemoveDestinationRequest as Remove};
         use crate::file_kinds::{AddFileKindRequest, ChangeFileKindRequest, FileKindRequest};
         use crate::keevoro::{
-            ForgetBackupRequest, LogRequest, RenameBackupRequest, SettingsRequest, StartBackupRequest,
+            ForgetBackupRequest, LogRequest, RemovedBackupRequest, RenameBackupRequest, SettingsRequest,
+            StartBackupRequest,
         };
         use crate::picture::PictureRequest;
         use crate::{
@@ -388,6 +406,7 @@ impl Op {
             Op::BackupsStart => schema::<StartBackupRequest>(),
             Op::BackupsRename => schema::<RenameBackupRequest>(),
             Op::BackupsForget => schema::<ForgetBackupRequest>(),
+            Op::BackupsPutBack | Op::BackupsClearAway => schema::<RemovedBackupRequest>(),
             Op::PlacesSurvey | Op::SourcesLook | Op::PlacesFolders => schema::<PlaceRequest>(),
             Op::PlacesFiles => schema::<crate::inside::FilesRequest>(),
             Op::PlacesMap => schema::<crate::space::MapRequest>(),
@@ -403,7 +422,7 @@ impl Op {
             Op::DestinationsRemove => schema::<Remove>(),
             Op::BackupPreviews => schema::<PreviewsRequest>(),
             Op::JobsStatus => schema::<StatusRequest>(),
-            Op::JobsFollow | Op::JobsStop => schema::<JobRequest>(),
+            Op::JobsFollow | Op::JobsStop | Op::JobsPause | Op::JobsCarryOn => schema::<JobRequest>(),
             Op::KeevoroLog => schema::<LogRequest>(),
             Op::KeevoroSettings => schema::<SettingsRequest>(),
             Op::AgentsAccess => schema::<Agents>(),
@@ -415,6 +434,7 @@ impl Op {
             Op::FileKindsChange => schema::<ChangeFileKindRequest>(),
             Op::FileKindsRemove => schema::<FileKindRequest>(),
             Op::BackupsList
+            | Op::BackupsRemoved
             | Op::PlacesList
             | Op::SourcesList
             | Op::FoundSummary
@@ -427,8 +447,7 @@ impl Op {
             | Op::BackupRun
             | Op::BackupCheck
             | Op::BackupLastSummary
-            | Op::JobsPause
-            | Op::JobsCarryOn
+            | Op::DuplicatesCheck
             | Op::KeevoroAbout
             | Op::KeevoroActivity
             | Op::KeevoroUpdate
@@ -669,9 +688,14 @@ impl Op {
             Op::JobsPause => (
                 "pause_jobs",
                 "Makes all of Keevoro's heavy work wait once the file in hand is finished, in every Keevoro program. \
-                 Nothing is lost; carry_on lets it go on.",
+                 Nothing is lost; carry_on lets it go on. Give job (from job_status) to pause only the background \
+                 check for duplicates, while everything else carries on.",
             ),
-            Op::JobsCarryOn => ("carry_on", "Lets paused work go on from where it was."),
+            Op::JobsCarryOn => (
+                "carry_on",
+                "Lets paused work go on from where it was. Give job to let only a check for duplicates paused on its \
+                 own go on.",
+            ),
             Op::JobsStop => (
                 "stop_job",
                 "Stops a running job once the file in hand is finished, or every job on a backup. Everything done so \
@@ -708,7 +732,11 @@ impl Op {
                  switched on. A search only finds files of kinds switched on, and a survey only counts them. You \
                  cannot change the list; the person can, in Settings or with the keevoro command. Changes nothing.",
             ),
-            Op::BackupsForget
+            Op::DuplicatesCheck
+            | Op::BackupsForget
+            | Op::BackupsRemoved
+            | Op::BackupsPutBack
+            | Op::BackupsClearAway
             | Op::KeevoroLog
             | Op::KeevoroReset
             | Op::JobsFollow
@@ -769,7 +797,7 @@ mod tests {
 
     #[test]
     fn the_register_has_every_operation_in_the_plan() {
-        assert_eq!(Op::ALL.len(), 55);
+        assert_eq!(Op::ALL.len(), 59);
         // Each entry is the one for its own operation.
         for op in Op::ALL {
             assert_eq!(op.entry().op, *op);
@@ -830,6 +858,10 @@ mod tests {
         let plan: HashSet<Op> = [
             Op::PlacesForgetMaps,
             Op::BackupsForget,
+            Op::BackupsRemoved,
+            Op::BackupsPutBack,
+            Op::BackupsClearAway,
+            Op::DuplicatesCheck,
             Op::KeevoroSettings,
             Op::KeevoroUpdate,
             Op::KeevoroReset,
@@ -880,6 +912,7 @@ mod tests {
             "sources.look_again",
             "backup.run",
             "backup.check",
+            "duplicates.check",
         ]
         .into();
         assert_eq!(jobs, plan);
@@ -1026,7 +1059,8 @@ mod tests {
     fn only_what_changes_things_can_lose_something() {
         for entry in entries() {
             if entry.op.loses_something() {
-                assert_eq!(entry.changes, Changes::Always, "{}", entry.name);
+                // Always, or unless only asked what it would do.
+                assert_ne!(entry.changes, Changes::Never, "{}", entry.name);
             }
         }
     }

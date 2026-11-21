@@ -27,6 +27,11 @@ import type {
   ScanEvent,
   SurveyProgress,
   Backup,
+  BackupListing,
+  DuplicatesLeft,
+  Place as Drive,
+  Removal,
+  RemovedBackup,
   BackupEstimate,
   BackupStage,
   FileView,
@@ -312,18 +317,42 @@ export function demoBackend(): Backend {
     gone?: number
     /** The last look could not reach it. */
     outOfReach?: boolean
+    /** The last look found its folder on another disk and empty: the drive left it behind. */
+    otherDisk?: boolean
   }
   // A test empties the first destination, or unplugs it, by hand, as a
   // person might; Keevoro finds out the next time it looks there.
   let emptyOnLook = false
   let unplugOnLook = false
-  const byHand = window as unknown as { keevoroEmptyTheFolder: () => void; keevoroUnplugTheFolder: () => void }
+  let leaveEmptyOnLook = false
+  const byHand = window as unknown as {
+    keevoroEmptyTheFolder: () => void
+    keevoroUnplugTheFolder: () => void
+    keevoroUnplugLeavingTheFolder: () => void
+  }
   byHand.keevoroEmptyTheFolder = () => (emptyOnLook = true)
   byHand.keevoroUnplugTheFolder = () => (unplugOnLook = true)
+  // On a Mac or Linux an unplugged drive can leave the folder it was
+  // mounted on behind, empty, on the computer's own disk.
+  byHand.keevoroUnplugLeavingTheFolder = () => (leaveEmptyOnLook = true)
   // What Keevoro would say of a destination it has just looked at, in the
   // words keevoro_engine::confirm uses.
   const lookedAt = (d: Place) => {
     const now = Date.now() / 1000
+    if (d.otherDisk) {
+      return {
+        at: now,
+        lastReached: now - 2 * 86_400,
+        fresh: false,
+        reached: false,
+        gone: 0,
+        notAsSent: 0,
+        otherDisk: true,
+        said: [
+          `The drive this backup goes to does not seem to be plugged in: ${d.folder} is there, but on another disk, and holds nothing Keevoro backed up, so nothing is sent there. Plug the drive in, or, if this disk is where the backup should go from now on, choose "Use this folder as it is now". Until Keevoro can reach ${d.name}, what is there can't be confirmed: everything is counted as it was when Keevoro last reached it, 2 days ago.`,
+        ],
+      }
+    }
     if (d.outOfReach) {
       return {
         at: now,
@@ -602,6 +631,7 @@ export function demoBackend(): Backend {
   type Kept = { collections: Collection[]; sources: typeof sources; junk: PhotoChoice[]; dests: Place[]; sentSoFar: number }
   let backups: Backup[] = library ? [{ id: 's1', name: 'My photos' }] : []
   let open: string | null = backups[0]?.id ?? null
+  let made = backups.length
   const shelf = new Map<string, Kept>()
   const putAway = () => {
     if (open) shelf.set(open, { collections: [...collections], sources: [...sources], junk: [...junk], dests: [...dests], sentSoFar })
@@ -615,6 +645,59 @@ export function demoBackend(): Backend {
     said()
     sentSoFar = kept.sentSoFar
     open = id
+  }
+  // The drives plugged in. With `?plugin`, a memory card arrives a moment
+  // after the page opens, as one pushed into a reader would.
+  const openedAt = Date.now()
+  const drivesNow = (): Drive[] => {
+    const card: Drive[] =
+      new URLSearchParams(window.location.search).has('plugin') && Date.now() - openedAt > 1500
+        ? [{ path: 'F:\\', name: 'SanDisk Ultra (F:)', detail: 'USB or external drive \u00b7 32 GB', removable: true, askFirst: false }]
+        : []
+    return [
+      { path: 'E:\\', name: 'KINGSTON (E:)', detail: 'USB or external drive \u00b7 32 GB', removable: true, askFirst: false },
+      ...card,
+      { path: 'C:\\', name: 'Windows (C:)', detail: 'This computer\u2019s disk \u00b7 512 GB', removable: false, askFirst: true },
+    ]
+  }
+
+  // Backups removed in the last week, with what each held, to put back.
+  const removedRecently: { listed: RemovedBackup; backup: Backup; kept: Kept }[] = []
+  const homeOf = (id: string) => `C:\\Users\\You\\AppData\\Roaming\\com.markcastle.keevoro\\backups\\${id}`
+  const listOf = (things: string[]) =>
+    things.length <= 1 ? (things[0] ?? '') : `${things.slice(0, -1).join(', ')} and ${things[things.length - 1]}`
+  const keptOf = (id: string): Kept => {
+    putAway()
+    return shelf.get(id) ?? { collections: [], sources: [], junk: [], dests: [], sentSoFar: 0 }
+  }
+  const removalOf = (backup: Backup, done: boolean): Removal => {
+    const kept = keptOf(backup.id)
+    const photos = kept.collections.reduce((n, c) => n + c.photos + c.videos, 0)
+    const room = 40 * 1024 * 1024 + photos * 90 * 1024
+    const sourcesNow = kept.sources.map((s) => s.root)
+    const destinationsNow = kept.dests.map((d) => d.name)
+    return {
+      id: backup.id,
+      name: backup.name,
+      removed: done,
+      sources: sourcesNow,
+      destinations: destinationsNow,
+      ownFolder: homeOf(backup.id),
+      ownFolderBytes: room,
+      clearsOwnFolder: true,
+      keysFor: [],
+      ...(done ? { keptUntil: Date.now() / 1000 + 7 * 86_400 } : {}),
+      said: [
+        done
+          ? `Removed “${backup.name}” from Keevoro: its sources, what it found, your choices and its history.`
+          : `Keevoro's record of “${backup.name}” on this computer goes: its sources, what it found, your choices and its history.`,
+        destinationsNow.length === 0
+          ? 'It has not been set to back up anywhere, so there is nothing anywhere else to keep.'
+          : `Everything already backed up to ${listOf(destinationsNow)} stays where it is. Keevoro does not touch it.`,
+        sourcesNow.length === 0 ? 'Nothing on any source is touched.' : `Nothing on its sources (${listOf(sourcesNow)}) is touched.`,
+        `Its previews and working files on this computer (${(room / 1024 / 1024).toFixed(1)} MB) are cleared away. You can put it back from Manage backups for 7 days; after that the room is freed.`,
+      ],
+    }
   }
   const state = (): AppState => ({
     library,
@@ -674,10 +757,28 @@ export function demoBackend(): Backend {
           for (let step = 1; step <= 4; step++) {
             // `?slow` leaves time to press Stop.
             await later(new URLSearchParams(window.location.search).has('slow') ? 400 : 220 * pace)
+            // `?unplug` pulls the drive out part-way: what was found so far is kept.
+            if (new URLSearchParams(window.location.search).has('unplug') && added.length > 0) {
+              const kept = { id: Date.now(), name, root, items: photos + videos, bytes: (photos * 3.2 + videos * 48) * 1024 * 1024 }
+              if (!sources.some((s) => s.root === root)) sources.push(kept)
+              scanListeners.forEach((l) =>
+                l({
+                  name,
+                  photos,
+                  videos,
+                  finished: true,
+                  unplugged: `${name} was unplugged. What was found so far is kept; plug it in and look again to carry on.`,
+                }),
+              )
+              return
+            }
             if (stopLooking) {
               // Stopped: nothing from this search is kept.
               added.forEach((c) => collections.splice(collections.indexOf(c), 1))
               scanListeners.forEach((l) => l({ name, photos, videos, finished: true, stopped: true }))
+              // As in the real app, the check for duplicates of what was
+              // found before still follows.
+              if (collections.length > 0) void checkInBackground(collections.length * 8)
               return
             }
             scanListeners.forEach((l) =>
@@ -708,14 +809,48 @@ export function demoBackend(): Backend {
         else sources.push(entry)
         scanListeners.forEach((l) => l({ name, photos, videos, finished: true, ...online }))
         // Then, as the real app does, the careful checking carries on behind.
-        const total = Math.max(1, Math.round((photos + videos) / 6))
-        for (let done = 0; done < total; done += Math.ceil(total / 5)) {
-          checkListeners.forEach((l) => l({ done, total, finished: false }))
-          // Long enough to be seen, however fast the rest is asked to go.
-          await later(300)
-        }
-        checkListeners.forEach((l) => l({ done: total, total, finished: true }))
+        await checkInBackground(Math.max(1, Math.round((photos + videos) / 6)))
       })()
+  }
+
+  // The background check for duplicates: its own pause and stop, and once
+  // stopped by the person it waits to be asked, or for the next search.
+  let checkHeld = false
+  let checkStopAsked = false
+  let checkRunning = false
+  let checkLeftOver: DuplicatesLeft | null = null
+  let checkAt = { done: 0, total: 0 }
+  const checkStoppedSaid = (left: number) => [
+    `Stopped checking for duplicates, with ${left.toLocaleString('en-GB')} files not checked yet.`,
+    'Until they are, the counts of copies may be a little out, but nothing is backed up twice or left out by mistake: before sending, a backup reads in full any file that looks like another.',
+    'Checking starts again by itself after your next search or backup, or now if you ask.',
+  ]
+  const checkInBackground = async (total: number) => {
+    if (checkRunning) return
+    checkRunning = true
+    checkStopAsked = false
+    checkLeftOver = null
+    // `?slowcheck` keeps it going long enough to pause and stop it.
+    const step = new URLSearchParams(window.location.search).has('slowcheck') ? 600 : 300
+    let done = 0
+    while (done < total) {
+      while (checkHeld && !checkStopAsked) await later(100)
+      if (checkStopAsked) break
+      checkAt = { done, total }
+      checkListeners.forEach((l) => l({ done, total, finished: false }))
+      // Long enough to be seen, however fast the rest is asked to go.
+      await later(step)
+      done = Math.min(total, done + Math.ceil(total / 5))
+    }
+    checkRunning = false
+    checkHeld = false
+    if (checkStopAsked) {
+      const left = total - done
+      checkLeftOver = { left, stopped: true, said: checkStoppedSaid(left) }
+      checkListeners.forEach((l) => l({ done, total, finished: true, stopped: true, left, said: checkStoppedSaid(left) }))
+    } else {
+      checkListeners.forEach((l) => l({ done: total, total, finished: true }))
+    }
   }
 
   return {
@@ -726,7 +861,9 @@ export function demoBackend(): Backend {
       const wanted = name.trim() || 'My photos'
       let called = wanted
       for (let n = 2; taken(called); n++) called = `${wanted} ${n}`
-      const id = `s${backups.length + 1}`
+      // Never reused, as a real backup's id is not, even once removed.
+      made += 1
+      const id = `s${made}`
       backups = [...backups, { id, name: called }]
       library = `C:\\Users\\You\\AppData\\Keevoro\\backups\\${id}`
       // A new backup starts with nothing found, unless the page asked for a full one.
@@ -739,6 +876,90 @@ export function demoBackend(): Backend {
       putAway()
       takeOut(id)
       return state()
+    },
+    async backupDetails(id) {
+      const backup = backups.find((b) => b.id === id)
+      if (!backup) throw new Error(`There is no backup called "${id}".`)
+      const kept = keptOf(id)
+      const photos = kept.collections.reduce((n, c) => n + c.photos, 0)
+      const videos = kept.collections.reduce((n, c) => n + c.videos, 0)
+      const listed: BackupListing = {
+        id,
+        name: backup.name,
+        home: homeOf(id),
+        open: id === open,
+        found: {
+          sources: kept.sources.length,
+          destinations: kept.dests.length,
+          photos,
+          videos,
+          waiting: 0,
+          waitingBytes: 0,
+          bytes: (photos * 3.2 + videos * 48) * 1024 * 1024,
+          sourcePlaces: kept.sources.map((s) => s.root),
+          destinationNames: kept.dests.map((d) => d.name),
+          ...(kept.sentSoFar > 0 ? { lastRan: Date.now() / 1000 - 3 * 86_400 } : {}),
+        },
+      }
+      return listed
+    },
+    async renameBackup(id, to) {
+      const name = to.trim()
+      if (!name) throw new Error('Give the backup a name.')
+      if (name.length > 60) throw new Error('Keep the name to 60 letters or fewer.')
+      if (backups.some((b) => b.id !== id && b.name.toLowerCase() === name.toLowerCase()))
+        throw new Error(`There is already a backup called "${name}". Choose another name.`)
+      backups = backups.map((b) => (b.id === id ? { ...b, name } : b))
+      return state()
+    },
+    async removeBackup(id, dryRun) {
+      const backup = backups.find((b) => b.id === id)
+      if (!backup) throw new Error(`There is no backup called "${id}".`)
+      const removal = removalOf(backup, !dryRun)
+      if (dryRun) return removal
+      const kept = keptOf(id)
+      const removedAt = Date.now() / 1000
+      const keptUntil = removedAt + 7 * 86_400
+      const day = new Date(keptUntil * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+      removedRecently.push({
+        backup,
+        kept,
+        listed: {
+          id,
+          name: backup.name,
+          removedAt,
+          keptUntil,
+          bytes: removal.ownFolderBytes,
+          said: `Removed just now. It can be put back until ${day}, when its ${(removal.ownFolderBytes / 1024 / 1024).toFixed(1)} MB of previews and working files are cleared away.`,
+        },
+      })
+      shelf.delete(id)
+      backups = backups.filter((b) => b.id !== id)
+      if (open === id) {
+        open = null
+        const next = backups[0]
+        if (next) takeOut(next.id)
+        else library = null
+      }
+      return removal
+    },
+    removedBackups: async () => removedRecently.map((r) => r.listed),
+    async putBackBackup(id) {
+      const at = removedRecently.findIndex((r) => r.listed.id === id)
+      if (at < 0) throw new Error(`There is no removed backup called "${id}" to put back.`)
+      const [back] = removedRecently.splice(at, 1)
+      backups = [...backups, back.backup]
+      shelf.set(id, back.kept)
+      if (!open) {
+        library = homeOf(id)
+        takeOut(id)
+      }
+      return state()
+    },
+    async clearAwayBackup(id) {
+      const at = removedRecently.findIndex((r) => r.listed.id === id)
+      if (at < 0) throw new Error(`There is no removed backup called "${id}" to clear away.`)
+      return removedRecently.splice(at, 1)[0].listed
     },
     openDestination: async () => {},
     openPlace: async () => {},
@@ -768,6 +989,16 @@ export function demoBackend(): Backend {
       })
       if (usage.length > 120) usage.shift()
       return {
+        ...(checkRunning
+          ? {
+              check: {
+                job: 1,
+                ...checkAt,
+                pausedAlone: checkHeld,
+                said: checkHeld ? 'Checking for duplicates is paused.' : 'Checking for duplicates in the background.',
+              },
+            }
+          : {}),
         paused: pausedNow,
         doing: 'Checking for duplicates and making thumbnails',
         backupStep: new URLSearchParams(window.location.search).has('sending') ? 'Working out where each file goes: 2,500 of 11,245' : null,
@@ -902,6 +1133,10 @@ export function demoBackend(): Backend {
         unplugOnLook = false
         first.outOfReach = true
       }
+      if (first && first.there > 0 && leaveEmptyOnLook) {
+        leaveEmptyOnLook = false
+        first.otherDisk = true
+      }
       const folder = sendingTo?.startsWith('the folder') ? sendingTo.replace('the folder ', '') : null
       // `?full` pretends the chosen disk is nearly full.
       const free = folder ? (new URLSearchParams(window.location.search).has('full') ? 90 * 1024 * 1024 : 118 * 1024 ** 3) : null
@@ -909,10 +1144,17 @@ export function demoBackend(): Backend {
       return { needed, folder, free, enough: free === null || free > needed + 200 * 1024 * 1024 }
     },
     discover: async () => view(),
-    places: async () => [
-      { path: 'E:\\', name: 'KINGSTON (E:)', detail: 'USB or external drive \u00b7 32 GB', removable: true, askFirst: false },
-      { path: 'C:\\', name: 'Windows (C:)', detail: 'This computer\u2019s disk \u00b7 512 GB', removable: false, askFirst: true },
-    ],
+    places: async () => drivesNow(),
+    // The quick list is each drive's place; it changes when `?plugin` has
+    // a memory card arrive a moment after the page opens.
+    async placesIfChanged(known, asked) {
+      const now = drivesNow()
+      const mounts = now.map((p) => p.path).sort()
+      if (known && !asked && known.join('|') === mounts.join('|')) return null
+      const arrived = known ? mounts.filter((m) => !known.includes(m)) : []
+      return { mounts, places: now, arrived }
+    },
+    onDrives: () => () => {},
     // A made-up survey of a big disk: three real places and one of icons.
     async surveyPlace(path) {
       const drive = path.replace(/[\\/]+$/, '')
@@ -1204,9 +1446,17 @@ export function demoBackend(): Backend {
             : `the bucket ${request.bucket}`
       // Added to the list; a new place has nothing in it yet, so nothing
       // is safe until it has caught up.
-      if (!dests.some((d) => d.name === name)) {
+      const already = dests.find((d) => d.name === name)
+      if (!already) {
         dests.push({ name, kind: request.kind, folder: request.kind === 'folder' ? request.place : null, there: 0 })
         if (dests.length > 1) collections.forEach((c) => (c.gathered = 0))
+      } else if (already.otherDisk) {
+        // Added again as it is now: this disk is the one, and it is empty.
+        already.otherDisk = false
+        already.gone = already.there
+        already.there = 0
+        sentSoFar = 0
+        collections.forEach((c) => (c.gathered = 0))
       }
       said()
       return name
@@ -1334,7 +1584,16 @@ export function demoBackend(): Backend {
       scanListeners.add(listener)
       return () => scanListeners.delete(listener)
     },
-    keepChecking: async () => {},
+    keepChecking: async () => checkLeftOver,
+    pauseChecking: async (paused) => {
+      checkHeld = paused && checkRunning
+    },
+    stopChecking: async () => {
+      if (checkRunning) checkStopAsked = true
+    },
+    checkDuplicatesNow: async () => {
+      void checkInBackground(Math.max(1, checkLeftOver?.left ?? 40))
+    },
     onCheck(listener) {
       checkListeners.add(listener)
       return () => checkListeners.delete(listener)

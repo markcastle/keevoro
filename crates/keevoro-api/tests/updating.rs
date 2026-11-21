@@ -211,6 +211,9 @@ fn everything_a_person_set_and_keevoro_recorded_in_0_37_1_is_there_after_updatin
         "{found}"
     );
     assert_eq!(found["waiting"], 4, "four kept, none yet at both places: {found}");
+    // Nobody could stop the check for duplicates on its own then, so a
+    // catalog from 0.37.1 never reads as stopped, and it carries on.
+    assert_eq!(found.get("checkStopped"), None, "{found}");
 
     // Where it goes, and what had reached each place.
     let destinations = ask(&keevoro, Op::DestinationsList, family, Value::Null);
@@ -264,6 +267,47 @@ fn everything_a_person_set_and_keevoro_recorded_in_0_37_1_is_there_after_updatin
         false
     );
     assert_eq!(ask(&keevoro, Op::AgentsAccess, None, Value::Null)["mayChange"], true);
+    assert_eq!(
+        ask(&keevoro, Op::BackupWants, family, Value::Null)["wants"],
+        json!(["photos"])
+    );
+
+    // A folder destination 0.37.1 saved has no disk remembered, and goes on
+    // as before; once it is reached, the disk it is on is remembered, so the
+    // empty folder an unplugged drive can leave behind is never taken for it.
+    let home = places.folders.data.join("backups").join("backup-1");
+    let volume = || {
+        let catalog = keevoro_catalog::Catalog::open_in_library(&home).unwrap();
+        keevoro_engine::connect::destinations(&catalog).unwrap()[0]
+            .volume
+            .clone()
+    };
+    assert_eq!(volume(), None);
+    std::fs::create_dir_all(&places.usb).unwrap();
+    ask(&keevoro, Op::DestinationsRoom, family, Value::Null);
+    assert!(volume().is_some(), "known by its disk once reached");
+
+    // A backup 0.37.1 kept can be removed, saying where it went and what it
+    // looked through, and put back with everything in its record in place.
+    let removal = ask(&keevoro, Op::BackupsForget, None, json!({ "backup": "Family photos" }));
+    assert_eq!(removal["removed"], true);
+    assert_eq!(removal["destinations"].as_array().map(Vec::len), Some(2), "{removal}");
+    assert_eq!(removal["keysFor"], json!(["the Cloudflare R2 bucket family-photos"]));
+    assert_eq!(
+        names(&ask(&keevoro, Op::BackupsList, None, Value::Null)),
+        ["Drone films"]
+    );
+    ask(&keevoro, Op::BackupsPutBack, None, json!({ "backup": "Family photos" }));
+    assert_eq!(
+        names(&ask(&keevoro, Op::SourcesList, family, Value::Null)),
+        ["Mum's card", "Drone"]
+    );
+    assert_eq!(
+        ask(&keevoro, Op::BackupHistory, family, Value::Null)
+            .as_array()
+            .map(Vec::len),
+        Some(2)
+    );
     assert_eq!(
         ask(&keevoro, Op::BackupWants, family, Value::Null)["wants"],
         json!(["photos"])

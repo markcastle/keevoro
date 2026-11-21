@@ -94,6 +94,10 @@ pub struct BackupListing {
     /// What it holds, or `None` when its home folder is not there (a drive
     /// that is unplugged, say).
     pub found: Option<BackupCounts>,
+    /// Why it cannot be renamed or removed right now, when a search, a
+    /// backup or a check is running on it, here or in another program.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub busy: Option<String>,
 }
 
 /// The numbers `backups.list` gives for each backup.
@@ -111,6 +115,15 @@ pub struct BackupCounts {
     /// and the room they need.
     pub waiting: usize,
     pub waiting_bytes: u64,
+    /// The size of everything it found.
+    pub bytes: u64,
+    /// Its sources, where each is, and where it backs up to, in words:
+    /// what tells two backups apart.
+    pub source_places: Vec<String>,
+    pub destination_names: Vec<String>,
+    /// When it last backed up, in seconds since 1970, if it ever has.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_ran: Option<i64>,
 }
 
 /// `backups.start`
@@ -138,6 +151,17 @@ pub struct RenameBackupRequest {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ForgetBackupRequest {
     /// The backup's name or id.
+    pub backup: String,
+    /// Only say what removing it would do, and change nothing.
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+/// `backups.put_back`, `backups.clear_away`
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RemovedBackupRequest {
+    /// The removed backup's name or id, as `backups.removed` gives it.
     pub backup: String,
 }
 
@@ -354,24 +378,44 @@ impl Keevoro {
         self.backups
             .all()
             .into_iter()
-            .map(|named| BackupListing {
-                found: Backup::open_existing(&named.home)
-                    .and_then(|backup| backup.discover().ok())
-                    .map(|d| BackupCounts {
-                        sources: d.sources.len(),
-                        destinations: d.destinations.len(),
-                        photos: d.photos,
-                        videos: d.videos,
-                        others: d.others,
-                        waiting: d.waiting_to_gather,
-                        waiting_bytes: d.waiting_bytes,
-                    }),
-                open: open.as_ref() == Some(&named.id),
-                home: named.home.display().to_string(),
-                id: named.id,
-                name: named.name,
-            })
+            .map(|named| self.backup_seen(named, open.as_deref()))
             .collect()
+    }
+
+    /// One backup as `backups.list` gives it, for a screen that fills in
+    /// each backup as it is counted rather than waiting for them all.
+    pub fn backup_listing(&self, id_or_name: &str) -> Result<BackupListing> {
+        let named = self.backups.named_or_open(Some(id_or_name))?;
+        let open = self.backups.current().map(|b| b.id);
+        Ok(self.backup_seen(named, open.as_deref()))
+    }
+
+    fn backup_seen(&self, named: Named, open: Option<&str>) -> BackupListing {
+        let backup = Backup::open_existing(&named.home);
+        let last_ran = backup
+            .as_ref()
+            .and_then(|b| b.history().ok())
+            .and_then(|h| h.first().map(|sent| sent.finished_at));
+        BackupListing {
+            found: backup.and_then(|backup| backup.discover().ok()).map(|d| BackupCounts {
+                sources: d.sources.len(),
+                destinations: d.destinations.len(),
+                photos: d.photos,
+                videos: d.videos,
+                others: d.others,
+                waiting: d.waiting_to_gather,
+                waiting_bytes: d.waiting_bytes,
+                bytes: d.bytes,
+                source_places: d.sources.iter().map(|s| s.root.clone()).collect(),
+                destination_names: d.destinations.iter().map(|d| d.name.clone()).collect(),
+                last_ran,
+            }),
+            busy: self.jobs.working_on(&named),
+            open: open == Some(named.id.as_str()),
+            home: named.home.display().to_string(),
+            id: named.id,
+            name: named.name,
+        }
     }
 
     /// `backups.start`
@@ -417,25 +461,17 @@ impl Keevoro {
         Ok(view)
     }
 
-    /// `backups.rename`
+    /// `backups.rename`. Refused while a search, a backup or a check is
+    /// running on it, here or in another program.
     pub fn rename_backup(&self, backup: &str, to: &str) -> Result<Named> {
         let before = self.backups.named_or_open(Some(backup))?;
+        if let Some(why) = self.jobs.working_on(&before) {
+            return Err(Error::busy(why));
+        }
         let renamed = self.backups.rename(&before.id, to)?;
         self.log
             .say(&format!("Renamed backup \"{}\" to \"{}\"", before.name, renamed.name));
         Ok(renamed)
-    }
-
-    /// `backups.forget`: takes it off the list. Nothing on disk is deleted,
-    /// not even its own home folder.
-    pub fn forget_backup(&self, backup: &str) -> Result<Named> {
-        let gone = self.backups.forget(backup)?;
-        self.log.say(&format!(
-            "Forgot backup \"{}\". Its folder was left where it is: {}",
-            gone.name,
-            keevoro_engine::friendly_path(&gone.home)
-        ));
-        Ok(gone)
     }
 
     /// Makes another backup the open one. False if there is none with that
@@ -601,7 +637,19 @@ impl Keevoro {
 
     /// `keevoro.activity`
     pub fn activity(&self) -> ActivityView {
-        activity::now(Some(&self.backup_step()))
+        ActivityView {
+            check: self.jobs.check_now(),
+            ..activity::now(Some(&self.backup_step()))
+        }
+    }
+
+    /// How the check for duplicates stands on a backup when none is
+    /// running: how many files it has still to read, and whether a person
+    /// stopped it, with what that means.
+    pub fn duplicates_left(&self, backup: &Named) -> crate::jobs::DuplicatesLeft {
+        Backup::open_existing(&backup.home)
+            .map(|b| crate::jobs::DuplicatesLeft::of(b.catalog()))
+            .unwrap_or_default()
     }
 
     /// `keevoro.reset`: puts Keevoro back as it was when first installed.
@@ -883,8 +931,9 @@ pub(crate) mod tests {
             .switch_to(&keevoro.backups().find("Family").unwrap().id)
             .unwrap());
         assert!(!keevoro.switch_to("nonsense").unwrap());
-        let gone = keevoro.forget_backup("Drone").unwrap();
-        assert!(gone.home.is_dir(), "its folder is left where it is");
+        let gone = keevoro.forget_backup("Drone", false).unwrap();
+        assert!(gone.removed);
+        assert!(!drone.home.exists(), "its folder is set aside");
 
         let log = keevoro.log_tail(10);
         for line in [
@@ -892,7 +941,7 @@ pub(crate) mod tests {
             "Started backup \"Family\"",
             "Renamed backup \"Drone footage\" to \"Drone\"",
             "Switched to backup \"Family\"",
-            "Forgot backup \"Drone\". Its folder was left where it is",
+            "Removed backup \"Drone\". Nothing at its destinations or on its sources was touched",
         ] {
             assert!(log.contains(line), "{line} is missing from:\n{log}");
         }
@@ -968,9 +1017,13 @@ pub(crate) mod tests {
         let dir = tempfile::tempdir().unwrap();
         let keevoro = keevoro(dir.path());
         let home = keevoro.start_backup("Drone").unwrap().home;
+        keevoro.start_backup("Test 2").unwrap();
+        keevoro.forget_backup("Test 2", false).unwrap();
         let done = keevoro.reset().unwrap();
         assert_eq!(done.removed, ["Drone"]);
         assert!(!home.exists());
+        assert!(keevoro.removed_backups().is_empty(), "nor one removed and waiting");
+        assert!(!dir.path().join("data").join("removed").exists());
         assert!(keevoro.backups().all().is_empty());
         assert!(keevoro
             .log_tail(5)

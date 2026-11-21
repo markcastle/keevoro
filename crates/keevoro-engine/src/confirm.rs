@@ -34,6 +34,19 @@
 //! keys refused make a look fail, and a failed look changes no record: it
 //! is said in words ("Keevoro can't find the folder ... Is it plugged
 //! in?"), and what was there when Keevoro last looked stays as it was.
+//!
+//! **Another disk is not the backup's drive.** On a Mac or Linux a drive
+//! unplugged can leave the folder it was mounted on behind, empty, on the
+//! computer's own disk. If that folder is the destination itself it is
+//! still there, so it would look emptied, and a backup would be sent into
+//! it, onto the wrong disk. So the disk a folder destination is on is
+//! remembered when it is added and each time it is reached
+//! ([`crate::reach::volume_of`]); a folder now on another disk that holds
+//! nothing of a Keevoro backup ([`on_another_disk`]) is out of reach, said
+//! as the drive not seeming to be plugged in, and nothing is sent there
+//! until the person says this disk is the one ("Use this folder as it is
+//! now", which adds it again). One saved before the disk was remembered
+//! goes on as before until it is next reached.
 
 use crate::connect::{Saved, World};
 use crate::send::{folder_target, Destination};
@@ -77,6 +90,12 @@ pub struct Looked {
     /// note and index gone, or most of what it sent there gone.
     #[serde(default)]
     pub emptied: bool,
+    /// The folder is on another disk than the one it was on, and holds
+    /// nothing of a backup: most likely the folder a drive was mounted on,
+    /// left behind empty when it was unplugged. Out of reach until the
+    /// person says otherwise.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub other_disk: bool,
 }
 
 /// What a look found, before it is written down: pure, so its rules are
@@ -112,6 +131,46 @@ pub fn compare(sent: &[keevoro_catalog::Sent], listed: &HashMap<String, u64>) ->
         }
     }
     found
+}
+
+/// Is a folder destination on another disk than the one it is known by, and
+/// with nothing of a backup in it, so that it is not to be taken for the
+/// backup's drive? Pure. A disk not known yet (a folder saved before it was
+/// remembered), or one the system cannot name now, is not another; and a
+/// folder that holds a backup is the backup's, whatever number its disk is
+/// known by today (a drive plugged in again can be given another).
+pub fn on_another_disk(remembered: Option<&str>, now: Option<&str>, holds_a_backup: bool) -> bool {
+    matches!((remembered, now), (Some(then), Some(now)) if then != now) && !holds_a_backup
+}
+
+/// Does a folder hold anything of a Keevoro backup: its originals, or the
+/// note it writes beside them?
+fn holds_a_backup(folder: &std::path::Path) -> bool {
+    folder.join("originals").exists() || folder.join(crate::layout::GUIDE_NAME).exists()
+}
+
+/// Refuses a folder destination now on another disk with nothing of a
+/// backup in it, in the words a look uses: for work that reads what is at
+/// a destination without looking first, such as "Check they all arrived".
+pub fn not_on_another_disk(saved: &Saved, destination: &Destination) -> Result<()> {
+    if let Destination::Folder(folder) = destination {
+        let now = crate::reach::volume_of(folder);
+        if on_another_disk(saved.volume.as_deref(), now.as_deref(), holds_a_backup(folder)) {
+            anyhow::bail!("{}", other_disk_words(folder));
+        }
+    }
+    Ok(())
+}
+
+/// What is said of a folder destination on another disk, with nothing of a
+/// backup in it.
+pub fn other_disk_words(folder: &std::path::Path) -> String {
+    format!(
+        "The drive this backup goes to does not seem to be plugged in: {} is there, but on another disk, and holds \
+         nothing Keevoro backed up, so nothing is sent there. Plug the drive in, or, if this disk is where the \
+         backup should go from now on, choose \"Use this folder as it is now\".",
+        crate::friendly_path(folder)
+    )
 }
 
 /// Does a destination look emptied or swapped, rather than missing a file
@@ -176,13 +235,30 @@ pub fn look(catalog: &Catalog, saved: &Saved, world: &World<'_>) -> Result<Looke
     let opened = saved
         .open(&mut Vec::new(), world)
         .map_err(|e| format!("{e:#}"))
-        .and_then(|destination| store_to_look_at(saved, &destination));
+        .and_then(|destination| store_to_look_at(saved, &destination).map(|opened| (opened, destination)));
     match opened {
-        Ok((store, target)) => {
+        Ok(((store, target), destination)) => {
             if saved.target.is_none() {
                 crate::connect::note_target(catalog, saved, &target)?;
             }
-            look_with(catalog, &target, Ok(store.as_ref()))
+            // A folder: is it still on the disk it is known by?
+            let mut disk = None;
+            if let Destination::Folder(folder) = &destination {
+                let now = crate::reach::volume_of(folder);
+                if on_another_disk(saved.volume.as_deref(), now.as_deref(), holds_a_backup(folder)) {
+                    let mut looked = look_with(catalog, &target, Err(other_disk_words(folder)))?;
+                    looked.other_disk = true;
+                    catalog.set_setting(&setting(&target), &serde_json::to_string(&looked)?)?;
+                    return Ok(looked);
+                }
+                disk = now;
+            }
+            let looked = look_with(catalog, &target, Ok(store.as_ref()))?;
+            // Reached: the disk it is on now is the one it is known by.
+            if let (true, Some(disk)) = (looked.reached, disk) {
+                crate::connect::note_volume(catalog, saved, &disk)?;
+            }
+            Ok(looked)
         }
         Err(problem) => {
             // Without a name for its records nothing can be written down,
@@ -202,6 +278,7 @@ fn failed(before: Option<Looked>, problem: String) -> Looked {
         problem: Some(problem),
         last_reached: before.and_then(|b| b.last_reached),
         emptied: false,
+        other_disk: false,
     }
 }
 
@@ -250,6 +327,7 @@ pub fn look_with(catalog: &Catalog, target: &str, store: Result<&dyn ObjectStore
                 problem: None,
                 last_reached: Some(at),
                 emptied: looks_emptied(found.originals, marks_there),
+                other_disk: false,
             }
         }
         Err(problem) => failed(before, problem),
@@ -341,6 +419,10 @@ pub struct LookedView {
     /// What to say about it, a sentence each: what has gone and what will
     /// happen, or why it could not be looked at.
     pub said: Vec<String>,
+    /// A folder now on another disk with nothing of a backup in it: the
+    /// screen offers "Use this folder as it is now".
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub other_disk: bool,
 }
 
 /// What is known of one destination now, from its records and its last
@@ -368,6 +450,7 @@ pub fn as_it_stands(catalog: &Catalog, saved: &Saved, now: i64) -> Result<Option
         gone: originals.missing,
         not_as_sent: originals.not_as_sent,
         said,
+        other_disk: looked.other_disk,
     }))
 }
 

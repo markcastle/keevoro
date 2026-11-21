@@ -80,6 +80,16 @@ const BACKED: &[(&str, &[Op])] = &[
     ("change_file_kind", &[Op::FileKindsChange]),
     ("remove_file_kind", &[Op::FileKindsRemove]),
     ("reset_file_kinds", &[Op::FileKindsReset]),
+    // Managing backups: the list in full, renaming, removing with a week
+    // to put back, and clearing away sooner.
+    ("backup_details", &[Op::BackupsList]),
+    ("rename_backup", &[Op::BackupsRename]),
+    ("remove_backup", &[Op::BackupsForget]),
+    ("removed_backups", &[Op::BackupsRemoved]),
+    ("put_back_backup", &[Op::BackupsPutBack]),
+    ("clear_away_backup", &[Op::BackupsClearAway]),
+    // The drives plugged in, listed again only when the quick list changed.
+    ("places_if_changed", &[Op::PlacesList]),
     ("check_update", &[Op::KeevoroUpdate]),
     ("reset_everything", &[Op::KeevoroReset]),
     // Clearing unfinished copies from a folder, first saying how much.
@@ -95,6 +105,10 @@ const BACKED: &[(&str, &[Op])] = &[
     // background, what the quick search only sampled. The API starts it
     // after every search and backup; the screens ask for it when they open.
     ("keep_checking", &[Op::SourcesLook]),
+    // The check's own Pause and Stop, and "Check for duplicates now".
+    ("pause_checking", &[Op::JobsPause, Op::JobsCarryOn]),
+    ("stop_checking", &[Op::JobsStop]),
+    ("check_duplicates_now", &[Op::DuplicatesCheck]),
     ("send", &[Op::BackupRun]),
     ("stop_sending", &[Op::JobsStop]),
     ("check_arrived", &[Op::BackupCheck]),

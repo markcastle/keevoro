@@ -6,6 +6,64 @@ pub use keevoro_core::words::photos_and_videos;
 pub use keevoro_engine::history::duration;
 pub use keevoro_engine::summary::{ago, bytes, count, files, thousands};
 
+/// A search cut short by its drive going: what happened and what to do.
+/// `drive` is what the drive is called when the place looked through is a
+/// whole drive; otherwise the folder's name.
+pub fn unplugged_while_looking(name: &str, drive: bool) -> String {
+    let what = if drive {
+        format!("{name} was unplugged.")
+    } else {
+        format!("{name} could no longer be reached; its drive may have been unplugged.")
+    };
+    format!("{what} What was found so far is kept; plug it in and look again to carry on.")
+}
+
+/// The background check for duplicates, running: what it is doing, said
+/// so that nothing reads as an instruction.
+pub fn checking(done: usize, total: usize) -> String {
+    format!(
+        "Checking for duplicates in the background ({} of {}). You can keep using Keevoro while it finishes.",
+        thousands(done),
+        thousands(total)
+    )
+}
+
+/// The background check for duplicates, paused on its own.
+pub fn checking_paused(done: usize, total: usize) -> String {
+    format!(
+        "Checking for duplicates is paused ({} of {}). Everything else carries on.",
+        thousands(done),
+        thousands(total)
+    )
+}
+
+/// The background check for duplicates, stopped by the person with `left`
+/// files still to check: what that means, and when it starts again.
+///
+/// What is true, and tested (`a_copy_found_after_its_original_was_checked_
+/// is_still_told_apart_before_a_backup` in `keevoro-engine/src/deep.rs`):
+/// until a file is read in full it is known by a sample, so the counts of
+/// copies can be out (two files that only look alike can show as copies,
+/// and a copy of a file already checked can be counted twice), but a
+/// backup reads in full, before sending, every file that shares its sample
+/// with another, checked or not, so it sends each different file and
+/// leaves out only true copies.
+pub fn check_stopped(left: usize) -> Vec<String> {
+    if left == 0 {
+        return vec!["Stopped checking for duplicates. Every file has been checked.".to_string()];
+    }
+    vec![
+        format!(
+            "Stopped checking for duplicates, with {} not checked yet.",
+            count(left, "file")
+        ),
+        "Until they are, the counts of copies may be a little out, but nothing is backed up twice or left out by \
+         mistake: before sending, a backup reads in full any file that looks like another."
+            .to_string(),
+        "Checking starts again by itself after your next search or backup, or now if you ask.".to_string(),
+    ]
+}
+
 /// What clearing Keevoro's unfinished copies from a folder did (`cleared`)
 /// or, asked first, would do: what goes, and what stays and why.
 pub fn tidied(folder: &str, swept: &keevoro_engine::Swept, cleared: bool) -> Vec<String> {

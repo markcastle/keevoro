@@ -586,7 +586,7 @@ fn the_app_and_the_command_line_see_each_others_backups_at_once() {
     at.keevoro(&["backups", "rename", "Family photos", "Family"]);
     let names: Vec<String> = app.list_backups().into_iter().map(|b| b.name).collect();
     assert_eq!(names, ["Family", "Drone footage"]);
-    app.forget_backup("Drone footage").unwrap();
+    app.forget_backup("Drone footage", false).unwrap();
     assert_eq!(at.keevoro(&["backups", "--json"]).json().as_array().unwrap().len(), 1);
 }
 
@@ -710,18 +710,35 @@ fn smaller_things_a_backup_can_be_asked() {
         (vec!["log", "--lines", "3"], "20"),
         (vec!["pause"], "Paused"),
         (vec!["carry-on"], "Carrying on"),
+        (vec!["check-duplicates"], "for duplicates."),
         (vec!["follow"], "Nothing is running."),
     ] {
         let ran = at.keevoro(&typed);
         assert_eq!(ran.code, Code::Worked, "{typed:?}: {}", ran.err);
         assert!(ran.out.contains(says), "{typed:?}: {}", ran.out);
     }
+    let ran = at.keevoro(&["pause", "1"]);
+    assert_eq!(ran.code, Code::NotFound, "no such job: {}", ran.err);
+    let ran = at.keevoro(&["backups", "forget", "Card photos", "--dry-run"]);
+    assert!(ran.out.contains("Nothing was changed."), "{}", ran.out);
+    assert!(ran.out.contains("Nothing on its sources ("), "{}", ran.out);
     let ran = at.keevoro(&["backups", "forget", "Card photos"]);
+    assert!(ran.out.contains("Removed \"Card photos\" from Keevoro"), "{}", ran.out);
     assert!(
-        ran.out.contains("Nothing at any source or destination was touched"),
+        ran.out.contains("keevoro backups put-back \"Card photos\""),
         "{}",
         ran.out
     );
+    let ran = at.keevoro(&["backups", "removed"]);
+    assert!(ran.out.contains("It can be put back until"), "{}", ran.out);
+    let ran = at.keevoro(&["backups", "put-back", "card photos"]);
+    assert_eq!(ran.code, Code::Worked, "{}", ran.err);
+    assert!(ran.out.contains("exactly as it was"), "{}", ran.out);
+    at.keevoro(&["backups", "forget", "Card photos"]);
+    let ran = at.keevoro(&["backups", "clear-away", "Card photos"]);
+    assert!(ran.out.contains("It can no longer be put back."), "{}", ran.out);
+    let ran = at.keevoro(&["backups", "removed"]);
+    assert!(ran.out.contains("No backup has been removed"), "{}", ran.out);
 }
 
 #[test]

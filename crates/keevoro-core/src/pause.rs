@@ -19,6 +19,12 @@
 //! ([`lift_pause_asked_for_elsewhere`]): otherwise work left running here,
 //! such as the background check for duplicates, would sit paused where
 //! nobody else could see it or tell it to carry on.
+//!
+//! There is still one switch. The background check for duplicates can also
+//! be paused on its own, so that the rest of Keevoro carries on: that is a
+//! property of the one job, like being asked to stop, held by the job
+//! itself (`keevoro-api`'s `jobs`), and waited on between one file and the
+//! next exactly where this switch is. Pausing everything still pauses it.
 
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::Duration;
@@ -82,7 +88,14 @@ pub fn lift_pause_asked_for_elsewhere() -> bool {
 /// Returns at once unless paused; while paused, waits here. Call it between
 /// one file and the next, never part-way through one.
 pub fn wait_while_paused() {
-    while is_paused() {
+    wait_while_paused_unless(&|| false);
+}
+
+/// As [`wait_while_paused`], but stops waiting as soon as `done` says so:
+/// for work that can be asked to stop while paused, and must then stop
+/// without lifting the pause for everything else.
+pub fn wait_while_paused_unless(done: &dyn Fn() -> bool) {
+    while is_paused() && !done() {
         std::thread::sleep(Duration::from_millis(150));
     }
 }
@@ -142,5 +155,18 @@ mod tests {
         // Carrying on lifts either kind.
         carry_on();
         assert!(!is_paused());
+
+        // Work asked to stop while paused stops waiting, and the pause
+        // stays for everything else.
+        pause(PausedBy::ThisProgram);
+        let asked = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let waiting = {
+            let asked = asked.clone();
+            std::thread::spawn(move || wait_while_paused_unless(&|| asked.load(Ordering::SeqCst)))
+        };
+        asked.store(true, Ordering::SeqCst);
+        waiting.join().unwrap();
+        assert!(is_paused(), "stopping one job does not lift the pause");
+        carry_on();
     }
 }

@@ -141,7 +141,7 @@ pub(super) fn start(ctx: &Context, backup: &Named, kind: JobKind, listener: Opti
         let last = Said::Send(last);
         ctx.jobs.heard(job, last.clone(), true);
         // Whatever the backup did not fingerprint is picked up again now.
-        super::duplicates::start(ctx, &backup, None);
+        super::duplicates::start(ctx, &backup, None, super::duplicates::Why::AfterWork);
         ending.with(Some(last));
     })?;
     Ok(handle)
@@ -258,6 +258,8 @@ fn check(
             said.extend_from_slice(format!("At {}:\n", to.describe()).as_bytes());
         }
         let checked = to.open(said, world).and_then(|destination| {
+            // The folder an unplugged drive left behind is not the backup.
+            keevoro_engine::confirm::not_on_another_disk(to, &destination)?;
             keevoro_engine::send::check(said, catalog, destination, to.target.as_deref(), false, progress)
         });
         match checked {

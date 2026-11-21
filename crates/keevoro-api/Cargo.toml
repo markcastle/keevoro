@@ -14,6 +14,7 @@ fs4.workspace = true
 keevoro-catalog.workspace = true
 keevoro-core.workspace = true
 keevoro-engine.workspace = true
+keevoro-frame.workspace = true
 keevoro-media.workspace = true
 keevoro-scan.workspace = true
 keevoro-update.workspace = true

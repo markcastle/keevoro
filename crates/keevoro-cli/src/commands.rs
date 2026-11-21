@@ -286,9 +286,43 @@ pub static ROWS: &[Row] = &[
         words: &["backups", "forget"],
         ops: &[Op::BackupsForget],
         about: None,
-        args: |c| c.arg(arg("name", "The backup's name").required(true)),
-        ask: |_, m, _| Ok((Op::BackupsForget, json!({ "backup": required(m, "name") }))),
+        args: |c| {
+            c.arg(arg("name", "The backup's name").required(true)).arg(flag(
+                "dry-run",
+                "Only say what removing it would do, and change nothing",
+            ))
+        },
+        ask: |_, m, _| {
+            Ok((
+                Op::BackupsForget,
+                json!({ "backup": required(m, "name"), "dryRun": m.get_flag("dry-run") }),
+            ))
+        },
         show: show::forgot,
+    },
+    Row {
+        words: &["backups", "removed"],
+        ops: &[Op::BackupsRemoved],
+        about: None,
+        args: none,
+        ask: |c, m, io| nothing(c, m, io, Op::BackupsRemoved),
+        show: show::removed_backups,
+    },
+    Row {
+        words: &["backups", "put-back"],
+        ops: &[Op::BackupsPutBack],
+        about: None,
+        args: |c| c.arg(arg("name", "The removed backup's name, as `keevoro backups removed` lists it").required(true)),
+        ask: |_, m, _| Ok((Op::BackupsPutBack, json!({ "backup": required(m, "name") }))),
+        show: show::put_back,
+    },
+    Row {
+        words: &["backups", "clear-away"],
+        ops: &[Op::BackupsClearAway],
+        about: None,
+        args: |c| c.arg(arg("name", "The removed backup's name, as `keevoro backups removed` lists it").required(true)),
+        ask: |_, m, _| Ok((Op::BackupsClearAway, json!({ "backup": required(m, "name") }))),
+        show: show::cleared_away,
     },
     // Finding
     Row {
@@ -599,6 +633,14 @@ pub static ROWS: &[Row] = &[
         show: show::duplicates,
     },
     Row {
+        words: &["check-duplicates"],
+        ops: &[Op::DuplicatesCheck],
+        about: None,
+        args: none,
+        ask: |c, m, io| nothing(c, m, io, Op::DuplicatesCheck),
+        show: show::nothing_more,
+    },
+    Row {
         words: &["picture"],
         ops: &[Op::PhotosPicture],
         about: Some(
@@ -795,16 +837,26 @@ pub static ROWS: &[Row] = &[
         words: &["pause"],
         ops: &[Op::JobsPause],
         about: None,
-        args: none,
-        ask: |c, m, io| nothing(c, m, io, Op::JobsPause),
+        args: |c| {
+            c.arg(arg(
+                "job",
+                "Only the check for duplicates, by the number `keevoro status` shows; everything when left out",
+            ))
+        },
+        ask: |_, m, _| Ok((Op::JobsPause, json!({ "job": job(m)? }))),
         show: show::paused,
     },
     Row {
         words: &["carry-on"],
         ops: &[Op::JobsCarryOn],
         about: None,
-        args: none,
-        ask: |c, m, io| nothing(c, m, io, Op::JobsCarryOn),
+        args: |c| {
+            c.arg(arg(
+                "job",
+                "Only a check for duplicates paused on its own, by its number; everything when left out",
+            ))
+        },
+        ask: |_, m, _| Ok((Op::JobsCarryOn, json!({ "job": job(m)? }))),
         show: show::paused,
     },
     Row {

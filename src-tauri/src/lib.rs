@@ -30,7 +30,11 @@ mod updates;
 #[cfg(test)]
 mod wiring;
 
-use tauri::{Manager, Runtime};
+use tauri::{Emitter, Manager, Runtime};
+
+/// The window event that says a drive arrived or left, where the system
+/// says so; it carries nothing, and the first screen lists the drives again.
+pub const DRIVES: &str = "drives";
 
 /// What the running app holds in memory.
 pub struct Shared {
@@ -87,12 +91,31 @@ fn app<R: Runtime>(
             let window = app.handle().clone();
             keevoro.listen(move |event| events::to_window(&window, &event.said));
             app.manage(Shared { keevoro });
+            // Where the system says when a drive arrives or leaves
+            // (Windows), the first screen hears it at once, as `drives`;
+            // elsewhere it looks every couple of seconds while it shows.
+            let told = app.handle().clone();
+            keevoro_api::places::watch_for_drives(move || {
+                let _ = told.emit(DRIVES, ());
+            });
+            // Backups removed over a week ago are cleared away for good,
+            // quietly, off the thread that opens the window.
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                handle.state::<Shared>().keevoro.clear_away_old_removed();
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::app_state,
             commands::start_backup,
             commands::switch_backup,
+            commands::backup_details,
+            commands::rename_backup,
+            commands::remove_backup,
+            commands::removed_backups,
+            commands::put_back_backup,
+            commands::clear_away_backup,
             commands::open_destination,
             commands::room,
             commands::previews_wanted,
@@ -127,8 +150,12 @@ fn app<R: Runtime>(
             commands::survey_place,
             commands::stop_survey,
             commands::places,
+            commands::places_if_changed,
             commands::check_update,
             commands::keep_checking,
+            commands::pause_checking,
+            commands::stop_checking,
+            commands::check_duplicates_now,
             commands::log_tail,
             commands::open_log,
             commands::open_release_page,

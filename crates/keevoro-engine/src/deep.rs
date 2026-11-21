@@ -89,7 +89,9 @@ pub fn deep_look_where(
         .collect();
     let mut report = DeepReport::default();
     for (done, file) in waiting.iter().enumerate() {
-        keevoro_core::pause::wait_while_paused();
+        // Asked to stop while Keevoro is paused, it stops at once and leaves
+        // the pause as it was for everything else.
+        keevoro_core::pause::wait_while_paused_unless(&|| !keep_going());
         if !keep_going() {
             report.stopped = true;
             break;
@@ -340,6 +342,34 @@ mod tests {
         assert!(
             drive.join("Backup/IMG_20100101_100000.jpg").is_file(),
             "the source is only read"
+        );
+    }
+
+    #[test]
+    fn a_copy_found_after_its_original_was_checked_is_still_told_apart_before_a_backup() {
+        // The check read the first card in full, then a second card with a
+        // copy of one of its photos was searched, and the check for it was
+        // stopped (or gave way to the backup). The copy shares no quick
+        // fingerprint with anything else still unchecked, only with a file
+        // already read in full.
+        let (dir, drive, library, mut catalog) = world();
+        deep_look(&catalog, None, None, &mut |_| {}, &|| true).unwrap();
+        let second = dir.path().join("Card 2");
+        fs::create_dir_all(&second).unwrap();
+        fs::copy(drive.join("Trip/IMG_20100101_100000.jpg"), second.join("IMG_0001.jpg")).unwrap();
+        let quick = ScanOptions {
+            quick: true,
+            ..ScanOptions::default()
+        };
+        scan_into_with(&mut catalog, &second, Some("Card 2"), &quick, &mut |_| {}, &mut || {}).unwrap();
+        assert_eq!(catalog.unhashed_count().unwrap(), 1);
+        let waiting = crate::check_and_place(&library, &catalog, &|| true, &mut |_| {}).unwrap();
+        assert_eq!(waiting, 0);
+        assert_eq!(catalog.unhashed_count().unwrap(), 0, "the copy was read in full first");
+        assert_eq!(
+            catalog.collected().unwrap().len(),
+            3,
+            "and, being a true copy, it is not given a place of its own, so it is never sent twice"
         );
     }
 

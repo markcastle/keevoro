@@ -2897,6 +2897,7 @@ dependencies = [
  "keevoro-catalog",
  "keevoro-core",
  "keevoro-engine",
+ "keevoro-frame",
  "keevoro-media",
  "keevoro-scan",
  "keevoro-update",

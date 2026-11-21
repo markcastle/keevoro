@@ -243,6 +243,8 @@ export type Looked = {
   notAsSent: number
   /** What to say about it, a sentence each, in Keevoro's own words. */
   said: string[]
+  /** Its folder is on another disk now and holds nothing of a backup: the drive seems unplugged, leaving its folder behind. */
+  otherDisk?: boolean
 }
 
 /**
@@ -250,6 +252,58 @@ export type Looked = {
  * sources, its own choices and its own place to send things.
  */
 export type Backup = { id: string; name: string }
+
+/** One backup in full, as Manage backups lists it: what tells it apart from the others. */
+export type BackupListing = {
+  id: string
+  name: string
+  /** Its own folder on this computer, which holds Keevoro's record of it. */
+  home: string
+  open: boolean
+  /** What it holds; null when its folder is not there (on a drive that is unplugged). */
+  found: BackupCounts | null
+  /** Why it cannot be renamed or removed right now: it is being worked on. */
+  busy?: string
+}
+
+export type BackupCounts = {
+  sources: number
+  destinations: number
+  photos: number
+  videos: number
+  others?: number
+  waiting: number
+  waitingBytes: number
+  bytes: number
+  /** Where each source is. */
+  sourcePlaces: string[]
+  /** Where it backs up to, in words. */
+  destinationNames: string[]
+  /** When it last backed up, in seconds since 1970. */
+  lastRan?: number
+}
+
+/** What removing a backup does, asked first or once done, in sentences. Nothing at a destination or source is touched. */
+export type Removal = {
+  id: string
+  name: string
+  removed: boolean
+  sources: string[]
+  destinations: string[]
+  ownFolder: string
+  ownFolderBytes: number
+  clearsOwnFolder: boolean
+  keysFor: string[]
+  /** Once removed: when it is cleared away for good unless put back, in seconds since 1970. */
+  keptUntil?: number
+  said: string[]
+}
+
+/** A backup removed in the last week, which can still be put back. */
+export type RemovedBackup = { id: string; name: string; removedAt: number; keptUntil: number; bytes: number; said: string }
+
+/** The drives plugged in, given when they changed: the quick list to give back, every drive, and those just arrived. */
+export type PlacesNow = { mounts: string[]; places: Place[]; arrived: string[] }
 
 export type AppState = {
   /** The open backup's own folder, or null before the first backup. */
@@ -288,10 +342,28 @@ export type ScanEvent = {
   /** On the last event: files only in online storage (OneDrive), passed over unopened, and that in words. */
   onlineOnly?: number
   onlineOnlySaid?: string
+  /** On the last event: the drive was unplugged part-way, in a sentence. What was found so far is kept. */
+  unplugged?: string
 }
 
 /** Sent while files a quick search only sampled are read in the background. */
-export type CheckEvent = { done: number; total: number; finished: boolean }
+export type CheckEvent = {
+  done: number
+  total: number
+  finished: boolean
+  /** On the last event: a person stopped it, so it does not start again by itself until the next search or backup. */
+  stopped?: boolean
+  /** On the last event: how many files are still to be checked. */
+  left?: number
+  /** On the last event of one a person stopped: what that means, a sentence each. */
+  said?: string[]
+}
+
+/** How the check for duplicates stands when none is running. */
+export type DuplicatesLeft = { left: number; stopped: boolean; said?: string[] }
+
+/** The check for duplicates running now, as the activity page shows it. */
+export type CheckNow = { job: number; done: number; total: number; pausedAlone: boolean; said: string }
 
 /** Sent while a backup or a check runs, and once more when it is done. */
 export type SendEvent = {
@@ -477,6 +549,8 @@ export type Activity = {
   samples: Sample[]
   memoryBytes: number
   cores: number
+  /** The background check for duplicates, when one is running. */
+  check?: CheckNow
 }
 
 /**
@@ -716,6 +790,18 @@ export interface Backend {
   startBackup(name: string): Promise<AppState>
   /** Opens another backup; the one that was open is left as it was. */
   switchBackup(id: string): Promise<AppState>
+  /** One backup in full: its sources, where it goes, what it holds, when it last ran. */
+  backupDetails(id: string): Promise<BackupListing>
+  /** Gives a backup a new name. Refused while it is being worked on. */
+  renameBackup(id: string, to: string): Promise<AppState>
+  /** Removes a backup from Keevoro, or with `dryRun` only says what that would do. */
+  removeBackup(id: string, dryRun: boolean): Promise<Removal>
+  /** The backups removed in the last week, which can still be put back. */
+  removedBackups(): Promise<RemovedBackup[]>
+  /** Puts back a backup removed in the last week, exactly as it was. */
+  putBackBackup(id: string): Promise<AppState>
+  /** Clears away a removed backup now; it can no longer be put back. */
+  clearAwayBackup(id: string): Promise<RemovedBackup>
   /**
    * Puts Keevoro back as it was when first installed. Sources and anything
    * already sent are not touched.
@@ -782,6 +868,15 @@ export interface Backend {
   discover(): Promise<Discover>
   /** The drives plugged in right now, likeliest first. */
   places(): Promise<Place[]>
+  /**
+   * The drives plugged in, only if they are not those `known` (the `mounts`
+   * given last time); null when nothing changed. With `asked` (Refresh, or
+   * the system's notice) they are listed regardless. Cheap enough to ask
+   * every couple of seconds.
+   */
+  placesIfChanged(known: string[] | null, asked: boolean): Promise<PlacesNow | null>
+  /** Heard when the system says a drive arrived or left (on Windows). */
+  onDrives(listener: () => void): () => void
   /** Starts looking through the drive or folder at this path. */
   scanPlace(path: string): Promise<void>
   /**
@@ -863,8 +958,14 @@ export interface Backend {
   checkArrived(): Promise<void>
   onSend(listener: (event: SendEvent) => void): () => void
   onScan(listener: (event: ScanEvent) => void): () => void
-  /** Carries on with any background checking left over from last time. */
-  keepChecking(): Promise<void>
+  /** Carries on with any background checking left over from last time, unless it was stopped; says how it stands. */
+  keepChecking(): Promise<DuplicatesLeft | null>
+  /** Pauses the background check for duplicates on its own, or lets it go on. */
+  pauseChecking(paused: boolean): Promise<void>
+  /** Stops the background check for duplicates until the next search or backup, or until asked. */
+  stopChecking(): Promise<void>
+  /** Checks for duplicates now, even after the check was stopped. */
+  checkDuplicatesNow(): Promise<void>
   onCheck(listener: (event: CheckEvent) => void): () => void
 }
 
@@ -894,6 +995,12 @@ async function tauriBackend(): Promise<Backend> {
     state: () => invoke('app_state'),
     startBackup: (name) => invoke('start_backup', { name }),
     switchBackup: (id) => invoke('switch_backup', { id }),
+    backupDetails: (id) => invoke('backup_details', { id }),
+    renameBackup: (id, to) => invoke('rename_backup', { id, to }),
+    removeBackup: (id, dryRun) => invoke('remove_backup', { id, dryRun }),
+    removedBackups: () => invoke('removed_backups'),
+    putBackBackup: (id) => invoke('put_back_backup', { id }),
+    clearAwayBackup: (id) => invoke('clear_away_backup', { id }),
     openDestination: (at) => invoke('open_destination', { at: at ?? null }),
     room: () => invoke('room'),
     previewsWanted: () => invoke('previews_wanted'),
@@ -931,6 +1038,8 @@ async function tauriBackend(): Promise<Backend> {
     openPlace: (path) => invoke('open_place', { path }),
     discover: () => invoke('discover'),
     places: () => invoke('places'),
+    placesIfChanged: (known, asked) => invoke('places_if_changed', { known, asked }),
+    onDrives: (listener) => subscribe('drives', () => listener()),
     scanPlace: (path) => invoke('scan_place', { path }),
     surveyPlace: (path) => invoke('survey_place', { path }),
     stopSurvey: () => invoke('stop_survey'),
@@ -970,6 +1079,9 @@ async function tauriBackend(): Promise<Backend> {
     onSend: (listener) => subscribe('send', listener),
     onScan: (listener) => subscribe('scan', listener),
     keepChecking: () => invoke('keep_checking'),
+    pauseChecking: (paused) => invoke('pause_checking', { paused }),
+    stopChecking: () => invoke('stop_checking'),
+    checkDuplicatesNow: () => invoke('check_duplicates_now'),
     onCheck: (listener) => subscribe('check', listener),
   }
 }

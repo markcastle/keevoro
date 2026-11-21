@@ -14,6 +14,36 @@ use std::path::Path;
 /// to cloud storage: a file share copes less well with many writers.
 pub const AT_ONCE_ACROSS_A_NETWORK: usize = 4;
 
+/// Which disk (volume) a folder is on, as a name to remember and compare,
+/// or `None` when the system cannot say. A drive unplugged from under a
+/// folder that was its mount point can leave an empty folder behind on the
+/// computer's own disk, at the same path: this is how the two are told
+/// apart.
+///
+/// On macOS and Linux it is the folder's device number, which the standard
+/// library gives without calling the system directly. On Windows it is the
+/// volume's own name (`\\?\Volume{...}\`), which stays the same whatever
+/// letter the drive is given (`keevoro_frame::drives::volume_of`). A
+/// device number can change when the same drive is plugged in again, so
+/// it is only ever used together with what is in the folder: see
+/// [`crate::confirm`].
+pub fn volume_of(folder: &Path) -> Option<String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        std::fs::metadata(folder).ok().map(|m| format!("device {}", m.dev()))
+    }
+    #[cfg(windows)]
+    {
+        keevoro_frame::drives::volume_of(folder)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = folder;
+        None
+    }
+}
+
 /// Is this folder across a network?
 ///
 /// On Windows the system is asked what the path really is. A mapped drive
@@ -40,6 +70,18 @@ fn names_a_share(path: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_folder_and_one_inside_it_are_on_the_same_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let inside = dir.path().join("Backup");
+        std::fs::create_dir_all(&inside).unwrap();
+        assert_eq!(volume_of(dir.path()), volume_of(&inside));
+        assert_eq!(volume_of(&dir.path().join("not there")), None);
+        if cfg!(any(unix, windows)) {
+            assert!(volume_of(dir.path()).is_some());
+        }
+    }
 
     #[test]
     fn a_share_is_told_from_a_disk_by_what_the_path_really_is() {

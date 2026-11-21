@@ -181,8 +181,14 @@ try {
   const bar = await page.locator('.next').boundingBox()
   const view = page.viewportSize()
   assert.ok(Math.abs(bar.y + bar.height - view.height) <= 1, 'the bar sits on the bottom edge of the window')
-  // The careful checking carries on behind, and says so quietly.
-  assert.match(await text('.foot .checking'), /Checking for duplicates in the background: [\d,]+ of [\d,]+/)
+  // The careful checking carries on behind, and says so quietly, as what
+  // it is doing and never as an instruction, with its own Pause and Stop.
+  assert.match(
+    await text('.foot .checking'),
+    /^Checking for duplicates in the background \([\d,]+ of [\d,]+\)\. You can keep using Keevoro while it finishes\./,
+  )
+  assert.doesNotMatch(await text('.foot'), /You can carry on/)
+  await page.locator('.foot .checking').getByRole('button', { name: 'Stop checking for duplicates' }).waitFor()
   await page.locator('.foot .checking').waitFor({ state: 'detached' })
   await shot('3-found')
   await page.getByRole('button', { name: 'See what was found' }).click()
@@ -832,6 +838,24 @@ try {
   await page.getByText(/^Everything you are keeping was there when Keevoro last looked, 2 days ago: [\d,]+ files\.$/).waitFor()
   await shot('9y-backup-folder-unplugged')
 
+  // --- On a Mac or Linux an unplugged drive can leave the folder it was
+  // mounted on behind, empty, on the computer's own disk. That is never
+  // backed up into by itself; the person can say this disk is the one.
+  await page.goto(`${base}/?fast`)
+  await page.getByRole('button', { name: 'Choose where they go' }).click()
+  await page.getByRole('button', { name: /^A folder/ }).click()
+  await page.getByRole('button', { name: 'Back up now' }).click()
+  await page.getByText(/^Everything you are keeping is there: [\d,]+ files\.$/).waitFor()
+  await page.evaluate(() => window.keevoroUnplugLeavingTheFolder())
+  await page.locator('.steps button').nth(1).click()
+  await page.getByRole('button', { name: 'Next' }).click()
+  const leftBehind = page.getByRole('status', { name: 'What Keevoro found where this backup goes' })
+  await leftBehind.getByText(/^The drive this backup goes to does not seem to be plugged in: F:\\Family Backup is there, but on another disk/).waitFor()
+  await shot('9y2-drive-left-its-folder-behind')
+  await fitsNarrow('A drive that left its folder behind')
+  await leftBehind.getByRole('button', { name: 'Use this folder as it is now' }).click()
+  await leftBehind.getByText(/looks emptied or replaced/).waitFor()
+
   // --- A search can be stopped, and then nothing from it is kept.
   await page.goto(`${base}/?demo=empty&slow`)
   await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
@@ -842,6 +866,71 @@ try {
   assert.equal(await page.locator('.kept li.source').count(), 0, 'the source was not added')
   assert.ok(await page.locator('.steps button').nth(1).isDisabled(), 'and there is nothing to choose from')
   await shot('9j-search-stopped')
+
+  // --- A drive plugged in appears by itself within a couple of seconds,
+  // first and brought to notice, never looking chosen; Refresh is a button.
+  await page.goto(`${base}/?demo=empty&plugin`)
+  await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
+  await page.getByRole('button', { name: 'Refresh the list of drives' }).waitFor()
+  assert.equal(await page.locator('.place').filter({ hasText: 'SanDisk' }).count(), 0, 'not plugged in yet')
+  const arrivedCard = page.locator('.place.arrived').filter({ hasText: 'SanDisk Ultra (F:)' })
+  await arrivedCard.waitFor()
+  assert.match(await arrivedCard.innerText(), /Just plugged in/)
+  assert.match(await page.locator('.places .place').first().innerText(), /SanDisk Ultra \(F:\)/, 'it comes first')
+  const shade = await arrivedCard.evaluate((el) => getComputedStyle(el).backgroundColor)
+  const other = await page.locator('.place').filter({ hasText: 'KINGSTON' }).evaluate((el) => getComputedStyle(el).backgroundColor)
+  assert.equal(shade, other, 'it is not shaded as if chosen')
+  await shot('2c-a-drive-just-plugged-in')
+  await fitsNarrow('A drive just plugged in')
+  await page.getByRole('button', { name: 'Refresh the list of drives' }).click()
+  await page.locator('.place').filter({ hasText: 'SanDisk Ultra (F:)' }).waitFor()
+
+  // --- A drive pulled out while it is looked through is said plainly, and
+  // what was found so far is kept.
+  await page.goto(`${base}/?demo=empty&unplug`)
+  await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
+  await page.getByRole('button', { name: /KINGSTON/ }).click()
+  await page.getByRole('heading', { name: 'Stopped looking through KINGSTON (E:)' }).waitFor()
+  assert.match(
+    await text('.panel'),
+    /KINGSTON \(E:\) was unplugged\. What was found so far is kept; plug it in and look again to carry on\./,
+  )
+  assert.equal(await page.locator('.kept li.source').count(), 1, 'what was found so far is kept')
+  await shot('9j1-search-drive-unplugged')
+
+  // --- The check for duplicates that follows a stopped search says what it
+  // is doing, has its own Pause and Stop, and offers to be stopped too.
+  await page.goto(`${base}/?slow&slowcheck`)
+  await page.getByRole('button', { name: /^Find your photos/ }).click()
+  await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
+  await page.getByRole('button', { name: /KINGSTON/ }).click()
+  await page.getByRole('button', { name: 'Stop looking' }).click()
+  await page.getByRole('heading', { name: 'Stopped looking through KINGSTON (E:)' }).waitFor()
+  await page.getByText('Still checking what was found before for duplicates.').waitFor()
+  assert.match(
+    await text('.foot .checking'),
+    /^Checking for duplicates in the background \([\d,]+ of [\d,]+\)\. You can keep using Keevoro while it finishes\./,
+  )
+  await shot('9j2-search-stopped-still-checking')
+  await page.getByRole('button', { name: 'Pause checking for duplicates' }).click()
+  await page.locator('.foot .checking').getByText(/^Checking for duplicates is paused/).waitFor()
+  assert.equal(await page.locator('.foot .paused').count(), 0, 'only the check is paused, not Keevoro')
+  await shot('9j3-check-paused-alone')
+  await page.getByRole('button', { name: 'Carry on checking for duplicates' }).click()
+  await page.getByRole('button', { name: 'Stop that too' }).click()
+  await page.locator('.foot .check-stopped').waitFor()
+  assert.match(await text('.foot .check-stopped'), /^Stopped checking for duplicates, with [\d,]+ files not checked yet\./)
+  assert.equal(await page.getByText('Still checking what was found before for duplicates.').count(), 0)
+  await shot('9j4-check-stopped')
+  // What that means, and when it starts again, on the activity page.
+  await page.getByRole('button', { name: /^What Keevoro is doing/ }).click()
+  await page.locator('.check-here .check-stopped').waitFor()
+  assert.match(await text('.check-here'), /nothing is backed up twice or left out by mistake/)
+  assert.match(await text('.check-here'), /Checking starts again by itself after your next search or backup/)
+  await shot('9j5-check-stopped-activity')
+  await fitsNarrow('The check stopped, on the activity page')
+  await page.locator('.check-here').getByRole('button', { name: 'Check for duplicates now' }).click()
+  await page.locator('.check-here .checking').waitFor()
 
   // --- Coming back to a backup that is already running shows it running,
   // never an offer to start another.
@@ -949,6 +1038,79 @@ try {
   assert.match(await text('.foot .paused'), /Keevoro is paused/, 'still said after leaving the page')
   await page.locator('.foot .paused').getByRole('button', { name: 'Carry on' }).click()
   await page.locator('.foot .paused').waitFor({ state: 'detached' })
+
+  // --- Managing backups, as the first tester asked: each with what tells it
+  // apart, renamed in place, removed only once told exactly what that does,
+  // and put back.
+  await page.goto(`${base}/?fast`)
+  for (const name of ['Test 2', 'My photos', 'My photos']) {
+    await page.getByRole('button', { name: 'Backup', exact: true }).click()
+    await page.getByRole('button', { name: 'Start a new backup…' }).click()
+    await page.getByLabel('Name for the new backup').fill(name)
+    await page.getByRole('button', { name: 'Start', exact: true }).click()
+    await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
+  }
+  await page.getByRole('button', { name: 'Backup', exact: true }).click()
+  assert.deepEqual(await page.locator('.backup .menu > button').allInnerTexts(), [
+    'My photos',
+    'Test 2',
+    'My photos 2',
+    'Start a new backup…',
+    'Manage backups…',
+  ])
+  await shot('9ab-switcher-with-manage')
+  await page.getByRole('button', { name: 'Manage backups…' }).click()
+  await page.getByRole('heading', { name: 'Your backups', level: 1 }).waitFor()
+  const backupRow = (name) =>
+    page.locator('.manage-backups > .backup-list > .backup-row').filter({ has: page.getByRole('heading', { name: new RegExp(`^${name}(\\s*Open now)?$`) }) })
+  // Each is filled in as it is counted: where it looks, where it goes, how much, when it last ran.
+  await page.waitForFunction(() => document.querySelectorAll('.backup-row .facts').length === 4)
+  assert.match(await backupRow('My photos').innerText(), /Looks in\s+[A-Z]:\\/)
+  assert.match(await backupRow('Test 2').innerText(), /Looks in\s+No sources yet\s+Backs up to\s+Nowhere yet\s+Holds\s+Nothing found yet\s+Last backed up\s+Never/)
+  assert.match(await backupRow('My photos 3').innerText(), /Open now/)
+  assert.equal(await backupRow('My photos 3').getByRole('button', { name: 'Open' }).count(), 0, 'the open one is not offered to open')
+  await shot('9ac-manage-backups')
+  await fitsNarrow('Manage backups')
+  // Renamed in place; a name in use is refused, in words, and changes nothing.
+  await backupRow('Test 2').getByRole('button', { name: 'Rename' }).click()
+  await page.getByLabel('New name for Test 2').fill('my photos')
+  await page.getByRole('button', { name: 'Save' }).click()
+  await page.getByRole('alert').filter({ hasText: 'There is already a backup called "my photos". Choose another name.' }).waitFor()
+  await shot('9ad-rename-refused')
+  await page.getByLabel('New name for Test 2').fill('Trying it out')
+  await page.getByRole('button', { name: 'Save' }).click()
+  await backupRow('Trying it out').waitFor()
+  // Removing says exactly what it does first, in the page, then asks.
+  await backupRow('Trying it out').getByRole('button', { name: 'Remove…' }).click()
+  await page.getByRole('heading', { name: 'Remove “Trying it out” from Keevoro?' }).waitFor()
+  const removing = await text('.removing')
+  assert.match(removing, /Keevoro's record of “Trying it out” on this computer goes/)
+  assert.match(removing, /there is nothing anywhere else to keep/)
+  assert.match(removing, /Nothing on any source is touched\./)
+  assert.match(removing, /You can put it back from Manage backups for 7 days/)
+  await shot('9ae-remove-backup')
+  await fitsNarrow('Removing a backup')
+  await page.getByRole('button', { name: 'Cancel' }).click()
+  await backupRow('Trying it out').getByRole('button', { name: 'Remove…' }).click()
+  await page.getByRole('button', { name: 'Remove this backup from Keevoro' }).click()
+  await backupRow('Trying it out').waitFor({ state: 'detached' })
+  assert.match(await text('.done-said'), /^Removed “Trying it out” from Keevoro/)
+  await page.getByRole('heading', { name: 'Removed recently' }).waitFor()
+  assert.match(await text('.removed-recently'), /It can be put back until/)
+  await shot('9af-removed-recently')
+  await page.locator('.removed-recently').getByRole('button', { name: 'Put back' }).click()
+  await backupRow('Trying it out').waitFor()
+  assert.equal(await page.locator('.removed-recently').count(), 0, 'nothing left to put back')
+  // The open backup can be removed too: another opens in its place.
+  await backupRow('My photos 3').getByRole('button', { name: 'Remove…' }).click()
+  await page.getByRole('button', { name: 'Remove this backup from Keevoro' }).click()
+  await backupRow('My photos 3').waitFor({ state: 'detached' })
+  assert.match(await text('.backup .current'), /My photos/)
+  assert.doesNotMatch(await text('.backup .current'), /My photos 3/)
+  // And another is opened from the list.
+  await backupRow('My photos 2').getByRole('button', { name: 'Open' }).click()
+  await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
+  assert.match(await text('.backup .current'), /My photos 2/)
 
   // --- Starting again: asked first, told exactly what goes and what stays.
   await page.goto(`${base}/?fast`)

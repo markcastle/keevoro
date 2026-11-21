@@ -86,6 +86,7 @@ fn running(kind: JobKind) -> status::Running {
             over_network: false,
             stopping: false,
             paused: false,
+            paused_alone: false,
             last: None,
             elsewhere: false,
             ended: false,

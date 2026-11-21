@@ -96,12 +96,53 @@ pub fn renamed(io: &mut Io<'_>, _: &ArgMatches, backup: &Value) -> Said_ {
     Ok(Code::Worked)
 }
 
-pub fn forgot(io: &mut Io<'_>, _: &ArgMatches, backup: &Value) -> Said_ {
+pub fn forgot(io: &mut Io<'_>, _: &ArgMatches, removal: &Value) -> Said_ {
+    for line in each(removal.get("said").unwrap_or(&Value::Null)).filter_map(Value::as_str) {
+        writeln!(io.out, "{line}")?;
+    }
+    if removal.get("removed").and_then(Value::as_bool) == Some(true) {
+        writeln!(
+            io.out,
+            "To put it back: keevoro backups put-back \"{}\"",
+            s(removal, "name")
+        )?;
+    } else {
+        writeln!(
+            io.out,
+            "Nothing was changed. To remove it: keevoro backups forget \"{}\"",
+            s(removal, "name")
+        )?;
+    }
+    Ok(Code::Worked)
+}
+
+pub fn removed_backups(io: &mut Io<'_>, _: &ArgMatches, list: &Value) -> Said_ {
+    if each(list).next().is_none() {
+        writeln!(io.out, "No backup has been removed in the last week.")?;
+    }
+    for removed in each(list) {
+        writeln!(io.out, "{}", s(removed, "name"))?;
+        writeln!(io.out, "  {}", s(removed, "said"))?;
+    }
+    Ok(Code::Worked)
+}
+
+pub fn put_back(io: &mut Io<'_>, _: &ArgMatches, backup: &Value) -> Said_ {
     writeln!(
         io.out,
-        "Forgot the backup \"{}\". Nothing at any source or destination was touched, and its own folder is where it was: {}",
-        s(backup, "name"),
-        s(backup, "home")
+        "Put back the backup \"{}\", exactly as it was.",
+        s(backup, "name")
+    )?;
+    Ok(Code::Worked)
+}
+
+pub fn cleared_away(io: &mut Io<'_>, _: &ArgMatches, removed: &Value) -> Said_ {
+    writeln!(
+        io.out,
+        "Cleared away \"{}\": {} freed on this computer. It can no longer be put back. Nothing at its \
+         destinations or on its sources was touched.",
+        s(removed, "name"),
+        bytes(b(removed, "bytes"))
     )?;
     Ok(Code::Worked)
 }
@@ -227,6 +268,16 @@ pub fn found(io: &mut Io<'_>, _: &ArgMatches, found: &Value) -> Said_ {
             count(w, "file"),
             bytes(b(found, "waitingBytes"))
         )?,
+    }
+    // A check for duplicates a person stopped, and what that means.
+    let stopped: Vec<&str> = each(found.get("checkStopped").unwrap_or(&Value::Null))
+        .filter_map(Value::as_str)
+        .collect();
+    for line in &stopped {
+        writeln!(io.out, "{line}")?;
+    }
+    if !stopped.is_empty() {
+        writeln!(io.out, "To check now: keevoro check-duplicates")?;
     }
     Ok(Code::Worked)
 }
@@ -840,8 +891,16 @@ pub fn status(io: &mut Io<'_>, _: &ArgMatches, list: &Value) -> Said_ {
     Ok(Code::Worked)
 }
 
-pub fn paused(io: &mut Io<'_>, _: &ArgMatches, answer: &Value) -> Said_ {
-    if yes(answer, "paused") {
+pub fn paused(io: &mut Io<'_>, m: &ArgMatches, answer: &Value) -> Said_ {
+    let one = m.try_get_one::<String>("job").ok().flatten().is_some();
+    if one && yes(answer, "paused") {
+        writeln!(
+            io.out,
+            "Paused the check for duplicates once the file in hand is done. Everything else carries on."
+        )?;
+    } else if one {
+        writeln!(io.out, "Carrying on checking for duplicates from where it was.")?;
+    } else if yes(answer, "paused") {
         writeln!(
             io.out,
             "Paused: whatever Keevoro is working on waits once the file in hand is done. Nothing is lost."
@@ -1086,7 +1145,9 @@ pub fn last_word(io: &mut Io<'_>, last: Option<&Said>) -> std::io::Result<()> {
             }
         }
         Some(Said::Scan(e)) => {
-            if e.stopped {
+            if let Some(unplugged) = &e.unplugged {
+                writeln!(io.out, "{unplugged}")?;
+            } else if e.stopped {
                 writeln!(
                     io.out,
                     "Stopped. Nothing from this search of {} was kept; what was known before is as it was.",
@@ -1162,6 +1223,11 @@ pub fn last_word(io: &mut Io<'_>, last: Option<&Said>) -> std::io::Result<()> {
             }
             if found.stopped {
                 writeln!(io.out, "Stopped early, so there may be more.")?;
+            }
+        }
+        Some(Said::Check(e)) if e.stopped => {
+            for line in &e.said {
+                writeln!(io.out, "{line}")?;
             }
         }
         Some(Said::Check(e)) => {

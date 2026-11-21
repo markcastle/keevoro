@@ -29,7 +29,7 @@ pub struct Done {
 
 /// Is `folder` strictly inside `owned`? Compared as real, resolved paths,
 /// so `..` or a link cannot make somewhere else look like Keevoro's.
-fn is_inside(folder: &Path, owned: &Path) -> bool {
+pub(crate) fn is_inside(folder: &Path, owned: &Path) -> bool {
     match (std::fs::canonicalize(folder), std::fs::canonicalize(owned)) {
         (Ok(folder), Ok(owned)) => folder != owned && folder.starts_with(&owned),
         _ => false,
@@ -58,6 +58,16 @@ pub fn reset(backups: &Backups, secrets: &dyn SecretStore, cache_dir: &Path) -> 
                 done.left_alone.push(home);
             }
         }
+        // Backups removed in the last week, waiting to be cleared away, go
+        // now, with their keys.
+        for note in crate::removing::notes(&data_dir) {
+            let keys: Vec<String> = crate::removing::keys_of(&data_dir, &note)
+                .into_iter()
+                .map(|(key, _)| key)
+                .collect();
+            let _ = connect::forget_keys(secrets, &keys);
+        }
+        let _ = std::fs::remove_dir_all(crate::removing::folder(&data_dir));
         // The remembered maps go with the cache, and the one held in memory
         // with them, since a map lists folder names across a whole drive.
         keevoro_engine::surveys::forget_all(cache_dir);

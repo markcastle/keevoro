@@ -2069,3 +2069,384 @@ fn a_destination_unplugged_is_said_to_be_out_of_reach_and_nothing_it_holds_is_fo
         back.summary
     );
 }
+
+/// Adds cloud storage to a backup's record as connecting would leave it,
+/// with its keys in the keychain, without asking any storage.
+fn add_bucket(keevoro: &Keevoro, named: &Named, bucket: &str) {
+    let catalog = Catalog::open_in_library(&named.home).unwrap();
+    let mut all: Vec<Value> = catalog
+        .setting("destinations")
+        .unwrap()
+        .map(|json| serde_json::from_str(&json).unwrap())
+        .unwrap_or_default();
+    all.push(json!({ "kind": "r2", "place": "0123456789abcdef0123456789abcdef", "bucket": bucket }));
+    catalog
+        .set_setting("destinations", &Value::from(all).to_string())
+        .unwrap();
+    keevoro
+        .secrets()
+        .set(
+            &format!("r2:0123456789abcdef0123456789abcdef/{bucket}"),
+            "access\nsecret",
+        )
+        .unwrap();
+}
+
+fn key_for(keevoro: &Keevoro, bucket: &str) -> Option<String> {
+    keevoro
+        .secrets()
+        .get(&format!("r2:0123456789abcdef0123456789abcdef/{bucket}"))
+        .unwrap()
+}
+
+#[test]
+fn removing_a_backup_touches_nothing_at_its_sources_or_destinations_and_can_be_put_back() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let k = keevoro(dir.path());
+    let (named, card, usb) = card_going_to_usb(dir.path(), &k);
+    let ran = k.run_backup(&named, None).unwrap();
+    k.wait(ran.id);
+    k.wait_for_jobs();
+    add_bucket(&k, &named, "family");
+    add_bucket(&k, &named, "shared");
+    let other = k.start_backup("Holidays").unwrap();
+    add_bucket(&k, &other, "shared");
+    let card_before = files_under(&card);
+    let usb_before = files_under(&usb);
+    assert!(!usb_before.is_empty(), "something was backed up to remove");
+
+    // Asked first, it says what it would do and changes nothing.
+    let asked = k.forget_backup("card photos", true).unwrap();
+    assert!(!asked.removed);
+    assert!(named.home.join(".keevoro").join("catalog.sqlite").is_file());
+    assert_eq!(asked.said[0], "Keevoro's record of \"Card photos\" on this computer goes: its sources, what it found, your choices and its history.");
+    assert!(
+        asked.said[1].starts_with(&format!(
+            "Everything already backed up to the folder {}, the Cloudflare R2 bucket family and the Cloudflare R2 bucket shared stays where it is.",
+            usb.display()
+        )),
+        "{}",
+        asked.said[1]
+    );
+    assert!(
+        asked.said[2].starts_with("Nothing on its sources ("),
+        "{}",
+        asked.said[2]
+    );
+    assert!(asked.clears_own_folder && asked.own_folder_bytes > 0);
+    assert!(
+        asked.said[3].contains("You can put it back from Manage backups for 7 days"),
+        "{}",
+        asked.said[3]
+    );
+    assert_eq!(
+        asked.keys_for,
+        ["the Cloudflare R2 bucket family"],
+        "a key another backup uses stays"
+    );
+    assert_eq!(k.backups().all().len(), 2);
+
+    // An agent cannot remove a backup at all.
+    let e = crate::call_for_agent(&k, Op::BackupsForget, None, json!({ "backup": "Card photos" })).unwrap_err();
+    assert_eq!(e.kind, Kind::Refused);
+    assert_eq!(k.backups().all().len(), 2);
+
+    let removed = k.forget_backup("Card photos", false).unwrap();
+    assert!(removed.removed && removed.kept_until.is_some());
+    assert!(
+        removed.said[0].starts_with("Removed \"Card photos\" from Keevoro"),
+        "{:?}",
+        removed.said
+    );
+    assert_eq!(k.backups().all(), std::slice::from_ref(&other));
+    assert!(!named.home.exists(), "nothing of it is left lying about");
+    assert_eq!(files_under(&card), card_before, "nothing on the source was touched");
+    assert_eq!(files_under(&usb), usb_before, "nothing at the destination was touched");
+    assert!(
+        key_for(&k, "family").is_some(),
+        "its keys stay while it can be put back"
+    );
+
+    // Put back, it is exactly as it was.
+    let listed = k.removed_backups();
+    assert_eq!(listed.len(), 1);
+    assert!(
+        listed[0].said.contains("It can be put back until"),
+        "{}",
+        listed[0].said
+    );
+    let back = k.put_back_backup("card photos").unwrap();
+    assert_eq!(back, named);
+    assert_eq!(
+        there(&named),
+        Backup::open(&named.home).unwrap().discover().unwrap().photos
+    );
+    assert!(k.removed_backups().is_empty());
+
+    // Removed again and cleared away: its own folder and its own keys go,
+    // and still nothing at a source or a destination.
+    k.forget_backup("Card photos", false).unwrap();
+    let cleared = k.clear_away_backup("Card photos").unwrap();
+    assert!(cleared.bytes > 0);
+    assert!(k.removed_backups().is_empty());
+    assert!(!dir.path().join("data").join("removed").join(&named.id).exists());
+    assert_eq!(key_for(&k, "family"), None, "the keys only it used are gone");
+    assert!(key_for(&k, "shared").is_some(), "the keys another backup uses stay");
+    assert_eq!(files_under(&card), card_before);
+    assert_eq!(files_under(&usb), usb_before);
+    assert_eq!(
+        k.put_back_backup("Card photos").unwrap_err().kind,
+        Kind::NotFound,
+        "cleared away for good"
+    );
+    let log = k.log_tail(20);
+    assert!(log.contains("Removed backup \"Card photos\""), "{log}");
+    assert!(log.contains("Put back backup \"Card photos\""), "{log}");
+    assert!(log.contains("Cleared away backup \"Card photos\""), "{log}");
+}
+
+#[test]
+fn a_removed_backup_is_cleared_away_by_itself_a_week_later() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let k = keevoro(dir.path());
+    let named = k.start_backup("Test 2").unwrap();
+    add_bucket(&k, &named, "test");
+    k.forget_backup("Test 2", false).unwrap();
+    assert_eq!(k.clear_away_old_removed(), 0, "kept for a week");
+    // As if removed eight days ago.
+    let note_file = dir
+        .path()
+        .join("data")
+        .join("removed")
+        .join(&named.id)
+        .join("removed.json");
+    let mut note: Value = serde_json::from_str(&std::fs::read_to_string(&note_file).unwrap()).unwrap();
+    note["removedAt"] = json!(seconds_now() - 8 * 24 * 60 * 60);
+    std::fs::write(&note_file, note.to_string()).unwrap();
+    assert_eq!(k.clear_away_old_removed(), 1);
+    assert!(!note_file.exists());
+    assert_eq!(key_for(&k, "test"), None);
+    assert!(k.backups().all().is_empty(), "the first-run state");
+}
+
+#[test]
+fn a_backup_being_worked_on_cannot_be_removed_or_renamed_here_or_from_another_program() {
+    let _turn = one_at_a_time();
+    let _after = CarryOnAfter;
+    let dir = tempfile::tempdir().unwrap();
+    let app = keevoro(dir.path());
+    let named = app.start_backup("Card photos").unwrap();
+    let card = card_in(dir.path());
+    let command_line = command_line(dir.path());
+    app.pause();
+    app.look(&named, &card, None).unwrap();
+    let said = "Keevoro is already looking through a source for \"Card photos\" in the Keevoro app. Let that finish, or stop it, first.";
+    for refused in [
+        app.forget_backup("Card photos", false).unwrap_err(),
+        app.forget_backup("Card photos", true).unwrap_err(),
+        app.rename_backup("Card photos", "Card").unwrap_err(),
+        command_line.forget_backup("Card photos", false).unwrap_err(),
+        command_line.rename_backup("Card photos", "Card").unwrap_err(),
+    ] {
+        assert_eq!((refused.kind, refused.message.as_str()), (Kind::Busy, said));
+    }
+    let listed = app.list_backups();
+    assert_eq!(listed[0].busy.as_deref(), Some(said), "the list says why too");
+    app.stop(Which::All);
+    app.carry_on();
+    app.wait_for_jobs();
+    assert!(named.home.is_dir());
+    assert_eq!(app.backups().all().len(), 1);
+    assert_eq!(app.list_backups()[0].busy, None);
+}
+
+/// Two large photos on the card, sampled by a quick search made outside
+/// any job, so the check for duplicates has two files to read.
+fn two_to_check(dir: &Path, named: &Named) -> PathBuf {
+    let card = card_in(dir);
+    for (name, shade) in [("IMG_20200101_120000.jpg", 200), ("IMG_20200102_120000.jpg", 220)] {
+        std::fs::write(card.join("DCIM").join(name), large_photo(shade)).unwrap();
+    }
+    let mut catalog = Catalog::open_in_library(&named.home).unwrap();
+    let quick = keevoro_scan::ScanOptions {
+        quick: true,
+        ..Default::default()
+    };
+    keevoro_engine::scan_into_with(&mut catalog, &card, None, &quick, &mut |_| {}, &mut || {}).unwrap();
+    card
+}
+
+#[test]
+fn the_check_for_duplicates_has_a_pause_and_a_stop_of_its_own_and_once_stopped_waits_to_be_asked() {
+    let _turn = one_at_a_time();
+    let _after = CarryOnAfter;
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro(dir.path());
+    let named = keevoro.start_backup("Card photos").unwrap();
+    let card = two_to_check(dir.path(), &named);
+    let unchecked = || Catalog::open_in_library(&named.home).unwrap().unhashed_count().unwrap();
+    assert_eq!(unchecked(), 2);
+
+    // Held by Keevoro's Pause before its first file, then paused on its own
+    // and Keevoro let go on: only the check waits.
+    keevoro.pause();
+    let check = keevoro.keep_checking(&named).unwrap();
+    keevoro.pause_job(check.id).unwrap();
+    keevoro.carry_on();
+    assert!(!keevoro_core::pause::is_paused(), "everything else carries on");
+    let status = keevoro
+        .jobs(None)
+        .into_iter()
+        .find(|j| j.handle.id == check.id)
+        .unwrap();
+    assert!(status.paused && status.paused_alone, "{status:?}");
+    let now = keevoro.activity().check.unwrap();
+    assert!(now.paused_alone);
+    assert!(
+        now.said.starts_with("Checking for duplicates is paused ("),
+        "{}",
+        now.said
+    );
+    assert_eq!(unchecked(), 2, "nothing read while paused");
+    // Its own pause is for the check alone; asked of another job it is refused.
+    assert_eq!(keevoro.pause_job(JobId(1)).unwrap_err().kind, Kind::NotFound);
+
+    // Stopped while Keevoro as a whole is paused too: the check ends, and
+    // the pause stays for everything else.
+    keevoro.pause();
+    assert_eq!(keevoro.stop(Which::Job(check.id)), [check.id]);
+    let Some(Said::Check(last)) = keevoro.wait(check.id) else {
+        panic!("a check says how it ended")
+    };
+    assert!(
+        keevoro_core::pause::is_paused(),
+        "stopping the check does not lift the pause"
+    );
+    keevoro.carry_on();
+    assert!(last.finished && last.stopped, "{last:?}");
+    assert_eq!(last.left, 2);
+    assert_eq!(
+        last.said,
+        [
+            "Stopped checking for duplicates, with 2 files not checked yet.",
+            "Until they are, the counts of copies may be a little out, but nothing is backed up twice or left out by mistake: before sending, a backup reads in full any file that looks like another.",
+            "Checking starts again by itself after your next search or backup, or now if you ask.",
+        ]
+    );
+
+    // Stopped, it does not start again by itself when Keevoro or the
+    // backup is opened, and that is said wherever what was found is.
+    assert!(keevoro.keep_checking(&named).is_none());
+    let left = keevoro.duplicates_left(&named);
+    assert!(left.stopped && left.left == 2, "{left:?}");
+    let found = call(&keevoro, Op::FoundSummary, Some("Card photos"), json!({})).unwrap();
+    assert_eq!(found["notChecked"], 2);
+    assert_eq!(
+        found["checkStopped"][0],
+        "Stopped checking for duplicates, with 2 files not checked yet."
+    );
+    assert!(keevoro.log_tail(10).contains("Background checking stopped after"));
+
+    // Asked, it runs, and is no longer said to be stopped.
+    let asked = call(&keevoro, Op::DuplicatesCheck, Some("Card photos"), json!({})).unwrap();
+    keevoro.wait(serde_json::from_value(asked["id"].clone()).unwrap());
+    keevoro.wait_for_jobs();
+    assert_eq!(unchecked(), 0);
+    assert_eq!(keevoro.duplicates_left(&named), crate::jobs::DuplicatesLeft::default());
+
+    // Stopped again, the next search starts it again by itself.
+    std::fs::write(card.join("DCIM/IMG_20200103_120000.jpg"), large_photo(240)).unwrap();
+    keevoro.pause();
+    let check = keevoro.keep_checking(&named);
+    keevoro.carry_on();
+    if let Some(check) = check {
+        keevoro.stop(Which::Job(check.id));
+        keevoro.wait(check.id);
+    }
+    let job = keevoro.look(&named, &card, None).unwrap();
+    keevoro.wait(job.id);
+    keevoro.wait_for_jobs();
+    assert_eq!(unchecked(), 0, "the search starts it again");
+    assert!(!keevoro.duplicates_left(&named).stopped);
+}
+
+#[test]
+fn the_check_for_duplicates_is_paused_and_let_go_on_alone_by_name_with_json() {
+    let _turn = one_at_a_time();
+    let _after = CarryOnAfter;
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro(dir.path());
+    let named = keevoro.start_backup("Card photos").unwrap();
+    two_to_check(dir.path(), &named);
+    keevoro.pause();
+    let check = keevoro.keep_checking(&named).unwrap();
+    call(&keevoro, Op::JobsPause, None, json!({ "job": check.id })).unwrap();
+    keevoro.carry_on();
+    let status = call(&keevoro, Op::JobsStatus, None, json!({})).unwrap();
+    assert_eq!(status[0]["pausedAlone"], true, "{status}");
+    // A search cannot be paused alone.
+    let card = dir.path().join("Card");
+    keevoro.pause();
+    let search = keevoro.look(&named, &card, None).unwrap();
+    let e = call(&keevoro, Op::JobsPause, None, json!({ "job": search.id })).unwrap_err();
+    assert_eq!(e.kind, Kind::Refused);
+    keevoro.carry_on();
+    call(&keevoro, Op::JobsCarryOn, None, json!({ "job": check.id })).ok();
+    keevoro.wait(search.id);
+    keevoro.wait_for_jobs();
+    assert!(keevoro
+        .log_tail(20)
+        .contains("Paused the check for duplicates; everything else carries on"));
+}
+
+/// Pulling the card out is made by moving its folder away while it is
+/// looked through; Windows refuses to move a folder that is open, so there
+/// it is proved on a real computer.
+#[cfg(unix)]
+#[test]
+fn a_source_unplugged_while_it_is_looked_through_is_said_plainly_and_nothing_found_is_lost() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro(dir.path());
+    let named = keevoro.start_backup("Card photos").unwrap();
+    let card = card_in(dir.path());
+    let photo = crate::backup::tests::real_jpeg(7);
+    for n in 0..300 {
+        std::fs::write(card.join(format!("DCIM/IMG_{n:04}.jpg")), &photo).unwrap();
+    }
+    let first = keevoro.look(&named, &card, None).unwrap();
+    keevoro.wait(first.id);
+    keevoro.wait_for_jobs();
+    let before = Backup::open(&named.home).unwrap().sources().unwrap()[0].items;
+
+    let away = dir.path().join("In a drawer");
+    let pulled = Arc::new(AtomicBool::new(false));
+    let pull: Listener = {
+        let (card, away, pulled) = (card.clone(), away.clone(), pulled.clone());
+        Arc::new(move |_: &Event| {
+            if !pulled.swap(true, Ordering::SeqCst) {
+                std::fs::rename(&card, &away).unwrap();
+            }
+        })
+    };
+    let again = keevoro.look(&named, &card, Some(pull)).unwrap();
+    let Some(Said::Scan(last)) = keevoro.wait(again.id) else {
+        panic!("a search says how it ended")
+    };
+    keevoro.wait_for_jobs();
+    assert_eq!(
+        last.unplugged.as_deref(),
+        Some("Card could no longer be reached; its drive may have been unplugged. What was found so far is kept; plug it in and look again to carry on."),
+        "{last:?}"
+    );
+    assert_eq!(last.unreadable, 0, "nothing is said to be unreadable");
+    assert_eq!(
+        Backup::open(&named.home).unwrap().sources().unwrap()[0].items,
+        before,
+        "nothing found on it before is forgotten"
+    );
+    assert!(keevoro.log_tail(10).contains("went part-way through looking"));
+    std::fs::rename(&away, &card).unwrap();
+}

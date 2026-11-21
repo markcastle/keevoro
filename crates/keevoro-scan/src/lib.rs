@@ -140,6 +140,12 @@ pub struct ScanReport {
     /// so this is only part of what is there.
     #[serde(skip)]
     pub stopped: bool,
+    /// True when the place being looked through went away part-way (a
+    /// drive unplugged, a share gone offline): the walk stopped there, so
+    /// this is only part of what is there, and the files and folders that
+    /// could not be read once it had gone are not counted as unreadable.
+    #[serde(skip)]
+    pub gone: bool,
 }
 
 /// Live counts for a progress display, and where the search has got to.
@@ -202,11 +208,26 @@ pub fn scan(root: &Path, opts: &ScanOptions, on_progress: &mut dyn FnMut(&ScanPr
     let mut skipped: Vec<(u64, SkippedFolder)> = Vec::new();
     let mut unreadable: Vec<(u64, Unreadable)> = Vec::new();
     let mut online: Vec<(u64, PathBuf)> = Vec::new();
+    // Set when the place itself is found to have gone: everything from then
+    // on fails, and is not worth reading or reporting one by one.
+    let gone = AtomicBool::new(false);
+    // Only a place that was there to begin with can go; one that never was
+    // is reported as it always was, as a folder that cannot be read.
+    let was_there = root.is_dir();
+    let has_gone = || {
+        let now = gone.load(Ordering::SeqCst) || (was_there && !root.is_dir());
+        if now {
+            gone.store(true, Ordering::SeqCst);
+        }
+        now
+    };
 
     std::thread::scope(|threads| {
         for _ in 0..readers() {
             let done = done.clone();
             let waiting = &waiting;
+            let gone = &gone;
+            let has_gone = &has_gone;
             threads.spawn(move || loop {
                 let next = match waiting.lock() {
                     Ok(queue) => queue.recv(),
@@ -214,8 +235,9 @@ pub fn scan(root: &Path, opts: &ScanOptions, on_progress: &mut dyn FnMut(&ScanPr
                 };
                 let Ok((order, path)) = next else { break };
                 keevoro_core::pause::wait_while_paused();
-                // Asked to stop: let the queue empty without opening anything more.
-                if opts.stopped() {
+                // Asked to stop, or the place has gone: let the queue empty
+                // without opening anything more.
+                if opts.stopped() || gone.load(Ordering::SeqCst) {
                     continue;
                 }
                 if let Some(bytes) = std::fs::metadata(&path)
@@ -228,6 +250,9 @@ pub fn scan(root: &Path, opts: &ScanOptions, on_progress: &mut dyn FnMut(&ScanPr
                 let looked = match examine(root, &path, opts) {
                     Ok(Some(item)) => Looked::Media(Box::new(item)),
                     Ok(None) => Looked::Other,
+                    // A file that cannot be read because the whole place has
+                    // gone is not unreadable; the walk stops.
+                    Err(_) if has_gone() => continue,
                     Err(e) => Looked::Unreadable(e.to_string()),
                 };
                 if done.send((order, path, looked)).is_err() {
@@ -235,7 +260,8 @@ pub fn scan(root: &Path, opts: &ScanOptions, on_progress: &mut dyn FnMut(&ScanPr
                 }
             });
         }
-        threads.spawn(move || walk(root, opts, &to_read, &done));
+        let has_gone = &has_gone;
+        threads.spawn(move || walk(root, opts, &to_read, &done, has_gone));
 
         for (order, path, looked) in results {
             if progress.reading.as_ref().is_some_and(|(reading, _)| *reading == path) {
@@ -295,6 +321,12 @@ pub fn scan(root: &Path, opts: &ScanOptions, on_progress: &mut dyn FnMut(&ScanPr
     online.sort_by_key(|(order, _)| *order);
     report.online_only = online.into_iter().map(|(_, p)| p).collect();
     report.stopped = opts.stopped();
+    report.gone = has_gone();
+    if report.gone {
+        // What could not be read once the place had gone is not a file or
+        // folder that is unreadable; it is the place that is gone.
+        report.unreadable.clear();
+    }
     report
 }
 
@@ -305,6 +337,7 @@ fn walk(
     opts: &ScanOptions,
     to_read: &mpsc::SyncSender<(u64, PathBuf)>,
     done: &mpsc::Sender<(u64, PathBuf, Looked)>,
+    has_gone: &dyn Fn() -> bool,
 ) {
     let mut order = 0u64;
     let mut walk = WalkDir::new(root).follow_links(false).sort_by_file_name().into_iter();
@@ -316,6 +349,9 @@ fn walk(
         order += 1;
         let entry = match entry {
             Ok(e) => e,
+            // The place itself has gone: a drive unplugged part-way. Every
+            // folder from here would fail the same way, so the walk stops.
+            Err(_) if has_gone() => break,
             Err(e) => {
                 let path = e.path().map_or_else(|| root.to_path_buf(), Path::to_path_buf);
                 let _ = done.send((order, path, Looked::Unreadable(e.to_string())));

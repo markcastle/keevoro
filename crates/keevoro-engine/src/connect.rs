@@ -183,6 +183,13 @@ pub struct Saved {
     /// or offline. `None` for a destination saved before this was kept.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
+    /// For a folder: which disk it was on when it was added and when it was
+    /// last reached ([`crate::reach::volume_of`]), so an empty folder left
+    /// behind on another disk by a drive unplugged is not taken for it.
+    /// `None` for a folder saved before this was kept, until it is next
+    /// reached, and for cloud storage.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub volume: Option<String>,
 }
 
 /// A destination as it is asked for: one of the places, and its bucket.
@@ -214,6 +221,7 @@ impl Saved {
             bucket: flags.bucket.clone().filter(|_| kind != "folder"),
             base_url: flags.base_url.clone(),
             target: None,
+            volume: None,
         })
     }
 
@@ -345,6 +353,21 @@ pub fn note_target(catalog: &Catalog, saved: &Saved, target: &str) -> Result<()>
     Ok(())
 }
 
+/// Notes which disk a folder destination is on, once it has been reached
+/// there, for one saved before that was remembered or whose drive is now
+/// known by another number.
+pub fn note_volume(catalog: &Catalog, saved: &Saved, volume: &str) -> Result<()> {
+    let mut all = destinations(catalog)?;
+    if let Some(found) = all
+        .iter_mut()
+        .find(|d| d.same_place(saved) && d.volume.as_deref() != Some(volume))
+    {
+        found.volume = Some(volume.to_string());
+        remember(catalog, &all)?;
+    }
+    Ok(())
+}
+
 /// A destination that could not be reached when it was being added, so
 /// that it can be told apart from anything else that went wrong.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -428,6 +451,11 @@ fn prove_and_remember(
     let (_, target, _) = opened;
     let saved = &Saved {
         target: Some(target),
+        // The disk it is on now, as it is added: the one it is known by.
+        volume: match saved.preset() {
+            None => crate::reach::volume_of(std::path::Path::new(&saved.place)),
+            Some(_) => None,
+        },
         ..saved.clone()
     };
     if let Some((keys, _)) = &keys {
@@ -452,6 +480,29 @@ fn prove_and_remember(
         )?,
     }
     Ok(from)
+}
+
+/// The keychain entries this backup's destinations use, each with the
+/// destination in words. A folder needs none. Two destinations on one
+/// bucket share an entry, which is given once.
+pub fn keys_kept_for(catalog: &Catalog) -> Result<Vec<(String, String)>> {
+    let mut kept: Vec<(String, String)> = Vec::new();
+    for saved in destinations(catalog)? {
+        let name = saved.secret_name();
+        if saved.preset().is_some() && !kept.iter().any(|(n, _)| *n == name) {
+            kept.push((name, saved.describe()));
+        }
+    }
+    Ok(kept)
+}
+
+/// Removes these entries from the keychain. Nothing in the storage itself
+/// is touched.
+pub fn forget_keys(secrets: &dyn SecretStore, names: &[String]) -> Result<()> {
+    for name in names {
+        secrets.delete(name)?;
+    }
+    Ok(())
 }
 
 /// Forgets the saved destination and removes its keys from the keychain.

@@ -19,6 +19,7 @@
 
 use std::path::Path;
 
+pub mod drives;
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(windows)]

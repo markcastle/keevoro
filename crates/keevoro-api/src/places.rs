@@ -5,9 +5,25 @@
 //! size, lets them recognise the one they just plugged in and click it.
 //!
 //! This only lists drives. It reads nothing from them. It is `places.list`.
+//!
+//! **Noticing a drive arrive or leave.** The first screen updates by itself
+//! within about two seconds of a drive arriving or leaving. While it is
+//! showing and the window is visible, it asks [`if_changed`] every couple
+//! of seconds with the drives it last knew. That asks the system only for
+//! the list of drives it has mounted ([`mounted`]: names and places, no
+//! sizes, and never a network drive), which is a list the system keeps in
+//! memory: on Linux one read of `/proc/self/mounts`, on a Mac the volumes
+//! it knows, on Windows its local volumes that have something in them, so a
+//! memory card pushed into a reader already plugged in counts as arriving.
+//! Only when that list has changed is the fuller listing made, with sizes
+//! and the mapped network drives, and the screen told which drives have
+//! just arrived. What changed is worked out by [`changed`], which is pure.
+//! On Windows the system's own notice of a volume arriving or leaving
+//! ([`watch_for_drives`], from `keevoro_frame::drives`) makes the screen
+//! look at once, so it does not wait for its next look.
 
 use serde::Serialize;
-use sysinfo::Disks;
+use sysinfo::{DiskRefreshKind, Disks};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -43,6 +59,109 @@ pub fn plugged_in() -> Vec<Place> {
     places.sort_by(|a, b| b.removable.cmp(&a.removable).then_with(|| a.path.cmp(&b.path)));
     places.dedup_by(|a, b| a.path == b.path);
     places
+}
+
+/// The drives the system has mounted, by where each is, sorted: the quick
+/// list that says whether anything has arrived or left. No sizes are asked
+/// for (on Linux, asking a network share's size can hang), and the
+/// computer's own system volumes are left out as [`describe`] leaves them
+/// out, apart from size.
+pub fn mounted() -> Vec<String> {
+    let disks = Disks::new_with_refreshed_list_specifics(DiskRefreshKind::nothing());
+    let mut mounts: Vec<String> = disks
+        .list()
+        .iter()
+        .map(|disk| disk.mount_point().display().to_string())
+        .filter(|mount| !is_system_mount(mount))
+        .collect();
+    mounts.sort();
+    mounts.dedup();
+    mounts
+}
+
+/// What arrived and what left between two lists of mounted drives.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct Change {
+    pub arrived: Vec<String>,
+    pub left: Vec<String>,
+}
+
+/// What changed from `known` to `now`: `None` when nothing did. Pure.
+pub fn changed(known: &[String], now: &[String]) -> Option<Change> {
+    let arrived: Vec<String> = now.iter().filter(|m| !known.contains(m)).cloned().collect();
+    let left: Vec<String> = known.iter().filter(|m| !now.contains(m)).cloned().collect();
+    (!arrived.is_empty() || !left.is_empty()).then_some(Change { arrived, left })
+}
+
+/// The drives plugged in, as [`if_changed`] gives them when something
+/// changed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlacesNow {
+    /// The quick list, to give back next time.
+    pub mounts: Vec<String>,
+    /// Every drive worth offering, as [`plugged_in`] gives them.
+    pub places: Vec<Place>,
+    /// The paths of those that have just arrived, to bring to notice.
+    pub arrived: Vec<String>,
+}
+
+/// The drives plugged in, if they are not what was `known` from the last
+/// time: `None` when the quick list is unchanged, so nothing more is asked.
+/// With nothing known (the first look), every drive is given and none is
+/// said to have just arrived. `asked` makes it list the drives in full
+/// whatever the quick list says: the person pressed Refresh, or the system
+/// said something arrived.
+pub fn if_changed(known: Option<&[String]>, asked: bool) -> Option<PlacesNow> {
+    let now = mounted();
+    let change = match known {
+        None => Some(Change::default()),
+        Some(known) => changed(known, &now).or_else(|| asked.then(Change::default)),
+    }?;
+    let places = plugged_in();
+    let arrived = arrived_places(&places, &change.arrived);
+    Some(PlacesNow {
+        mounts: now,
+        places,
+        arrived,
+    })
+}
+
+/// The places among `places` that are at one of the mounts that arrived.
+/// Pure.
+pub fn arrived_places(places: &[Place], arrived: &[String]) -> Vec<String> {
+    let bare = |p: &str| p.trim_end_matches(['\\', '/']).to_string();
+    places
+        .iter()
+        .filter(|place| arrived.iter().any(|m| bare(m) == bare(&place.path)))
+        .map(|place| place.path.clone())
+        .collect()
+}
+
+/// Asks to be told when a drive arrives or leaves, where the system says
+/// (Windows). False where it does not, and looking every couple of seconds
+/// is the only way.
+pub fn watch_for_drives(notice: impl Fn() + Send + Sync + 'static) -> bool {
+    keevoro_frame::drives::on_change(Box::new(notice))
+}
+
+/// What to call the drive mounted at `path`, if one is: "KINGSTON (E:)".
+/// From the quick list, so it costs next to nothing and never waits on a
+/// network share. `None` for a folder that is not a drive of its own.
+pub fn drive_name(path: &std::path::Path) -> Option<String> {
+    let bare = |p: &str| p.trim_end_matches(['\\', '/']).to_string();
+    let wanted = bare(&path.display().to_string());
+    let disks = Disks::new_with_refreshed_list_specifics(DiskRefreshKind::nothing());
+    disks
+        .list()
+        .iter()
+        .find(|disk| bare(&disk.mount_point().display().to_string()) == wanted)
+        .map(|disk| {
+            name_for(
+                &disk.mount_point().display().to_string(),
+                &disk.name().to_string_lossy(),
+            )
+        })
 }
 
 /// Drive letters that lead to another computer: a mapped network drive,
@@ -199,31 +318,10 @@ pub fn describe(mount: &str, label: &str, bytes: u64, removable: bool) -> Option
     // Tiny or hidden system volumes (boot partitions, snapshots) only
     // confuse. A real drive holds at least a few hundred megabytes.
     const SMALLEST: u64 = 256 * 1024 * 1024;
-    let system_mounts = [
-        "/boot",
-        "/snap",
-        "/sys",
-        "/proc",
-        "/dev",
-        "/run",
-        "/System/Volumes",
-        "/private",
-    ];
-    if bytes < SMALLEST || system_mounts.iter().any(|m| mount.starts_with(m)) {
+    if bytes < SMALLEST || is_system_mount(mount) {
         return None;
     }
-    // "E:\" reads better as "E:"; "/Volumes/KINGSTON" as "KINGSTON".
-    let letter = mount.trim_end_matches(['\\', '/']);
-    let last = letter.rsplit(['/', '\\']).next().unwrap_or(letter);
-    let label = label.trim();
-    let is_letter = letter.len() == 2 && letter.ends_with(':');
-    let name = match (label.is_empty() || label.starts_with("/dev/"), is_letter) {
-        (false, true) => format!("{label} ({letter})"),
-        (false, false) => label.to_string(),
-        (true, true) => format!("Drive {letter}"),
-        (true, false) if last.is_empty() => "This computer".to_string(),
-        (true, false) => last.to_string(),
-    };
+    let name = name_for(mount, label);
     let kind = if removable {
         "USB or external drive"
     } else {
@@ -239,6 +337,38 @@ pub fn describe(mount: &str, label: &str, bytes: u64, removable: bool) -> Option
         // one, is mostly not photos and can take a long time.
         ask_first: !removable || bytes > ASK_ABOVE,
     })
+}
+
+/// Places the system mounts for itself, never a drive a person plugs in.
+fn is_system_mount(mount: &str) -> bool {
+    [
+        "/boot",
+        "/snap",
+        "/sys",
+        "/proc",
+        "/dev",
+        "/run",
+        "/System/Volumes",
+        "/private",
+    ]
+    .iter()
+    .any(|m| mount.starts_with(m))
+}
+
+/// What a person would call the drive mounted at `mount` with this label.
+fn name_for(mount: &str, label: &str) -> String {
+    // "E:\" reads better as "E:"; "/Volumes/KINGSTON" as "KINGSTON".
+    let letter = mount.trim_end_matches(['\\', '/']);
+    let last = letter.rsplit(['/', '\\']).next().unwrap_or(letter);
+    let label = label.trim();
+    let is_letter = letter.len() == 2 && letter.ends_with(':');
+    match (label.is_empty() || label.starts_with("/dev/"), is_letter) {
+        (false, true) => format!("{label} ({letter})"),
+        (false, false) => label.to_string(),
+        (true, true) => format!("Drive {letter}"),
+        (true, false) if last.is_empty() => "This computer".to_string(),
+        (true, false) => last.to_string(),
+    }
 }
 
 /// Sizes as drives are sold: "32 GB", "1 TB".
@@ -359,6 +489,67 @@ mod tests {
             drives.letters_to_ask().contains(&'Q'),
             "asked again once it has answered"
         );
+    }
+
+    #[test]
+    fn a_drive_plugged_in_or_taken_out_is_noticed_and_nothing_else_is() {
+        let known = vec!["/".to_string(), "/media/mark/KINGSTON".to_string()];
+        assert_eq!(changed(&known, &known), None, "nothing changed, nothing more is asked");
+        let now = vec!["/".to_string(), "/media/mark/SANDISK".to_string()];
+        assert_eq!(
+            changed(&known, &now),
+            Some(Change {
+                arrived: vec!["/media/mark/SANDISK".to_string()],
+                left: vec!["/media/mark/KINGSTON".to_string()],
+            })
+        );
+        // A card pushed into a reader already plugged in is a volume
+        // arriving, though no drive letter is new.
+        let reader = vec!["C:\\".to_string()];
+        let card = vec!["C:\\".to_string(), "F:\\".to_string()];
+        assert_eq!(changed(&reader, &card).unwrap().arrived, ["F:\\"]);
+        assert_eq!(changed(&card, &reader).unwrap().left, ["F:\\"]);
+    }
+
+    #[test]
+    fn the_drives_that_just_arrived_are_picked_out_of_the_full_list() {
+        let places = [
+            describe("E:\\", "KINGSTON", 32 * GB, true).unwrap(),
+            describe("F:\\", "SanDisk", 32 * GB, true).unwrap(),
+            describe("/Volumes/Family Backup", "Family Backup", 2000 * GB, true).unwrap(),
+        ];
+        assert_eq!(arrived_places(&places, &["F:\\".to_string()]), ["F:\\"]);
+        assert_eq!(
+            arrived_places(&places, &["/Volumes/Family Backup/".to_string()]),
+            ["/Volumes/Family Backup"],
+            "with or without the last slash"
+        );
+        assert!(arrived_places(&places, &[]).is_empty());
+    }
+
+    #[test]
+    fn the_quick_list_is_quick_and_a_look_with_nothing_changed_asks_nothing_more() {
+        let started = std::time::Instant::now();
+        let mounts = mounted();
+        let took = started.elapsed();
+        eprintln!("The quick list of {} drives took {took:?}.", mounts.len());
+        assert!(mounts.windows(2).all(|w| w[0] < w[1]), "sorted, each once");
+        assert!(mounts.iter().all(|m| !is_system_mount(m)));
+        // Generous, for a busy test machine; it is microseconds to a few
+        // milliseconds in practice.
+        assert!(took < std::time::Duration::from_secs(2), "{took:?}");
+        let started = std::time::Instant::now();
+        let first = if_changed(None, false).expect("a first look always lists");
+        eprintln!("The full list took {:?}.", started.elapsed());
+        assert!(first.arrived.is_empty(), "nothing has just arrived on a first look");
+        assert_eq!(if_changed(Some(&first.mounts), false), None);
+        let asked = if_changed(Some(&first.mounts), true).expect("Refresh always lists");
+        assert_eq!(asked.places, first.places);
+        let gone = if_changed(Some(&["/nowhere".to_string()]), false).expect("a change lists");
+        assert!(gone
+            .arrived
+            .iter()
+            .all(|path| gone.places.iter().any(|p| &p.path == path)));
     }
 
     #[test]

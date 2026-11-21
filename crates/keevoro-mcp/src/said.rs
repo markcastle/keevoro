@@ -349,6 +349,7 @@ fn last_word(last: Option<&Said>) -> Vec<String> {
             "It was stopped. Nothing from this search of {} was kept.",
             e.name
         )],
+        Some(Said::Scan(e)) if e.unplugged.is_some() => e.unplugged.clone().into_iter().collect(),
         Some(Said::Scan(e)) => {
             let n = |n: u64| usize::try_from(n).unwrap_or(usize::MAX);
             let found = keevoro_api::words::photos_and_videos(n(e.photos), n(e.videos), n(e.others));

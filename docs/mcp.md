@@ -19,7 +19,7 @@ When you allow it, it can also:
 - read, and keep or leave out, other files you asked Keevoro to carry along (music, documents): `list_collections` lists them last, one per folder they came from (`byFolder`), `keep_collection` keeps or leaves out a folder of them, `list_photos` lists its files (each with its size and when it last changed) and `keep_photo` one of them, and `backup_wants` says, and with changes allowed sets, whether a backup takes them (`wants`: any of `photos`, `videos`, `others`). Only you can put a kind of file on the list as other files; an agent can read the list (`list_file_kinds`) but never change it;
 - leave a folder you have named out of a backup, or put it back (`leave_out_folder`), so it is not looked through and what was found in it is no longer offered. Nothing in the folder, and nothing already backed up, is touched;
 - add a folder you have named as a destination, or cloud storage with its keys;
-- back up, check what arrived, pause, carry on and stop.
+- back up, check what arrived, pause, carry on and stop. Given a job's number, `pause_jobs` and `carry_on` pause or let go on only the background check for duplicates, while everything else carries on; `stop_job` stops it, and a check stopped that way does not start again by itself until the next search or backup. Starting it again by hand ("Check for duplicates now") is for you.
 
 Whatever you allow, an agent can never:
 
@@ -27,7 +27,7 @@ Whatever you allow, an agent can never:
 - delete a photo from a backup. Nothing in Keevoro can do that either;
 - look in, or back up to, a folder you have not named. A path written to dodge the rule, with `..`, a shortcut (a symbolic link) or another spelling of the same Windows path, is judged by where it really leads, and refused. A folder it may use is then worked on where it really leads, so a shortcut changed after Keevoro checked it is not followed;
 - read back a storage key. An agent can give Keevoro a key when it adds cloud storage, and the key goes straight into your computer's keychain. No answer, error or line of the log ever contains it;
-- forget a backup or the remembered maps, reset Keevoro, change its settings (the kinds of file Keevoro looks for among them; it can read that list), or install an update. Those are for you;
+- remove a backup (or put back or clear away one removed), forget the remembered maps, reset Keevoro, change its settings (the kinds of file Keevoro looks for among them; it can read that list), or install an update. Those are for you;
 - change what it is allowed to do. It can ask what it may do, and nothing more.
 
 Everything an agent does is written to Keevoro's log, in plain words: which tool it used, on which backup, and how it went. Settings, "What Keevoro has been doing", shows it.
