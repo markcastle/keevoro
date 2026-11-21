@@ -124,6 +124,10 @@ fn is_zero(n: &u64) -> bool {
     *n == 0
 }
 
+fn is_none_of_them(n: &usize) -> bool {
+    *n == 0
+}
+
 impl DestinationRecord {
     pub fn new(to: &str) -> Self {
         Self {
@@ -139,6 +143,10 @@ impl DestinationRecord {
 pub struct Sending {
     pub sent: usize,
     pub sent_bytes: u64,
+    /// Of those sent, how many Keevoro had sent before and found gone from
+    /// there when it looked: back where they were.
+    #[serde(default, skip_serializing_if = "is_none_of_them")]
+    pub restored: usize,
     pub already_there: usize,
     /// Files that could not be sent, each with the reason, up to
     /// [`NOT_SENT_KEPT`].

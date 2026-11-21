@@ -417,11 +417,11 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
         }
         Op::DestinationsRoom => {
             read::<Nothing>(request)?;
-            answer(open()?.room()?)
+            answer(keevoro.room(&open()?)?)
         }
         Op::BackupRehearse => {
             read::<Nothing>(request)?;
-            answer(open()?.rehearse()?)
+            answer(keevoro.rehearse(&open()?)?)
         }
         Op::BackupHistory => {
             let r: HistoryRequest = read(request)?;

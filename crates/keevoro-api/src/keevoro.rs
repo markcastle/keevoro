@@ -459,6 +459,26 @@ impl Keevoro {
         Ok(added)
     }
 
+    /// The outside world a destination is reached through: the keychain,
+    /// and the environment for scripts' keys.
+    pub(crate) fn world(&self) -> keevoro_engine::connect::World<'_> {
+        keevoro_engine::connect::World {
+            secrets: self.secrets(),
+            environment: &*self.environment,
+        }
+    }
+
+    /// `destinations.room`, looking at each destination first unless it
+    /// was looked at a moment ago.
+    pub fn room(&self, backup: &Backup) -> Result<crate::destinations::Room> {
+        backup.room_looking(&self.world())
+    }
+
+    /// `backup.rehearse`, looking at each destination first.
+    pub fn rehearse(&self, backup: &Backup) -> Result<crate::destinations::Rehearsal> {
+        backup.rehearse(&self.world())
+    }
+
     /// `destinations.remove`: one by its place in the list, or every one.
     /// A folder taken off has Keevoro's own abandoned working files cleared
     /// from it, as a backup there would have; nothing backed up is touched.

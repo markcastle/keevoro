@@ -4,7 +4,7 @@
 
 pub use keevoro_core::words::photos_and_videos;
 pub use keevoro_engine::history::duration;
-pub use keevoro_engine::summary::{bytes, count, files, thousands};
+pub use keevoro_engine::summary::{ago, bytes, count, files, thousands};
 
 /// What clearing Keevoro's unfinished copies from a folder did (`cleared`)
 /// or, asked first, would do: what goes, and what stays and why.
@@ -62,21 +62,6 @@ pub fn tidied(folder: &str, swept: &keevoro_engine::Swept, cleared: bool) -> Vec
 /// the same way the log writes it.
 pub fn date_and_time(seconds: i64) -> String {
     crate::log::stamp(u64::try_from(seconds).unwrap_or(0))
-}
-
-/// How long ago a moment was, both given in seconds since 1970, as a
-/// person says it: "just now", "5 minutes ago", "3 hours ago", "2 days
-/// ago", and the date beyond a month.
-pub fn ago(then: i64, now: i64) -> String {
-    let gone = now.saturating_sub(then).max(0);
-    let say = |n: i64, unit: &str| format!("{} ago", count(usize::try_from(n).unwrap_or(0), unit));
-    match gone {
-        0..60 => "just now".to_string(),
-        60..3_600 => say(gone / 60, "minute"),
-        3_600..86_400 => say(gone / 3_600, "hour"),
-        86_400..2_592_000 => say(gone / 86_400, "day"),
-        _ => format!("on {}", &date_and_time(then)[..10]),
-    }
 }
 
 /// How long a video lasts, as a video player shows it: `0:07`, `1:42`,
@@ -151,6 +136,13 @@ pub fn stage_line(stage: &StageRecord) -> String {
 /// What one pass of sending did, in a sentence.
 fn sending_line(what: &str, sending: &Sending) -> String {
     let mut line = format!("{} sent ({})", count(sending.sent, what), bytes(sending.sent_bytes));
+    if sending.restored > 0 {
+        line.push_str(&format!(
+            ", {} of them sent again because {} had gone from there",
+            thousands(sending.restored),
+            if sending.restored == 1 { "it" } else { "they" }
+        ));
+    }
     if sending.already_there > 0 {
         line.push_str(&format!(", {} already there", thousands(sending.already_there)));
     }
@@ -410,6 +402,7 @@ mod a_run_in_full {
                     originals: Sending {
                         sent: 11_243,
                         sent_bytes: 7168 * GB / 10,
+                        restored: 40,
                         already_there: 0,
                         not_sent: vec![NotSent {
                             file: "originals/2019/IMG_0001.jpg".into(),
@@ -449,7 +442,7 @@ mod a_run_in_full {
             "with Keevoro 0.33.0. It finished. It was paused for about 12 minutes.",
             "  Working out where each file goes: under a minute, 11,245 files, 281 files a second on average",
             "716.8 GB, 9.2 MB a second on average (slowest 2.0 MB a second, fastest 11.0 MB a second, each held a minute or more). Went wrong: Couldn't back up 2 files",
-            "11,243 files sent (716.8 GB), 2 could not be sent.",
+            "11,243 files sent (716.8 GB), 40 of them sent again because they had gone from there, 2 could not be sent.",
             "    originals/2019/IMG_0001.jpg: The source couldn't be read.",
             "    and 1 more.",
             "Duplicates left out: 312, saving 4.0 GB.",

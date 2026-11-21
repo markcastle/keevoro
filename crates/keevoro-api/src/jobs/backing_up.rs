@@ -257,9 +257,9 @@ fn check(
         if several {
             said.extend_from_slice(format!("At {}:\n", to.describe()).as_bytes());
         }
-        let checked = to
-            .open(said, world)
-            .and_then(|destination| keevoro_engine::send::check(said, catalog, destination, false, progress));
+        let checked = to.open(said, world).and_then(|destination| {
+            keevoro_engine::send::check(said, catalog, destination, to.target.as_deref(), false, progress)
+        });
         match checked {
             Ok(wrong) => {
                 went.reached += 1;

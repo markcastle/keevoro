@@ -148,6 +148,10 @@ pub struct DestinationView {
     /// Kept files still to go, and the room they need.
     pub waiting: usize,
     pub waiting_bytes: u64,
+    /// What Keevoro found when it last looked there, and how sure it can
+    /// be now (see [`crate::confirm`]). `None` before it has looked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub looked: Option<crate::confirm::LookedView>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -421,18 +425,22 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
         waiting_to_gather,
         waiting_bytes,
         sources,
-        destinations: places
-            .iter()
-            .zip(tallies)
-            .map(|(to, (there, waiting, bytes))| DestinationView {
-                name: to.describe(),
-                kind: to.kind.clone(),
-                folder: (to.kind == "folder").then(|| to.place.clone()),
-                there,
-                waiting,
-                waiting_bytes: bytes,
-            })
-            .collect(),
+        destinations: {
+            let now = crate::confirm::now();
+            let mut views = Vec::with_capacity(places.len());
+            for (to, (there, waiting, bytes)) in places.iter().zip(tallies) {
+                views.push(DestinationView {
+                    name: to.describe(),
+                    kind: to.kind.clone(),
+                    folder: (to.kind == "folder").then(|| to.place.clone()),
+                    there,
+                    waiting,
+                    waiting_bytes: bytes,
+                    looked: crate::confirm::as_it_stands(catalog, to, now)?,
+                });
+            }
+            views
+        },
         collections,
     })
 }

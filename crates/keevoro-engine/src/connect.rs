@@ -417,7 +417,7 @@ fn prove_and_remember(
     // Prove it works before remembering anything. Whatever went wrong has
     // the keys taken out of its words, in case the storage repeated them.
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
-    let opened = crate::send::open(out, &runtime, destination).map_err(|e| {
+    let opened = crate::send::open_or_make(out, &runtime, destination).map_err(|e| {
         let mut said = format!("{e:#}");
         for key in keys.iter().flat_map(|(keys, _)| keys.both()) {
             said = said.replace(key, "[hidden]");

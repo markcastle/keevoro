@@ -305,6 +305,92 @@ fn uploads_are_tracked_per_storage_target() {
 }
 
 #[test]
+fn a_file_found_gone_is_written_down_as_gone_and_counts_as_not_there_until_it_is_sent_again() {
+    let c = Catalog::in_memory().unwrap();
+    for key in ["originals/a.jpg", "originals/b.jpg", "originals/c.jpg"] {
+        c.mark_uploaded("usb", key, 10).unwrap();
+    }
+    c.mark_uploaded("nas", "originals/a.jpg", 10).unwrap();
+    c.set_seen(
+        "usb",
+        &[
+            ("originals/a.jpg".into(), Seen::Missing),
+            ("originals/b.jpg".into(), Seen::NotAsSent),
+            // A look never adds what Keevoro did not send.
+            ("originals/not-mine.jpg".into(), Seen::There),
+        ],
+    )
+    .unwrap();
+    assert!(!c.is_uploaded("usb", "originals/a.jpg").unwrap());
+    assert!(!c.is_uploaded("usb", "originals/b.jpg").unwrap());
+    assert!(c.is_uploaded("usb", "originals/c.jpg").unwrap());
+    assert_eq!(c.sent_state("usb", "originals/a.jpg").unwrap(), Some(Seen::Missing));
+    assert_eq!(c.sent_state("usb", "originals/not-mine.jpg").unwrap(), None);
+    assert!(
+        c.is_uploaded("nas", "originals/a.jpg").unwrap(),
+        "another place is its own"
+    );
+    assert!(c.stored_anywhere("originals/a.jpg").unwrap(), "it is still at the NAS");
+    assert!(!c.stored_anywhere("originals/b.jpg").unwrap());
+    let sent = |key: &str, seen| Sent {
+        key: key.into(),
+        bytes: 10,
+        seen,
+    };
+    assert_eq!(
+        c.sent_to("usb").unwrap(),
+        [
+            sent("originals/a.jpg", Seen::Missing),
+            sent("originals/b.jpg", Seen::NotAsSent),
+            sent("originals/c.jpg", Seen::There),
+        ]
+    );
+    assert_eq!(
+        c.seen_counts("usb", "originals/").unwrap(),
+        SeenCounts {
+            there: 1,
+            missing: 1,
+            not_as_sent: 1
+        }
+    );
+    assert_eq!(c.seen_counts("usb", "renditions/").unwrap().sent(), 0);
+    // Sent again, it is there again; found back where it was, likewise.
+    c.mark_uploaded("usb", "originals/a.jpg", 10).unwrap();
+    c.set_seen("usb", &[("originals/b.jpg".into(), Seen::There)]).unwrap();
+    assert!(c.is_uploaded("usb", "originals/a.jpg").unwrap());
+    assert!(c.is_uploaded("usb", "originals/b.jpg").unwrap());
+}
+
+#[test]
+fn what_an_older_catalog_says_was_sent_is_kept_and_counts_as_there_until_it_is_looked_for() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("catalog.sqlite");
+    {
+        // As every version before this one left it.
+        let conn = Connection::open(&file).unwrap();
+        for step in &MIGRATIONS[..8] {
+            conn.execute_batch(step).unwrap();
+        }
+        conn.pragma_update(None, "user_version", 8).unwrap();
+        conn.execute(
+            "INSERT INTO uploaded (target, key, bytes) VALUES ('folder:/usb', 'originals/a.jpg', 12)",
+            [],
+        )
+        .unwrap();
+    }
+    let c = Catalog::open(&file).unwrap();
+    assert!(c.is_uploaded("folder:/usb", "originals/a.jpg").unwrap());
+    assert_eq!(
+        c.sent_to("folder:/usb").unwrap(),
+        [Sent {
+            key: "originals/a.jpg".into(),
+            bytes: 12,
+            seen: Seen::There
+        }]
+    );
+}
+
+#[test]
 fn settings_are_small_named_values() {
     let c = Catalog::in_memory().unwrap();
     assert_eq!(c.setting("index_key").unwrap(), None);
@@ -642,7 +728,9 @@ fn raw_files_wrongly_set_aside_by_an_earlier_version_are_put_back() {
             item.height = Some(120);
         }
         c.save_scan("Card", &report, 1).unwrap();
-        // Rewind to before the fix, so opening again applies it.
+        // Rewind to before the fix, so opening again applies it, taking
+        // away what later steps add so that they can add it again.
+        c.conn.execute_batch("ALTER TABLE uploaded DROP COLUMN gone").unwrap();
         c.conn.pragma_update(None, "user_version", 6).unwrap();
     }
     let c = Catalog::open(&file).unwrap();

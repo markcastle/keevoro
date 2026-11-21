@@ -87,9 +87,20 @@ pub const SECRET_KEY_VAR: &str = "KEEVORO_SECRET_ACCESS_KEY";
 /// to use in the index when the user gives none.
 type Opened = (Box<dyn MultipartStore>, String, String);
 
+/// Opens a destination for sending. A folder must already be there: one
+/// that has gone part-way through a backup is far more often a drive
+/// unplugged than a folder to make again on whatever disk is left, so it is
+/// out of reach. Only adding a destination makes its folder
+/// ([`open_or_make`]).
 pub fn open(out: &mut dyn Write, runtime: &tokio::runtime::Runtime, destination: Destination) -> Result<Opened> {
     match destination {
         Destination::Folder(folder) => {
+            if !folder.is_dir() {
+                anyhow::bail!(
+                    "Keevoro can't find the folder {}. Is it plugged in?",
+                    crate::friendly_path(&folder)
+                );
+            }
             let store = runtime
                 .block_on(FolderStore::open(&folder))
                 .with_context(|| format!("Couldn't use {} as a backup folder", folder.display()))?
@@ -99,12 +110,7 @@ pub fn open(out: &mut dyn Write, runtime: &tokio::runtime::Runtime, destination:
                     let remote = crate::reach::is_across_a_network(&folder);
                     std::sync::Arc::new(move |bytes| keevoro_core::meter::sent(bytes, remote))
                 });
-            let home = std::fs::canonicalize(&folder).unwrap_or(folder);
-            Ok((
-                Box::new(store),
-                format!("folder:{}", home.display()),
-                BESIDE_THE_INDEX.to_string(),
-            ))
+            Ok((Box::new(store), folder_target(&folder), BESIDE_THE_INDEX.to_string()))
         }
         Destination::Bucket {
             preset,
@@ -139,6 +145,26 @@ pub fn open(out: &mut dyn Write, runtime: &tokio::runtime::Runtime, destination:
             Ok((Box::new(store), name, "/".to_string()))
         }
     }
+}
+
+/// Opens a destination being added, making its folder if it is not there
+/// yet: the person has just chosen it.
+pub fn open_or_make(
+    out: &mut dyn Write,
+    runtime: &tokio::runtime::Runtime,
+    destination: Destination,
+) -> Result<Opened> {
+    if let Destination::Folder(folder) = &destination {
+        std::fs::create_dir_all(folder)
+            .with_context(|| format!("Couldn't use {} as a backup folder", folder.display()))?;
+    }
+    open(out, runtime, destination)
+}
+
+/// The name a folder's records are kept under: where it really is.
+pub fn folder_target(folder: &Path) -> String {
+    let home = std::fs::canonicalize(folder).unwrap_or_else(|_| folder.to_path_buf());
+    format!("folder:{}", home.display())
 }
 
 /// What a step of getting ready is called while it happens.
@@ -214,7 +240,10 @@ fn originals_first(
     let said = |bytes: &[u8]| String::from_utf8_lossy(bytes).into_owned();
     let files_sent = |out: &mut dyn Write, files: &[u8]| -> Result<()> {
         for line in said(files).lines() {
-            if line.starts_with("Safely backed up") || line.ends_with("already there.") || line.starts_with("Warning:")
+            if line.starts_with("Safely backed up")
+                || line.starts_with("Restored ")
+                || line.ends_with("already there.")
+                || line.starts_with("Warning:")
             {
                 writeln!(out, "{line}")?;
             }
@@ -356,6 +385,8 @@ fn originals_first(
     for line in said(&extras).lines() {
         if let Some(rest) = line.strip_prefix("Safely backed up ") {
             writeln!(out, "Previews added: {rest}")?;
+        } else if line.starts_with("Restored ") {
+            // Previews sent again are only previews added.
         } else if line.starts_with("Back up again") && originals_failed > 0 {
             // Already said, after the files.
         } else if !line.ends_with("already there.") && !line.starts_with("Warning:") {
@@ -418,15 +449,28 @@ pub fn everywhere(
     on_progress: &mut dyn FnMut(&str),
     after_each: &mut dyn FnMut(Turn<'_>),
 ) -> Result<Went> {
-    let all = crate::connect::destinations(catalog)?;
-    if all.is_empty() {
+    if crate::connect::destinations(catalog)?.is_empty() {
         anyhow::bail!("Choose where to back up to first.");
     }
+    // Before anything counts as already there, each destination is looked
+    // at, and what has gone from one is said before anything is sent.
+    let looked = crate::confirm::look_everywhere(catalog, world)?;
+    let now = crate::confirm::now();
+    for (to, _) in &looked {
+        if let Some(view) = crate::confirm::as_it_stands(catalog, to, now)? {
+            if view.reached {
+                for line in &view.said {
+                    writeln!(out, "{line}")?;
+                }
+            }
+        }
+    }
+    let all: Vec<crate::connect::Saved> = looked.iter().map(|(to, _)| to.clone()).collect();
     tracker.plan(plan(catalog, home, &all, tracker)?);
     let several = all.len() > 1;
     let mut went = Went::default();
     let mut previews = None;
-    for to in &all {
+    for (to, seen) in &looked {
         // Stopped before this one's turn, even before the first: said the
         // same way as when it is stopped part-way through one.
         if stop.load(Ordering::SeqCst) {
@@ -443,6 +487,12 @@ pub fn everywhere(
         let mut record = crate::history::DestinationRecord::new(&name);
         let mut cleared = keevoro_storage_folder::Swept::default();
         let turn = (|| {
+            // One that could not be looked at is not backed up to: what is
+            // there cannot be known, and a folder that has gone is far more
+            // often a drive unplugged than one to be made again.
+            if !seen.reached {
+                anyhow::bail!("{}", seen.problem.clone().unwrap_or_default());
+            }
             let destination = to.open(out, world)?;
             // Working files an earlier backup left behind go first, so the
             // room they took is free for this one.
@@ -863,6 +913,7 @@ fn run_until(
     sending.sent += report.uploaded;
     sending.sent_bytes += report.uploaded_bytes;
     sending.already_there += report.already_there;
+    sending.restored += report.restored;
     for f in &report.failed {
         if sending.not_sent.len() < crate::history::NOT_SENT_KEPT {
             sending.not_sent.push(crate::history::NotSent {
@@ -882,6 +933,9 @@ fn run_until(
             summary::count(report.uploaded, "file"),
             summary::bytes(report.uploaded_bytes)
         )?;
+    }
+    if report.restored > 0 {
+        writeln!(out, "{}", restored_words(report.restored))?;
     }
     if report.already_there > 0 {
         writeln!(out, "{} already there.", summary::count(report.already_there, "file"))?;
@@ -909,25 +963,45 @@ fn run_until(
     Ok(report.failed.len())
 }
 
+/// What a backup says of the files it sent again because a look had found
+/// them gone from where they were backed up.
+pub fn restored_words(files: usize) -> String {
+    format!("Restored {} that had gone from there.", summary::count(files, "file"))
+}
+
 /// Confirms that every kept file sent to this destination is there, and
 /// says so plainly. With `read_back`, each one is also read back from the
 /// destination and compared exactly. Answers how many files need
-/// attention. Nothing is changed.
+/// attention. Nothing at the destination is changed; Keevoro's record of
+/// what is there is corrected, so "Back up again" sends what is missing.
+/// A folder that is not there is not checked, and nothing is written down:
+/// it is out of reach, not empty.
 pub fn check(
     out: &mut dyn Write,
     catalog: &Catalog,
     destination: Destination,
+    target_named: Option<&str>,
     read_back: bool,
     on_progress: &mut dyn FnMut(&str),
 ) -> Result<usize> {
     let n = summary::thousands;
+    // A folder that is not there is out of reach, whatever was sent to it.
+    if let Destination::Folder(folder) = &destination {
+        if !folder.is_dir() {
+            anyhow::bail!(
+                "Keevoro can't find the folder {}. Is it plugged in?",
+                crate::friendly_path(folder)
+            );
+        }
+    }
     let files = catalog.collected()?;
     if files.is_empty() {
         writeln!(out, "Nothing has been backed up yet, so there is nothing to check.")?;
         return Ok(0);
     }
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
-    let (store, _, _) = open(out, &runtime, destination)?;
+    let (store, target, _) = open(out, &runtime, destination)?;
+    let target = target_named.map_or(target, str::to_string);
     let expected = files
         .iter()
         .map(|f| {
@@ -948,6 +1022,9 @@ pub fn check(
             on_progress(&format!("Checking your backup: {} of {}", n(p.done), n(p.total)));
         },
     ));
+    // What was found is written down, so every screen, and the next
+    // backup, go by it. Only files Keevoro sent there have a record.
+    catalog.set_seen(&target, &result.seen)?;
     if result.problems.is_empty() {
         let how = if read_back && result.read_back == result.present {
             ", and each one was read back and matches exactly"
@@ -1127,6 +1204,10 @@ mod tests {
         stop: &Stop,
         on_progress: &mut dyn FnMut(&str),
     ) -> Result<usize> {
+        // As adding it as a destination would have.
+        if let Destination::Folder(folder) = &destination {
+            std::fs::create_dir_all(folder).unwrap();
+        }
         let tracker = Tracker::new(keevoro_core::estimate::Remembered::default());
         let mut previews = None;
         let mut record = crate::history::DestinationRecord::new("the folder");
@@ -1168,6 +1249,7 @@ mod tests {
     }
 
     fn send(catalog: &Catalog, home: &Path, to: &Path) -> String {
+        std::fs::create_dir_all(to).unwrap();
         let mut said = Vec::new();
         turn_alone(
             &mut said,

@@ -104,6 +104,9 @@ pub struct PublishReport {
     pub uploaded: usize,
     pub uploaded_bytes: u64,
     pub already_there: usize,
+    /// Of those uploaded, how many Keevoro had sent before and a look at
+    /// the storage had found gone: sent again, so back where they were.
+    pub restored: usize,
     pub failed: Vec<FailedUpload>,
     /// True when it was asked to stop before every file had been tried.
     pub stopped: bool,
@@ -168,16 +171,20 @@ pub async fn publish(
                 break;
             }
             let Some(upload) = waiting.next() else { break };
-            if catalog.is_uploaded(target, upload.key.as_str())? {
+            // Already there only by Keevoro's record, which a look at the
+            // storage keeps true; a file found gone has a record that says so.
+            let recorded = catalog.sent_state(target, upload.key.as_str())?;
+            if recorded == Some(keevoro_catalog::Seen::There) {
                 report.already_there += 1;
                 progress.done += 1;
                 progress.latest = upload.key.to_string();
                 on_progress(&progress);
                 continue;
             }
-            in_flight.push(async move { (upload, send(store, catalog, target, upload, opts).await) });
+            let was_gone = recorded.is_some();
+            in_flight.push(async move { (upload, was_gone, send(store, catalog, target, upload, opts).await) });
         }
-        let Some((upload, sent)) = in_flight.next().await else {
+        let Some((upload, was_gone, sent)) = in_flight.next().await else {
             break;
         };
         match sent {
@@ -190,6 +197,7 @@ pub async fn publish(
                         }
                         report.uploaded += 1;
                         report.uploaded_bytes += upload.bytes;
+                        report.restored += usize::from(was_gone);
                     }
                     Outcome::AlreadyThere => report.already_there += 1,
                 }
@@ -246,6 +254,12 @@ pub struct BackupCheck {
     /// Of those, how many were also downloaded and matched exactly.
     pub read_back: usize,
     pub problems: Vec<FailedUpload>,
+    /// What was found of each original that could be looked for: there,
+    /// missing, or not as it was sent (another size, or other contents).
+    /// One that could not be asked about (the connection dropped) is not
+    /// here, so it is never written down as gone.
+    #[serde(skip)]
+    pub seen: Vec<(String, keevoro_catalog::Seen)>,
 }
 
 /// Checks that originals are really in the storage. Every one is looked up
@@ -265,25 +279,33 @@ pub async fn check_backup(
         total: expected.len(),
         latest: String::new(),
     };
+    use keevoro_catalog::Seen;
     for want in expected {
-        let problem = match with_retries(opts, || store.head(&want.key)).await {
-            Ok(None) => Some("It is missing from the backup".to_string()),
-            Ok(Some(found)) if found.bytes != want.bytes => {
-                Some("The backup's copy is a different size from the original".to_string())
-            }
+        let (problem, seen) = match with_retries(opts, || store.head(&want.key)).await {
+            Ok(None) => (Some("It is missing from the backup".to_string()), Some(Seen::Missing)),
+            Ok(Some(found)) if found.bytes != want.bytes => (
+                Some("The backup's copy is a different size from the original".to_string()),
+                Some(Seen::NotAsSent),
+            ),
             Ok(Some(_)) if read_back && want.bytes <= MAX_READ_BACK_BYTES => {
                 match with_retries(opts, || store.get(&want.key)).await {
                     Ok(bytes) if blake3_hex(&bytes) == want.blake3 => {
                         check.read_back += 1;
-                        None
+                        (None, Some(Seen::There))
                     }
-                    Ok(_) => Some("The backup's copy does not match the original".to_string()),
-                    Err(e) => Some(plain_reason(&e)),
+                    Ok(_) => (
+                        Some("The backup's copy does not match the original".to_string()),
+                        Some(Seen::NotAsSent),
+                    ),
+                    Err(e) => (Some(plain_reason(&e)), None),
                 }
             }
-            Ok(Some(_)) => None,
-            Err(e) => Some(plain_reason(&e)),
+            Ok(Some(_)) => (None, Some(Seen::There)),
+            Err(e) => (Some(plain_reason(&e)), None),
         };
+        if let Some(seen) = seen {
+            check.seen.push((want.key.to_string(), seen));
+        }
         match problem {
             None => check.present += 1,
             Some(reason) => check.problems.push(FailedUpload {

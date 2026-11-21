@@ -255,6 +255,68 @@ fn what_each_command_does_is_the_registers_own_words() {
     assert!(ran.out.contains("Usage: keevoro"), "{}", ran.out);
 }
 
+/// The first outside tester's steps, on 0.37.1: a backup deleted from its
+/// folder was said to be "already there" and never sent again.
+#[test]
+fn a_backup_deleted_from_its_folder_is_said_to_be_gone_and_is_sent_again() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let card = card(dir.path());
+    let usb = dir.path().join("USB");
+    let at = At::new(dir.path());
+    at.keevoro(&["backups", "start", "T"]);
+    assert_eq!(at.keevoro(&["look", &text(&card)]).code, Code::Worked);
+    assert_eq!(
+        at.keevoro(&["destinations", "add", "--folder", &text(&usb)]).code,
+        Code::Worked
+    );
+    let ran = at.keevoro(&["run"]);
+    assert!(ran.out.contains("Safely backed up 3 files"), "{}", ran.out);
+
+    // rm -rf USB/*
+    for entry in std::fs::read_dir(&usb).unwrap().filter_map(Result::ok) {
+        if !entry.file_name().to_string_lossy().starts_with('.') {
+            let path = entry.path();
+            if path.is_dir() {
+                std::fs::remove_dir_all(path).unwrap();
+            } else {
+                std::fs::remove_file(path).unwrap();
+            }
+        }
+    }
+    let gone = format!(
+        "The folder {} looks emptied or replaced: it no longer holds any of the 3 files Keevoro backed up there. \
+         They will be sent again.",
+        usb.display()
+    );
+    let ran = at.keevoro(&["rehearse"]);
+    assert!(ran.out.starts_with(&gone), "{}", ran.out);
+    assert!(ran.out.contains("3 files ("), "{}", ran.out);
+    assert!(!ran.out.contains("already at"), "{}", ran.out);
+
+    let ran = at.keevoro(&["run"]);
+    assert_eq!(ran.code, Code::Worked, "{}{}", ran.out, ran.err);
+    assert!(ran.out.starts_with(&gone), "{}", ran.out);
+    assert!(ran.out.contains("Safely backed up 3 files"), "{}", ran.out);
+    assert!(
+        ran.out.contains("Restored 3 files that had gone from there."),
+        "{}",
+        ran.out
+    );
+    assert!(!ran.out.contains("already there"), "{}", ran.out);
+
+    let ran = at.keevoro(&["check"]);
+    assert_eq!(ran.code, Code::Worked, "{}{}", ran.out, ran.err);
+    assert!(ran.out.contains("all 3 originals are there"), "{}", ran.out);
+    let ran = at.keevoro(&["history", "1"]);
+    assert!(
+        ran.out
+            .contains("3 of them sent again because they had gone from there"),
+        "{}",
+        ran.out
+    );
+}
+
 #[test]
 fn a_first_backup_from_start_to_finish() {
     let _turn = one_at_a_time();
