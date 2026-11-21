@@ -70,7 +70,7 @@ Someone other than the owner has now used Keevoro (0.37.1, Windows 11 Home). The
 - [ ] Stopping the background check for duplicates, and saying plainly what it is doing
 - [ ] Drives appear and leave on their own, with a Refresh button
 - [x] Keep my folders as they are: a choice asked the first time a backup is set up
-- [ ] The map: calmer colours, a summary ring, small folders merged
+- [x] The map: calmer colours, a summary ring, small folders merged
 - [ ] Cloud drives as sources: synced cloud folders done properly, then a bucket as a source
 
 ### 4. Other kinds of file, carried along
@@ -546,10 +546,10 @@ The map
 
 "A useful view, but could it use more neutral colour tones? Or even a choice of views, like a pie chart? Possibly everything under 10% of the backup merged into Others." They liked the list beside it a lot.
 
-- [ ] Calmer colours: softer tints for photos and videos, the strong colour kept for the chosen box and what needs attention
-- [ ] A summary ring above the map: photos, videos, other files chosen, everything else, with figures
-- [ ] A choice of view, remembered: the map, or a plain bar per folder
-- [ ] Small folders drawn as one "Smaller folders" box and row, opening on a click, the share adjusting with the window
+- [x] Calmer colours: softer tints for photos and videos, the strong colour kept for the chosen box and what needs attention
+- [x] A summary ring above the map: photos, videos, other files chosen, everything else, with figures
+- [x] A choice of view, remembered: the map, or a plain bar per folder
+- [x] Small folders drawn as one "Smaller folders" box and row, opening on a click, the share adjusting with the window
 
 Cloud drives as sources
 

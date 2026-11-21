@@ -1366,6 +1366,10 @@ try {
   assert.equal(await map.getAttribute('data-selected'), 'C:\\Users\\Mark\\Pictures\\Texture packs', 'a box chosen on the map')
   assert.equal(await page.locator('.space-list tr[aria-selected="true"] .name > :first-child').innerText(), 'Texture packs', 'is chosen in the list')
   await page.locator('.space .chosen').getByRole('button', { name: 'Leave out Texture packs' }).waitFor()
+  // Drawing every box of the map is quick: said, and held to a ceiling.
+  const drawnMs = Number(await map.getAttribute('data-drawn-ms'))
+  console.log(`The map of Pictures drew its boxes in ${drawnMs} ms.`)
+  assert.ok(drawnMs < 200, `the map took ${drawnMs} ms to draw`)
   await shot('9t-space-map')
   await page.emulateMedia({ colorScheme: 'dark' })
   await shot('9t2-space-map-dark')
@@ -1520,7 +1524,89 @@ try {
   await page.getByRole('heading', { name: 'Finding what is in Family hard drive…' }).waitFor()
   await page.getByRole('grid', { name: /^What is in / }).waitFor({ timeout: 15000 })
   assert.ok(await page.getByRole('heading', { name: 'Where the space goes on Family hard drive', level: 1 }).isVisible())
+  // The source is a family drive that is nearly all photos, as the first
+  // outside tester's was: calm tints, not a wall of orange.
   await shot('9s5-space-of-a-source')
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await shot('9s5b-space-of-a-source-dark')
+  await page.emulateMedia({ colorScheme: 'light' })
+  // As people with each kind of colour blindness see it: the kinds stay
+  // apart by their edges and patterns.
+  const cdp = await page.context().newCDPSession(page)
+  for (const type of ['protanopia', 'deuteranopia', 'tritanopia']) {
+    await cdp.send('Emulation.setEmulatedVisionDeficiency', { type })
+    await shot(`9s5c-space-of-a-source-${type}`)
+  }
+  await cdp.send('Emulation.setEmulatedVisionDeficiency', { type: 'none' })
+  await cdp.detach()
+
+  // Above the map, a ring of what takes the room, with the figures in words;
+  // each picks its kind, fading the boxes without it.
+  const ringList = page.getByRole('list', { name: 'What takes the room in Family hard drive' })
+  assert.deepEqual(await ringList.locator('li').allInnerTexts(), ['Photos 55.3 GB · 80%', 'Videos 12.6 GB · 18%', 'Everything else 1.1 GB · 2%'])
+  assert.equal(await page.locator('.summary-ring svg').getAttribute('aria-hidden'), 'true', 'the ring is a picture; the list says it')
+  await ringList.getByRole('button', { name: 'Photos' }).click()
+  await page.waitForFunction(() => document.querySelector('.map-canvas')?.dataset.picked === 'photo')
+  assert.equal(await ringList.getByRole('button', { name: 'Photos' }).getAttribute('aria-pressed'), 'true')
+  assert.equal(await page.getByRole('tab', { name: 'By kind of file' }).getAttribute('aria-selected'), 'true', 'as By kind of file does')
+  assert.ok(Number(await page.locator('.map-canvas').getAttribute('data-faded')) > 0, 'boxes without photos fade')
+  await shot('9v-space-summary')
+  await ringList.getByRole('button', { name: 'Photos' }).click()
+  await page.waitForFunction(() => document.querySelector('.map-canvas')?.dataset.picked === '')
+  await page.getByRole('tab', { name: 'By folder' }).click()
+  await fitsNarrow('Where the space goes, with the ring above the map')
+
+  // The list alone, chosen and remembered on this computer.
+  const viewSwitch = page.getByRole('group', { name: 'Show as' })
+  assert.equal(await viewSwitch.getByRole('button', { name: 'Map' }).getAttribute('aria-pressed'), 'true', 'the map, until another is chosen')
+  await viewSwitch.getByRole('button', { name: 'List' }).click()
+  await page.locator('.map-canvas').waitFor({ state: 'detached' })
+  assert.ok((await page.locator('.space-list .share-bar').first().boundingBox()).width >= 190, 'wide share bars to compare')
+  await shot('9v2-space-list-view')
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await shot('9v2b-space-list-view-dark')
+  await page.emulateMedia({ colorScheme: 'light' })
+  await fitsNarrow('Where the space goes, as a list')
+  await page.reload()
+  await page.locator('.steps button').nth(0).click()
+  await page.getByRole('button', { name: 'Where the space goes on Family hard drive' }).click()
+  await page.getByRole('grid', { name: /^What is in / }).waitFor({ timeout: 15000 })
+  assert.equal(await page.getByRole('group', { name: 'Show as' }).getByRole('button', { name: 'List' }).getAttribute('aria-pressed'), 'true', 'remembered')
+  assert.equal(await page.locator('.map-canvas').count(), 0)
+  await page.getByRole('group', { name: 'Show as' }).getByRole('button', { name: 'Map' }).click()
+  await page.locator('.map-canvas').waitFor()
+
+  // Small folders are gathered into one box and row, "Smaller folders",
+  // saying why, opening in the list in place, and on the map with a click.
+  await page.locator('.space-list tbody tr', { hasText: 'Pictures' }).getByRole('button', { name: 'Pictures' }).click()
+  await page.getByRole('grid', { name: 'What is in Pictures, the biggest first' }).waitFor()
+  const smallerRow = page.locator('.space-list tbody tr', { hasText: 'Smaller folders' })
+  assert.match(
+    await smallerRow.innerText(),
+    /Smaller folders: 30 folders, [\d.]+ GB, each under \d+% of Pictures\. Put together so the map stays readable\./,
+  )
+  const disclosure = smallerRow.getByRole('button', { name: /Smaller folders/ })
+  assert.equal(await disclosure.getAttribute('aria-expanded'), 'false')
+  await disclosure.click()
+  assert.equal(await page.locator('.space-list tbody tr.within').count(), 30, 'the folders it stands for, indented beneath it')
+  await disclosure.click()
+  assert.equal(await page.locator('.space-list tbody tr.within').count(), 0)
+  const spaceMap = page.locator('.map-canvas')
+  await page.waitForFunction(() => document.querySelector('.map-canvas')?.dataset.gatheredAt)
+  const [gx, gy] = (await spaceMap.getAttribute('data-gathered-at')).split(',').map(Number)
+  await spaceMap.scrollIntoViewIfNeeded()
+  const mapAt = await spaceMap.boundingBox()
+  await page.mouse.move(mapAt.x + gx, mapAt.y + gy)
+  await page.locator('.map-tip:not([hidden])').waitFor()
+  assert.match(await text('.map-tip'), /^Smaller folders: 30 folders, .* Click to open them\.$/)
+  await page.mouse.click(mapAt.x + gx, mapAt.y + gy)
+  await page.getByRole('grid', { name: 'What is in Smaller folders, the biggest first' }).waitFor()
+  assert.equal(await page.getByLabel('Where you are').locator('[aria-current="page"]').innerText(), 'Smaller folders')
+  assert.equal(await page.locator('.space-list tbody tr').count(), 30)
+  await shot('9v3-space-smaller-folders')
+  await fitsNarrow('Where the space goes, the smaller folders opened')
+  await page.getByRole('button', { name: '‹ Back' }).first().click()
+  await page.getByRole('grid', { name: 'What is in Pictures, the biggest first' }).waitFor()
   // A map out of date is mapped again as it opens: by itself on a disk of
   // this computer, and after asking across a network.
   await page.goto(`${base}/?old=disk&slow`)

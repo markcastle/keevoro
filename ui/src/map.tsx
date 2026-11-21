@@ -17,11 +17,15 @@ import type { Backend, LeftOutFolder, MapNode, MapView } from './backend'
 import { ago, files, share, size } from './format'
 import { nameOf } from './inside'
 import { LeaveOutButton, LeftOutSaid } from './leaveOut'
-import { MapCanvas, MapKey } from './mapCanvas'
-import { called, FILE_MANAGER, find, holds, keysOf, notesOn } from './mapWords'
+import { MapCanvas, MapKey, mapReading } from './mapCanvas'
+import { called, FILE_MANAGER, find, gatheredWords, holds, keyOf as keyFor, keysOf, notesOn } from './mapWords'
 import type { Picked } from './mapWords'
 import { KindsList } from './mapKinds'
 import { SurveyingPanel, useAfterSurvey } from './surveyFirst'
+import { SummaryRing } from './summaryRing'
+import { chooseSpaceView, savedSpaceView } from './spaceView'
+import type { SpaceView } from './spaceView'
+import { gathered, GATHER_LEAST } from './treemap'
 
 /** How many levels of folders are asked for at once. */
 const DEPTH = 3
@@ -59,6 +63,13 @@ export function SpaceScreen(props: {
   // The list by folder, or by kind of file with what was picked there.
   const [byKind, setByKind] = useState(false)
   const [picked, setPicked] = useState<Picked | null>(null)
+  // The map beside the list, or the list alone, as last chosen here.
+  const [shown, setShown] = useState<SpaceView>(savedSpaceView)
+  // Below what share of the folder shown its folders are gathered: as the
+  // map has it, or 2% for the list alone.
+  const [mapShare, setMapShare] = useState(GATHER_LEAST)
+  // Small folders gathered together, opened: shown as if a folder of their own.
+  const [opened, setOpened] = useState<MapNode | null>(null)
   const answers = useRef(new Map<string, MapView>())
 
   const ask = useCallback(async () => {
@@ -72,7 +83,15 @@ export function SpaceScreen(props: {
     return view
   }, [api, place, folder])
   const { answer: view, surveying, stop, mapAgain } = useAfterSurvey(api, place, ask, `${folder} ${version}`, onProblem)
-  const keys = useMemo(() => (view ? keysOf(view.top) : new Map<MapNode, string>()), [view])
+  // What is shown: the folder, or the small folders gathered from it, opened.
+  const shownTop = useMemo<MapNode | null>(
+    () =>
+      view && opened?.gathered
+        ? { ...opened, node: 'folder', children: opened.gathered, gathered: undefined, gatheredKey: undefined }
+        : (view?.top ?? null),
+    [view, opened],
+  )
+  const keys = useMemo(() => (shownTop ? keysOf(shownTop) : new Map<MapNode, string>()), [shownTop])
   // A map out of date is mapped again once as it opens: by itself on a disk
   // of this computer, after asking across a network.
   const refreshed = useRef(false)
@@ -99,6 +118,7 @@ export function SpaceScreen(props: {
     props.onChanged?.()
   }
   const go = (to: string) => {
+    setOpened(null)
     setChosen(null)
     setSaid(null)
     setListPoint(null)
@@ -125,8 +145,15 @@ export function SpaceScreen(props: {
     )
   }
 
-  const top = view.top
-  const rows = top.children ?? []
+  const top = shownTop ?? view.top
+  const share = shown === 'list' ? GATHER_LEAST : mapShare
+  const rows = gathered(top, top.children ?? [], mapReading(keys), share)
+  const openGathered = (node: MapNode) => {
+    setChosen(null)
+    setListPoint(null)
+    setMapPoint(null)
+    setOpened(node)
+  }
   const path = find(top, keys, chosen)
   const selected = path.length > 1 ? path[path.length - 1] : null
   // A box chosen deep in the map is in one of the list's rows.
@@ -135,7 +162,7 @@ export function SpaceScreen(props: {
   return (
     <section className="space">
       <header>
-        <button className="link back" onClick={props.onBack}>
+        <button className="link back" onClick={opened ? () => setOpened(null) : props.onBack}>
           ‹ Back
         </button>
         <h1>Where the space goes on {name}</h1>
@@ -192,31 +219,59 @@ export function SpaceScreen(props: {
           </p>
         </div>
       )}
-      <Trail view={view} onGo={go} />
+      <Trail view={view} onGo={go} gathered={opened ? () => setOpened(null) : undefined} />
+      <div className="space-summary">
+        <SummaryRing
+          top={top}
+          picked={byKind && picked && picked.ending === undefined ? picked.kind : null}
+          onPick={(kind) => {
+            setPicked(kind ? { kind } : null)
+            if (kind) setByKind(true)
+          }}
+        />
+        <div className="segmented view-switch" role="group" aria-label="Show as">
+          {(['map', 'list'] as const).map((v) => (
+            <button
+              key={v}
+              aria-pressed={shown === v}
+              onClick={() => {
+                setShown(v)
+                chooseSpaceView(v)
+              }}
+            >
+              {v === 'map' ? 'Map' : 'List'}
+            </button>
+          ))}
+        </div>
+      </div>
       <p className="visually-hidden" aria-live="polite">
         In {top.name}: {size(top.bytes)}
       </p>
       <LeftOutSaid done={said} />
-      <div className="space-body">
-        <div className={narrow && !wholeMap ? 'space-map strip' : 'space-map'}>
-          {narrow && (
-            <button className="button small" onClick={() => setWholeMap((w) => !w)} aria-expanded={wholeMap}>
-              {wholeMap ? 'Show less of the map' : 'Show the map'}
-            </button>
-          )}
-          <MapCanvas
-            top={top}
-            keys={keys}
-            depth={narrow && !wholeMap ? 1 : DEPTH}
-            chosen={chosen}
-            lit={listPoint}
-            onChoose={setChosen}
-            onGo={go}
-            onPoint={setMapPoint}
-            picked={byKind ? picked : null}
-          />
-          <MapKey carried={(top.carried ?? 0) > 0} />
-        </div>
+      <div className={shown === 'list' ? 'space-body list-only' : 'space-body'}>
+        {shown === 'map' && (
+          <div className={narrow && !wholeMap ? 'space-map strip' : 'space-map'}>
+            {narrow && (
+              <button className="button small" onClick={() => setWholeMap((w) => !w)} aria-expanded={wholeMap}>
+                {wholeMap ? 'Show less of the map' : 'Show the map'}
+              </button>
+            )}
+            <MapCanvas
+              top={top}
+              keys={keys}
+              depth={narrow && !wholeMap ? 1 : DEPTH}
+              chosen={chosen}
+              lit={listPoint}
+              onChoose={setChosen}
+              onGo={go}
+              onPoint={setMapPoint}
+              picked={byKind ? picked : null}
+              onOpenGathered={openGathered}
+              onShare={setMapShare}
+            />
+            <MapKey carried={(top.carried ?? 0) > 0} />
+          </div>
+        )}
         <div className="space-side">
           <div className="segmented list-tabs" role="tablist" aria-label="Show the list">
             <button role="tab" id="by-folder" aria-selected={!byKind} aria-controls="space-list-panel" onClick={() => setByKind(false)}>
@@ -239,7 +294,7 @@ export function SpaceScreen(props: {
                 onChoose={setChosen}
                 onPoint={setListPoint}
                 onGo={go}
-                onUp={up ? () => go(up) : undefined}
+                onUp={opened ? () => setOpened(null) : up ? () => go(up) : undefined}
               />
             )}
           </div>
@@ -272,22 +327,28 @@ function useNarrow() {
 }
 
 /** The way back up, from the place to the folder shown. */
-export function Trail(props: { view: MapView; onGo: (folder: string) => void }) {
+export function Trail(props: { view: MapView; onGo: (folder: string) => void; gathered?: () => void }) {
   const steps = props.view.trail
+  const last = props.gathered ? steps.length : steps.length - 1
   return (
     <nav className="trail" aria-label="Where you are">
       <ol>
         {steps.map((step, i) => (
           <li key={step.folder}>
-            {i === steps.length - 1 ? (
+            {i === last ? (
               <span aria-current="page">{step.name}</span>
             ) : (
-              <button className="link" onClick={() => props.onGo(step.folder)}>
+              <button className="link" onClick={() => (i === steps.length - 1 ? props.gathered?.() : props.onGo(step.folder))}>
                 {step.name}
               </button>
             )}
           </li>
         ))}
+        {props.gathered && (
+          <li>
+            <span aria-current="page">Smaller folders</span>
+          </li>
+        )}
       </ol>
     </nav>
   )
@@ -363,7 +424,7 @@ function Chosen(props: {
  */
 export function SpaceList(props: {
   top: MapNode
-  rows: MapNode[]
+  rows: readonly MapNode[]
   keys: Map<MapNode, string>
   chosen: string | null
   onChoose: (key: string) => void
@@ -373,10 +434,24 @@ export function SpaceList(props: {
   lit?: string | null
   onPoint?: (key: string | null) => void
 }) {
-  const { top, rows } = props
+  const { top } = props
   const body = useRef<HTMLTableSectionElement>(null)
-  const keyOf = (node: MapNode) => props.keys.get(node) ?? ''
-  const at = Math.max(0, rows.findIndex((r) => keyOf(r) === props.chosen))
+  const keyOf = (node: MapNode) => keyFor(props.keys, node)
+  // Small folders gathered into one row open in place, the folders indented beneath it.
+  const [open, setOpen] = useState<Set<string>>(new Set())
+  const toggle = (key: string) =>
+    setOpen((was) => {
+      const now = new Set(was)
+      if (now.has(key)) now.delete(key)
+      else now.add(key)
+      return now
+    })
+  const rows = props.rows.flatMap((node) => {
+    const key = keyOf(node)
+    const members = node.gathered && open.has(key) ? node.gathered.map((m) => ({ node: m, within: true })) : []
+    return [{ node, within: false }, ...members]
+  })
+  const at = Math.max(0, rows.findIndex((r) => keyOf(r.node) === props.chosen))
   // The row pointed at on the map is brought into view in the list.
   useEffect(() => {
     if (!props.lit) return
@@ -391,6 +466,7 @@ export function SpaceList(props: {
     else if (e.key === 'ArrowUp' && !e.altKey) focusRow(Math.max(0, i - 1))
     else if (e.key === 'Home') focusRow(0)
     else if (e.key === 'End') focusRow(rows.length - 1)
+    else if (e.key === 'Enter' && node.gathered) toggle(keyOf(node))
     else if (e.key === 'Enter' && node.node === 'folder' && node.path) props.onGo(node.path)
     else if ((e.key === 'Backspace' || (e.key === 'ArrowUp' && e.altKey)) && props.onUp) props.onUp()
     else return
@@ -412,9 +488,9 @@ export function SpaceList(props: {
           </tr>
         </thead>
         <tbody ref={body}>
-          {rows.map((node, i) => {
+          {rows.map(({ node, within }, i) => {
             const key = keyOf(node)
-            const notes = notesOn(node)
+            const notes = node.gathered ? [gatheredWords(node).replace(' Click to open them.', '')] : notesOn(node)
             const muted = node.photos + node.videos === 0 || Boolean(node.skipped)
             return (
               <tr
@@ -422,7 +498,7 @@ export function SpaceList(props: {
                 data-key={key}
                 tabIndex={i === at ? 0 : -1}
                 aria-selected={key === props.chosen}
-                className={[muted ? 'muted' : '', key === props.lit ? 'lit' : ''].join(' ').trim() || undefined}
+                className={[muted ? 'muted' : '', key === props.lit ? 'lit' : '', within ? 'within' : ''].join(' ').trim() || undefined}
                 onFocus={() => props.onChoose(key)}
                 onClick={() => props.onChoose(key)}
                 onPointerEnter={() => props.onPoint?.(key)}
@@ -430,7 +506,19 @@ export function SpaceList(props: {
                 onKeyDown={(e) => keys(e, i, node)}
               >
                 <td className="name">
-                  {node.node === 'folder' && node.path ? (
+                  {node.gathered ? (
+                    <button
+                      className="link disclosure"
+                      tabIndex={-1}
+                      aria-expanded={open.has(key)}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        toggle(key)
+                      }}
+                    >
+                      {open.has(key) ? '▾' : '▸'} Smaller folders
+                    </button>
+                  ) : node.node === 'folder' && node.path ? (
                     <button className="link" tabIndex={-1} onClick={() => node.path && props.onGo(node.path)}>
                       {node.name}
                     </button>

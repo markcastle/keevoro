@@ -129,6 +129,42 @@ const DISK: Made = {
   ],
 }
 
+/**
+ * A family drive that is nearly all photos, as our first outside tester's
+ * was: a camera's folders, scans sorted by family, and an old phone's
+ * thirty small albums, each a sliver of the whole, which the map gathers
+ * into "Smaller folders".
+ */
+const FAMILY_DRIVE: Made = {
+  name: 'Family hard drive',
+  rest: { other: [3, 40 * KB] },
+  folders: [
+    {
+      name: 'Pictures',
+      folders: [
+        { name: 'Camera', folders: [{ name: 'DCIM', rest: { photo: [8_420, 31 * GB], video: [140, 6.2 * GB] } }] },
+        {
+          name: 'Scans',
+          folders: [
+            {
+              name: 'Family Scans',
+              folders: ['Smith', 'Jones', 'Brown', 'Taylor'].map((name, i) => ({ name, rest: { photo: [420 - i * 60, (4.2 - i * 0.7) * GB] } })),
+            },
+          ],
+        },
+        { name: 'Weddings', rest: { photo: [1_900, 7.4 * GB], video: [12, 1.6 * GB] } },
+        // An old phone's thirty albums, each a sliver of the whole.
+        ...Array.from({ length: 30 }, (_, i) => ({
+          name: `Phone album ${String(i + 1).padStart(2, '0')}`,
+          rest: { photo: [40 + ((i * 7) % 30), (90 + ((i * 37) % 120)) * MB] } as Made['rest'],
+        })),
+      ],
+    },
+    { name: 'Documents', rest: { other: [1_200, 1.1 * GB] } },
+    { name: 'Videos', rest: { video: [30, 4.8 * GB] } },
+  ],
+}
+
 /** Any other place: a card or drive of photos with a few other things. */
 const anyPlace = (name: string): Made => ({
   name,
@@ -229,6 +265,7 @@ function find(tree: Made, top: string, path: string): Made | null {
 function treeFor(place: string): { tree: Made; top: string } {
   if (/^C:\\?$/.test(place) || place.startsWith('C:\\')) return { tree: DISK, top: 'C:' }
   if (/\\Pictures$/.test(place)) return { tree: PICTURES, top: place }
+  if (/^E:\\?$/.test(place) || place.startsWith('E:\\')) return { tree: FAMILY_DRIVE, top: 'E:' }
   return { tree: anyPlace(place.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || place), top: place.replace(/[\\/]+$/, '') }
 }
 

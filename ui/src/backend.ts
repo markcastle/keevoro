@@ -778,6 +778,15 @@ export type MapNode = {
   /** The endings of the files it holds, as places in the answer's `kinds`. */
   endings?: number[]
   children?: MapNode[]
+  /**
+   * Made by the screen, never by the API: small folders gathered into one
+   * box, "Smaller folders", with the folders it stands for, how it is known,
+   * and the share each is under of the folder it is in, and that folder's name.
+   */
+  gathered?: MapNode[]
+  gatheredKey?: string
+  gatheredUnder?: number
+  gatheredIn?: string
 }
 
 /** How much of what this backup keeps from a folder is safely everywhere it goes: "Backed up: 1,180 of 1,204". */

@@ -1934,6 +1934,7 @@ input::placeholder {
 }
 
 .themes button[aria-pressed='true'],
+.segmented button[aria-pressed='true'],
 .segmented button[aria-checked='true'],
 .segmented button[aria-selected='true'] {
   background: var(--surface-raised);
@@ -3891,29 +3892,54 @@ fieldset.wants [role='status'] {
   overflow: hidden;
 }
 
-/* The kinds, each with a pattern of its own so colour is never the only sign. */
+/* The kinds, in the map's calm tints, each with a pattern of its own so
+   colour is never the only sign. The row chosen takes the strong colours. */
 .share-bar .photo,
-.key .photo {
-  background: var(--sun);
+.key .photo,
+.kinds-list .swatch.photo {
+  background: var(--map-photo);
+  box-shadow: inset 0 0 0 1px var(--map-photo-edge);
 }
 
 .share-bar .video,
-.key .video {
-  background-color: var(--pine);
-  background-image: repeating-linear-gradient(135deg, transparent 0 2px, color-mix(in srgb, var(--surface) 55%, transparent) 2px 3px);
+.key .video,
+.kinds-list .swatch.video {
+  background-color: var(--map-video);
+  background-image: repeating-linear-gradient(135deg, transparent 0 2px, color-mix(in srgb, var(--map-video-edge) 55%, transparent) 2px 3px);
+  box-shadow: inset 0 0 0 1px var(--map-video-edge);
 }
 
 .share-bar .other,
-.key .other {
-  background: color-mix(in srgb, var(--line-strong) 35%, var(--surface-sunken));
+.key .other,
+.kinds-list .swatch.other {
+  background: var(--map-other);
+  box-shadow: inset 0 0 0 1px var(--map-other-edge);
 }
 
 /* Other files a person put on the list, to be carried along: level lines, like lines of writing. */
 .share-bar .carried,
 .key .carried,
 .kinds-list .swatch.carried {
+  background-color: var(--map-carried);
+  background-image: repeating-linear-gradient(0deg, transparent 0 2px, color-mix(in srgb, var(--map-carried-edge) 45%, transparent) 2px 3px);
+  box-shadow: inset 0 0 0 1px var(--map-carried-edge);
+}
+
+/* In a share bar each part is too thin for an edge of its own. */
+.share-bar > span {
+  box-shadow: none;
+}
+
+tr[aria-selected='true'] .share-bar .photo {
+  background: var(--sun);
+}
+
+tr[aria-selected='true'] .share-bar .video {
+  background-color: var(--pine);
+}
+
+tr[aria-selected='true'] .share-bar .carried {
   background-color: var(--peach);
-  background-image: repeating-linear-gradient(0deg, transparent 0 2px, color-mix(in srgb, var(--sun-ink) 45%, transparent) 2px 3px);
 }
 
 .share-figure {
@@ -4055,7 +4081,7 @@ fieldset.wants [role='status'] {
 }
 
 .key .skipped {
-  background-color: color-mix(in srgb, var(--line-strong) 35%, var(--surface-sunken));
+  background-color: var(--map-other);
   background-image: radial-gradient(var(--line-strong) 1.2px, transparent 1.4px);
   background-size: 6px 6px;
 }
@@ -4082,7 +4108,7 @@ fieldset.wants [role='status'] {
 }
 
 .key .online {
-  background: var(--sun);
+  background: var(--map-photo);
   box-shadow: none;
   outline: 1px dashed var(--sun-ink);
   outline-offset: -1px;
@@ -4135,19 +4161,6 @@ fieldset.wants [role='status'] {
   border-radius: 3px;
   vertical-align: -1px;
   box-shadow: inset 0 0 0 1px var(--line-strong);
-}
-
-.kinds-list .swatch.photo {
-  background: var(--sun);
-}
-
-.kinds-list .swatch.video {
-  background-color: var(--pine);
-  background-image: repeating-linear-gradient(135deg, transparent 0 2px, color-mix(in srgb, var(--surface) 55%, transparent) 2px 3px);
-}
-
-.kinds-list .swatch.other {
-  background: color-mix(in srgb, var(--line-strong) 35%, var(--surface-sunken));
 }
 
 .kinds-list .disclosure {
@@ -4765,4 +4778,182 @@ fieldset.wants input[aria-disabled='true'] {
 
 .kept-folders > p {
   margin: 0 0 var(--space-3);
+}
+
+/* ---------- the ring above the map ---------- */
+
+.space-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-5);
+  margin: var(--space-3) 0;
+}
+
+.summary-ring {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin: 0;
+  min-width: 0;
+}
+
+.summary-ring .ring {
+  flex: none;
+  width: 64px;
+  height: 64px;
+}
+
+.summary-ring ul {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, auto));
+  gap: var(--space-1) var(--space-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.summary-ring li {
+  white-space: nowrap;
+}
+
+.summary-ring .link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 500;
+}
+
+.summary-ring .link[aria-pressed='true'] {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.summary-ring .figure {
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.summary-ring .swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+
+.summary-ring .swatch.photo {
+  background: var(--map-photo);
+  box-shadow: inset 0 0 0 1px var(--map-photo-edge);
+}
+
+.summary-ring .swatch.video {
+  background-color: var(--map-video);
+  background-image: repeating-linear-gradient(135deg, transparent 0 2px, color-mix(in srgb, var(--map-video-edge) 55%, transparent) 2px 3px);
+  box-shadow: inset 0 0 0 1px var(--map-video-edge);
+}
+
+.summary-ring .swatch.carried {
+  background-color: var(--map-carried);
+  background-image: repeating-linear-gradient(0deg, transparent 0 2px, color-mix(in srgb, var(--map-carried-edge) 45%, transparent) 2px 3px);
+  box-shadow: inset 0 0 0 1px var(--map-carried-edge);
+}
+
+.summary-ring .swatch.other {
+  background: var(--map-other);
+  box-shadow: inset 0 0 0 1px var(--map-other-edge);
+}
+
+.ring-ground {
+  stroke: var(--surface-sunken);
+}
+
+.ring-part.photo {
+  stroke: var(--map-photo);
+}
+
+.ring-part.video {
+  stroke: url(#ring-stripes);
+}
+
+.ring-part.carried {
+  stroke: url(#ring-rows);
+}
+
+.ring-part.other {
+  stroke: var(--map-other-edge);
+  stroke-opacity: 0.45;
+}
+
+.ring-part.faded {
+  opacity: 0.25;
+}
+
+.ring-video {
+  fill: var(--map-video);
+}
+
+.ring-video-line {
+  stroke: var(--map-video-edge);
+  stroke-width: 1.2;
+}
+
+.ring-carried {
+  fill: var(--map-carried);
+}
+
+.ring-carried-line {
+  stroke: var(--map-carried-edge);
+  stroke-width: 0.8;
+}
+
+@media (max-width: 560px) {
+  .summary-ring .ring {
+    width: 48px;
+    height: 48px;
+  }
+}
+
+@media (max-width: 480px) {
+  .summary-ring {
+    align-items: flex-start;
+  }
+
+  .summary-ring ul {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .summary-ring li {
+    white-space: normal;
+  }
+}
+
+/* ---------- the map, or the list alone ---------- */
+
+.view-switch {
+  flex: none;
+}
+
+/* The list alone: one column, with share bars wide enough to compare. */
+.space-body.list-only {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.space-body.list-only .share-bar {
+  width: 200px;
+}
+
+@media (max-width: 640px) {
+  .space-body.list-only .share-bar {
+    width: 96px;
+  }
+}
+
+/* Small folders gathered into one row, opening in place, the folders indented beneath. */
+.space-list .disclosure {
+  font-weight: 500;
+}
+
+.space-list tr.within td.name {
+  padding-left: var(--space-6);
 }

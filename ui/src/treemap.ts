@@ -11,6 +11,12 @@
 // API anything. A folder big enough is opened up: a strip at its top for
 // its name, and its contents laid inside. A box too small to see is not
 // drawn on its own; its room stays its folder's.
+//
+// Folders that are each only a sliver of the folder they are in can be
+// gathered into one box, "Smaller folders", as our first outside tester
+// asked: below a share that adapts to the room there is, 2% of a big map
+// and up to 10% of a small one, so the map stays readable. Files are never
+// gathered, nor a single small folder.
 
 export type Rect = { x: number; y: number; w: number; h: number }
 
@@ -28,6 +34,10 @@ export type Laid<T> = Rect & {
 export type Reading<T> = {
   size: (item: T) => number
   children: (item: T) => readonly T[] | undefined
+  /** May it be gathered with others its size, when small? Folders may; files may not. */
+  gatherable?: (item: T) => boolean
+  /** Makes one box standing for several small ones, each under `share` of the folder `within`. */
+  gather?: (small: T[], within: T, share: number) => T
 }
 
 export type Spacing = {
@@ -39,9 +49,43 @@ export type Spacing = {
   open: { w: number; h: number }
   /** A box with less area than this is not drawn on its own. */
   least: number
+  /** The room a box needs for its name and size: what decides how small is gathered. */
+  readable: number
 }
 
-export const SPACING: Spacing = { strip: 18, pad: 2, open: { w: 48, h: 32 }, least: 12 }
+export const SPACING: Spacing = { strip: 18, pad: 2, open: { w: 48, h: 32 }, least: 12, readable: 96 * 40 }
+
+/** The least and most of a folder below which folders are gathered. */
+export const GATHER_LEAST = 0.02
+export const GATHER_MOST = 0.1
+
+/**
+ * Below what share of a folder its folders are gathered, for a box of this
+ * area: what a readable box would take of it, kept between 2% and 10%.
+ */
+export function gatherShare(area: number, readable = SPACING.readable) {
+  if (!(area > 0)) return GATHER_MOST
+  return Math.min(GATHER_MOST, Math.max(GATHER_LEAST, readable / area))
+}
+
+/**
+ * A folder's contents, with those that may be gathered and are each under
+ * `share` of it put together into one, after the rest, when there are at
+ * least two of them. In the order given otherwise. One pass.
+ */
+export function gathered<T>(item: T, contents: readonly T[], read: Reading<T>, share: number): readonly T[] {
+  if (!read.gather || !read.gatherable) return contents
+  const whole = contents.reduce((n, c) => n + Math.max(0, read.size(c)), 0)
+  if (whole <= 0) return contents
+  const small: T[] = []
+  const kept: T[] = []
+  for (const c of contents) {
+    if (read.gatherable(c) && read.size(c) < share * whole) small.push(c)
+    else kept.push(c)
+  }
+  if (small.length < 2) return contents
+  return [...kept, read.gather(small, item, share)]
+}
 
 /** How far from square a row of areas laid along `side` is, at worst. */
 function worst(row: number[], side: number) {
@@ -135,7 +179,7 @@ export function layout<T>(top: T, rect: Rect, read: Reading<T>, depth = 3, spaci
 }
 
 function inside<T>(item: T, rect: Rect, read: Reading<T>, level: number, depth: number, spacing: Spacing): Laid<T>[] {
-  const contents = read.children(item) ?? []
+  const contents = gathered(item, read.children(item) ?? [], read, gatherShare(rect.w * rect.h, spacing.readable))
   if (level > depth || contents.length === 0) return []
   const order = biggestFirst(contents, read.size)
   const boxes = squarify(
