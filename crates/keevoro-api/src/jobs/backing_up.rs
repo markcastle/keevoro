@@ -57,7 +57,7 @@ pub(super) fn start(ctx: &Context, backup: &Named, kind: JobKind, listener: Opti
             let catalog = Catalog::open_in_library(&home)?;
             let world = World {
                 secrets: &*ctx.secrets,
-                ask: &connect::testing::nobody_to_ask,
+                environment: &*ctx.environment,
             };
             let mut progress = |line: &str| {
                 // Remembered every time, said a few times a second.
@@ -258,7 +258,7 @@ fn check(
             said.extend_from_slice(format!("At {}:\n", to.describe()).as_bytes());
         }
         let checked = to
-            .open(world)
+            .open(said, world)
             .and_then(|destination| keevoro_engine::send::check(said, catalog, destination, false, progress));
         match checked {
             Ok(wrong) => {

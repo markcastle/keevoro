@@ -613,7 +613,9 @@ pub fn added(io: &mut Io<'_>, m: &ArgMatches, added: &Value) -> Said_ {
         "Keevoro checked {} works, and will back up there.",
         s(added, "name")
     )?;
-    if m.get_one::<String>("folder").is_none() {
+    if let Some(keys) = added.get("keys").and_then(Value::as_str) {
+        writeln!(io.out, "{keys}")?;
+    } else if m.get_one::<String>("folder").is_none() {
         writeln!(
             io.out,
             "Its keys are kept in this computer's keychain, and nowhere else."

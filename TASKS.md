@@ -52,7 +52,7 @@ Small, known, and better closed while the work is fresh.
 
 - [x] Close the gap between checking a folder for an agent and opening it: pass the checked path on, so a link swapped in between cannot be followed
 - [x] After an agent looks through a folder, keep the automatic duplicate check to folders that agent may read
-- [ ] Decide what a key given in a request means when a key is also set in the environment. Today the environment wins, and is what is tested and saved, silently. Needs the owner's decision
+- [x] Decide what a key given in a request means when a key is also set in the environment: the keys given win, and are what is tested and saved; the environment's are used only when none are given, and that is said
 - [ ] Pause and carry on should reach a survey or a duplicate check running alone in another program. They hold no lock, so no other program can see them; reaching them needs a way for a program to be seen without holding a backup, best built with showing other programs' jobs in the app
 - [x] `keevoro status` straight after another program starts a job can say "Nothing is running" for a moment
 - [x] `keevoro update --check` on Linux always says there is nothing newer

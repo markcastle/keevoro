@@ -23,6 +23,10 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+/// Reads one variable of the environment, as storage keys set for scripts
+/// are read.
+pub type Environment = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
+
 /// The folders Keevoro keeps its own things in. None of them holds anyone's
 /// photos.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -216,6 +220,8 @@ pub struct Keevoro {
     rates: PathBuf,
     log: Arc<Log>,
     secrets: Arc<dyn SecretStore + Send + Sync>,
+    /// Where storage keys set for scripts are read, when none are given.
+    environment: Environment,
     web: Box<dyn Web + Send + Sync>,
     /// The jobs running, and everyone listening to them.
     pub(crate) jobs: Arc<Jobs>,
@@ -244,6 +250,7 @@ impl Keevoro {
             rates: folders.data.join(crate::rates::FILE),
             log,
             secrets: Arc::new(Keychain),
+            environment: Arc::new(keevoro_engine::connect::the_environment),
             web: Box::new(GitHub::from_env()),
             jobs,
             listings: crate::inside::Listings::default(),
@@ -259,6 +266,14 @@ impl Keevoro {
     #[must_use]
     pub fn with_secrets(mut self, secrets: impl SecretStore + Send + Sync + 'static) -> Self {
         self.secrets = Arc::new(secrets);
+        self
+    }
+
+    /// Reads storage keys set for scripts somewhere else than this
+    /// program's environment: for tests, one made up.
+    #[must_use]
+    pub fn with_environment(mut self, environment: impl Fn(&str) -> Option<String> + Send + Sync + 'static) -> Self {
+        self.environment = Arc::new(environment);
         self
     }
 
@@ -313,6 +328,10 @@ impl Keevoro {
     /// Where storage keys are kept.
     pub fn secrets(&self) -> &dyn SecretStore {
         &*self.secrets
+    }
+
+    pub(crate) fn environment_shared(&self) -> Environment {
+        self.environment.clone()
     }
 
     fn apply_saved_choices(&self) {
@@ -414,8 +433,14 @@ impl Keevoro {
     }
 
     /// `destinations.add`. The keys go to the keychain and nowhere else.
+    /// When none were given and the environment's were used, the log says
+    /// so, naming the variables and never the keys.
     pub fn add_destination(&self, backup: &Backup, request: &AddDestinationRequest) -> Result<DestinationAdded> {
-        backup.add_destination(request, self.secrets())
+        let added = backup.add_destination(request, self.secrets(), &*self.environment)?;
+        if let Some(keys) = &added.keys {
+            self.log.say(keys);
+        }
+        Ok(added)
     }
 
     /// `destinations.remove`: one by its place in the list, or every one.
@@ -702,11 +727,12 @@ pub(crate) mod tests {
         assert_eq!(Folders::under(dir).data, dir.join("data"));
     }
 
-    /// Keevoro in a temporary folder, with a keychain in memory and no
-    /// network.
+    /// Keevoro in a temporary folder, with a keychain in memory, nothing
+    /// set in its environment and no network.
     pub(crate) fn keevoro(dir: &Path) -> Keevoro {
         Keevoro::open(&folders(dir))
             .with_secrets(SharedSecrets::default())
+            .with_environment(keevoro_engine::connect::testing::no_environment)
             .with_web(FakeGitHub(None))
     }
 

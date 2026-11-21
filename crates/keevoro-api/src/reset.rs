@@ -13,7 +13,7 @@
 
 use crate::backups::{Backups, Named, Settings};
 use crate::error::Result;
-use keevoro_engine::connect::{self, SecretStore, World};
+use keevoro_engine::connect::{self, SecretStore};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 
@@ -49,11 +49,7 @@ pub fn reset(backups: &Backups, secrets: &dyn SecretStore, cache_dir: &Path) -> 
         for Named { name, home, .. } in std::mem::take(&mut settings.backups) {
             // Keys first, while the backup's notes can still be read.
             if let Some(catalog) = crate::backup::existing_catalog(&home) {
-                let world = World {
-                    secrets,
-                    ask: &connect::testing::nobody_to_ask,
-                };
-                let _ = connect::disconnect(&mut Vec::new(), &catalog, &world);
+                let _ = connect::disconnect(&mut Vec::new(), &catalog, secrets);
             }
             if is_inside(&home, &data_dir) {
                 let _ = std::fs::remove_dir_all(&home);

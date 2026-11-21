@@ -67,6 +67,7 @@ fn keevoro_in(dir: &Path, front_end: FrontEnd) -> Keevoro {
     Keevoro::open(&keevoro_api::Folders::under(&dir.join("home")))
         .as_front_end(front_end)
         .with_secrets(KeysInMemory::default())
+        .with_environment(|_| None)
         .with_web(Offline)
         .with_progress_every(std::time::Duration::ZERO)
 }
@@ -119,7 +120,13 @@ impl<'a> At<'a> {
             ask_hidden: &|_| None,
         };
         let dir = self.dir.to_path_buf();
-        let opener = move |_: &Io<'_>| -> Result<Keevoro, Failure> { Ok(keevoro_in(&dir, FrontEnd::CommandLine)) };
+        // Keevoro reads the same environment the command line was given.
+        let env = self.env.clone();
+        let opener = move |_: &Io<'_>| -> Result<Keevoro, Failure> {
+            let env = env.clone();
+            Ok(keevoro_in(&dir, FrontEnd::CommandLine)
+                .with_environment(move |name| env.iter().find(|(n, _)| *n == name).map(|(_, v)| v.clone())))
+        };
         let mut all = vec!["keevoro".into()];
         all.extend(args.iter().map(|a| std::ffi::OsString::from(*a)));
         let code = run(all, &mut io, &opener);
@@ -723,6 +730,13 @@ fn a_key_given_is_never_shown_logged_or_written_down() {
     let mut typed = add.to_vec();
     typed.extend(["--access-key-id", ACCESS, "--secret-access-key", SECRET]);
     ran.push(at.keevoro(&typed));
+    // Typed, with other keys in the environment too: neither is said.
+    let mut both = At::new(dir.path());
+    both.env = vec![
+        (crate::keys::ACCESS_VAR, format!("{ACCESS}ENV")),
+        (crate::keys::SECRET_VAR, format!("{SECRET}ENV")),
+    ];
+    ran.push(both.keevoro(&typed));
 
     for said in &ran {
         assert_eq!(said.code, Code::Unreachable, "{}", said.err);

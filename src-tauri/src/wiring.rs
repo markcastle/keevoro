@@ -102,7 +102,9 @@ impl Heard {
 fn the_app(dir: &Path) -> (tauri::App<MockRuntime>, WebviewWindow<MockRuntime>, Heard) {
     let folders = Folders::under(dir);
     let mut app = crate::app(mock_builder(), move |_| {
-        Ok(Keevoro::open(&folders).with_secrets(KeysInMemory::default()))
+        Ok(Keevoro::open(&folders)
+            .with_secrets(KeysInMemory::default())
+            .with_environment(|_| None))
     })
     .build(crate::context())
     .expect("the app builds");

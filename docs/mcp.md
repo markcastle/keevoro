@@ -31,6 +31,8 @@ Whatever you allow, an agent can never:
 
 Everything an agent does is written to Keevoro's log, in plain words: which tool it used, on which backup, and how it went. Settings, "What Keevoro has been doing", shows it.
 
+The keys an agent gives are the ones checked and saved. If it gives none and `KEEVORO_ACCESS_KEY_ID` and `KEEVORO_SECRET_ACCESS_KEY` are set where `keevoro mcp` runs, those are used instead, and the answer says so in words, naming the variables and never the keys.
+
 One thing to know about keys: a key you give an agent has passed through the AI app on its way, so it may be in that app's own history of your conversation. Use a key that can reach one bucket and nothing else, which is good practice anyway, or add cloud storage yourself in the app and let the agent only back up to it.
 
 ## Turn it on

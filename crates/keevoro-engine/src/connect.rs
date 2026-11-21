@@ -10,8 +10,11 @@
 //! - **Where to back up to goes in the backup's catalog.** That is not a
 //!   secret, and it belongs with the backup.
 //!
-//! Keys set in the environment still win over the keychain, which is what
-//! scripts use.
+//! Keys given when a destination is added are the ones tested and saved.
+//! Keys set in the environment (`KEEVORO_ACCESS_KEY_ID` and
+//! `KEEVORO_SECRET_ACCESS_KEY`, which scripts use) are only a fallback:
+//! used when none are given, or none are saved for a destination, and said
+//! in words whenever they are, never silently.
 
 use crate::send::{Destination, ACCESS_KEY_VAR, SECRET_KEY_VAR};
 use anyhow::{bail, Result};
@@ -71,12 +74,96 @@ impl SecretStore for Keychain {
 }
 
 /// The outside world, as far as this module needs it: where secrets are
-/// kept, and how to ask the person at the keyboard for one.
+/// kept, and the environment keys may be set in for scripts.
 pub struct World<'a> {
     pub secrets: &'a dyn SecretStore,
-    /// Asks a question and returns the answer. The flag says whether the
-    /// answer should be hidden as it is typed.
-    pub ask: &'a dyn Fn(&str, bool) -> Result<String>,
+    /// Reads one variable of the environment. The running program reads
+    /// its own ([`the_environment`]); tests give one of their own.
+    pub environment: &'a dyn Fn(&str) -> Option<String>,
+}
+
+/// The running program's own environment.
+pub fn the_environment(name: &str) -> Option<String> {
+    std::env::var(name).ok()
+}
+
+/// A pair of storage keys on their way to being tested and saved. It
+/// cannot be shown: its `Debug` form is `[hidden]`.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Keys {
+    access: String,
+    secret: String,
+}
+
+impl Keys {
+    /// Both keys, trimmed. `None` when either is empty.
+    pub fn new(access: &str, secret: &str) -> Option<Self> {
+        let (access, secret) = (access.trim(), secret.trim());
+        (!access.is_empty() && !secret.is_empty()).then(|| Self {
+            access: access.to_string(),
+            secret: secret.to_string(),
+        })
+    }
+
+    /// The two keys, for taking them out of anything that might repeat them.
+    pub fn both(&self) -> [&str; 2] {
+        [&self.access, &self.secret]
+    }
+
+    fn from_environment(environment: &dyn Fn(&str) -> Option<String>) -> Option<Self> {
+        Self::new(&environment(ACCESS_KEY_VAR)?, &environment(SECRET_KEY_VAR)?)
+    }
+}
+
+impl std::fmt::Debug for Keys {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("[hidden]")
+    }
+}
+
+/// Where the keys used for a destination came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeysFrom {
+    /// A folder needs none.
+    NotNeeded,
+    /// Given when it was added: by the app, the command line or an agent.
+    Given,
+    /// Saved in the computer's keychain for this destination.
+    Keychain,
+    /// Set in the environment, because none were given or saved.
+    Environment,
+}
+
+/// The one rule for which keys are used: those given or saved for the
+/// destination itself, and only when there are none, the environment's.
+pub fn keys_to_use(
+    own: Option<Keys>,
+    own_from: KeysFrom,
+    environment: &dyn Fn(&str) -> Option<String>,
+) -> Option<(Keys, KeysFrom)> {
+    match own {
+        Some(keys) => Some((keys, own_from)),
+        None => Keys::from_environment(environment).map(|keys| (keys, KeysFrom::Environment)),
+    }
+}
+
+/// What is said when a destination is added with the environment's keys.
+/// It names the variables, never the keys.
+pub fn environment_keys_saved(saved: &Saved) -> String {
+    format!(
+        "No keys were given, so Keevoro used the ones set in {ACCESS_KEY_VAR} and {SECRET_KEY_VAR}, \
+         and saved them in this computer's keychain for {}.",
+        saved.describe()
+    )
+}
+
+/// What is said when a destination is opened with the environment's keys.
+pub fn environment_keys_used(saved: &Saved) -> String {
+    format!(
+        "Using the storage keys set in {ACCESS_KEY_VAR} and {SECRET_KEY_VAR} for {}, \
+         as none are saved in this computer's keychain for it.",
+        saved.describe()
+    )
 }
 
 /// A backup destination as it is remembered. Holds nothing secret.
@@ -185,40 +272,31 @@ impl Saved {
         )
     }
 
-    /// Turns the remembered destination into one that can be opened,
-    /// finding its keys in the environment or, failing that, the keychain.
-    pub fn open(&self, world: &World<'_>) -> Result<Destination> {
+    /// Turns the remembered destination into one that can be opened, with
+    /// the keys saved for it in the keychain or, only when there are none,
+    /// those set in the environment, which is then said to `out`.
+    pub fn open(&self, out: &mut dyn Write, world: &World<'_>) -> Result<Destination> {
         let Some(preset) = self.preset() else {
             return Ok(Destination::Folder(PathBuf::from(&self.place)));
         };
-        let (access_key_id, secret_access_key) = match env_keys() {
-            Some(keys) => keys,
-            None => match world.secrets.get(&self.secret_name())?.as_deref().and_then(split_keys) {
-                Some(keys) => keys,
-                None => bail!(
-                    "Keevoro needs the storage keys for {}. Add it as a destination again to save them, \
-                     or set {ACCESS_KEY_VAR} and {SECRET_KEY_VAR}.",
-                    self.describe()
-                ),
-            },
+        let saved = world.secrets.get(&self.secret_name())?.as_deref().and_then(split_keys);
+        let Some((keys, from)) = keys_to_use(saved, KeysFrom::Keychain, world.environment) else {
+            bail!(
+                "Keevoro needs the storage keys for {}. Add it as a destination again to save them, \
+                 or set {ACCESS_KEY_VAR} and {SECRET_KEY_VAR}.",
+                self.describe()
+            )
         };
+        if from == KeysFrom::Environment {
+            writeln!(out, "{}", environment_keys_used(self))?;
+        }
         Ok(Destination::Bucket {
             preset,
             bucket: self.bucket.clone().unwrap_or_default(),
-            access_key_id,
-            secret_access_key,
+            access_key_id: keys.access,
+            secret_access_key: keys.secret,
         })
     }
-}
-
-fn env_keys() -> Option<(String, String)> {
-    let var = |name: &str| {
-        std::env::var(name)
-            .ok()
-            .map(|v| v.trim().to_string())
-            .filter(|v| !v.is_empty())
-    };
-    Some((var(ACCESS_KEY_VAR)?, var(SECRET_KEY_VAR)?))
 }
 
 /// The two keys are kept as one keychain entry, one per line.
@@ -226,9 +304,9 @@ fn join_keys(access: &str, secret: &str) -> String {
     format!("{access}\n{secret}")
 }
 
-fn split_keys(stored: &str) -> Option<(String, String)> {
+fn split_keys(stored: &str) -> Option<Keys> {
     let (access, secret) = stored.split_once('\n')?;
-    (!access.is_empty() && !secret.is_empty()).then(|| (access.to_string(), secret.to_string()))
+    Keys::new(access, secret)
 }
 
 /// The catalog's name for the list of a backup's destinations.
@@ -283,67 +361,79 @@ impl std::error::Error for CannotReach {}
 /// Checks a destination works, then adds it to those this backup goes to.
 /// The ones already there are kept. Adding one that is already there only
 /// refreshes its keys.
-pub fn add(out: &mut dyn Write, catalog: &Catalog, saved: &Saved, world: &World<'_>) -> Result<()> {
-    prove_and_remember(out, catalog, saved, world)
+///
+/// Cloud storage is tested, and saved, with the keys `given`. Only when
+/// none are given are the environment's used, and then that is said to
+/// `out`. Answers where the keys came from.
+pub fn add(
+    out: &mut dyn Write,
+    catalog: &Catalog,
+    saved: &Saved,
+    given: Option<Keys>,
+    world: &World<'_>,
+) -> Result<KeysFrom> {
+    prove_and_remember(out, catalog, saved, given, world)
 }
 
 /// Takes one destination off the list, by its place in it, and removes its
 /// keys from the keychain unless another on the list uses the same ones.
 /// Nothing in the storage itself is touched.
-pub fn remove(catalog: &Catalog, world: &World<'_>, at: usize) -> Result<Option<Saved>> {
+pub fn remove(catalog: &Catalog, secrets: &dyn SecretStore, at: usize) -> Result<Option<Saved>> {
     let mut all = destinations(catalog)?;
     if at >= all.len() {
         return Ok(None);
     }
     let gone = all.remove(at);
     if gone.preset().is_some() && !all.iter().any(|d| d.secret_name() == gone.secret_name()) {
-        world.secrets.delete(&gone.secret_name())?;
+        secrets.delete(&gone.secret_name())?;
     }
     remember(catalog, &all)?;
     Ok(Some(gone))
 }
 
-fn prove_and_remember(out: &mut dyn Write, catalog: &Catalog, saved: &Saved, world: &World<'_>) -> Result<()> {
-    let destination = match saved.preset() {
-        None => Destination::Folder(PathBuf::from(&saved.place)),
+fn prove_and_remember(
+    out: &mut dyn Write,
+    catalog: &Catalog,
+    saved: &Saved,
+    given: Option<Keys>,
+    world: &World<'_>,
+) -> Result<KeysFrom> {
+    let (destination, keys) = match saved.preset() {
+        None => (Destination::Folder(PathBuf::from(&saved.place)), None),
         Some(preset) => {
-            // Keys already in the environment are used as they are;
-            // otherwise the person is asked, and the secret is not echoed.
-            let (access_key_id, secret_access_key) = match env_keys() {
-                Some(keys) => keys,
-                None => (
-                    (world.ask)("Access key ID", false)?,
-                    (world.ask)("Secret access key (it won't be shown)", true)?,
-                ),
+            let Some((keys, from)) = keys_to_use(given, KeysFrom::Given, world.environment) else {
+                bail!("Enter both keys for the storage.");
             };
-            Destination::Bucket {
+            let destination = Destination::Bucket {
                 preset,
                 bucket: saved.bucket.clone().unwrap_or_default(),
-                access_key_id,
-                secret_access_key,
-            }
+                access_key_id: keys.access.clone(),
+                secret_access_key: keys.secret.clone(),
+            };
+            (destination, Some((keys, from)))
         }
     };
-    let keys = match &destination {
-        Destination::Bucket {
-            access_key_id,
-            secret_access_key,
-            ..
-        } => Some(join_keys(access_key_id, secret_access_key)),
-        Destination::Folder(_) => None,
-    };
 
-    // Prove it works before remembering anything.
+    // Prove it works before remembering anything. Whatever went wrong has
+    // the keys taken out of its words, in case the storage repeated them.
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
-    let opened = crate::send::open(out, &runtime, destination).map_err(|e| CannotReach(format!("{e:#}")))?;
+    let opened = crate::send::open(out, &runtime, destination).map_err(|e| {
+        let mut said = format!("{e:#}");
+        for key in keys.iter().flat_map(|(keys, _)| keys.both()) {
+            said = said.replace(key, "[hidden]");
+        }
+        CannotReach(said)
+    })?;
 
     let (_, target, _) = opened;
     let saved = &Saved {
         target: Some(target),
         ..saved.clone()
     };
-    if let Some(keys) = keys {
-        world.secrets.set(&saved.secret_name(), &keys)?;
+    if let Some((keys, _)) = &keys {
+        world
+            .secrets
+            .set(&saved.secret_name(), &join_keys(&keys.access, &keys.secret))?;
     }
     let mut all = destinations(catalog)?;
     match all.iter_mut().find(|d| d.same_place(saved)) {
@@ -352,18 +442,21 @@ fn prove_and_remember(out: &mut dyn Write, catalog: &Catalog, saved: &Saved, wor
     }
     remember(catalog, &all)?;
     writeln!(out, "Connected to {}.", saved.describe())?;
-    if saved.preset().is_some() {
-        writeln!(
+    let from = keys.map_or(KeysFrom::NotNeeded, |(_, from)| from);
+    match from {
+        KeysFrom::Environment => writeln!(out, "{}", environment_keys_saved(saved))?,
+        KeysFrom::NotNeeded => {}
+        _ => writeln!(
             out,
             "The keys are saved in this computer's keychain, not with the backup."
-        )?;
+        )?,
     }
-    Ok(())
+    Ok(from)
 }
 
 /// Forgets the saved destination and removes its keys from the keychain.
 /// Nothing in the storage itself is touched.
-pub fn disconnect(out: &mut dyn Write, catalog: &Catalog, world: &World<'_>) -> Result<()> {
+pub fn disconnect(out: &mut dyn Write, catalog: &Catalog, secrets: &dyn SecretStore) -> Result<()> {
     let all = destinations(catalog)?;
     let Some(saved) = all.first() else {
         writeln!(out, "This backup doesn't go anywhere yet.")?;
@@ -371,7 +464,7 @@ pub fn disconnect(out: &mut dyn Write, catalog: &Catalog, world: &World<'_>) -> 
     };
     for each in &all {
         if each.preset().is_some() {
-            world.secrets.delete(&each.secret_name())?;
+            secrets.delete(&each.secret_name())?;
         }
     }
     remember(catalog, &[])?;
@@ -408,9 +501,9 @@ pub mod testing {
         }
     }
 
-    /// Nobody is at the keyboard in a test.
-    pub fn nobody_to_ask(_question: &str, _hidden: bool) -> Result<String> {
-        bail!("Keevoro needs the storage keys. Set {ACCESS_KEY_VAR} and {SECRET_KEY_VAR}, or run this again and paste them when asked.")
+    /// An environment with nothing set in it.
+    pub fn no_environment(_name: &str) -> Option<String> {
+        None
     }
 }
 
@@ -471,13 +564,187 @@ mod tests {
     #[test]
     fn keys_are_one_keychain_entry_and_come_back_whole() {
         let stored = join_keys("AKIAEXAMPLE", "s3cr3t/with+odd=chars");
-        assert_eq!(
-            split_keys(&stored),
-            Some(("AKIAEXAMPLE".into(), "s3cr3t/with+odd=chars".into()))
-        );
+        assert_eq!(split_keys(&stored), Keys::new("AKIAEXAMPLE", "s3cr3t/with+odd=chars"));
         for broken in ["", "only-one-line", "\nsecret", "access\n"] {
             assert_eq!(split_keys(broken), None, "{broken:?}");
         }
+    }
+
+    const ACCESS: &str = "AKIAENGINEMARKER01";
+    const SECRET: &str = "engine-secret-marker/02";
+    const ENV_ACCESS: &str = "AKIAENVIRONMENTMARKER03";
+    const ENV_SECRET: &str = "environment-secret-marker/04";
+
+    fn keys_in_the_environment(name: &str) -> Option<String> {
+        match name {
+            ACCESS_KEY_VAR => Some(format!(" {ENV_ACCESS} ")),
+            SECRET_KEY_VAR => Some(ENV_SECRET.to_string()),
+            _ => None,
+        }
+    }
+
+    fn bucket() -> Saved {
+        Saved::from_flags(&Flags {
+            to_endpoint: Some("http://127.0.0.1:9".into()),
+            bucket: Some("family".into()),
+            ..flags()
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn keys_given_win_and_the_environment_is_only_a_fallback() {
+        let given = Keys::new(ACCESS, SECRET);
+        let env = &keys_in_the_environment;
+        assert_eq!(
+            keys_to_use(given.clone(), KeysFrom::Given, env),
+            given.clone().map(|k| (k, KeysFrom::Given))
+        );
+        assert_eq!(
+            keys_to_use(given.clone(), KeysFrom::Keychain, env),
+            given.map(|k| (k, KeysFrom::Keychain))
+        );
+        assert_eq!(
+            keys_to_use(None, KeysFrom::Given, env),
+            Keys::new(ENV_ACCESS, ENV_SECRET).map(|k| (k, KeysFrom::Environment))
+        );
+        assert_eq!(keys_to_use(None, KeysFrom::Given, &no_environment), None);
+        // Half a pair in the environment is no pair at all.
+        let half = |name: &str| (name == ACCESS_KEY_VAR).then(|| "AKIA".to_string());
+        assert_eq!(keys_to_use(None, KeysFrom::Given, &half), None);
+        assert_eq!(Keys::new(" ", "x"), None);
+        assert_eq!(format!("{:?}", Keys::new(ACCESS, SECRET)), "Some([hidden])");
+    }
+
+    #[test]
+    fn opening_uses_the_keys_saved_for_it_before_the_environments_and_says_when_it_does_not() {
+        let secrets = MemorySecrets::default();
+        let world = World {
+            secrets: &secrets,
+            environment: &keys_in_the_environment,
+        };
+        let saved = bucket();
+        let mut said = Vec::new();
+        let Destination::Bucket { access_key_id, .. } = saved.open(&mut said, &world).unwrap() else {
+            panic!("a bucket")
+        };
+        assert_eq!(access_key_id, ENV_ACCESS);
+        let said = String::from_utf8(said).unwrap();
+        assert_eq!(said.trim(), environment_keys_used(&saved));
+        assert!(said.contains(ACCESS_KEY_VAR) && !said.contains(ENV_ACCESS) && !said.contains(ENV_SECRET));
+
+        secrets.set(&saved.secret_name(), &join_keys(ACCESS, SECRET)).unwrap();
+        let mut said = Vec::new();
+        let Destination::Bucket {
+            access_key_id,
+            secret_access_key,
+            ..
+        } = saved.open(&mut said, &world).unwrap()
+        else {
+            panic!("a bucket")
+        };
+        assert_eq!((access_key_id.as_str(), secret_access_key.as_str()), (ACCESS, SECRET));
+        assert!(said.is_empty(), "nothing to say when its own keys are used");
+
+        let nothing = World {
+            secrets: &MemorySecrets::default(),
+            environment: &no_environment,
+        };
+        let Err(e) = saved.open(&mut Vec::new(), &nothing) else {
+            panic!("no keys anywhere")
+        };
+        assert!(e.to_string().contains("needs the storage keys"), "{e}");
+    }
+
+    #[test]
+    fn adding_cloud_storage_tests_the_keys_given_or_says_it_used_the_environments() {
+        let dir = tempfile::tempdir().unwrap();
+        let catalog = Catalog::open(&dir.path().join("c.sqlite")).unwrap();
+        let secrets = MemorySecrets::default();
+        let world = World {
+            secrets: &secrets,
+            environment: &keys_in_the_environment,
+        };
+        // Nothing listens there, so it is refused, and nothing is saved.
+        for given in [Keys::new(ACCESS, SECRET), None] {
+            let e = add(&mut Vec::new(), &catalog, &bucket(), given, &world).unwrap_err();
+            let said = format!("{e} {e:#} {e:?}");
+            for key in [ACCESS, SECRET, ENV_ACCESS, ENV_SECRET] {
+                assert!(!said.contains(key), "{said}");
+            }
+            assert!(e.downcast_ref::<CannotReach>().is_some(), "{said}");
+        }
+        assert!(secrets.0.borrow().is_empty());
+        assert!(destinations(&catalog).unwrap().is_empty());
+        // With no keys given and none in the environment, it says so.
+        let nothing = World {
+            secrets: &secrets,
+            environment: &no_environment,
+        };
+        let e = add(&mut Vec::new(), &catalog, &bucket(), None, &nothing).unwrap_err();
+        assert_eq!(e.to_string(), "Enter both keys for the storage.");
+        assert!(environment_keys_saved(&bucket()).contains(ACCESS_KEY_VAR));
+    }
+
+    /// Against a real server, where one is set up (CI starts MinIO): the
+    /// keys given are what is tested and saved, even with other keys in the
+    /// environment, and the environment's are saved, and said, only when
+    /// none are given.
+    #[test]
+    fn against_a_real_server_the_keys_given_are_the_ones_saved() {
+        let var = |name: &str| std::env::var(format!("KEEVORO_S3_TEST_{name}")).ok();
+        let (Some(endpoint), Some(bucket), Some(access), Some(secret)) =
+            (var("ENDPOINT"), var("BUCKET"), var("ACCESS_KEY"), var("SECRET_KEY"))
+        else {
+            eprintln!("skipped: no test server set up");
+            return;
+        };
+        let to = Saved::from_flags(&Flags {
+            to_endpoint: Some(endpoint),
+            bucket: Some(bucket),
+            ..flags()
+        })
+        .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let catalog = Catalog::open(&dir.path().join("c.sqlite")).unwrap();
+        let secrets = MemorySecrets::default();
+        let wrong = |name: &str| (name == ACCESS_KEY_VAR || name == SECRET_KEY_VAR).then(|| "wrong".to_string());
+        let world = World {
+            secrets: &secrets,
+            environment: &wrong,
+        };
+        let mut said = Vec::new();
+        let from = add(&mut said, &catalog, &to, Keys::new(&access, &secret), &world).unwrap();
+        assert_eq!(from, KeysFrom::Given);
+        assert_eq!(
+            secrets.get(&to.secret_name()).unwrap(),
+            Some(join_keys(&access, &secret))
+        );
+        let said = String::from_utf8(said).unwrap();
+        assert!(!said.contains(ACCESS_KEY_VAR) && !said.contains(&secret), "{said}");
+
+        secrets.delete(&to.secret_name()).unwrap();
+        let right = |name: &str| match name {
+            ACCESS_KEY_VAR => Some(access.clone()),
+            SECRET_KEY_VAR => Some(secret.clone()),
+            _ => None,
+        };
+        let world = World {
+            secrets: &secrets,
+            environment: &right,
+        };
+        let mut said = Vec::new();
+        assert_eq!(
+            add(&mut said, &catalog, &to, None, &world).unwrap(),
+            KeysFrom::Environment
+        );
+        let said = String::from_utf8(said).unwrap();
+        assert!(said.contains(&environment_keys_saved(&to)), "{said}");
+        assert!(!said.contains(&secret), "{said}");
+        assert_eq!(
+            secrets.get(&to.secret_name()).unwrap(),
+            Some(join_keys(&access, &secret))
+        );
     }
 
     #[test]
@@ -485,14 +752,17 @@ mod tests {
         let secrets = MemorySecrets::default();
         let world = World {
             secrets: &secrets,
-            ask: &nobody_to_ask,
+            environment: &no_environment,
         };
         let saved = Saved::from_flags(&Flags {
             to_folder: Some("backup".into()),
             ..flags()
         })
         .unwrap();
-        assert!(matches!(saved.open(&world).unwrap(), Destination::Folder(_)));
+        assert!(matches!(
+            saved.open(&mut Vec::new(), &world).unwrap(),
+            Destination::Folder(_)
+        ));
         assert!(secrets.0.borrow().is_empty());
     }
 
@@ -523,7 +793,7 @@ mod tests {
         }
         assert_eq!(
             Keychain.get(&name).unwrap().as_deref().and_then(split_keys),
-            Some(("access".into(), "secret".into()))
+            Keys::new("access", "secret")
         );
         Keychain.delete(&name).unwrap();
         assert_eq!(Keychain.get(&name).unwrap(), None);

@@ -440,7 +440,7 @@ pub(crate) mod tests {
         let catalog = Catalog::open_in_library(backup.home()).unwrap();
         let world = World {
             secrets: &testing::MemorySecrets::default(),
-            ask: &testing::nobody_to_ask,
+            environment: &testing::no_environment,
         };
         let folder = connect::Saved {
             kind: "folder".into(),
@@ -449,7 +449,7 @@ pub(crate) mod tests {
             base_url: None,
             target: None,
         };
-        connect::add(&mut Vec::new(), &catalog, &folder, &world).unwrap();
+        connect::add(&mut Vec::new(), &catalog, &folder, None, &world).unwrap();
 
         let all = backup.destinations().unwrap();
         assert_eq!(all.len(), 1);

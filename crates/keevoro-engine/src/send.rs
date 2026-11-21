@@ -443,7 +443,7 @@ pub fn everywhere(
         let mut record = crate::history::DestinationRecord::new(&name);
         let mut cleared = keevoro_storage_folder::Swept::default();
         let turn = (|| {
-            let destination = to.open(world)?;
+            let destination = to.open(out, world)?;
             // Working files an earlier backup left behind go first, so the
             // room they took is free for this one.
             if let Destination::Folder(folder) = &destination {
@@ -1270,7 +1270,7 @@ mod tests {
         let secrets = MemorySecrets::default();
         let world = World {
             secrets: &secrets,
-            ask: &connect::testing::nobody_to_ask,
+            environment: &connect::testing::no_environment,
         };
         let folder = |to: &Path| {
             Saved::from_flags(&Flags {
@@ -1279,7 +1279,7 @@ mod tests {
             })
             .unwrap()
         };
-        connect::add(&mut Vec::new(), &catalog, &folder(&first), &world).unwrap();
+        connect::add(&mut Vec::new(), &catalog, &folder(&first), None, &world).unwrap();
         let go = |catalog: &Catalog| {
             let mut said = Vec::new();
             let mut turns = Vec::new();
@@ -1304,7 +1304,7 @@ mod tests {
         assert!(all > 0);
 
         // A second destination is added. Nothing is safe until it has them too.
-        connect::add(&mut Vec::new(), &catalog, &folder(&second), &world).unwrap();
+        connect::add(&mut Vec::new(), &catalog, &folder(&second), None, &world).unwrap();
         let found = crate::discover(&home, &catalog).unwrap();
         assert_eq!(found.destinations.len(), 2);
         assert_eq!((found.destinations[0].there, found.destinations[0].waiting), (all, 0));
@@ -1324,7 +1324,7 @@ mod tests {
         }
 
         // Taking one off the list deletes nothing there, and the other still counts.
-        connect::remove(&catalog, &world, 0).unwrap();
+        connect::remove(&catalog, &secrets, 0).unwrap();
         assert!(first.join("originals/Flights/IMG_20240601_100000.jpg").is_file());
         let found = crate::discover(&home, &catalog).unwrap();
         assert_eq!((found.destinations.len(), found.waiting_to_gather), (1, 0));
@@ -1338,14 +1338,14 @@ mod tests {
         let secrets = MemorySecrets::default();
         let world = World {
             secrets: &secrets,
-            ask: &connect::testing::nobody_to_ask,
+            environment: &connect::testing::no_environment,
         };
         let to = Saved::from_flags(&Flags {
             to_folder: Some(dir.path().join("usb")),
             ..Flags::default()
         })
         .unwrap();
-        connect::add(&mut Vec::new(), &catalog, &to, &world).unwrap();
+        connect::add(&mut Vec::new(), &catalog, &to, None, &world).unwrap();
         let tracker = Tracker::new(keevoro_core::estimate::Remembered::default());
         let mut seen = Vec::new();
         everywhere(
@@ -1401,7 +1401,7 @@ mod tests {
         let secrets = MemorySecrets::default();
         let world = World {
             secrets: &secrets,
-            ask: &connect::testing::nobody_to_ask,
+            environment: &connect::testing::no_environment,
         };
         connect::add(
             &mut Vec::new(),
@@ -1411,6 +1411,7 @@ mod tests {
                 ..Flags::default()
             })
             .unwrap(),
+            None,
             &world,
         )
         .unwrap();
@@ -1493,14 +1494,14 @@ mod tests {
         let secrets = MemorySecrets::default();
         let world = World {
             secrets: &secrets,
-            ask: &connect::testing::nobody_to_ask,
+            environment: &connect::testing::no_environment,
         };
         let to = Saved::from_flags(&Flags {
             to_folder: Some(dir.path().join("usb")),
             ..Flags::default()
         })
         .unwrap();
-        connect::add(&mut Vec::new(), &catalog, &to, &world).unwrap();
+        connect::add(&mut Vec::new(), &catalog, &to, None, &world).unwrap();
         // Gone from the source since it was found, so it cannot be sent.
         std::fs::remove_file(card.join("Flights/IMG_20240601_100500.jpg")).unwrap();
         let tracker = Tracker::new(keevoro_core::estimate::Remembered::default());
@@ -1718,7 +1719,7 @@ mod tests {
         let secrets = MemorySecrets::default();
         let world = World {
             secrets: &secrets,
-            ask: &connect::testing::nobody_to_ask,
+            environment: &connect::testing::no_environment,
         };
         let to = dir.path().join("usb");
         let folder = Saved::from_flags(&Flags {
@@ -1726,7 +1727,7 @@ mod tests {
             ..Flags::default()
         })
         .unwrap();
-        connect::add(&mut Vec::new(), &catalog, &folder, &world).unwrap();
+        connect::add(&mut Vec::new(), &catalog, &folder, None, &world).unwrap();
         // Asked to stop while it was still getting ready.
         let stop = Stop::default();
         stop.store(true, Ordering::SeqCst);
@@ -1755,7 +1756,7 @@ mod tests {
         let secrets = MemorySecrets::default();
         let world = World {
             secrets: &secrets,
-            ask: &connect::testing::nobody_to_ask,
+            environment: &connect::testing::no_environment,
         };
         let to = dir.path().join("usb");
         let folder = Saved::from_flags(&Flags {
@@ -1763,7 +1764,7 @@ mod tests {
             ..Flags::default()
         })
         .unwrap();
-        connect::add(&mut Vec::new(), &catalog, &folder, &world).unwrap();
+        connect::add(&mut Vec::new(), &catalog, &folder, None, &world).unwrap();
         let work = to.join(".keevoro-uploads");
         std::fs::create_dir_all(work.join("18e866207c01f87097a80")).unwrap();
         let aged = |path: &Path, bytes: usize, seconds_ago: u64| {
@@ -1812,7 +1813,7 @@ mod tests {
         let secrets = MemorySecrets::default();
         let world = World {
             secrets: &secrets,
-            ask: &connect::testing::nobody_to_ask,
+            environment: &connect::testing::no_environment,
         };
         let to = dir.path().join("usb");
         let folder = Saved::from_flags(&Flags {
@@ -1820,7 +1821,7 @@ mod tests {
             ..Flags::default()
         })
         .unwrap();
-        connect::add(&mut Vec::new(), &catalog, &folder, &world).unwrap();
+        connect::add(&mut Vec::new(), &catalog, &folder, None, &world).unwrap();
         let target = format!("folder:{}", std::fs::canonicalize(&to).unwrap().display());
         // Two uploads this backup started earlier: one for a file it has
         // stopped keeping, and one in a part of the backup not sent now.

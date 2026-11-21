@@ -1137,6 +1137,8 @@ pub(crate) struct Context {
     pub(crate) jobs: Arc<Jobs>,
     pub(crate) log: Arc<Log>,
     pub(crate) secrets: Arc<dyn SecretStore + Send + Sync>,
+    /// Where storage keys set for scripts are read, when none are saved.
+    pub(crate) environment: crate::keevoro::Environment,
     /// Where the rates measured in backups are remembered.
     pub(crate) rates: std::path::PathBuf,
     /// Keevoro's cache folder, where surveys are remembered.
@@ -1206,6 +1208,7 @@ impl Keevoro {
             jobs: self.jobs.clone(),
             log: self.log_shared(),
             secrets: self.secrets_shared(),
+            environment: self.environment_shared(),
             rates: self.rates_file(),
             cache: self.cache_folder(),
         }

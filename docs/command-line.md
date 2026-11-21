@@ -216,9 +216,11 @@ For Amazon S3 use `--s3 eu-west-2`, and for MinIO or a NAS that speaks S3 use `-
 Keevoro needs the two keys once. It checks they work, keeps them in your computer's own keychain (Credential Manager on Windows, Keychain on a Mac), and never shows them, writes them down or puts them in its log or its `--json` answers. It takes them, in this order:
 
 - **From standard input,** with `--keys-from-stdin`: the access key ID on one line and the secret on the next. Nothing ends up in your shell's history.
-- **From the environment,** as `KEEVORO_ACCESS_KEY_ID` and `KEEVORO_SECRET_ACCESS_KEY`. These also win over the keychain when backing up, which suits scripts.
 - **On the command,** as `--access-key-id` and `--secret-access-key`. These end up in your shell's history, so use them only on a computer that is yours alone.
+- **From the environment,** as `KEEVORO_ACCESS_KEY_ID` and `KEEVORO_SECRET_ACCESS_KEY`, only when no keys are given either of those ways. Keevoro then says it used them, naming the variables (never the keys), and that it saved them in the keychain for that destination; the log says the same, and so does `--json`, as `keys`.
 - **At the keyboard,** asked for when none of the above is given. The secret is not shown as you paste it.
+
+Keys you give are always the ones checked and saved, whatever the environment holds. When backing up, the keys saved for a destination are used; the environment's are used only for one with none saved, and the backup says so.
 
 Keevoro warns you if strangers are able to list the bucket's contents. The bucket itself is told never to replace an original.
 

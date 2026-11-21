@@ -30,6 +30,7 @@ fn keevoro(dir: &Path) -> Keevoro {
     Keevoro::open(&Folders::under(&dir.join("home")))
         .as_front_end(FrontEnd::Agent)
         .with_secrets(KeysInMemory::default())
+        .with_environment(|_| None)
 }
 
 /// An AI app, connected to the server.

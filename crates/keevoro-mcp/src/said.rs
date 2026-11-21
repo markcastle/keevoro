@@ -139,10 +139,16 @@ pub fn summary(op: Op, answer: &Value) -> String {
         Op::DestinationsList => listed(answer, "destination", |d| {
             format!("{}: {} there", s(d, "name"), thousands(n(d, "there")))
         }),
-        Op::DestinationsAdd => format!(
-            "{} works, and the backup will go there too.",
-            capital(s(answer, "name"))
-        ),
+        Op::DestinationsAdd => {
+            let works = format!(
+                "{} works, and the backup will go there too.",
+                capital(s(answer, "name"))
+            );
+            match answer.get("keys").and_then(Value::as_str) {
+                Some(keys) => format!("{works} {keys}"),
+                None => works,
+            }
+        }
         Op::DestinationsRemove => {
             let gone: Vec<&str> = each(answer).filter_map(Value::as_str).collect();
             format!(
