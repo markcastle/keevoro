@@ -35,6 +35,8 @@ export type Collection = {
   byFolder?: boolean
   /** For a folder of other files, the room its files take. */
   bytes?: number
+  /** A folder of photos and videos from a source that keeps its folders: shown as it will be in the backup. */
+  keptFolders?: boolean
   kept: boolean
   gathered: number
   cover: Photo
@@ -191,6 +193,44 @@ export type Source = {
   onlineOnlySaid?: string
   /** Folders left out of this backup that are in it, or that it is in. */
   leftOut?: string[]
+  /** Its own way of arranging its photos and videos; left out when it follows the backup. */
+  arrange?: Arrange
+  /** The folder its files are kept in at the top of the backup, when it keeps its folders. */
+  keptAs?: string
+  /** Other sources whose folders go into that same folder, and that in words. */
+  sharesFolderWith?: string[]
+  sharedSaid?: string
+}
+
+/** How photos and videos are arranged in a backup. */
+export type Arrange = 'byDate' | 'folders'
+
+/** An arrangement worth suggesting, and why, in words. */
+export type ArrangeSuggestion = { arrange: Arrange; said: string }
+
+/** How a backup is arranged, whether the person was asked, and what its files suggest. */
+export type ArrangeView = {
+  arrange: Arrange
+  /** True once chosen, or once anything was sent: the first-time question is not asked again. */
+  asked: boolean
+  said: string
+  suggestion?: ArrangeSuggestion
+  /** Its sources suggest different ways. */
+  sourcesDiffer?: boolean
+  /** The folder each source's files would start in, kept as they are. */
+  topFolders?: string[]
+}
+
+/** How one source's photos and videos are arranged. */
+export type SourceArrangeView = {
+  arrange: Arrange
+  /** True when it has its own choice, false when it follows the backup. */
+  own: boolean
+  keptAs?: string
+  sharesFolderWith?: string[]
+  said: string
+  /** What its files suggest, when that is not what it does now. */
+  suggestion?: ArrangeSuggestion
 }
 
 export type Discover = {
@@ -738,6 +778,15 @@ export type MapNode = {
   /** The endings of the files it holds, as places in the answer's `kinds`. */
   endings?: number[]
   children?: MapNode[]
+  /**
+   * Made by the screen, never by the API: small folders gathered into one
+   * box, "Smaller folders", with the folders it stands for, how it is known,
+   * and the share each is under of the folder it is in, and that folder's name.
+   */
+  gathered?: MapNode[]
+  gatheredKey?: string
+  gatheredUnder?: number
+  gatheredIn?: string
 }
 
 /** How much of what this backup keeps from a folder is safely everywhere it goes: "Backed up: 1,180 of 1,204". */
@@ -831,6 +880,12 @@ export interface Backend {
   /** Whether one source follows its backup's choice ('backup') or has its own. */
   sourceWants(id: number): Promise<WantsView>
   setSourceWants(id: number, wants: Wants | 'backup'): Promise<WantsView>
+  /** How this backup arranges what it sends: by date, or keeping the folders as they are. */
+  backupArrange(): Promise<ArrangeView>
+  setBackupArrange(arrange: Arrange): Promise<ArrangeView>
+  /** How one source's files are arranged: as the backup ('backup'), or its own way. */
+  sourceArrange(id: number): Promise<SourceArrangeView>
+  setSourceArrange(id: number, arrange: Arrange | 'backup'): Promise<SourceArrangeView>
   /** The kinds of file Keevoro looks for, the built-in ones first. */
   fileKinds(): Promise<FileKind[]>
   /** Adds an ending to look for, as photos, videos or other files. */
@@ -1013,6 +1068,10 @@ async function tauriBackend(): Promise<Backend> {
     setBackupWants: (wants) => invoke('set_backup_wants', { wants }),
     sourceWants: (id) => invoke('source_wants', { id }),
     setSourceWants: (id, wants) => invoke('set_source_wants', { id, wants }),
+    backupArrange: () => invoke('backup_arrange'),
+    setBackupArrange: (arrange) => invoke('set_backup_arrange', { arrange }),
+    sourceArrange: (id) => invoke('source_arrange', { id }),
+    setSourceArrange: (id, arrange) => invoke('set_source_arrange', { id, arrange }),
     fileKinds: () => invoke('file_kinds'),
     addFileKind: (ending, kind) => invoke('add_file_kind', { ending, kind }),
     changeFileKind: (ending, change) =>

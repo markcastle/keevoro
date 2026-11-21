@@ -61,9 +61,57 @@ export function holds(node: MapNode) {
 
 /** What a row is called: its name, or for several together, how many. */
 export function called(node: MapNode) {
+  if (node.gathered) return 'Smaller folders'
   if (node.node === 'smaller') return count(node.folders ?? 0, 'smaller folder')
   if (node.node === 'files') return holds(node)
   return node.name
+}
+
+/** How a box is known: by its key, or, for small folders gathered on the screen, by its own. */
+export const keyOf = (keys: Map<MapNode, string>, node: MapNode) => keys.get(node) ?? node.gatheredKey ?? ''
+
+/**
+ * Small folders gathered into one box, "Smaller folders": everything the
+ * members hold added up, so every figure and every rule (what it holds,
+ * whether it is all backed up, which kinds it holds) works on it unchanged.
+ * Made by the screen to keep the map readable; the API is not asked.
+ */
+export function together(members: MapNode[], within: MapNode, share: number, key: string): MapNode {
+  const sum = (get: (n: MapNode) => number | undefined) => members.reduce((n, m) => n + (get(m) ?? 0), 0)
+  const backedUp = members.some((m) => m.backedUp) ? { files: sum((m) => m.backedUp?.files), of: sum((m) => m.backedUp?.of) } : undefined
+  const endings = [...new Set(members.flatMap((m) => m.endings ?? []))].sort((a, b) => a - b)
+  return {
+    name: 'Smaller folders',
+    node: 'smaller',
+    bytes: sum((m) => m.bytes),
+    photos: sum((m) => m.photos),
+    videos: sum((m) => m.videos),
+    others: sum((m) => m.others),
+    photoBytes: sum((m) => m.photoBytes),
+    videoBytes: sum((m) => m.videoBytes),
+    otherBytes: sum((m) => m.otherBytes),
+    ...(members.some((m) => m.carried) ? { carried: sum((m) => m.carried), carriedBytes: sum((m) => m.carriedBytes) } : {}),
+    ...(members.some((m) => m.onlineOnlyBytes) ? { onlineOnlyBytes: sum((m) => m.onlineOnlyBytes) } : {}),
+    // A folder is one, with what is in it; the API's own box already counts its folders.
+    folders: members.reduce((n, m) => n + (m.node === 'smaller' ? (m.folders ?? 0) : (m.folders ?? 0) + 1), 0),
+    wouldBackUp: sum((m) => m.wouldBackUp),
+    ...(backedUp ? { backedUp } : {}),
+    ...(endings.length > 0 ? { endings } : {}),
+    gathered: members,
+    gatheredKey: key,
+    gatheredUnder: share,
+    gatheredIn: within.name,
+  }
+}
+
+/**
+ * What the gathered box says of itself: "Smaller folders: 14 folders,
+ * 2.1 GB, each under 3% of Pictures. Put together so the map stays
+ * readable. Click to open them."
+ */
+export function gatheredWords(node: MapNode) {
+  const under = Math.max(1, Math.round((node.gatheredUnder ?? 0) * 100))
+  return `Smaller folders: ${count(node.folders ?? 0, 'folder')}, ${size(node.bytes)}, each under ${under}% of ${node.gatheredIn}. Put together so the map stays readable. Click to open them.`
 }
 
 /** The notes said beside a box, in words. */

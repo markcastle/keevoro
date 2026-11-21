@@ -114,7 +114,11 @@ pub fn scan_into_with(
 /// Keeps everything found on this source before that `report` does not
 /// have, for a look cut short by the drive going.
 fn keep_all_found_before(catalog: &Catalog, report: &mut ScanReport) -> Result<()> {
-    let Some(before) = catalog.load_reports()?.into_iter().find(|r| r.root == report.root) else {
+    let Some(before) = catalog
+        .load_reports_as_found()?
+        .into_iter()
+        .find(|r| r.root == report.root)
+    else {
         return Ok(());
     };
     let found_now: std::collections::HashSet<PathBuf> = report.items.iter().map(|i| i.path.clone()).collect();
@@ -134,7 +138,11 @@ fn keep_all_found_before(catalog: &Catalog, report: &mut ScanReport) -> Result<(
 /// and in the backup's index. A file of a kind still looked for that was
 /// not found again has gone, or changed, and is not kept.
 fn keep_found_before(catalog: &Catalog, report: &mut ScanReport, kinds: &keevoro_core::Kinds) -> Result<()> {
-    let Some(before) = catalog.load_reports()?.into_iter().find(|r| r.root == report.root) else {
+    let Some(before) = catalog
+        .load_reports_as_found()?
+        .into_iter()
+        .find(|r| r.root == report.root)
+    else {
         return Ok(());
     };
     let found_now: std::collections::HashSet<&Path> = report.items.iter().map(|i| i.path.as_path()).collect();
@@ -326,10 +334,48 @@ pub fn check_and_place(
         }
     }
     let chosen: Vec<&FoundItem> = chosen(catalog, &reports)?.into_iter().filter(|i| !alike(i)).collect();
+    follow_a_changed_arrangement(catalog, &chosen)?;
     keevoro_collect::agree_places(catalog, &chosen, true, &mut |done, total| {
         on_step(ReadyStep::Placing { done, total });
     })?;
     Ok(waiting)
+}
+
+/// When how the backup is arranged has changed since its places were last
+/// agreed, frees the place of each chosen file that no longer matches it
+/// and was never sent anywhere, so it is placed afresh. A file sent
+/// anywhere keeps its place: nothing backed up is ever moved, sent twice,
+/// or counted as missing. Answers how many files it looked at, which is
+/// none when nothing changed, so a backup whose choice is as it was pays
+/// nothing.
+pub fn follow_a_changed_arrangement(catalog: &Catalog, chosen: &[&FoundItem]) -> Result<usize> {
+    let now = keevoro_core::arrange::arrangement_said(&catalog.choices()?);
+    let before = catalog
+        .arranged_as()?
+        .unwrap_or_else(|| keevoro_core::Arrange::ByDate.name().to_string());
+    if now == before {
+        return Ok(0);
+    }
+    let mut stale = Vec::new();
+    for item in chosen {
+        let Some(hash) = item.blake3.as_deref() else { continue };
+        let Some(place) = catalog.collected_path(hash)? else {
+            continue;
+        };
+        let (folders, _) = keevoro_core::fit_place(
+            keevoro_core::library_folder(item.kind, &item.folder.album, item.date.as_ref()),
+            String::new(),
+        );
+        let wanted = format!("{}/", folders.join("/")).to_ascii_lowercase();
+        let rest = place.to_ascii_lowercase();
+        // Directly in the folder it would go in now: as it should be.
+        if !(rest.starts_with(&wanted) && !rest[wanted.len()..].contains('/')) {
+            stale.push(hash);
+        }
+    }
+    catalog.forget_unsent_places(&stale)?;
+    catalog.set_arranged_as(&now)?;
+    Ok(chosen.len())
 }
 
 fn now() -> i64 {
@@ -339,6 +385,9 @@ fn now() -> i64 {
         .and_then(|d| i64::try_from(d.as_secs()).ok())
         .unwrap_or(0)
 }
+
+#[cfg(test)]
+mod arranging_tests;
 
 #[cfg(test)]
 mod tests {

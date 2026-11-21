@@ -1,5 +1,5 @@
 use super::*;
-use keevoro_core::{MediaKind, SkipReason};
+use keevoro_core::{Arrange, MediaKind, SkipReason};
 
 fn photo(path: &str, hash: &str) -> FoundItem {
     FoundItem {
@@ -16,6 +16,7 @@ fn photo(path: &str, hash: &str) -> FoundItem {
         folder: FolderHints {
             album: vec!["Holidays".into(), "Spain 2009".into()],
             date: PartialDate::year(2009),
+            kept: false,
         },
         width: Some(3264),
         height: Some(2448),
@@ -224,6 +225,81 @@ fn places_are_agreed_once() {
     );
     assert!(c.place_taken("originals/Undated/b.jpg").unwrap());
     assert!(!c.place_taken("originals/Undated/elsewhere.jpg").unwrap());
+}
+
+#[test]
+fn a_place_is_taken_whatever_its_case_and_a_folder_keeps_its_first_spelling() {
+    let c = Catalog::in_memory().unwrap();
+    c.mark_placed("aa", "originals/Smith/a.jpg", 1).unwrap();
+    c.mark_placed("bb", "originals/Smith 2/b.jpg", 1).unwrap();
+    assert!(c.place_taken("originals/smith/A.JPG").unwrap());
+    assert!(!c.place_taken("originals/smith/b.jpg").unwrap());
+    assert_eq!(
+        c.folder_spelled("originals/SMITH").unwrap().as_deref(),
+        Some("originals/Smith")
+    );
+    assert_eq!(
+        c.folder_spelled("originals/smith 2").unwrap().as_deref(),
+        Some("originals/Smith 2")
+    );
+    assert_eq!(
+        c.folder_spelled("originals/Smit").unwrap(),
+        None,
+        "by whole folders, never letters"
+    );
+    assert_eq!(c.folder_spelled("originals/Jones").unwrap(), None);
+}
+
+/// Placing a hundred thousand files asks these once each: they must be
+/// lookups in the index, never a read of every place.
+#[test]
+fn looking_up_a_place_without_case_uses_the_index() {
+    let c = Catalog::in_memory().unwrap();
+    for (sql, args) in [
+        ("SELECT 1 FROM collected WHERE path = ?1 COLLATE NOCASE LIMIT 1", 1),
+        (
+            "SELECT path FROM collected WHERE path >= ?1 COLLATE NOCASE AND path < ?2 COLLATE NOCASE LIMIT 1",
+            2,
+        ),
+    ] {
+        let mut q = c.conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
+        let plan: Vec<String> = q
+            .query_map(rusqlite::params_from_iter(std::iter::repeat_n("x", args)), |r| r.get(3))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert!(plan.iter().any(|p| p.contains("collected_by_path_nocase")), "{plan:?}");
+    }
+}
+
+#[test]
+fn a_catalog_at_step_10_reaches_step_11_with_everything_in_place() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("catalog.sqlite");
+    {
+        let conn = Connection::open(&file).unwrap();
+        for step in &MIGRATIONS[..10] {
+            conn.execute_batch(step).unwrap();
+        }
+        conn.pragma_update(None, "user_version", 10).unwrap();
+        conn.execute(
+            "INSERT INTO collected (blake3, path, bytes, here) VALUES ('aa', 'originals/By date/2021/2021-01/a.jpg', 5, 0)",
+            [],
+        )
+        .unwrap();
+    }
+    let c = Catalog::open(&file).unwrap();
+    let version: i64 = c.conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+    assert_eq!(
+        version,
+        i64::try_from(MIGRATIONS.len()).unwrap(),
+        "and every step after"
+    );
+    assert_eq!(
+        c.collected_path("aa").unwrap().as_deref(),
+        Some("originals/By date/2021/2021-01/a.jpg")
+    );
+    assert!(c.place_taken("originals/by date/2021/2021-01/A.jpg").unwrap());
 }
 
 #[test]
@@ -903,4 +979,127 @@ fn photos_only_or_videos_only_chosen_before_0_39_is_carried_over() {
     drop(c);
     let c = Catalog::open(&file).unwrap();
     assert_eq!(c.wants().unwrap(), keevoro_core::Wants::only(MediaKind::Video));
+}
+
+#[test]
+fn how_a_backup_and_a_source_are_arranged_is_kept_and_a_new_backup_has_not_chosen() {
+    let mut c = Catalog::in_memory().unwrap();
+    assert_eq!(c.arrange().unwrap(), None, "a new backup is asked");
+    assert_eq!(
+        c.choices().unwrap().arrange,
+        Arrange::ByDate,
+        "and goes by date until then"
+    );
+    c.set_arrange(Arrange::Folders).unwrap();
+    assert_eq!(c.arrange().unwrap(), Some(Arrange::Folders));
+    let id = c.save_scan("Card", &report("/media/card"), 1).unwrap();
+    assert_eq!(c.source_arrange(id).unwrap(), None);
+    assert!(c.set_source_arrange(id, Some(Arrange::ByDate)).unwrap());
+    // Looked through again, it is still the source's choice.
+    let id = c.save_scan("Card", &report("/media/card"), 2).unwrap();
+    assert_eq!(c.source_arrange(id).unwrap(), Some(Arrange::ByDate));
+    assert_eq!(
+        c.choices().unwrap().arrangement_in(Path::new("/media/card")),
+        Arrange::ByDate
+    );
+    assert!(c.set_source_arrange(id, None).unwrap());
+    assert_eq!(
+        c.choices().unwrap().arrangement_in(Path::new("/media/card")),
+        Arrange::Folders
+    );
+    assert!(!c.set_source_arrange(999, None).unwrap());
+    c.set_arrange_changed_at(1_795_219_200).unwrap();
+    assert_eq!(c.arrange_changed_at().unwrap(), Some(1_795_219_200));
+}
+
+#[test]
+fn photos_and_videos_of_a_source_that_keeps_its_folders_are_given_them_in_memory_only() {
+    let mut c = Catalog::in_memory().unwrap();
+    let mut found = report("/media/Family Scans");
+    let mut song = photo("/media/Family Scans/Music/song.flac", "d");
+    song.kind = MediaKind::Other;
+    song.folder.album = vec!["Family Scans".into(), "Music".into()];
+    found.items.push(song);
+    c.save_scan("Family Scans", &found, 1).unwrap();
+    let as_found = json(&c.load_reports().unwrap());
+    c.set_arrange(Arrange::Folders).unwrap();
+    let items = c.load_reports().unwrap().remove(0).items;
+    let photo = items.iter().find(|i| i.path.ends_with("IMG_1234.jpg")).unwrap();
+    assert_eq!(photo.folder.album, ["Family Scans", "Holidays", "Spain 2009"]);
+    assert_eq!(photo.folder.date, None, "a folder's date only places a file by date");
+    assert!(photo.folder.kept);
+    let clip = items.iter().find(|i| i.path.ends_with("clip.3gp")).unwrap();
+    assert_eq!(clip.folder.album, ["Family Scans"], "loose in the source's own folder");
+    let song = items.iter().find(|i| i.kind == MediaKind::Other).unwrap();
+    assert!(!song.folder.kept, "other files keep their own rule");
+    assert_eq!(song.folder.album, ["Family Scans", "Music"]);
+    // Nothing was written back.
+    assert_eq!(json(&c.load_reports_as_found().unwrap()), as_found);
+    c.set_arrange(Arrange::ByDate).unwrap();
+    assert_eq!(json(&c.load_reports().unwrap()), as_found);
+}
+
+#[test]
+fn a_place_is_forgotten_for_a_new_arrangement_only_if_it_was_never_sent_anywhere() {
+    let c = Catalog::in_memory().unwrap();
+    for (hash, place) in [
+        ("sent", "originals/By date/a.jpg"),
+        ("missing", "originals/By date/b.jpg"),
+        ("other size", "originals/By date/c.jpg"),
+        ("in parts", "originals/By date/d.mov"),
+        ("never", "originals/By date/e.jpg"),
+    ] {
+        c.mark_placed(hash, place, 1).unwrap();
+    }
+    c.mark_uploaded("usb", "originals/By date/a.jpg", 1).unwrap();
+    c.mark_uploaded("usb", "originals/By date/b.jpg", 1).unwrap();
+    c.mark_uploaded("cloud", "originals/By date/c.jpg", 1).unwrap();
+    c.set_seen("usb", &[("originals/By date/b.jpg".into(), Seen::Missing)])
+        .unwrap();
+    c.set_seen("cloud", &[("originals/By date/c.jpg".into(), Seen::NotAsSent)])
+        .unwrap();
+    c.set_multipart("cloud", "originals/By date/d.mov", Some("upload-1"))
+        .unwrap();
+    let forgotten = c
+        .forget_unsent_places(&["sent", "missing", "other size", "in parts", "never", "unknown"])
+        .unwrap();
+    assert_eq!(forgotten, 1);
+    assert_eq!(c.collected_path("never").unwrap(), None);
+    for hash in ["sent", "missing", "other size", "in parts"] {
+        assert!(c.collected_path(hash).unwrap().is_some(), "{hash} keeps its place");
+    }
+    assert_eq!(c.placed_and_sent().unwrap(), 3);
+}
+
+#[test]
+fn a_backup_made_before_the_choice_is_by_date_and_not_asked_and_an_empty_one_is_asked() {
+    let dir = tempfile::tempdir().unwrap();
+    for (name, with_a_source) in [("used.sqlite", true), ("empty.sqlite", false), ("set.sqlite", false)] {
+        let file = dir.path().join(name);
+        {
+            let conn = Connection::open(&file).unwrap();
+            for step in &MIGRATIONS[..11] {
+                conn.execute_batch(step).unwrap();
+            }
+            conn.pragma_update(None, "user_version", 11).unwrap();
+            if with_a_source {
+                conn.execute(
+                    "INSERT INTO sources (id, name, root, scanned_at) VALUES (1, 'Card', '/media/card', 1)",
+                    [],
+                )
+                .unwrap();
+            }
+            if name == "set.sqlite" {
+                // Set up, with a choice made, before anything was found.
+                conn.execute("INSERT INTO settings (key, value) VALUES ('previews', 'off')", [])
+                    .unwrap();
+            }
+        }
+        let c = Catalog::open(&file).unwrap();
+        assert_eq!(
+            c.arrange().unwrap(),
+            (name != "empty.sqlite").then_some(Arrange::ByDate),
+            "{name}"
+        );
+    }
 }

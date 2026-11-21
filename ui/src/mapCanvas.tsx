@@ -8,7 +8,10 @@
 // boxes. Both are drawn at the screen's own resolution.
 //
 // Colours come from the design tokens at the moment of drawing, in light
-// and dark, and each kind has a pattern of its own (photos plain, videos
+// and dark: soft tints (`map-*`), told apart by their edges and patterns,
+// so a drive that is nearly all photos reads calmly, as our first outside
+// tester asked; the strong colours are kept for the box chosen. Each kind
+// has a pattern of its own (photos plain, videos
 // striped, what Keevoro never looks through dotted, what is left out
 // cross-hatched, what is only online with a dashed edge), so colour is
 // never the only sign. The list beside it says everything in words, so
@@ -21,12 +24,25 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { MapKind, MapNode } from './backend'
 import { share, size } from './format'
-import { allBackedUp, called, holds, holdsPicked, mainKind, notesOn } from './mapWords'
+import { allBackedUp, called, gatheredWords, holds, holdsPicked, keyOf, mainKind, notesOn, together } from './mapWords'
 import type { Picked } from './mapWords'
-import { between, easeOut, hit, layout } from './treemap'
-import type { Laid, Rect } from './treemap'
+import { between, easeOut, everyBox, gatherShare, hit, layout } from './treemap'
+import type { Laid, Reading, Rect } from './treemap'
 
-const READ = { size: (n: MapNode) => n.bytes, children: (n: MapNode) => n.children }
+/**
+ * How the map's tree is read, small folders gathered into one box: a
+ * folder, or the API's own box of smaller folders, may be gathered; a file
+ * never. The gathered box is known by its folder's key.
+ */
+export function mapReading(keys: Map<MapNode, string>): Reading<MapNode> {
+  return {
+    size: (n) => n.bytes,
+    children: (n) => n.children,
+    // A source of this backup is always shown on its own, with its outline.
+    gatherable: (n) => (n.node === 'folder' && !n.source) || n.node === 'smaller',
+    gather: (small, within, share) => together(small, within, share, `${keyOf(keys, within)}|gathered`),
+  }
+}
 /** How long going in or out of a folder takes, when motion is welcome. */
 const EASING_MS = 220
 
@@ -45,8 +61,8 @@ type Look = {
   strip: string
   ink: string
   muted: string
-  onSun: string
-  onPine: string
+  /** The strong colours, for the box chosen, with the words drawn on each. */
+  strong: Record<MapKind, { fill: string; on: string }>
   focus: string
   success: string
   font: string
@@ -86,26 +102,30 @@ export function lookOf(ctx: CanvasRenderingContext2D): Look {
   const lineStrong = token(style, '--line-strong')
   const other = mix(lineStrong, sunken, 0.35)
   return {
-    photo: token(style, '--sun'),
-    photoEdge: token(style, '--sun-ink'),
-    video: token(style, '--pine'),
-    videoEdge: token(style, '--hill'),
-    other,
-    otherEdge: token(style, '--line-strong'),
-    carried: token(style, '--peach'),
-    carriedEdge: token(style, '--sun-ink'),
+    photo: token(style, '--map-photo'),
+    photoEdge: token(style, '--map-photo-edge'),
+    video: token(style, '--map-video'),
+    videoEdge: token(style, '--map-video-edge'),
+    other: token(style, '--map-other') || other,
+    otherEdge: token(style, '--map-other-edge'),
+    carried: token(style, '--map-carried'),
+    carriedEdge: token(style, '--map-carried-edge'),
     ground: surface,
     strip: mix(lineStrong, sunken, 0.18),
     ink,
     muted: token(style, '--ink-muted'),
-    onSun: token(style, '--on-sun'),
-    onPine: token(style, '--on-primary'),
+    strong: {
+      photo: { fill: token(style, '--sun'), on: token(style, '--on-sun') },
+      video: { fill: token(style, '--pine'), on: token(style, '--on-primary') },
+      carried: { fill: token(style, '--peach'), on: token(style, '--on-sun') },
+      other: { fill: token(style, '--line-strong'), on: token(style, '--on-primary') },
+    },
     focus: token(style, '--focus-ring'),
     success: token(style, '--success'),
     font: getComputedStyle(document.body).fontFamily,
     // Fine diagonal lines over a video's colour.
     stripes: pattern(ctx, (t) => {
-      t.strokeStyle = mix(surface, token(style, '--pine'), 0.45)
+      t.strokeStyle = mix(token(style, '--map-video-edge'), token(style, '--map-video'), 0.45)
       t.lineWidth = 1.5
       t.beginPath()
       t.moveTo(-2, 10)
@@ -114,7 +134,7 @@ export function lookOf(ctx: CanvasRenderingContext2D): Look {
     }),
     // Level lines, like lines of writing: other files carried along.
     rows: pattern(ctx, (t) => {
-      t.strokeStyle = mix(token(style, '--sun-ink'), token(style, '--peach'), 0.55)
+      t.strokeStyle = mix(token(style, '--map-carried-edge'), token(style, '--map-carried'), 0.55)
       t.lineWidth = 1
       t.beginPath()
       t.moveTo(0, 2.5)
@@ -225,7 +245,7 @@ export function draw(ctx: CanvasRenderingContext2D, top: Laid<MapNode>, look: Lo
       ctx.lineWidth = 2
       ctx.strokeRect(b.x + 1, b.y + 1, Math.max(0, b.w - 2), Math.max(0, b.h - 2))
     }
-    label(b, opened, kind)
+    label(b, opened)
     // All of it safely backed up: a tick in the corner, where there is room.
     if (allBackedUp(n) && b.w >= 24 && b.h >= 16) tick(b)
     if (without && opened) fade(b, Math.min(b.h, (b.inner?.y ?? b.y) - b.y))
@@ -247,11 +267,11 @@ export function draw(ctx: CanvasRenderingContext2D, top: Laid<MapNode>, look: Lo
     ctx.stroke()
     ctx.restore()
   }
-  const label = (b: Laid<MapNode>, opened: boolean, kind: MapKind) => {
+  const label = (b: Laid<MapNode>, opened: boolean) => {
     if (b.w < 36 || b.h < 14) return
     ctx.textBaseline = 'top'
-    ctx.fillStyle =
-      opened || kind === 'other' ? look.ink : kind === 'photo' || kind === 'carried' ? look.onSun : look.onPine
+    // Every soft tint is light enough, or dark enough, for the ink.
+    ctx.fillStyle = look.ink
     ctx.font = `${opened ? 600 : 400} 12px ${look.font}`
     const name = fit(ctx, called(b.item), b.w - 8)
     if (!name) return
@@ -269,7 +289,7 @@ export function draw(ctx: CanvasRenderingContext2D, top: Laid<MapNode>, look: Lo
 function boxOf(top: Laid<MapNode>, keys: Map<MapNode, string>, key: string | null | undefined): Laid<MapNode> | null {
   if (!key) return null
   const visit = (b: Laid<MapNode>): Laid<MapNode> | null => {
-    if (keys.get(b.item) === key) return b
+    if (keyOf(keys, b.item) === key) return b
     for (const c of b.children) {
       const found = visit(c)
       if (found) return found
@@ -308,6 +328,10 @@ export function MapCanvas(props: {
   onPoint: (key: string | null) => void
   /** A kind of file, or one ending, picked in the list: boxes without it fade. */
   picked?: Picked | null
+  /** Opens small folders gathered together, on a click. */
+  onOpenGathered?: (node: MapNode) => void
+  /** Hears below what share of the folder shown its folders are gathered, as the room changes. */
+  onShare?: (share: number) => void
 }) {
   const { top, keys } = props
   const wrap = useRef<HTMLDivElement>(null)
@@ -377,6 +401,30 @@ export function MapCanvas(props: {
       ctx.setLineDash(dashed ? [5, 3] : [])
       ctx.strokeRect(b.x + width / 2, b.y + width / 2, Math.max(0, b.w - width), Math.max(0, b.h - width))
     }
+    // The box chosen, in its kind's strong colour: the one place it is used.
+    const chosen = boxOf(now.laid, now.keys, marks.current.chosen)
+    if (chosen && chosen.depth > 0) {
+      const kind = chosen.item.skipped ? 'other' : mainKind(chosen.item)
+      const opened = Boolean(chosen.inner && chosen.children.length > 0)
+      const h = opened ? Math.min(chosen.h, (chosen.inner?.y ?? chosen.y) - chosen.y) : chosen.h
+      ctx.fillStyle = look.strong[kind].fill
+      ctx.fillRect(chosen.x, chosen.y, chosen.w, h)
+      if (!opened && kind === 'video' && look.stripes) {
+        ctx.fillStyle = look.stripes
+        ctx.fillRect(chosen.x, chosen.y, chosen.w, h)
+      }
+      if (chosen.w >= 36 && chosen.h >= 14) {
+        ctx.textBaseline = 'top'
+        ctx.fillStyle = look.strong[kind].on
+        ctx.font = `600 12px ${look.font}`
+        const name = fit(ctx, called(chosen.item), chosen.w - 8)
+        if (name) ctx.fillText(name, chosen.x + 4, chosen.y + 3)
+        if (!opened && chosen.h >= 32) {
+          ctx.font = `400 11px ${look.font}`
+          ctx.fillText(fit(ctx, size(chosen.item.bytes), chosen.w - 8), chosen.x + 4, chosen.y + 18)
+        }
+      }
+    }
     outline(marks.current.lit, 2, true)
     outline(pointed.current, 2, true)
     outline(marks.current.chosen, 3, false)
@@ -387,7 +435,7 @@ export function MapCanvas(props: {
     const ctx = ready(base.current)
     if (!ctx) return
     const full: Rect = { x: 0, y: 0, w: area.w, h: area.h }
-    const laid = layout(top, full, READ, props.depth)
+    const laid = layout(top, full, mapReading(keys), props.depth)
     const before = drawn.current
     drawn.current = { top, keys, laid }
     const look = lookOf(ctx)
@@ -404,10 +452,19 @@ export function MapCanvas(props: {
       ctx.restore()
     }
     const still = () => {
+      const started = performance.now()
       ctx.clearRect(0, 0, full.w, full.h)
       const faded = draw(ctx, laid, look, picked)
-      // Said on the page, so a test can see what faded without reading pixels.
+      // How long the boxes took to draw, so a slowdown is noticed.
+      wrap.current?.setAttribute('data-drawn-ms', String(Math.round(performance.now() - started)))
+      // Said on the page, so a test can see what faded without reading pixels,
+      // and where small folders were gathered, to click.
       wrap.current?.setAttribute('data-faded', picked ? String(faded) : '')
+      const gatheredBox = everyBox(laid).find((b) => b.item.gathered)
+      wrap.current?.setAttribute(
+        'data-gathered-at',
+        gatheredBox ? `${Math.round(gatheredBox.x + gatheredBox.w / 2)},${Math.round(gatheredBox.y + gatheredBox.h / 2)}` : '',
+      )
       drawOver()
     }
     const into = before && before.top.path !== top.path ? boxOf(before.laid, before.keys, top.path) : null
@@ -449,6 +506,12 @@ export function MapCanvas(props: {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(drawOver, [props.chosen, props.lit, area, theme])
 
+  // The list gathers the same folders the map does.
+  const { onShare } = props
+  useEffect(() => {
+    if (area.w > 0) onShare?.(gatherShare(area.w * area.h))
+  }, [area, onShare])
+
   /** The boxes under the pointer, outermost first, and where it is. */
   const under = (event: React.PointerEvent | React.MouseEvent) => {
     const now = drawn.current
@@ -461,15 +524,17 @@ export function MapCanvas(props: {
   const point = (event: React.PointerEvent) => {
     const { path, x, y } = under(event)
     const deepest = path.length > 1 ? path[path.length - 1] : null
-    const key = deepest ? (keys.get(deepest.item) ?? null) : null
+    const key = deepest ? keyOf(keys, deepest.item) || null : null
     const tipNow = tip.current
     if (tipNow) {
       if (deepest) {
         const node = deepest.item
         const notes = notesOn(node)
-        tipNow.textContent = `${called(node)}: ${size(node.bytes)}${node.node === 'files' ? '' : `, ${holds(node)}`}${
-          notes.length ? `. ${notes.join('. ')}` : ''
-        }`
+        tipNow.textContent = node.gathered
+          ? gatheredWords(node)
+          : `${called(node)}: ${size(node.bytes)}${node.node === 'files' ? '' : `, ${holds(node)}`}${
+              notes.length ? `. ${notes.join('. ')}` : ''
+            }`
         tipNow.hidden = false
         // Beside the pointer, kept inside the map.
         const left = Math.min(x + 14, area.w - tipNow.offsetWidth - 4)
@@ -482,7 +547,7 @@ export function MapCanvas(props: {
       wrap.current?.setAttribute('data-pointed', key ?? '')
       drawOver()
     }
-    const rowKey = path.length > 1 ? (keys.get(path[1].item) ?? null) : null
+    const rowKey = path.length > 1 ? keyOf(keys, path[1].item) || null : null
     if (rowKey !== row.current) {
       row.current = rowKey
       props.onPoint(rowKey)
@@ -503,7 +568,11 @@ export function MapCanvas(props: {
     const { path } = under(event)
     const deepest = path.length > 1 ? path[path.length - 1] : null
     if (!deepest) return
-    const key = keys.get(deepest.item) ?? null
+    if (deepest.item.gathered && props.onOpenGathered) {
+      props.onOpenGathered(deepest.item)
+      return
+    }
+    const key = keyOf(keys, deepest.item) || null
     if (key && key === props.chosen && deepest.item.node === 'folder' && deepest.item.path) props.onGo(deepest.item.path)
     else if (key) props.onChoose(key)
   }

@@ -69,8 +69,8 @@ Someone other than the owner has now used Keevoro (0.37.1, Windows 11 Home). The
 - [ ] Remove and rename a backup in the app
 - [ ] Stopping the background check for duplicates, and saying plainly what it is doing
 - [ ] Drives appear and leave on their own, with a Refresh button
-- [ ] Keep my folders as they are: a choice asked the first time a backup is set up
-- [ ] The map: calmer colours, a summary ring, small folders merged
+- [x] Keep my folders as they are: a choice asked the first time a backup is set up
+- [x] The map: calmer colours, a summary ring, small folders merged
 - [ ] Cloud drives as sources: synced cloud folders done properly, then a bucket as a source
 
 ### 4. Other kinds of file, carried along
@@ -535,21 +535,21 @@ Keep my folders as they are
 
 Their source was Pictures / Scans / Family Scans; the backup put the files under By date / 2021 / 2021-01. For scans the file's date is the day of scanning, which means nothing, and they had already arranged them by family.
 
-- [ ] Asked the first time a backup is set up, in one plain sentence: "Arrange by date" or "Keep my folders as they are" (decided by the owner: ask on first use)
-- [ ] "Keep my folders" writes originals / source name / their folders / file, the same arrangement other files use
-- [ ] Per source as well, so a camera card can go by date while a folder of scans keeps its folders
-- [ ] Changing it later affects only what is sent from then on; nothing already backed up is moved or removed
-- [ ] A suggestion with its reason when a source's files nearly all share one date or sit in folders with real names
-- [ ] Backups made before the choice existed stay "by date"; the guide note says which was used
+- [x] Asked the first time a backup is set up, in one plain sentence: "Arrange by date" or "Keep my folders as they are" (decided by the owner: ask on first use)
+- [x] "Keep my folders" writes originals / source name / their folders / file, the same arrangement other files use
+- [x] Per source as well, so a camera card can go by date while a folder of scans keeps its folders
+- [x] Changing it later affects only what is sent from then on; nothing already backed up is moved or removed
+- [x] A suggestion with its reason when a source's files nearly all share one date or sit in folders with real names
+- [x] Backups made before the choice existed stay "by date"; the guide note says which was used
 
 The map
 
 "A useful view, but could it use more neutral colour tones? Or even a choice of views, like a pie chart? Possibly everything under 10% of the backup merged into Others." They liked the list beside it a lot.
 
-- [ ] Calmer colours: softer tints for photos and videos, the strong colour kept for the chosen box and what needs attention
-- [ ] A summary ring above the map: photos, videos, other files chosen, everything else, with figures
-- [ ] A choice of view, remembered: the map, or a plain bar per folder
-- [ ] Small folders drawn as one "Smaller folders" box and row, opening on a click, the share adjusting with the window
+- [x] Calmer colours: softer tints for photos and videos, the strong colour kept for the chosen box and what needs attention
+- [x] A summary ring above the map: photos, videos, other files chosen, everything else, with figures
+- [x] A choice of view, remembered: the map, or a plain bar per folder
+- [x] Small folders drawn as one "Smaller folders" box and row, opening on a click, the share adjusting with the window
 
 Cloud drives as sources
 

@@ -685,6 +685,44 @@ fn smaller_things_a_backup_can_be_asked() {
         "{}",
         ran.out
     );
+    let ran = at.keevoro(&["arrange"]);
+    assert_eq!(ran.out.trim(), "This backup is arranged by date.");
+    let ran = at.keevoro(&["arrange", "folders"]);
+    assert!(
+        ran.out.starts_with("From now on, new files are kept in your folders."),
+        "{}",
+        ran.out
+    );
+    let ran = at.keevoro(&["arrange", "--json"]);
+    assert_eq!(
+        (ran.json()["arrange"].as_str(), ran.json()["asked"].as_bool()),
+        (Some("folders"), Some(true))
+    );
+    let ran = at.keevoro(&["arrange", "sideways"]);
+    assert_eq!(ran.code, Code::NotUnderstood, "{}", ran.err);
+    at.keevoro(&["arrange", "by-date"]);
+    let ran = at.keevoro(&["sources", "arrange", "1", "folders"]);
+    assert!(
+        ran.out.starts_with("Files from Card keep their folders as they are."),
+        "{}",
+        ran.out
+    );
+    let ran = at.keevoro(&["sources", "arrange", "1", "--json"]);
+    assert_eq!(
+        (ran.json()["own"].as_bool(), ran.json()["keptAs"].as_str()),
+        (Some(true), Some("Card"))
+    );
+    let ran = at.keevoro(&["sources", "arrange", "1", "backup"]);
+    assert!(
+        ran.out
+            .starts_with("Files from Card are arranged as the backup is: by date."),
+        "{}",
+        ran.out
+    );
+    let ran = at.keevoro(&["backups", "start", "Scans", "--arrange", "folders"]);
+    assert_eq!(ran.code, Code::Worked, "{}", ran.err);
+    let ran = at.keevoro(&["-b", "Scans", "arrange"]);
+    assert_eq!(ran.out.trim(), "This backup keeps your folders as they are.");
     let ran = at.keevoro(&["kinds", "add", "pdf", "--photo"]);
     assert!(ran.err.contains("add .pdf as an other file"), "{}", ran.err);
     at.keevoro(&["kinds", "remove", "flac"]);

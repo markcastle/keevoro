@@ -219,6 +219,9 @@ pub struct SourceChoices {
     pub wants: Option<Wants>,
     /// Endings left out, lower case without the dot.
     pub endings_left_out: BTreeSet<String>,
+    /// Its own way of arranging its photos and videos; `None` to follow
+    /// the backup.
+    pub arrange: Option<crate::arrange::Arrange>,
 }
 
 /// Every choice a person made for one backup that decides what is offered.
@@ -228,6 +231,9 @@ pub struct Choices {
     pub sources: Vec<SourceChoices>,
     /// Folders left out, as the computer gives their full paths.
     pub left_out_folders: Vec<PathBuf>,
+    /// How the backup arranges photos and videos, unless a source says
+    /// otherwise.
+    pub arrange: crate::arrange::Arrange,
 }
 
 /// What is known about one file that the choices are asked about.
@@ -249,6 +255,16 @@ impl Choices {
             .iter()
             .filter(|s| within(path, &s.root))
             .max_by_key(|s| s.root.components().count())
+    }
+
+    /// How the photos and videos found by looking through the source at
+    /// `root` are arranged: its own choice, or else the backup's.
+    pub fn arrangement_in(&self, root: &Path) -> crate::arrange::Arrange {
+        self.sources
+            .iter()
+            .find(|s| crate::places::same_place(&s.root, root))
+            .and_then(|s| s.arrange)
+            .unwrap_or(self.arrange)
     }
 
     /// The folder left out that `path` is in, if any.
@@ -321,6 +337,7 @@ mod tests {
             root: PathBuf::from("/card"),
             wants,
             endings_left_out: endings.iter().map(|e| (*e).to_string()).collect(),
+            arrange: None,
         }
     }
 
@@ -395,6 +412,7 @@ mod tests {
             backup: Wants::only(Photo),
             sources: vec![card(None, &["png"])],
             left_out_folders: vec![PathBuf::from("/card/Games")],
+            ..Choices::default()
         };
         assert_eq!(
             choices.offered(&found("/card/Games/a.jpg", Photo)),
@@ -422,6 +440,7 @@ mod tests {
             backup: Wants::only(Video),
             sources: vec![card(None, &["jpg"])],
             left_out_folders: vec![PathBuf::from("/card/Out")],
+            ..Choices::default()
         };
         let all_at_once = |path| FileFacts {
             path: Path::new(path),
@@ -453,6 +472,7 @@ mod tests {
                     root: PathBuf::from("/card/Videos"),
                     wants: Some(Wants::only(Video)),
                     endings_left_out: BTreeSet::new(),
+                    arrange: None,
                 },
             ],
             ..Choices::default()

@@ -584,6 +584,13 @@ pub fn everywhere(
     }
     if went.reached > 0 {
         went.refused = None;
+        // A backup never asked how to arrange its files (started from the
+        // command line or by an agent) went by date: that is said once, at
+        // the end, and it is not asked afterwards.
+        if catalog.arrange()?.is_none() {
+            writeln!(out, "{}", summary::ARRANGED_BY_DATE_UNASKED)?;
+            catalog.set_arrange(keevoro_core::Arrange::ByDate)?;
+        }
     }
     if let Some(made) = previews.as_ref() {
         let (photos, videos) = made.made();
@@ -930,7 +937,7 @@ fn run_until(
         // A note for whoever opens the backup, explaining its folders.
         (
             crate::layout::GUIDE_NAME.to_string(),
-            crate::layout::guide(stored.iter().any(|k| k.item.kind == keevoro_core::MediaKind::Other)).into_bytes(),
+            crate::layout::guide(&guide_facts(catalog, &stored)?).into_bytes(),
             "text/plain; charset=utf-8",
         ),
     ];
@@ -1195,6 +1202,32 @@ fn item_for(k: &Kept<'_>, renditions: Vec<Rendition>) -> ItemInput {
 /// The same collections the Discover screen shows become the albums:
 /// the user's named folders, then moments for everything unfiled, then
 /// each folder of other files.
+/// What the guide says of what is at this destination.
+fn guide_facts(catalog: &Catalog, stored: &[&Kept<'_>]) -> Result<crate::layout::GuideFacts> {
+    let mut kept_folders_from: Vec<String> = Vec::new();
+    for k in stored {
+        if let (true, Some(top)) = (k.item.folder.kept, k.item.folder.album.first()) {
+            let top = keevoro_core::safe_name(top);
+            if !kept_folders_from.contains(&top) {
+                kept_folders_from.push(top);
+            }
+        }
+    }
+    let by_date = |path: &str| {
+        [keevoro_core::layout::BY_DATE, keevoro_core::layout::UNDATED]
+            .iter()
+            .any(|folder| path.starts_with(&format!("{}/{folder}/", keevoro_core::layout::ORIGINALS)))
+    };
+    Ok(crate::layout::GuideFacts {
+        other_files: stored.iter().any(|k| k.item.kind == keevoro_core::MediaKind::Other),
+        // A file kept by folder that was placed by date before the change
+        // is in the backup by date, so it counts as that.
+        by_date: stored.iter().any(|k| by_date(&k.path)),
+        kept_folders_from,
+        changed_on: catalog.arrange_changed_at()?.and_then(crate::layout::day_in_words),
+    })
+}
+
 fn albums_for(stored: &[&Kept<'_>]) -> Vec<AlbumInput> {
     let inputs: Vec<CollectionInput> = stored
         .iter()
@@ -1203,6 +1236,7 @@ fn albums_for(stored: &[&Kept<'_>]) -> Vec<AlbumInput> {
             date: k.item.date.filter(|d| d.source != DateSource::Modified).map(|d| d.date),
             kind: k.item.kind,
             bytes: k.item.bytes,
+            kept: k.item.folder.kept,
         })
         .collect();
     group_into_collections(&inputs)
@@ -1487,7 +1521,14 @@ mod tests {
         assert!(!gallery.contains(".pdf"), "the old gallery shows photos only");
 
         let guide = std::fs::read_to_string(to.join(crate::layout::GUIDE_NAME)).unwrap();
-        assert_eq!(guide, crate::layout::guide(true));
+        assert_eq!(
+            guide,
+            crate::layout::guide(&crate::layout::GuideFacts {
+                other_files: true,
+                by_date: true,
+                ..crate::layout::GuideFacts::default()
+            })
+        );
         // Every copy was proved, and the sources are exactly as they were.
         let after: Vec<_> = [&mum, &dad].iter().map(|s| everything_in(s)).collect();
         assert_eq!(after, sources_before);
@@ -1499,7 +1540,13 @@ mod tests {
         let to = dir.path().join("usb");
         send(&catalog, &home, &to);
         let guide = std::fs::read_to_string(to.join(crate::layout::GUIDE_NAME)).unwrap();
-        assert_eq!(guide, crate::layout::guide(false));
+        assert_eq!(
+            guide,
+            crate::layout::guide(&crate::layout::GuideFacts {
+                by_date: true,
+                ..crate::layout::GuideFacts::default()
+            })
+        );
         for entry in std::fs::read_dir(&to).unwrap() {
             let entry = entry.unwrap();
             let name = entry.file_name().to_string_lossy().to_string();

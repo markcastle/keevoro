@@ -24,6 +24,8 @@ import { backend } from './backend'
 import { scrollerOf } from './scroller'
 import type {
   Acceleration,
+  Arrange,
+  ArrangeView,
   Destination,
   Survey,
   SurveyProgress,
@@ -73,6 +75,7 @@ import { OpenSourceLicences } from './licences'
 import { LeaveOutButton, LeftOutByYou, LeftOutSaid, leftOutByYou } from './leaveOut'
 import { VirtualTiles } from './tiles'
 import { BackupWants, SourceWants } from './wants'
+import { ArrangeQuestion, BackupArrange, KeptFoldersSection, SourceArrange, arrangedLine, keptSaid } from './arrange'
 import { OtherFilesScreen, OtherFilesSection } from './otherFiles'
 import { ThereNow, WhatWasFound } from './whatIsThere'
 import { ManageBackups } from './manageBackups'
@@ -224,6 +227,23 @@ export function App() {
     }
   }, [refresh, report])
 
+  // How the backup arranges what it sends, and whether the person has been
+  // asked: asked for once something is found, and not again once it is.
+  // Kept with the backup it is for, so another backup opened starts afresh.
+  const [arrangedFor, setArrangedFor] = useState<{ backup: string; view: ArrangeView } | null>(null)
+  const backupId = state?.backup?.id
+  const arranged = arrangedFor && arrangedFor.backup === backupId ? arrangedFor.view : null
+  const setArranged = useCallback(
+    (view: ArrangeView) => backupId && setArrangedFor({ backup: backupId, view }),
+    [backupId],
+  )
+  const somethingFound = (found?.collections.length ?? 0) > 0
+  useEffect(() => {
+    if (!api || !backupId || !somethingFound || arranged?.asked) return
+    api.backupArrange().then(setArranged).catch(report)
+    // Asked again as more is found, until it has been answered.
+  }, [api, backupId, somethingFound, found?.sources.length, arranged?.asked, setArranged, report])
+
   if (!api || !state) return <div className="blank" />
 
   // Opening a backup (a new one, or another one) shows what it holds.
@@ -285,6 +305,10 @@ export function App() {
   }
   // A step can be opened once the one before it has something to show.
   const open: Record<Step, boolean> = { find: true, choose: anythingFound, send: anythingFound }
+  // The first time, moving on from finding asks how to arrange the backup,
+  // as part of finding: the side bar stays on Find, and Back goes there.
+  const question = !!arranged && !arranged.asked && anythingFound && step !== 'find' && !overlay
+  const shownStep: Step = question ? 'find' : step
 
   return (
     <div className="app">
@@ -301,10 +325,10 @@ export function App() {
         />
         <ol className="steps" aria-label="Steps">
           {STEPS.map((s, i) => (
-            <li key={s.id} className={step === s.id ? 'now' : done[s.id] ? 'done' : ''}>
-              <button onClick={() => go(s.id)} disabled={!open[s.id]} aria-current={step === s.id ? 'step' : undefined}>
+            <li key={s.id} className={shownStep === s.id ? 'now' : done[s.id] ? 'done' : ''}>
+              <button onClick={() => go(s.id)} disabled={!open[s.id]} aria-current={shownStep === s.id ? 'step' : undefined}>
                 <span className="num" aria-hidden>
-                  {done[s.id] && step !== s.id ? '✓' : i + 1}
+                  {done[s.id] && shownStep !== s.id ? '✓' : i + 1}
                 </span>
                 <span>
                   {s.title}
@@ -456,6 +480,7 @@ export function App() {
               setState(s)
               void refresh(api)
             }}
+            onArranged={setArranged}
             onSend={() => {
               setOverlay(null)
               setStep('send')
@@ -497,6 +522,17 @@ export function App() {
             }}
             onProblem={report}
           />
+        ) : question && arranged ? (
+          <ArrangeQuestion
+            view={arranged}
+            choose={(arrange) => api.setBackupArrange(arrange)}
+            onBack={() => go('find')}
+            onChosen={(view) => {
+              setArranged(view)
+              void refresh(api)
+            }}
+            onProblem={report}
+          />
         ) : step === 'find' ? (
           <FindScreen
             api={api}
@@ -504,6 +540,7 @@ export function App() {
             scan={scan}
             justFound={justFound}
             checking={check !== null}
+            arrange={arranged?.arrange ?? 'byDate'}
             onProblem={report}
             onStarted={() => setJustFound(null)}
             onChanged={() => {
@@ -570,6 +607,8 @@ export function App() {
             onProblem={report}
             onSendingTo={setSendingTo}
             onSent={() => void refresh(api)}
+            arrange={arranged?.arrange}
+            onSettings={() => show('settings')}
             next={
               <Next
                 back={() => go('choose')}
@@ -743,6 +782,8 @@ function FindScreen(props: {
   onProblem: (error: unknown) => void
   onStarted: () => void
   onChanged: () => void
+  /** How the backup arranges what it sends, which a source follows unless it has its own way. */
+  arrange: Arrange
   next: ReactNode
 }) {
   const { api, found, scan, justFound, onProblem } = props
@@ -1279,6 +1320,11 @@ function FindScreen(props: {
                   </span>
                 )}
                 {s.onlineOnlySaid && <p className="online-only small">{s.onlineOnlySaid}</p>}
+                {s.keptAs && (
+                  <p className="kept-as small">
+                    Kept in its own folders, starting with “{s.keptAs}”.{s.sharedSaid && ` ${s.sharedSaid}`}
+                  </p>
+                )}
                 <LeftOutByYou
                   api={api}
                   folders={s.leftOut ?? []}
@@ -1287,7 +1333,13 @@ function FindScreen(props: {
                   onProblem={onProblem}
                 />
                 {typesOf === s.id && removing !== s.id && (
-                  <FileTypes api={api} source={s} onChanged={props.onChanged} onProblem={onProblem} />
+                  <FileTypes
+                    api={api}
+                    source={s}
+                    backupArrange={props.arrange}
+                    onChanged={props.onChanged}
+                    onProblem={onProblem}
+                  />
                 )}
                 {removing === s.id && (
                   <p className="quiet small explain">
@@ -1347,7 +1399,13 @@ function PlaceCard(props: { place: Place; added: boolean; arrived?: boolean; onC
  * a switch. It stays folded away, so adding a source is still one click
  * for everyone else.
  */
-function FileTypes(props: { api: Backend; source: Source; onChanged: () => void; onProblem: (error: unknown) => void }) {
+function FileTypes(props: {
+  api: Backend
+  source: Source
+  backupArrange: Arrange
+  onChanged: () => void
+  onProblem: (error: unknown) => void
+}) {
   const { api, source, onProblem } = props
   const [kinds, setKinds] = useState<FileType[] | null>(null)
   useEffect(() => {
@@ -1357,6 +1415,14 @@ function FileTypes(props: { api: Backend; source: Source; onChanged: () => void;
   if (!kinds) return null
   return (
     <div className="types explain">
+      <SourceArrange
+        name={source.name}
+        backup={props.backupArrange}
+        load={() => api.sourceArrange(source.id)}
+        choose={(arrange) => api.setSourceArrange(source.id, arrange)}
+        onChanged={props.onChanged}
+        onProblem={onProblem}
+      />
       <SourceWants
         name={source.name}
         load={() => api.sourceWants(source.id)}
@@ -1797,6 +1863,8 @@ function SettingsScreen(props: {
   update: Update | null
   onUpdate: (update: Update | null) => void
   onLibrary: (state: AppState) => void
+  /** Called once how the backup is arranged has changed. */
+  onArranged: (view: ArrangeView) => void
   /** Called after a reset, with the app as it is when first installed. */
   onReset: (state: AppState) => void
   onSend: () => void
@@ -1850,6 +1918,17 @@ function SettingsScreen(props: {
           {state.library && <FolderLink api={api} path={state.library} onProblem={onProblem} />}. Your photos themselves
           are not copied there.
         </p>
+        <h4 className="arrange-heading">How files are arranged in the backup</h4>
+        <BackupArrange
+          load={() => api.backupArrange()}
+          choose={(arrange) => api.setBackupArrange(arrange)}
+          onChanged={(view) => {
+            props.onArranged(view)
+            props.onLibrary(state)
+          }}
+          onProblem={onProblem}
+        />
+        <p className="quiet small">A source can have its own way, under File types beside it on the first step.</p>
         <details className="advanced">
           <summary>Advanced</summary>
           <BackupWants
@@ -2420,9 +2499,21 @@ function ChooseScreen(props: {
   next: ReactNode
 }) {
   const { found } = props
-  // Folders of other files are listed apart, by folder, under the collections.
-  const [hero, ...rest] = (found?.collections ?? []).filter((c) => !c.byFolder)
+  // Folders of other files are listed apart, by folder, under the
+  // collections, and so are folders kept as they are, under their source.
+  const [hero, ...rest] = (found?.collections ?? []).filter((c) => !c.byFolder && !c.keptFolders)
   const folders = (found?.collections ?? []).filter((c) => c.byFolder)
+  const kept = (found?.collections ?? []).filter((c) => c.keptFolders)
+  const card = (c: Collection) => (
+    <article className={c.kept ? 'card' : 'card skipped'} key={c.key}>
+      <button className="open" onClick={() => props.onOpen(c)} aria-label={`Open ${c.title}`}>
+        <FoundPicture key={c.cover.id} api={props.api} photo={c.cover} />
+      </button>
+      <h4>{c.title}</h4>
+      <p>{c.summary}</p>
+      <KeepButton collection={c} onKeep={props.onKeep} small />
+    </article>
+  )
 
   return (
     <section className="discover">
@@ -2432,9 +2523,10 @@ function ChooseScreen(props: {
           Keevoro has sorted what it found into collections: by folder name where your folders have names, and by
           month where they don’t. So one source often makes several. Everything is kept unless you say otherwise;
           click a collection to look inside and choose photo by photo.
+          {keptSaid(kept) && ` ${keptSaid(kept)}`}
         </p>
       </header>
-      {found && (hero || folders.length > 0) && (
+      {found && (hero || folders.length > 0 || kept.length > 0) && (
         <Tally found={found} onDuplicates={props.onDuplicates} onSetAside={props.onSetAside} />
       )}
 
@@ -2465,20 +2557,9 @@ function ChooseScreen(props: {
         </article>
       )}
 
-      {rest.length > 0 && (
-        <div className="grid">
-          {rest.map((c) => (
-            <article className={c.kept ? 'card' : 'card skipped'} key={c.key}>
-              <button className="open" onClick={() => props.onOpen(c)} aria-label={`Open ${c.title}`}>
-                <FoundPicture key={c.cover.id} api={props.api} photo={c.cover} />
-              </button>
-              <h4>{c.title}</h4>
-              <p>{c.summary}</p>
-              <KeepButton collection={c} onKeep={props.onKeep} small />
-            </article>
-          ))}
-        </div>
-      )}
+      {rest.length > 0 && <div className="grid">{rest.map(card)}</div>}
+
+      <KeptFoldersSection folders={kept} card={card} />
 
       <OtherFilesSection
         folders={folders}
@@ -2565,6 +2646,9 @@ function SendScreen(props: {
   onProblem: (error: unknown) => void
   onSendingTo: (where: string | null) => void
   onSent: () => void
+  /** How the backup is arranged, once known, said above Back up now. */
+  arrange?: Arrange
+  onSettings: () => void
   next: ReactNode
 }) {
   return (
@@ -2577,6 +2661,14 @@ function SendScreen(props: {
         </p>
       </header>
       {props.found && <Tally found={props.found} onDuplicates={props.onDuplicates} />}
+      {props.found && props.arrange && (
+        <p className="quiet small arranged">
+          {arrangedLine(props.arrange, props.found.sources)}{' '}
+          <button className="link" onClick={props.onSettings}>
+            Change
+          </button>
+        </p>
+      )}
       <SendPanel
         api={props.api}
         destinations={props.found?.destinations ?? []}

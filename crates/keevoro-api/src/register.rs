@@ -153,6 +153,9 @@ register! {
     SourcesWants = "sources.wants",
         "What one source is for: its backup's choice of photos, videos and other files, or its own",
         changes: OnlyWhenAsked, job: false, command_line: true, agents: Agents::Yes, implemented: true;
+    SourcesArrange = "sources.arrange",
+        "How one source's files are arranged: as its backup does, by date, or keeping its folders",
+        changes: OnlyWhenAsked, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     SourcesFileTypes = "sources.file_types",
         "The kinds of file on a source, and which are included",
         changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
@@ -227,6 +230,9 @@ register! {
         changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     BackupWants = "backup.wants",
         "What a backup is for: photos, videos, other files, or some of them, and changing it",
+        changes: OnlyWhenAsked, job: false, command_line: true, agents: Agents::Yes, implemented: true;
+    BackupArrange = "backup.arrange",
+        "How a backup arranges what it sends: by date, or keeping the folders as they are, and changing it",
         changes: OnlyWhenAsked, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     BackupPreviews = "backup.previews",
         "Whether previews are made, and switching that on or off",
@@ -373,6 +379,7 @@ impl Op {
             Changes::OnlyWhenAsked => match self {
                 Op::BackupPreviews => given("wanted"),
                 Op::BackupWants | Op::SourcesWants => given("wants"),
+                Op::BackupArrange | Op::SourcesArrange => given("arrange"),
                 Op::KeevoroSettings => given("ownCodecs"),
                 // Asked only what it would clear, it clears nothing.
                 Op::DestinationsTidy | Op::BackupsForget => {
@@ -428,6 +435,8 @@ impl Op {
             Op::AgentsAccess => schema::<Agents>(),
             Op::BackupHistory => schema::<HistoryRequest>(),
             Op::BackupWants => schema::<crate::wants::BackupWantsRequest>(),
+            Op::BackupArrange => schema::<crate::arrange::BackupArrangeRequest>(),
+            Op::SourcesArrange => schema::<crate::arrange::SourceArrangeRequest>(),
             Op::SourcesWants => schema::<crate::wants::SourceWantsRequest>(),
             Op::DestinationsTidy => schema::<crate::keevoro::TidyRequest>(),
             Op::FileKindsAdd => schema::<AddFileKindRequest>(),
@@ -545,6 +554,14 @@ impl Op {
                  photos, videos and other files. Give wants (backup, or a list of one or more of photos, videos and \
                  others) to change it. It counts at once on what was found, with no new search. Leaving a kind out \
                  only means they are not offered or backed up from now on; nothing already backed up is touched.",
+            ),
+            Op::SourcesArrange => (
+                "source_arrange",
+                "Says how one source's photos and videos, by the id list_sources gives, are arranged where they are \
+                 sent: as its backup does, byDate, or folders (the same folders and names as on the source). Give \
+                 arrange (backup, byDate or folders) to change it. Two sources whose folders have the same name share \
+                 one folder in the backup, and the answer says so. Nothing already backed up is moved. It only \
+                 changes where files go from now on.",
             ),
             Op::SourcesFileTypes => (
                 "list_file_types",
@@ -669,6 +686,13 @@ impl Op {
                  on the list (offersOthers). Give wants (a list of one or more of photos, videos and others) to \
                  change it. It counts at once on what was found, with no new search, and a \
                  source can have its own choice (see source_wants). Nothing already backed up is touched.",
+            ),
+            Op::BackupArrange => (
+                "backup_arrange",
+                "Says how a backup arranges photos and videos where it sends them: byDate (a folder for each year \
+                 and month, keeping folders with real names) or folders (the same folders and names as on the \
+                 source, starting with the source's own folder). Give arrange to change it. Nothing already backed \
+                 up is moved. It only changes where files go from now on.",
             ),
             Op::BackupPreviews => (
                 "set_previews",
@@ -797,7 +821,7 @@ mod tests {
 
     #[test]
     fn the_register_has_every_operation_in_the_plan() {
-        assert_eq!(Op::ALL.len(), 59);
+        assert_eq!(Op::ALL.len(), 61);
         // Each entry is the one for its own operation.
         for op in Op::ALL {
             assert_eq!(op.entry().op, *op);
@@ -933,6 +957,7 @@ mod tests {
         "look_again",
         "forget_source",
         "source_wants",
+        "source_arrange",
         "list_file_types",
         "include_file_type",
         "leave_out_folder",
@@ -954,6 +979,7 @@ mod tests {
         "backup_history",
         "last_summary",
         "backup_wants",
+        "backup_arrange",
         "set_previews",
         "job_status",
         "pause_jobs",

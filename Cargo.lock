@@ -2975,6 +2975,7 @@ dependencies = [
 name = "keevoro-core"
 version = "0.40.0"
 dependencies = [
+ "blake3",
  "regex",
  "serde",
  "serde_json",

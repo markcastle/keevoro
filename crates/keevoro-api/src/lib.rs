@@ -28,6 +28,7 @@
 
 pub mod activity;
 pub mod agents;
+pub mod arrange;
 pub mod backup;
 pub mod backups;
 pub mod destinations;
@@ -306,6 +307,9 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
             if let Some(wants) = wants {
                 keevoro.set_backup_wants(&Backup::open(&started.home)?, wants)?;
             }
+            if let Some(word) = r.arrange {
+                keevoro.set_arrangement(&Backup::open(&started.home)?, word.arrange())?;
+            }
             answer(started)
         }
         Op::BackupsRename => {
@@ -463,6 +467,22 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
             match r.wants {
                 Some(words) => answer(keevoro.set_backup_wants(&backup, wants::wants_of(&words)?)?),
                 None => answer(backup.wants(keevoro.lists_other_files())?),
+            }
+        }
+        Op::BackupArrange => {
+            let r: arrange::BackupArrangeRequest = read(request)?;
+            let backup = open()?;
+            match r.arrange {
+                Some(word) => answer(keevoro.set_arrangement(&backup, word.arrange())?),
+                None => answer(backup.arrangement()?),
+            }
+        }
+        Op::SourcesArrange => {
+            let r: arrange::SourceArrangeRequest = read(request)?;
+            let backup = open()?;
+            match r.arrange {
+                Some(word) => answer(keevoro.set_source_arrangement(&backup, r.source, word.own())?),
+                None => answer(backup.source_arrangement(r.source)?),
             }
         }
         Op::SourcesWants => {

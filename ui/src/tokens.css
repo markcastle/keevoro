@@ -42,9 +42,6 @@
   --primary-hover: #0b5254;
   --on-primary: #fffcf7;
   --pine: #275a50;
-  /* How a step stands, as traffic lights in Keevoro's own palette: done,
-     under way, to come, and gone wrong. Never the only sign; each has its
-     own shape as well. */
   --status-done: #2f8a57;
   --status-doing: #e07b12;
   --status-waiting: #b9b3a6;
@@ -62,6 +59,14 @@
   --danger: #b42318;
   --danger-soft: #fcebe7;
   --focus-ring: #b85c0f;
+  --map-photo: #f3d2b0;
+  --map-photo-edge: #a65a1c;
+  --map-video: #a8cfc4;
+  --map-video-edge: #2f6b5e;
+  --map-carried: #d6d4ee;
+  --map-carried-edge: #55598f;
+  --map-other: #efebe4;
+  --map-other-edge: #6b7873;
   --shadow-sm: 0 1px 2px rgba(4,60,62,0.08);
   --shadow-md: 0 2px 4px rgba(4,60,62,0.06), 0 8px 20px rgba(4,60,62,0.08);
   --shadow-lg: 0 4px 8px rgba(4,60,62,0.06), 0 20px 40px rgba(4,60,62,0.12);
@@ -112,6 +117,14 @@
   --danger: #f0907f;
   --danger-soft: #3f2522;
   --focus-ring: #f5953a;
+  --map-photo: #5e4630;
+  --map-photo-edge: #e3a873;
+  --map-video: #2e6158;
+  --map-video-edge: #9ad0c2;
+  --map-carried: #43466c;
+  --map-carried-edge: #b4b7e6;
+  --map-other: #1a3331;
+  --map-other-edge: #7e9a94;
   --shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
   --shadow-md: 0 2px 4px rgba(0,0,0,0.4), 0 8px 20px rgba(0,0,0,0.35);
   --shadow-lg: 0 4px 8px rgba(0,0,0,0.45), 0 20px 40px rgba(0,0,0,0.5);
@@ -150,6 +163,14 @@
     --danger: #f0907f;
     --danger-soft: #3f2522;
     --focus-ring: #f5953a;
+    --map-photo: #5e4630;
+    --map-photo-edge: #e3a873;
+    --map-video: #2e6158;
+    --map-video-edge: #9ad0c2;
+    --map-carried: #43466c;
+    --map-carried-edge: #b4b7e6;
+    --map-other: #1a3331;
+    --map-other-edge: #7e9a94;
     --shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
     --shadow-md: 0 2px 4px rgba(0,0,0,0.4), 0 8px 20px rgba(0,0,0,0.35);
     --shadow-lg: 0 4px 8px rgba(0,0,0,0.45), 0 20px 40px rgba(0,0,0,0.5);

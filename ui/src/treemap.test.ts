@@ -2,7 +2,7 @@
 
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { everyBox, hit, layout, squarify } from './treemap.ts'
+import { everyBox, gatherShare, gathered, hit, layout, squarify, GATHER_LEAST, GATHER_MOST } from './treemap.ts'
 import type { Laid, Rect } from './treemap.ts'
 
 type Item = { name: string; size: number; children?: Item[] }
@@ -136,4 +136,64 @@ test('eight thousand boxes are laid out quickly', () => {
   const took = performance.now() - started
   assert.ok(everyBox(laid).length > 1_000)
   assert.ok(took < 200, `took ${took} ms`)
+})
+
+// Gathering small folders into one box, "Smaller folders".
+type G = Item & { together?: Item[] }
+const gathering = {
+  ...read,
+  gatherable: (i: G) => i.children !== undefined,
+  gather: (small: G[]): G => ({ name: 'Smaller folders', size: small.reduce((n, s) => n + s.size, 0), together: small }),
+}
+
+test('the share below which folders are gathered falls as the room grows, between 2% and 10%', () => {
+  assert.equal(gatherShare(96 * 40 * 1000), GATHER_LEAST)
+  assert.equal(gatherShare(96 * 40 * 5), GATHER_MOST)
+  assert.ok(gatherShare(96 * 40 * 25) > gatherShare(96 * 40 * 40))
+  assert.ok(Math.abs(gatherShare(96 * 40 * 25) - 0.04) < 1e-9)
+})
+
+test('small folders are gathered into one, with nothing lost or counted twice, and files never', () => {
+  const smalls = Array.from({ length: 30 }, (_, i) => folder(`Album ${i}`, [file('a', 10 + i)]))
+  const top = folder('Pictures', [folder('Camera', [file('b', 20_000)]), file('big.mov', 5_000), file('tiny.txt', 1), ...smalls])
+  const out = gathered(top, top.children!, gathering, 0.02) as G[]
+  assert.deepEqual(
+    out.map((o) => o.name),
+    ['Camera', 'big.mov', 'tiny.txt', 'Smaller folders'],
+  )
+  const together = out[3]
+  assert.equal(together.together!.length, 30)
+  assert.equal(together.size, smalls.reduce((n, s) => n + s.size, 0))
+  assert.equal(
+    out.reduce((n, o) => n + o.size, 0),
+    top.size,
+    'the sizes add up to the folder, nothing lost or counted twice',
+  )
+  assert.equal(gathered(top, top.children!, gathering, 0.02).length, 4, 'the same every time')
+})
+
+test('a single small folder is never gathered, and nothing is without a way to gather', () => {
+  const top = folder('Pictures', [folder('Camera', [file('b', 20_000)]), folder('Lone', [file('c', 5)])])
+  assert.equal(gathered(top, top.children!, gathering, 0.1).length, 2)
+  assert.equal(gathered(top, top.children!, read, 0.1).length, 2)
+})
+
+test('eight thousand boxes are laid out quickly with gathering on', () => {
+  const many = folder(
+    'many',
+    // A few big folders and many small ones, as on a real drive.
+    Array.from({ length: 80 }, (_, i) =>
+      folder(
+        `f${i}`,
+        spread(100).map((s, j) => (j % 3 === 0 ? folder(`${i}-${j}`, [file('x', s * (i < 8 ? 40 : 1))]) : file(`${i}-${j}`, s * (i < 8 ? 40 : 1)))),
+      ),
+    ),
+  )
+  const started = performance.now()
+  const laid = layout(many, { x: 0, y: 0, w: 1200, h: 800 }, gathering, 2)
+  const took = performance.now() - started
+  // Fewer boxes than without gathering, which is the point; still many.
+  assert.ok(everyBox(laid).length > 300, `${everyBox(laid).length} boxes`)
+  assert.ok(took < 200, `took ${took} ms`)
+  assert.ok(everyBox(laid).some((b) => (b.item as G).together), 'some were gathered')
 })

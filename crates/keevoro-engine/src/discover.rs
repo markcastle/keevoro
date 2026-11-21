@@ -46,6 +46,22 @@ pub struct SourceView {
     /// as a person would write them, each with Put back beside it.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub left_out: Vec<String>,
+    /// Its own way of arranging its photos and videos, when it has one;
+    /// left out when it follows the backup.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub arrange: Option<keevoro_core::Arrange>,
+    /// The folder its files are kept in at the top of the backup, when it
+    /// keeps its folders as they are.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kept_as: Option<String>,
+    /// Other sources whose folders go into that same folder, as a person
+    /// would write them.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub shares_folder_with: Vec<String>,
+    /// The same in words: "In the backup, its folder Photos is shared with
+    /// E:\Photos."
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shared_said: Option<String>,
 }
 
 fn is_zero(n: &u64) -> bool {
@@ -119,6 +135,10 @@ pub struct CollectionView {
     /// it came from rather than shown as photos.
     #[serde(skip_serializing_if = "is_false")]
     pub by_folder: bool,
+    /// A folder of photos and videos from a source that keeps its folders
+    /// as they are: shown as it will be in the backup, in folder order.
+    #[serde(skip_serializing_if = "is_false")]
+    pub kept_folders: bool,
     /// The room its files take, for a folder of other files.
     #[serde(skip_serializing_if = "is_zero")]
     pub bytes: u64,
@@ -193,9 +213,13 @@ fn keys_of(collections: &[keevoro_core::collections::Collection]) -> Vec<String>
     collections
         .iter()
         .map(|c| {
-            // A folder of other files is never taken for an album of the
-            // same name.
-            let first = c.by_folder.then_some(keevoro_core::OTHER_FILES);
+            // A folder of other files, or one kept as it is, is never taken
+            // for an album of the same name.
+            let first = if c.by_folder {
+                Some(keevoro_core::OTHER_FILES)
+            } else {
+                c.kept_folders.then_some(KEPT_AS_THEY_ARE)
+            };
             let plain = first
                 .into_iter()
                 .chain(c.parents.iter().map(String::as_str))
@@ -212,6 +236,9 @@ fn keys_of(collections: &[keevoro_core::collections::Collection]) -> Vec<String>
         })
         .collect()
 }
+
+/// What the key of a folder kept as it is starts with.
+pub const KEPT_AS_THEY_ARE: &str = "Kept as they are";
 
 /// The collection with this key, if it is still there.
 fn with_key<'a>(
@@ -322,6 +349,37 @@ pub fn safe_by_folder(catalog: &Catalog) -> Result<std::collections::HashMap<std
     Ok(by_folder)
 }
 
+/// Where each source's files go at the top of the backup when it keeps its
+/// folders as they are, which other sources share that folder (as a person
+/// would write them), and that in words. Nothing is read but the record.
+pub fn kept_as(
+    sources: &[keevoro_catalog::Source],
+    choices: &keevoro_core::Choices,
+) -> Vec<(Option<String>, Vec<String>, Option<String>)> {
+    let arranged: Vec<keevoro_core::arrange::SourceArranged<'_>> = sources
+        .iter()
+        .map(|s| keevoro_core::arrange::SourceArranged {
+            root: &s.root,
+            name: &s.name,
+            arrange: choices.arrangement_in(&s.root),
+        })
+        .collect();
+    let sharing = keevoro_core::arrange::sharing_a_folder(&arranged);
+    arranged
+        .iter()
+        .zip(&sharing)
+        .map(|(s, with)| {
+            let top = (s.arrange == keevoro_core::Arrange::Folders)
+                .then(|| keevoro_core::arrange::top_folder(s.root, s.name));
+            let with: Vec<String> = with.iter().map(|&j| friendly_path(arranged[j].root)).collect();
+            let said = top
+                .as_deref()
+                .and_then(|top| keevoro_core::arrange::shared_words(top, &with));
+            (top, with, said)
+        })
+        .collect()
+}
+
 /// Builds the Discover view from everything the backup remembers.
 pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
     let reports = catalog.load_reports()?;
@@ -383,6 +441,7 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
             videos: c.videos,
             others: c.others,
             by_folder: c.by_folder,
+            kept_folders: c.kept_folders,
             bytes: if c.by_folder {
                 members.iter().map(|i| i.bytes).sum()
             } else {
@@ -396,10 +455,22 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
     }
 
     let left_out = catalog.left_out_folders()?;
-    let sources = catalog
-        .sources()?
-        .into_iter()
-        .map(|s| SourceView {
+    let found = catalog.sources()?;
+    let choices = catalog.choices()?;
+    let kept_as = kept_as(&found, &choices);
+    let sources = found
+        .iter()
+        .cloned()
+        .zip(kept_as)
+        .map(|(s, (kept_as, shares_folder_with, shared_said))| SourceView {
+            arrange: choices
+                .sources
+                .iter()
+                .find(|c| keevoro_core::places::same_place(&c.root, &s.root))
+                .and_then(|c| c.arrange),
+            kept_as,
+            shares_folder_with,
+            shared_said,
             left_out: left_out
                 .iter()
                 .filter(|f| keevoro_core::places::within(f, &s.root) || keevoro_core::places::within(&s.root, f))
@@ -666,6 +737,7 @@ pub(crate) mod tests {
             videos: 0,
             others: 0,
             by_folder: false,
+            kept_folders: false,
             cover,
             members: vec![cover],
         };

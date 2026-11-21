@@ -193,6 +193,26 @@ try {
   await shot('3-found')
   await page.getByRole('button', { name: 'See what was found' }).click()
 
+  // --- The first time, moving on asks how to arrange the backup: one
+  // question, the suggestion already chosen and why, as part of finding.
+  await page.getByRole('heading', { name: 'How should we arrange them in the backup?', level: 1 }).waitFor()
+  assert.match(await currentStep(), /Find your photos/, 'the question is part of finding')
+  const arrangeChoices = page.getByRole('radiogroup', { name: 'How should we arrange them in the backup?' })
+  assert.equal(await arrangeChoices.getByRole('radio').count(), 2)
+  assert.equal(await page.getByRole('radio', { name: /^Arrange by date/ }).isChecked(), true, 'the suggestion is chosen to begin with')
+  assert.match(await text('.arrange-choice.on'), /Suggested/)
+  assert.equal(await text('.arrange-why'), 'Suggested because the photos in KINGSTON (E:) look like they came straight from a camera.')
+  assert.match(await text('.arrange-question'), /starting with “KINGSTON”/)
+  assert.match(await text('.arrange-question'), /You can change this later, and for each source, in Settings\. It only changes where files go from then on\./)
+  await shot('3d-how-to-arrange')
+  await fitsNarrow('the question how to arrange')
+  // Back goes to finding; moving on asks again until it is answered.
+  await page.getByRole('button', { name: '‹ Back' }).click()
+  await page.locator('.arrange-question').waitFor({ state: 'detached' })
+  await page.getByRole('button', { name: 'See what was found' }).click()
+  await page.getByRole('heading', { name: 'How should we arrange them in the backup?', level: 1 }).waitFor()
+  await page.locator('.arrange-question').getByRole('button', { name: 'Next' }).click()
+
   // --- Step 2 shows collections, all kept, with one switch each.
   await page.getByRole('heading', { name: 'Which of these should we keep?', level: 1 }).waitFor()
   assert.match(await text('.status'), /sorted what it found into collections.*one source often makes several/s, 'why there is more than one')
@@ -1346,6 +1366,10 @@ try {
   assert.equal(await map.getAttribute('data-selected'), 'C:\\Users\\Mark\\Pictures\\Texture packs', 'a box chosen on the map')
   assert.equal(await page.locator('.space-list tr[aria-selected="true"] .name > :first-child').innerText(), 'Texture packs', 'is chosen in the list')
   await page.locator('.space .chosen').getByRole('button', { name: 'Leave out Texture packs' }).waitFor()
+  // Drawing every box of the map is quick: said, and held to a ceiling.
+  const drawnMs = Number(await map.getAttribute('data-drawn-ms'))
+  console.log(`The map of Pictures drew its boxes in ${drawnMs} ms.`)
+  assert.ok(drawnMs < 200, `the map took ${drawnMs} ms to draw`)
   await shot('9t-space-map')
   await page.emulateMedia({ colorScheme: 'dark' })
   await shot('9t2-space-map-dark')
@@ -1500,7 +1524,89 @@ try {
   await page.getByRole('heading', { name: 'Finding what is in Family hard drive…' }).waitFor()
   await page.getByRole('grid', { name: /^What is in / }).waitFor({ timeout: 15000 })
   assert.ok(await page.getByRole('heading', { name: 'Where the space goes on Family hard drive', level: 1 }).isVisible())
+  // The source is a family drive that is nearly all photos, as the first
+  // outside tester's was: calm tints, not a wall of orange.
   await shot('9s5-space-of-a-source')
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await shot('9s5b-space-of-a-source-dark')
+  await page.emulateMedia({ colorScheme: 'light' })
+  // As people with each kind of colour blindness see it: the kinds stay
+  // apart by their edges and patterns.
+  const cdp = await page.context().newCDPSession(page)
+  for (const type of ['protanopia', 'deuteranopia', 'tritanopia']) {
+    await cdp.send('Emulation.setEmulatedVisionDeficiency', { type })
+    await shot(`9s5c-space-of-a-source-${type}`)
+  }
+  await cdp.send('Emulation.setEmulatedVisionDeficiency', { type: 'none' })
+  await cdp.detach()
+
+  // Above the map, a ring of what takes the room, with the figures in words;
+  // each picks its kind, fading the boxes without it.
+  const ringList = page.getByRole('list', { name: 'What takes the room in Family hard drive' })
+  assert.deepEqual(await ringList.locator('li').allInnerTexts(), ['Photos 55.3 GB · 80%', 'Videos 12.6 GB · 18%', 'Everything else 1.1 GB · 2%'])
+  assert.equal(await page.locator('.summary-ring svg').getAttribute('aria-hidden'), 'true', 'the ring is a picture; the list says it')
+  await ringList.getByRole('button', { name: 'Photos' }).click()
+  await page.waitForFunction(() => document.querySelector('.map-canvas')?.dataset.picked === 'photo')
+  assert.equal(await ringList.getByRole('button', { name: 'Photos' }).getAttribute('aria-pressed'), 'true')
+  assert.equal(await page.getByRole('tab', { name: 'By kind of file' }).getAttribute('aria-selected'), 'true', 'as By kind of file does')
+  assert.ok(Number(await page.locator('.map-canvas').getAttribute('data-faded')) > 0, 'boxes without photos fade')
+  await shot('9v-space-summary')
+  await ringList.getByRole('button', { name: 'Photos' }).click()
+  await page.waitForFunction(() => document.querySelector('.map-canvas')?.dataset.picked === '')
+  await page.getByRole('tab', { name: 'By folder' }).click()
+  await fitsNarrow('Where the space goes, with the ring above the map')
+
+  // The list alone, chosen and remembered on this computer.
+  const viewSwitch = page.getByRole('group', { name: 'Show as' })
+  assert.equal(await viewSwitch.getByRole('button', { name: 'Map' }).getAttribute('aria-pressed'), 'true', 'the map, until another is chosen')
+  await viewSwitch.getByRole('button', { name: 'List' }).click()
+  await page.locator('.map-canvas').waitFor({ state: 'detached' })
+  assert.ok((await page.locator('.space-list .share-bar').first().boundingBox()).width >= 190, 'wide share bars to compare')
+  await shot('9v2-space-list-view')
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await shot('9v2b-space-list-view-dark')
+  await page.emulateMedia({ colorScheme: 'light' })
+  await fitsNarrow('Where the space goes, as a list')
+  await page.reload()
+  await page.locator('.steps button').nth(0).click()
+  await page.getByRole('button', { name: 'Where the space goes on Family hard drive' }).click()
+  await page.getByRole('grid', { name: /^What is in / }).waitFor({ timeout: 15000 })
+  assert.equal(await page.getByRole('group', { name: 'Show as' }).getByRole('button', { name: 'List' }).getAttribute('aria-pressed'), 'true', 'remembered')
+  assert.equal(await page.locator('.map-canvas').count(), 0)
+  await page.getByRole('group', { name: 'Show as' }).getByRole('button', { name: 'Map' }).click()
+  await page.locator('.map-canvas').waitFor()
+
+  // Small folders are gathered into one box and row, "Smaller folders",
+  // saying why, opening in the list in place, and on the map with a click.
+  await page.locator('.space-list tbody tr', { hasText: 'Pictures' }).getByRole('button', { name: 'Pictures' }).click()
+  await page.getByRole('grid', { name: 'What is in Pictures, the biggest first' }).waitFor()
+  const smallerRow = page.locator('.space-list tbody tr', { hasText: 'Smaller folders' })
+  assert.match(
+    await smallerRow.innerText(),
+    /Smaller folders: 30 folders, [\d.]+ GB, each under \d+% of Pictures\. Put together so the map stays readable\./,
+  )
+  const disclosure = smallerRow.getByRole('button', { name: /Smaller folders/ })
+  assert.equal(await disclosure.getAttribute('aria-expanded'), 'false')
+  await disclosure.click()
+  assert.equal(await page.locator('.space-list tbody tr.within').count(), 30, 'the folders it stands for, indented beneath it')
+  await disclosure.click()
+  assert.equal(await page.locator('.space-list tbody tr.within').count(), 0)
+  const spaceMap = page.locator('.map-canvas')
+  await page.waitForFunction(() => document.querySelector('.map-canvas')?.dataset.gatheredAt)
+  const [gx, gy] = (await spaceMap.getAttribute('data-gathered-at')).split(',').map(Number)
+  await spaceMap.scrollIntoViewIfNeeded()
+  const mapAt = await spaceMap.boundingBox()
+  await page.mouse.move(mapAt.x + gx, mapAt.y + gy)
+  await page.locator('.map-tip:not([hidden])').waitFor()
+  assert.match(await text('.map-tip'), /^Smaller folders: 30 folders, .* Click to open them\.$/)
+  await page.mouse.click(mapAt.x + gx, mapAt.y + gy)
+  await page.getByRole('grid', { name: 'What is in Smaller folders, the biggest first' }).waitFor()
+  assert.equal(await page.getByLabel('Where you are').locator('[aria-current="page"]').innerText(), 'Smaller folders')
+  assert.equal(await page.locator('.space-list tbody tr').count(), 30)
+  await shot('9v3-space-smaller-folders')
+  await fitsNarrow('Where the space goes, the smaller folders opened')
+  await page.getByRole('button', { name: '‹ Back' }).first().click()
+  await page.getByRole('grid', { name: 'What is in Pictures, the biggest first' }).waitFor()
   // A map out of date is mapped again as it opens: by itself on a disk of
   // this computer, and after asking across a network.
   await page.goto(`${base}/?old=disk&slow`)
@@ -1577,6 +1683,80 @@ try {
   const button = await plain.getByRole('button', { name: 'Choose where they go' }).boundingBox()
   assert.ok(button && button.x + button.width <= 400, `the button stays inside the window (${JSON.stringify(button)})`)
   await plain.close()
+
+  // --- Keep my folders as they are: the first outside tester's folder of
+  // family scans, sorted by family, in a new backup not asked yet.
+  await page.goto(`${base}/?demo=scans&fast`)
+  await page.getByRole('heading', { name: 'How should we arrange them in the backup?', level: 1 }).waitFor()
+  assert.equal(await page.getByRole('radio', { name: /^Keep my folders as they are/ }).isChecked(), true, 'the suggestion is chosen')
+  assert.equal(await text('.arrange-why'), 'Suggested because the photos in Family Scans look like scans.')
+  await page.getByText('You can choose differently for each source later.').waitFor()
+  assert.match(await text('.arrange-question'), /starting with “Family hard drive” and “Family Scans”/)
+  await shot('3e-how-to-arrange-scans')
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await shot('3e2-how-to-arrange-scans-dark')
+  await page.emulateMedia({ colorScheme: 'light' })
+  await fitsNarrow('the question how to arrange, with a suggestion to keep the folders')
+  // Choosing with the keyboard works as for any radio group.
+  await page.getByRole('radio', { name: /^Arrange by date/ }).focus()
+  await page.keyboard.press('ArrowDown')
+  assert.equal(await page.getByRole('radio', { name: /^Keep my folders as they are/ }).isChecked(), true)
+  await page.locator('.arrange-question').getByRole('button', { name: 'Next' }).click()
+
+  // Choose shows the scans in their folders, as they will be in the backup.
+  await page.getByRole('heading', { name: 'Which of these should we keep?', level: 1 }).waitFor()
+  assert.match(await text('.discover .status'), /Files from Family Scans are shown in their folders, as they will be kept\.$/)
+  const keptSection = page.getByRole('region', { name: 'From Family Scans, kept in your folders' })
+  assert.deepEqual(await keptSection.locator('.card h4').allInnerTexts(), ['Family Scans', 'Jones', 'Smith'], 'one card per folder, in folder order')
+  assert.match(await keptSection.innerText(), /Shown as they will be in the backup: the same folders, the same names\./)
+  assert.equal(await page.locator('.hero h2').innerText().then((t) => ['Family Scans', 'Jones', 'Smith'].includes(t)), false, 'not the hero')
+  await page.waitForFunction(() => [...document.images].every((i) => i.complete && i.naturalWidth > 0))
+  await keptSection.scrollIntoViewIfNeeded()
+  await shot('4b-choose-kept-folders')
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await shot('4b2-choose-kept-folders-dark')
+  await page.emulateMedia({ colorScheme: 'light' })
+  await fitsNarrow('the folders kept as they are on Choose')
+  // Asked once: moving on from finding again goes straight to choosing.
+  await page.locator('.steps button').first().click()
+  await page.getByRole('button', { name: 'See what was found' }).click()
+  await page.getByRole('heading', { name: 'Which of these should we keep?', level: 1 }).waitFor()
+  assert.equal(await page.locator('.arrange-question').count(), 0, 'not asked again')
+
+  // Settings has the same choice for the whole backup, and says what a
+  // change means for what is already safe.
+  await page.getByRole('button', { name: 'Settings' }).click()
+  await page.getByText('How files are arranged in the backup', { exact: true }).waitFor()
+  const settingsArrange = page.getByRole('radiogroup', { name: 'How files are arranged in the backup' })
+  assert.equal(await settingsArrange.getByRole('radio', { name: /^Keep my folders as they are/ }).isChecked(), true)
+  assert.match(await text('.backup-arrange'), /Changing this only changes where files go from now on\. Files already backed up stay where they are\./)
+  await settingsArrange.getByRole('radio', { name: /^Arrange by date/ }).check()
+  await page.locator('.backup-arrange').getByRole('status').getByText('From now on, new files are arranged by date.').waitFor()
+  await shot('9p-settings-arranged')
+  await page.getByRole('button', { name: '‹ Back' }).click()
+
+  // One source can keep its folders while the backup goes by date, from
+  // the suggestion beside it, and its card says so.
+  await page.locator('.steps button').first().click()
+  await page.getByRole('button', { name: 'File types on Family Scans' }).click()
+  const scansSelect = page.getByLabel('Arrange files from Family Scans')
+  assert.equal(await scansSelect.inputValue(), 'backup')
+  assert.deepEqual(await scansSelect.locator('option').allInnerTexts(), ['Same as the backup (by date)', 'By date', 'Keep my folders as they are'])
+  assert.match(await text('.source-arrange .suggestion'), /^Suggestion: keep its folders as they are\. These look like scans\./)
+  await page.locator('.source-arrange').scrollIntoViewIfNeeded()
+  await shot('3f-source-arrange')
+  await page.locator('.source-arrange').getByRole('button', { name: 'Keep its folders' }).click()
+  await page.locator('.source-arrange').getByRole('status').getByText(/^Files from Family Scans keep their folders as they are\. From now on/).waitFor()
+  assert.equal(await scansSelect.inputValue(), 'folders')
+  await page.getByText('Kept in its own folders, starting with “Family Scans”.').waitFor()
+  await fitsNarrow('a source keeping its folders')
+
+  // Above Back up now, one quiet line says how it is arranged, with Change.
+  await page.locator('.steps button').nth(2).click()
+  await page.getByRole('heading', { name: 'Where should they go?', level: 1 }).waitFor()
+  assert.equal(await text('.arranged'), 'Arranged by date, except Family Scans, which keeps its folders. Change')
+  await page.locator('.arranged').getByRole('button', { name: 'Change' }).click()
+  await page.getByRole('heading', { name: 'Settings', level: 1 }).waitFor()
 
   // --- An existing library opens on the step that still needs doing, in dark mode too.
   await page.emulateMedia({ colorScheme: 'dark' })

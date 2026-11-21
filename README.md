@@ -160,12 +160,15 @@ What is in this backup.txt   a plain note explaining the folders below
 originals/                   your photos and videos, untouched
   Holidays/Cornwall/...        one folder per collection
   By date/2008/2008-08/...     anything that did not belong to one
+  Family Scans/Smith/...       a source you chose to keep in its own folders
   Other files/Mum/Documents/.. other files you asked for, in their own folders
 renditions/                  smaller versions made for looking at
   thumb/ display/              small and screen-sized photos
   poster/ video/               a still of each video; playable copies of old ones
 index/                       the list of what is here, for a gallery to read
 ```
+
+The first time you set up a backup, Keevoro asks how to arrange it: **Arrange by date** (a folder for each year and month, keeping folders you have named) or **Keep my folders as they are** (the same folders and names as on your sources, starting with the source's own folder, which suits scans and folders you have already sorted). You can change it later, and for each source; it only changes where files go from then on, and nothing already backed up is ever moved.
 
 A **rendition** is a version of a photo or video made for looking at, not for keeping. Everything outside `originals` can be made again from it, so it is safe to delete if you need the room. To get your photos back, copy the `originals` folder. That is all.
 

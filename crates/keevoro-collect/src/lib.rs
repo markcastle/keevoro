@@ -23,7 +23,7 @@ pub use videos::{
 };
 
 use keevoro_catalog::{Catalog, CatalogError};
-use keevoro_core::{library_folder, numbered_name, safe_name};
+use keevoro_core::{fit_place, library_folder, numbered_name, safe_name};
 use keevoro_scan::FoundItem;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -48,13 +48,42 @@ pub(crate) fn in_library(library: &Path, relative: &str) -> PathBuf {
     relative.split('/').fold(library.to_path_buf(), |p, s| p.join(s))
 }
 
-/// The folders and name a file belongs under, from its album and date.
+/// The folders and name a file belongs under, from its album and date,
+/// kept within what every destination can hold.
 fn place_for(item: &FoundItem) -> (Vec<String>, String) {
     let name = item
         .path
         .file_name()
         .map_or_else(|| "unnamed".to_string(), |n| safe_name(&n.to_string_lossy()));
-    (library_folder(item.kind, &item.folder.album, item.date.as_ref()), name)
+    fit_place(library_folder(item.kind, &item.folder.album, item.date.as_ref()), name)
+}
+
+/// Folders already spelt one way, found once per folder rather than once
+/// per file: by the folder in lower case (A to Z only, as the catalog
+/// compares), its spelling.
+type Spellings = std::collections::HashMap<String, String>;
+
+/// `folders` joined with `/`, each folder spelt as it already is among
+/// the places agreed, so `originals/SMITH` after `originals/Smith` goes
+/// into `Smith`, as Windows and a Mac would put it.
+fn spelt_as_before(catalog: &Catalog, spellings: &mut Spellings, folders: &[String]) -> Result<String, CatalogError> {
+    let mut spelt = String::new();
+    for folder in folders {
+        if !spelt.is_empty() {
+            spelt.push('/');
+        }
+        spelt.push_str(folder);
+        let lower = spelt.to_ascii_lowercase();
+        spelt = match spellings.get(&lower) {
+            Some(known) => known.clone(),
+            None => {
+                let known = catalog.folder_spelled(&spelt)?.unwrap_or(spelt);
+                spellings.insert(lower, known.clone());
+                known
+            }
+        };
+    }
+    Ok(spelt)
 }
 
 /// Agrees a place for each of `items` without copying anything: the files
@@ -84,6 +113,7 @@ fn agree_each(
     on_progress: &mut dyn FnMut(usize, usize),
 ) -> Result<usize, CatalogError> {
     let mut placed = 0;
+    let mut spellings = Spellings::new();
     for (done, item) in items.iter().enumerate() {
         if done % 250 == 0 {
             on_progress(done, items.len());
@@ -96,9 +126,10 @@ fn agree_each(
             continue;
         }
         let (folders, name) = place_for(item);
-        let folder = folders.join("/");
+        let folder = spelt_as_before(catalog, &mut spellings, &folders)?;
         // Two different files with the same name in the same folder: the
-        // second becomes "IMG_1234 (2).jpg", as it would on a disk.
+        // second becomes "IMG_1234 (2).jpg", as it would on a disk. Case
+        // does not tell names apart, as on Windows and a Mac.
         let mut place = format!("{folder}/{name}");
         let mut n = 2;
         while catalog.place_taken(&place)? {

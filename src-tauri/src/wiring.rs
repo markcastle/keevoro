@@ -416,6 +416,27 @@ fn the_screens_commands_start_the_apis_jobs_and_their_events_reach_the_window() 
     let discover = invoke(&window, "discover", json!({})).unwrap();
     assert_eq!(discover["photos"], 1, "{discover}");
 
+    // How it is arranged, asked once something is found, by the names and
+    // shapes the screens use.
+    let arranged = invoke(&window, "backup_arrange", json!({})).unwrap();
+    fits(&arranged, "ArrangeView");
+    assert_eq!(arranged["asked"], false, "a new backup is asked");
+    let chosen = invoke(&window, "set_backup_arrange", json!({ "arrange": "folders" })).unwrap();
+    fits(&chosen, "ArrangeView");
+    assert_eq!(
+        (chosen["arrange"].as_str(), chosen["asked"].as_bool()),
+        (Some("folders"), Some(true))
+    );
+    let id = discover["sources"][0]["id"].as_i64().unwrap();
+    let source = invoke(&window, "set_source_arrange", json!({ "id": id, "arrange": "byDate" })).unwrap();
+    fits(&source, "SourceArrangeView");
+    fits(
+        &invoke(&window, "source_arrange", json!({ "id": id })).unwrap(),
+        "SourceArrangeView",
+    );
+    invoke(&window, "set_source_arrange", json!({ "id": id, "arrange": "backup" })).unwrap();
+    invoke(&window, "set_backup_arrange", json!({ "arrange": "byDate" })).unwrap();
+
     // A folder to back up to.
     let request = json!({ "request": { "kind": "folder", "place": usb.display().to_string() } });
     let added = invoke(&window, "connect_destination", request).unwrap();

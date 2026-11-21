@@ -6,7 +6,9 @@
 // spot, so nothing is downloaded and no real photos are in the repository.
 //
 // Add ?demo=new to the address to start as a first-time user with no
-// backup, or ?demo=empty for a backup with nothing found yet.
+// backup, or ?demo=empty for a backup with nothing found yet, or
+// ?demo=scans for a new backup with a folder of family scans in it, as our
+// first outside tester had, not yet asked how to arrange it.
 
 import { demoMap } from './demoMap'
 import type {
@@ -36,6 +38,9 @@ import type {
   BackupStage,
   FileView,
   FolderView,
+  Arrange,
+  ArrangeView,
+  SourceArrangeView,
 } from './backend'
 import { count, size } from './format'
 import { PictureQueue, fileKey } from './pictureQueue'
@@ -418,6 +423,66 @@ export function demoBackend(): Backend {
     const joined = named.length === 0 ? 'other files' : named.length === 1 ? named[0] : `${named.slice(0, -1).join(', ')} and ${named[named.length - 1]}`
     return everything(wants) ? joined : `${joined} only`
   }
+  // How the backup arranges what it sends; null until someone chooses,
+  // which a backup that existed before the choice never needs to.
+  let arrange: Arrange | null = mode === 'new' || mode === 'scans' ? null : 'byDate'
+  const sourceArranges = new Map<number, Arrange>()
+  // The tester's folder of scans: 240 scanned that one day, in folders by family.
+  const SCANS_ID = 7
+  const scansRoot = 'D:\\Pictures\\Scans\\Family Scans'
+  const scansByDate = [collection('14 March 2021', '', 240, 0)]
+  const scansKept = [
+    collection('Family Scans', '', 34, 0),
+    collection('Jones', '', 86, 0, ['Family Scans']),
+    collection('Smith', '', 120, 0, ['Family Scans']),
+  ].map((c) => ({ ...c, key: `Kept as they are / ${c.key}`, keptFolders: true }))
+  const scanKeys = new Set([...scansByDate, ...scansKept].map((c) => c.key))
+  const arrangementOf = (id: number): Arrange => sourceArranges.get(id) ?? arrange ?? 'byDate'
+  // The scans' collections follow how their source is arranged.
+  const arrangeScans = () => {
+    for (let i = collections.length - 1; i >= 0; i--) if (scanKeys.has(collections[i].key)) collections.splice(i, 1)
+    if (!sources.some((s) => s.id === SCANS_ID)) return
+    collections.push(...(arrangementOf(SCANS_ID) === 'folders' ? scansKept : scansByDate))
+  }
+  const topOf = (s: { name: string; root: string }) =>
+    /^[A-Za-z]:\\?$/.test(s.root) ? s.name.replace(/ \([A-Za-z]:\)$/, '') : (s.root.split('\\').filter(Boolean).pop() ?? s.name)
+  const suggestionNow = (): ArrangeView['suggestion'] => {
+    const scans = sources.find((s) => s.id === SCANS_ID)
+    if (scans) return { arrange: 'folders', said: `Suggested because the photos in ${scans.name} look like scans.` }
+    const card = sources.find((s) => s.name.startsWith('KINGSTON'))
+    if (card) return { arrange: 'byDate', said: `Suggested because the photos in ${card.name} look like they came straight from a camera.` }
+    return undefined
+  }
+  const arrangeView = (said?: string): ArrangeView => {
+    const suggestion = suggestionNow()
+    return {
+      arrange: arrange ?? 'byDate',
+      asked: arrange !== null || sentSoFar > 0,
+      said: said ?? (arrange === 'folders' ? 'This backup keeps your folders as they are.' : 'This backup is arranged by date.'),
+      ...(suggestion ? { suggestion } : {}),
+      ...(sources.some((s) => s.id === SCANS_ID) && sources.length > 1 ? { sourcesDiffer: true } : {}),
+      topFolders: sources.map(topOf),
+    }
+  }
+  const sourceArrangeView = (id: number, changed = false): SourceArrangeView => {
+    const source = sources.find((s) => s.id === id)
+    if (!source) throw new Error('That source isn\u2019t part of this backup.')
+    const own = sourceArranges.has(id)
+    const now = arrangementOf(id)
+    const said = own
+      ? now === 'folders'
+        ? `Files from ${source.name} keep their folders as they are.`
+        : `Files from ${source.name} are arranged by date.`
+      : `Files from ${source.name} are arranged as the backup is: ${now === 'folders' ? 'keeping your folders as they are' : 'by date'}.`
+    const suggested = id === SCANS_ID && now !== 'folders'
+    return {
+      arrange: now,
+      own,
+      ...(now === 'folders' ? { keptAs: topOf(source) } : {}),
+      said: changed ? `${said} From now on its new files are ${now === 'folders' ? 'kept in its folders' : 'arranged by date'}; files already backed up stay where they are.` : said,
+      ...(suggested ? { suggestion: { arrange: 'folders' as const, said: 'Suggestion: keep its folders as they are. These look like scans.' } } : {}),
+    }
+  }
   const safe = ' Anything already backed up stays backed up; it is just no longer kept in what this backup chooses.'
   const wantsView = (wants: Wants, own?: boolean, changed = false) => ({
     wants,
@@ -726,6 +791,8 @@ export function demoBackend(): Backend {
       sources: sources.map((s) => ({
         ...s,
         leftOut: [...leftOutFolders].filter((f) => within(f, s.root) || within(s.root, f)),
+        ...(sourceArranges.has(s.id) ? { arrange: sourceArranges.get(s.id) } : {}),
+        ...(arrangementOf(s.id) === 'folders' ? { keptAs: topOf(s) } : {}),
       })),
       destinations: dests.map((d) => {
         const all = kept.reduce((n, c) => n + c.photos + c.videos, 0) + keptOthers.length
@@ -851,6 +918,13 @@ export function demoBackend(): Backend {
     } else {
       checkListeners.forEach((l) => l({ done: total, total, finished: true }))
     }
+  }
+
+  // The tester's folder of scans, already looked through, and the backup
+  // not yet asked how to arrange it.
+  if (mode === 'scans') {
+    sources.push({ id: SCANS_ID, name: 'Family Scans', root: scansRoot, items: 240, bytes: 240 * 4.1 * 1024 ** 2 })
+    arrangeScans()
   }
 
   return {
@@ -1283,6 +1357,26 @@ export function demoBackend(): Backend {
           ],
     setAside: async () => junk.map((file) => ({ ...file })),
     // Every source in the stand-in has the same made-up mix of kinds.
+    backupArrange: async () => arrangeView(),
+    async setBackupArrange(to) {
+      const before = arrange ?? 'byDate'
+      arrange = to
+      arrangeScans()
+      const already = collections.reduce((n, c) => n + c.gathered, 0)
+      if (before === to) return arrangeView()
+      const first = to === 'folders' ? 'From now on, new files are kept in your folders.' : 'From now on, new files are arranged by date.'
+      return arrangeView(
+        already === 0 ? first : `${first} The ${already.toLocaleString('en-GB')} files already backed up stay where they are.`,
+      )
+    },
+    sourceArrange: async (id) => sourceArrangeView(id),
+    async setSourceArrange(id, to) {
+      const before = arrangementOf(id)
+      if (to === 'backup') sourceArranges.delete(id)
+      else sourceArranges.set(id, to)
+      arrangeScans()
+      return sourceArrangeView(id, before !== arrangementOf(id))
+    },
     backupWants: async () => wantsView(backupWants),
     setBackupWants: async (wants) => {
       backupWants = wants

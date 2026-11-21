@@ -54,10 +54,77 @@ pub const OTHER_FILES_PART: &str = "Other files you asked Keevoro to carry along
      with the name of the folder or drive they were on. They are exact copies too, but Keevoro made \
      no renditions of them, and the index lists them in albums named after their folders.";
 
+/// What the guide needs to know about what is in the backup.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GuideFacts {
+    /// The backup holds other files, which the guide then says where to
+    /// find.
+    pub other_files: bool,
+    /// The top folders of the sources whose folders are kept as they are,
+    /// that have something in the backup.
+    pub kept_folders_from: Vec<String>,
+    /// Something in the backup is arranged by date (or undated).
+    pub by_date: bool,
+    /// When how the backup is arranged was last changed after something
+    /// had been sent, in words: "21 November 2026".
+    pub changed_on: Option<String>,
+}
+
+impl GuideFacts {
+    /// What is said of how the backup is arranged.
+    fn arranged(&self) -> Vec<String> {
+        let kept = &self.kept_folders_from;
+        let names = and_list(&kept.iter().map(String::as_str).collect::<Vec<_>>());
+        let mut said = vec![match (kept.is_empty(), self.by_date) {
+            (true, _) => "This backup is arranged by date.".to_string(),
+            (false, false) => "This backup keeps your folders as they were.".to_string(),
+            (false, true) => format!("This backup is arranged by date, except files from {names}."),
+        }];
+        if !kept.is_empty() {
+            let quoted = and_list(&kept.iter().map(|k| format!("\"{k}\"")).collect::<Vec<_>>());
+            said.push(format!(
+                "Files from {names} are in the folders they were in, starting with {quoted} {}, exactly as \
+                 they were arranged, and are never sorted by date.",
+                if kept.len() == 1 { "itself" } else { "themselves" }
+            ));
+        }
+        if let Some(on) = &self.changed_on {
+            said.push(format!(
+                "How this backup is arranged was changed on {on}. Files backed up before then stay where they \
+                 were put: Keevoro never moves a file once it is backed up."
+            ));
+        }
+        said
+    }
+}
+
+/// "a", "a and b", "a, b and c".
+fn and_list<S: AsRef<str>>(names: &[S]) -> String {
+    match names {
+        [] => String::new(),
+        [one] => one.as_ref().to_string(),
+        [rest @ .., last] => format!(
+            "{} and {}",
+            rest.iter().map(AsRef::as_ref).collect::<Vec<_>>().join(", "),
+            last.as_ref()
+        ),
+    }
+}
+
+/// A day in words, "21 November 2026", from seconds since 1970.
+pub fn day_in_words(seconds: i64) -> Option<String> {
+    let date = keevoro_core::PartialDate::from_unix_seconds(seconds)?;
+    Some(format!(
+        "{} {} {}",
+        date.day?,
+        keevoro_core::collections::month_name(date.month?),
+        date.year
+    ))
+}
+
 /// The guide as plain text. Lines end the way Windows Notepad expects,
-/// which every other editor also reads. `with_other_files` when the backup
-/// holds other files, which the guide then says where to find.
-pub fn guide(with_other_files: bool) -> String {
+/// which every other editor also reads.
+pub fn guide(facts: &GuideFacts) -> String {
     let mut text = String::from(
         "What is in this backup\r\n\
          ======================\r\n\r\n\
@@ -73,9 +140,15 @@ pub fn guide(with_other_files: bool) -> String {
         text.push_str(&"-".repeat(part.folder.len()));
         text.push_str("\r\n");
         text.push_str(&wrapped(part.what, 76));
-        if with_other_files && part.folder == keevoro_core::layout::ORIGINALS {
-            text.push_str("\r\n");
-            text.push_str(&wrapped(OTHER_FILES_PART, 76));
+        if part.folder == keevoro_core::layout::ORIGINALS {
+            for said in facts.arranged() {
+                text.push_str("\r\n");
+                text.push_str(&wrapped(&said, 76));
+            }
+            if facts.other_files {
+                text.push_str("\r\n");
+                text.push_str(&wrapped(OTHER_FILES_PART, 76));
+            }
         }
     }
     text.push_str(
@@ -117,7 +190,7 @@ mod tests {
 
     #[test]
     fn the_guide_explains_every_part_and_what_a_rendition_is() {
-        let guide = guide(false);
+        let guide = guide(&GuideFacts::default());
         for part in &PARTS {
             assert!(
                 guide.contains(&format!("\r\n{}\r\n", part.folder)),
@@ -126,13 +199,20 @@ mod tests {
             );
         }
         assert!(guide.contains("A rendition is a version of a photo or video made for looking at"));
+        assert!(
+            guide.contains("This backup is arranged by date.\r\n"),
+            "a backup from before the choice gains only this line"
+        );
         assert!(guide.contains("You do not need Keevoro"));
     }
 
     #[test]
     fn the_guide_says_where_other_files_are_only_when_there_are_some() {
-        assert!(!guide(false).contains("Other files"));
-        let with = guide(true);
+        assert!(!guide(&GuideFacts::default()).contains("Other files"));
+        let with = guide(&GuideFacts {
+            other_files: true,
+            ..GuideFacts::default()
+        });
         assert!(with.contains("\"Other files\" inside \"originals\""));
         assert!(with.lines().all(|l| l.len() <= 80));
         assert!(!with.replace("\r\n", "").contains('\n'));
@@ -140,7 +220,12 @@ mod tests {
 
     #[test]
     fn the_guide_reads_in_notepad_and_fits_a_narrow_window() {
-        let guide = guide(false);
+        let guide = guide(&GuideFacts {
+            other_files: true,
+            kept_folders_from: vec!["Family Scans".into(), "A folder with a rather long name indeed".into()],
+            by_date: true,
+            changed_on: Some("21 November 2026".into()),
+        });
         assert!(
             !guide.replace("\r\n", "").contains('\n'),
             "every line ends the Windows way"
@@ -149,5 +234,43 @@ mod tests {
             guide.lines().all(|l| l.len() <= 80),
             "no line is wider than 80 characters"
         );
+    }
+
+    fn one_line(text: &str) -> String {
+        text.split_whitespace().collect::<Vec<_>>().join(" ")
+    }
+
+    #[test]
+    fn the_guide_says_how_the_backup_is_arranged_and_when_that_changed() {
+        let kept = |by_date: bool, changed_on: Option<&str>| {
+            one_line(&guide(&GuideFacts {
+                kept_folders_from: vec!["Family Scans".into()],
+                by_date,
+                changed_on: changed_on.map(str::to_string),
+                ..GuideFacts::default()
+            }))
+        };
+        let only = kept(false, None);
+        assert!(only.contains("This backup keeps your folders as they were."));
+        assert!(only.contains(
+            "Files from Family Scans are in the folders they were in, starting with \"Family Scans\" itself, \
+             exactly as they were arranged, and are never sorted by date."
+        ));
+        assert!(!only.contains("changed on"));
+        let mixed = kept(true, Some("21 November 2026"));
+        assert!(mixed.contains("This backup is arranged by date, except files from Family Scans."));
+        assert!(mixed.contains(
+            "How this backup is arranged was changed on 21 November 2026. Files backed up before then stay where \
+             they were put: Keevoro never moves a file once it is backed up."
+        ));
+        let two = one_line(&guide(&GuideFacts {
+            kept_folders_from: vec!["Scans".into(), "Letters".into()],
+            ..GuideFacts::default()
+        }));
+        assert!(
+            two.contains("starting with \"Scans\" and \"Letters\" themselves"),
+            "{two}"
+        );
+        assert_eq!(day_in_words(1_795_219_200).as_deref(), Some("21 November 2026"));
     }
 }

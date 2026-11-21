@@ -99,19 +99,28 @@ pub fn duplicate_groups(reports: &[ScanReport]) -> Vec<(&FoundItem, Vec<&FoundIt
         .collect()
 }
 
-/// Ranks copies of the same file; lowest is best. A copy filed deeper in
+/// Ranks copies of the same file; lowest is best. A copy from a source that
+/// keeps its folders as they are beats every other. Then a copy filed deeper in
 /// named folders beats a shallower or loose one (`Holidays/Cornwall` says
 /// more than `Old stuff`), then a stronger date clue beats a weaker one. A
 /// copy in a junk folder is the last resort. Ties keep the first found.
-fn how_well_described(item: &FoundItem) -> (bool, std::cmp::Reverse<usize>, bool, Option<DateSource>) {
+fn how_well_described(item: &FoundItem) -> (bool, bool, std::cmp::Reverse<usize>, bool, Option<DateSource>) {
     let source = item.date.map(|d| d.source);
     (
         item.junk.is_some(),
+        // A copy from a source that keeps its folders is the one kept, so a
+        // person who chose to keep their folders finds it in them.
+        !item.folder.kept,
         std::cmp::Reverse(item.folder.album.len()),
         source.is_none(),
         source,
     )
 }
+
+/// Said once by the first backup of a backup nobody was asked how to
+/// arrange.
+pub const ARRANGED_BY_DATE_UNASKED: &str = "Arranged by date. To keep your folders as they are instead, choose so in \
+     Settings or run `keevoro arrange folders`.";
 
 /// The words that mark [`source_unplugged`] among what a backup says.
 pub const UNPLUGGED_PART_WAY: &str = " was unplugged part-way through, so ";
@@ -182,6 +191,7 @@ pub fn summarise_with<'a>(reports: &'a [ScanReport], rescued: &HashSet<String>) 
             date: i.date.filter(|d| d.source != DateSource::Modified).map(|d| d.date),
             kind: i.kind,
             bytes: i.bytes,
+            kept: i.folder.kept,
         })
         .collect();
     let summary = Summary {
@@ -265,6 +275,7 @@ mod tests {
             folder: FolderHints {
                 album: album.iter().map(|s| (*s).to_string()).collect(),
                 date: None,
+                kept: false,
             },
             width: None,
             height: None,

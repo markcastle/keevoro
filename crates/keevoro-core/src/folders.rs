@@ -21,6 +21,11 @@ pub struct FolderHints {
     pub album: Vec<String>,
     /// The most specific date found in any folder name, innermost wins.
     pub date: Option<PartialDate>,
+    /// True when `album` is the file's folders kept exactly as they are,
+    /// because its source keeps them (`crate::arrange`), not what was read
+    /// from them. Never stored: it is worked out each time from the choice.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub kept: bool,
 }
 
 impl FolderHints {

@@ -509,6 +509,43 @@ pub fn set_source_wants(
     shared.keevoro.set_source_wants(&backup, id, wants).map_err(say)
 }
 
+/// How this backup arranges what it sends, whether it was asked, and
+/// what the files found suggest.
+#[tauri::command]
+pub fn backup_arrange(shared: State<'_, Shared>) -> Said<keevoro_api::arrange::ArrangeView> {
+    backup(&shared)?.arrangement().map_err(say)
+}
+
+/// Arranges this backup by date, or keeping the folders as they are.
+#[tauri::command]
+pub fn set_backup_arrange(
+    shared: State<'_, Shared>,
+    arrange: keevoro_api::arrange::ArrangeWord,
+) -> Said<keevoro_api::arrange::ArrangeView> {
+    let backup = backup(&shared)?;
+    shared.keevoro.set_arrangement(&backup, arrange.arrange()).map_err(say)
+}
+
+/// How one source's files are arranged, and what they suggest.
+#[tauri::command]
+pub fn source_arrange(shared: State<'_, Shared>, id: i64) -> Said<keevoro_api::arrange::SourceArrangeView> {
+    backup(&shared)?.source_arrangement(id).map_err(say)
+}
+
+/// Gives one source its own arrangement, or the backup's.
+#[tauri::command]
+pub fn set_source_arrange(
+    shared: State<'_, Shared>,
+    id: i64,
+    arrange: keevoro_api::arrange::SourceArrangeWord,
+) -> Said<keevoro_api::arrange::SourceArrangeView> {
+    let backup = backup(&shared)?;
+    shared
+        .keevoro
+        .set_source_arrangement(&backup, id, arrange.own())
+        .map_err(say)
+}
+
 /// The kinds of file Keevoro looks for, the built-in ones first.
 #[tauri::command]
 pub fn file_kinds(shared: State<'_, Shared>) -> Vec<keevoro_api::FileKind> {
