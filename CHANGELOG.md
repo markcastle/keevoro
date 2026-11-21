@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.39.1] - 2026-11-21
+
 ### Fixed
 
 - **"Photos only" and "Videos only" are back as you set them.** Version 0.39.0 changed how Keevoro writes down what a backup, or a source, is for, and did not carry over a choice made before it, so a backup or source set to photos only or videos only quietly went back to taking everything. Keevoro now reads the old choice and keeps it, for every backup and every source. Nothing already backed up was ever touched.
@@ -643,7 +647,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.39.0...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.39.1...HEAD
+[0.39.1]: https://github.com/markcastle/keevoro/compare/v0.39.0...v0.39.1
 [0.39.0]: https://github.com/markcastle/keevoro/compare/v0.38.0...v0.39.0
 [0.38.0]: https://github.com/markcastle/keevoro/compare/v0.37.1...v0.38.0
 [0.37.1]: https://github.com/markcastle/keevoro/compare/v0.37.0...v0.37.1
