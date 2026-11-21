@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.38.0] - 2026-11-21
+
 ### Added
 
 - **Carry your other files along with your photos.** Keevoro is still for photos and videos, but you can now have it take other files with it: music, documents, project files. In Settings, Advanced, add a kind of file and choose "Other files" (or `keevoro kinds add flac --other`). Any ending can be added this way, even ones Keevoro used to refuse, such as .pdf or .mp3. Keevoro finds them, leaves out exact copies, backs them up and checks every copy exactly like your photos, into an "Other files" folder inside "originals" in the folders they came from, and the note in the backup says so. It never opens them to show a picture or sorts them by date: on "Choose what to keep" they are listed under "Other files" by the folder they came from, each folder kept or left out as a whole, and each opening to a plain list of its files with their size and when they last changed, a tick each, and Show in File Explorer. Counts name them ("238 photos, 11 videos and 40 other files"), "Find where the photos are" can suggest a folder of them, and the map shows them as a kind of their own, with its own pattern in the key. Nothing changes until you add a kind: out of the box Keevoro finds exactly what it always did.
@@ -627,7 +631,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.37.1...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.38.0...HEAD
+[0.38.0]: https://github.com/markcastle/keevoro/compare/v0.37.1...v0.38.0
 [0.37.1]: https://github.com/markcastle/keevoro/compare/v0.37.0...v0.37.1
 [0.37.0]: https://github.com/markcastle/keevoro/compare/v0.36.1...v0.37.0
 [0.36.1]: https://github.com/markcastle/keevoro/compare/v0.36.0...v0.36.1
