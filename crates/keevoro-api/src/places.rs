@@ -53,37 +53,122 @@ pub fn plugged_in() -> Vec<Place> {
 /// Each letter is asked on a thread of its own and given a short while to
 /// answer: a mapped drive whose server is switched off can otherwise hold
 /// the whole list up for many seconds. One that does not answer in time is
-/// simply not offered; "Choose a folder" still reaches it.
+/// not offered this time; "Choose a folder" still reaches it. The first
+/// screen asks for the list each time it is shown and each time the window
+/// is returned to, so the answers are kept for [`KEEP_FOR`], and a letter
+/// still being asked is never asked again until it answers (see
+/// [`Remembered`]): going back and forth never waits again, and never
+/// leaves a pile of threads waiting on a server that has gone.
 #[cfg(windows)]
 fn network_drives() -> Vec<Place> {
-    use std::sync::mpsc;
+    use std::sync::{mpsc, Mutex, PoisonError};
     use std::time::{Duration, Instant};
     const PATIENCE: Duration = Duration::from_millis(1500);
+    static DRIVES: Mutex<Remembered> = Mutex::new(Remembered::new());
+    let lock = || DRIVES.lock().unwrap_or_else(PoisonError::into_inner);
+    let letters = {
+        let mut drives = lock();
+        let now = Instant::now();
+        if !drives.needs_asking(now) {
+            return drives.offered();
+        }
+        let letters = drives.letters_to_ask();
+        drives.asking(&letters, now);
+        letters
+    };
     let (said, heard) = mpsc::channel();
-    for letter in 'A'..='Z' {
+    for &letter in &letters {
         let said = said.clone();
         std::thread::spawn(move || {
             let root = format!("{letter}:\\");
             let path = std::path::Path::new(&root);
             let there = path.is_dir() && keevoro_engine::reach::is_across_a_network(path);
-            let _ = said.send((letter, there));
+            // Kept even if it comes too late for this list, for the next.
+            DRIVES
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .heard(letter, there);
+            let _ = said.send(());
         });
     }
     drop(said);
     let until = Instant::now() + PATIENCE;
-    let mut answers = Vec::new();
-    while let Some(left) = until.checked_duration_since(Instant::now()) {
+    let mut answered = 0;
+    while answered < letters.len() {
+        let Some(left) = until.checked_duration_since(Instant::now()) else {
+            break;
+        };
         match heard.recv_timeout(left) {
-            Ok(answer) => answers.push(answer),
+            Ok(()) => answered += 1,
             Err(_) => break,
         }
     }
-    across_a_network(&answers)
+    lock().offered()
 }
 
 #[cfg(not(windows))]
 fn network_drives() -> Vec<Place> {
     Vec::new()
+}
+
+/// How long the drive letters' answers are kept before they are asked
+/// again. Long enough that going back and forth between screens, or in and
+/// out of the window, never waits; short enough that a drive mapped a
+/// moment ago soon appears.
+pub const KEEP_FOR: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// What the drive letters last said about being network drives, and which
+/// are still being asked. Pure, so its rules are tested everywhere; only
+/// the asking itself is Windows'.
+#[cfg(any(windows, test))]
+#[derive(Debug, Default)]
+pub(crate) struct Remembered {
+    /// Each letter's last answer: true for a network drive.
+    answers: std::collections::BTreeMap<char, bool>,
+    /// When the letters were last asked.
+    asked_at: Option<std::time::Instant>,
+    /// Letters asked that have not answered yet.
+    in_flight: std::collections::BTreeSet<char>,
+}
+
+#[cfg(any(windows, test))]
+impl Remembered {
+    pub(crate) const fn new() -> Self {
+        Self {
+            answers: std::collections::BTreeMap::new(),
+            asked_at: None,
+            in_flight: std::collections::BTreeSet::new(),
+        }
+    }
+
+    /// True when the answers are missing or older than [`KEEP_FOR`].
+    pub(crate) fn needs_asking(&self, now: std::time::Instant) -> bool {
+        self.asked_at
+            .is_none_or(|at| now.saturating_duration_since(at) >= KEEP_FOR)
+    }
+
+    /// Every letter but those still being asked from before.
+    pub(crate) fn letters_to_ask(&self) -> Vec<char> {
+        ('A'..='Z').filter(|l| !self.in_flight.contains(l)).collect()
+    }
+
+    /// `letters` are being asked, as of `now`.
+    pub(crate) fn asking(&mut self, letters: &[char], now: std::time::Instant) {
+        self.in_flight.extend(letters.iter().copied());
+        self.asked_at = Some(now);
+    }
+
+    /// A letter has answered.
+    pub(crate) fn heard(&mut self, letter: char, there: bool) {
+        self.in_flight.remove(&letter);
+        self.answers.insert(letter, there);
+    }
+
+    /// The network drives to offer: those whose last answer said so.
+    pub(crate) fn offered(&self) -> Vec<Place> {
+        let answers: Vec<(char, bool)> = self.answers.iter().map(|(l, t)| (*l, *t)).collect();
+        across_a_network(&answers)
+    }
 }
 
 /// The letters that answered as network drives, as places to offer.
@@ -230,6 +315,49 @@ mod tests {
         assert!(
             across_a_network(&[]).is_empty(),
             "none that answered in time, none offered"
+        );
+    }
+
+    #[test]
+    fn drive_letters_are_asked_once_in_a_while_and_a_slow_one_is_never_asked_twice_at_once() {
+        use std::time::{Duration, Instant};
+        let start = Instant::now();
+        let mut drives = Remembered::new();
+        assert!(drives.needs_asking(start), "never asked");
+        assert!(drives.offered().is_empty());
+
+        let letters = drives.letters_to_ask();
+        assert_eq!(letters.len(), 26);
+        drives.asking(&letters, start);
+        for letter in letters.iter().copied().filter(|l| *l != 'Q') {
+            drives.heard(letter, letter == 'Y');
+        }
+        // Q's server is switched off: it has not answered.
+        let names: Vec<String> = drives.offered().into_iter().map(|p| p.name).collect();
+        assert_eq!(names, ["Network drive (Y:)"]);
+
+        // Shown again soon after, nothing is asked: the answers are kept.
+        assert!(!drives.needs_asking(start + Duration::from_secs(5)));
+        assert!(!drives.needs_asking(start + KEEP_FOR - Duration::from_millis(1)));
+
+        // Later they are asked again, but never Q while it is still asked.
+        let later = start + KEEP_FOR;
+        assert!(drives.needs_asking(later));
+        let again = drives.letters_to_ask();
+        assert_eq!(again.len(), 25);
+        assert!(!again.contains(&'Q'), "no second thread waits on the same server");
+        drives.asking(&again, later);
+        drives.heard('Y', false);
+        drives.heard('Q', true);
+        let names: Vec<String> = drives.offered().into_iter().map(|p| p.name).collect();
+        assert_eq!(
+            names,
+            ["Network drive (Q:)"],
+            "a late answer is kept for the next list; one unmapped since is not offered"
+        );
+        assert!(
+            drives.letters_to_ask().contains(&'Q'),
+            "asked again once it has answered"
         );
     }
 
