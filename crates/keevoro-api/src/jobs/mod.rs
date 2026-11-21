@@ -526,7 +526,7 @@ impl Jobs {
         self.across.get()
     }
 
-    fn by(&self) -> FrontEnd {
+    pub(crate) fn by(&self) -> FrontEnd {
         *lock(&self.by)
     }
 

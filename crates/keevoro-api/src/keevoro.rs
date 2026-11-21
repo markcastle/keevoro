@@ -571,12 +571,20 @@ impl Keevoro {
         Ok(done)
     }
 
-    /// `keevoro.update`: a newer Keevoro with an installer for this kind of
-    /// computer, if there is one. Being offline, or GitHub being
-    /// unreachable, is not worth bothering anyone about: it simply means no
-    /// offer today. Installing is for the app.
+    /// `keevoro.update`: a newer Keevoro that this program could install on
+    /// this kind of computer, if there is one: for the app, a newer release
+    /// with an installer for it; for the command line (and an agent, which
+    /// is served by the command line's program), one with a newer `keevoro`
+    /// for it, which is what `keevoro update` installs. Being offline, or
+    /// GitHub being unreachable, is not worth bothering anyone about: it
+    /// simply means no offer today.
     pub fn update_offer(&self) -> Option<Offer> {
-        offer(&*self.web, env!("CARGO_PKG_VERSION"), std::env::consts::OS)
+        let (os, arch) = (std::env::consts::OS, std::env::consts::ARCH);
+        offer(
+            &*self.web,
+            env!("CARGO_PKG_VERSION"),
+            file_to_update(self.jobs.by(), os, arch),
+        )
     }
 
     /// `agents.access`, read.
@@ -604,14 +612,25 @@ impl Keevoro {
     }
 }
 
-/// Is there a newer Keevoro than `current` with an installer for `os`?
-pub(crate) fn offer(web: &dyn Web, current: &str, os: &str) -> Option<Offer> {
+/// The release file a front end would install on this kind of computer:
+/// the app's installer for the app, the `keevoro` program otherwise. The
+/// app has no installer for Linux yet, so asking with the app's question
+/// there always found nothing newer.
+pub(crate) fn file_to_update(by: FrontEnd, os: &str, arch: &str) -> Option<&'static str> {
+    match by {
+        FrontEnd::App => keevoro_update::installer_for(os),
+        FrontEnd::CommandLine | FrontEnd::Agent => keevoro_update::asset_for(os, arch),
+    }
+}
+
+/// Is there a newer Keevoro than `current` with `file` in its release?
+pub(crate) fn offer(web: &dyn Web, current: &str, file: Option<&str>) -> Option<Offer> {
     let release = match keevoro_update::check(web, current) {
         Ok(Check::Available(release)) => release,
         Ok(Check::UpToDate) | Err(_) => return None,
     };
-    let installer = keevoro_update::installer_for(os)?;
-    release.assets.iter().any(|a| a.name == installer).then_some(Offer {
+    let file = file?;
+    release.assets.iter().any(|a| a.name == file).then_some(Offer {
         version: release.version,
         page: release.page,
     })
@@ -904,27 +923,62 @@ pub(crate) mod tests {
     fn an_update_is_offered_only_when_there_is_a_newer_one_for_this_computer() {
         const NEWER: &str = r#"{"tag_name":"v99.0.0","html_url":"https://github.com/markcastle/keevoro/releases/tag/v99.0.0",
             "assets":[{"name":"Keevoro-windows-x64-setup.exe","url":"u"}]}"#;
+        let app = |os| file_to_update(FrontEnd::App, os, "x86_64");
         assert_eq!(
-            offer(&FakeGitHub(Some(NEWER)), "0.29.2", "windows"),
+            offer(&FakeGitHub(Some(NEWER)), "0.29.2", app("windows")),
             Some(Offer {
                 version: "99.0.0".into(),
                 page: "https://github.com/markcastle/keevoro/releases/tag/v99.0.0".into()
             })
         );
         assert_eq!(
-            offer(&FakeGitHub(Some(NEWER)), "0.29.2", "macos"),
+            offer(&FakeGitHub(Some(NEWER)), "0.29.2", app("macos")),
             None,
             "no installer for a Mac"
         );
-        assert_eq!(offer(&FakeGitHub(Some(NEWER)), "0.29.2", "linux"), None);
-        assert_eq!(offer(&FakeGitHub(Some(NEWER)), "99.0.0", "windows"), None, "up to date");
+        assert_eq!(offer(&FakeGitHub(Some(NEWER)), "0.29.2", app("linux")), None);
         assert_eq!(
-            offer(&FakeGitHub(None), "0.29.2", "windows"),
+            offer(&FakeGitHub(Some(NEWER)), "99.0.0", app("windows")),
+            None,
+            "up to date"
+        );
+        assert_eq!(
+            offer(&FakeGitHub(None), "0.29.2", app("windows")),
             None,
             "offline is no offer"
         );
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(keevoro(dir.path()).update_offer(), None);
+    }
+
+    #[test]
+    fn the_command_line_is_offered_a_newer_command_line_on_linux_too() {
+        const NEWER: &str = r#"{"tag_name":"v99.0.0","html_url":"https://example.org/v99.0.0",
+            "assets":[{"name":"Keevoro-windows-x64-setup.exe","url":"u"},
+                      {"name":"keevoro-windows-x64.exe","url":"u"},
+                      {"name":"keevoro-linux-x64","url":"u"}]}"#;
+        const WINDOWS_ONLY: &str = r#"{"tag_name":"v99.0.0","html_url":"https://example.org/v99.0.0",
+            "assets":[{"name":"keevoro-windows-x64.exe","url":"u"}]}"#;
+        for by in [FrontEnd::CommandLine, FrontEnd::Agent] {
+            let linux = file_to_update(by, "linux", "x86_64");
+            assert_eq!(linux, Some("keevoro-linux-x64"));
+            assert_eq!(
+                offer(&FakeGitHub(Some(NEWER)), "0.37.1", linux).map(|o| o.version),
+                Some("99.0.0".to_string())
+            );
+            assert_eq!(
+                offer(&FakeGitHub(Some(WINDOWS_ONLY)), "0.37.1", linux),
+                None,
+                "a release built for Windows only has nothing for Linux"
+            );
+            let mac = file_to_update(by, "macos", "aarch64");
+            assert_eq!(offer(&FakeGitHub(Some(NEWER)), "0.37.1", mac), None);
+        }
+        assert_eq!(
+            file_to_update(FrontEnd::App, "linux", "x86_64"),
+            None,
+            "no installer yet"
+        );
     }
 
     #[test]
