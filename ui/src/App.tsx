@@ -68,6 +68,7 @@ import { LookInside } from './inside'
 import { SpaceScreen } from './map'
 import { LiveMap } from './liveMap'
 import { ForgetMapsSetting } from './forgetMaps'
+import { OpenSourceLicences } from './licences'
 import { LeaveOutButton, LeftOutByYou, LeftOutSaid, leftOutByYou } from './leaveOut'
 import { VirtualTiles } from './tiles'
 import type { Theme } from './theme'
@@ -1456,7 +1457,9 @@ function ceiling(peak: number, floor: number) {
  */
 function AboutScreen(props: { api: Backend; version: string; onBack: () => void; onProblem: (error: unknown) => void }) {
   const { api, onProblem } = props
+  const [licences, setLicences] = useState(false)
   const open = (page: string) => api.openReleasePage(page).catch(onProblem)
+  if (licences) return <OpenSourceLicences onBack={() => setLicences(false)} />
   return (
     <section className="about">
       <header>
@@ -1554,6 +1557,9 @@ function AboutScreen(props: { api: Backend; version: string; onBack: () => void;
           </button>
           <button className="button small" onClick={() => open(PROJECT)}>
             See the source
+          </button>
+          <button className="button small" onClick={() => setLicences(true)}>
+            Open source licences
           </button>
         </p>
         <p className="quiet small">Version {props.version}</p>

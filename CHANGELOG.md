@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Added
+
+- **Open source licences, under About.** Keevoro is built on the work of hundreds of open source projects. **Open source licences** on the About page names every one shipped in the app, with its version and licence, and you can find one by name.
+
 ### Fixed
 
 - **An AI app can no longer be led out of a folder you allowed by a shortcut changed at just the wrong moment.** Keevoro already judged every folder an AI app named by where it really leads; it now works on that very place, rather than reading the shortcut again afterwards. A destination an AI app adds through a shortcut is listed under where it really is.

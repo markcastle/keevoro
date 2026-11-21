@@ -11,6 +11,8 @@
     "noFallthroughCasesInSwitch": true,
     "skipLibCheck": true,
     "noEmit": true,
+    // The list of open source licences is a JSON file the screens import.
+    "resolveJsonModule": true,
     "types": ["vite/client"]
   },
   "include": ["ui/src"],

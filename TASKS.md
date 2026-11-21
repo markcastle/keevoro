@@ -28,7 +28,7 @@ Small, known, and better closed while the work is fresh.
 - [x] `keevoro status` straight after another program starts a job can say "Nothing is running" for a moment
 - [x] `keevoro update --check` on Linux always says there is nothing newer
 - [x] Remove the unused MP4 conversion code, or bring it back as a proper feature (see "Old video conversion prompt"): removed; git history has it
-- [ ] Third-party licence acknowledgements in the app, now including the MCP library
+- [x] Third-party licence acknowledgements in the app, now including the MCP library
 - [ ] Progress notifications to an agent as a job runs, so it need not ask
 
 ### 3. See inside a source before choosing it
@@ -239,7 +239,7 @@ Done when a non-technical tester gets from a drive to a backup without help.
 - [ ] Cloud storage: fingerprint what is read from the source as it is sent, as a folder backup now does
 - [ ] macOS and Linux: tell a network folder from a disk
 - [x] A backup of the originals alone, with no previews
-- [ ] Third-party licence acknowledgements in the app
+- [x] Third-party licence acknowledgements in the app
 - [ ] Choose how many files go at once (some connections want fewer, fast ones more)
 - [ ] Send the parts of one large file at once, not only several files
 - [ ] Back up two or three small files at once to a folder or network drive

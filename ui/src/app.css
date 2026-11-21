@@ -4139,3 +4139,43 @@ fieldset.wants [role='status'] {
   width: 100%;
   height: 100%;
 }
+
+/* The open source licences, reached from About. */
+.licences .find {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  max-width: 360px;
+  margin-bottom: var(--space-4);
+}
+
+.licences .find input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.licences .licensed {
+  width: 100%;
+  list-style: none;
+  margin: var(--space-2) 0 var(--space-5);
+  padding: 0;
+}
+
+.licences .licensed li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0 var(--space-4);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+
+.licences .licensed .home {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 560px) {
+  .licences .licensed li {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
