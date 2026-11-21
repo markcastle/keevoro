@@ -631,6 +631,14 @@ impl Jobs {
         self.begin_unless(kind, Some(backup), None, true).ok()
     }
 
+    /// Writes what this program's jobs on `job`'s backup are doing for
+    /// other programs at once, if this program holds that backup.
+    fn share_now(self: &Arc<Self>, job: &Job) {
+        if let (Some(across), Some(backup)) = (self.across(), job.backup_id()) {
+            across.share_now(backup, &**self);
+        }
+    }
+
     /// Something about a job has changed that another program would want
     /// to know.
     fn touched(&self, job: &Job) {
@@ -1178,6 +1186,10 @@ pub(crate) fn spawn(
 ) -> Result<()> {
     let ctx = ctx.clone();
     let job = job.clone();
+    // Shared with other programs now, with the first words its starter
+    // gave it, not at the next tick: another program asked what is running
+    // the moment this began would otherwise hear "nothing".
+    ctx.jobs.share_now(&job);
     let ending = Ending::new(&ctx.jobs, &job);
     std::thread::Builder::new()
         .name(format!("keevoro job {}", job.id().0))

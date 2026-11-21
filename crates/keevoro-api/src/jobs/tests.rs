@@ -946,6 +946,28 @@ fn command_line(dir: &Path) -> Keevoro {
 }
 
 #[test]
+fn a_job_another_program_has_just_started_is_seen_at_once() {
+    let _turn = one_at_a_time();
+    let _after = CarryOnAfter;
+    let dir = tempfile::tempdir().unwrap();
+    let app = keevoro(dir.path());
+    let named = app.start_backup("Card photos").unwrap();
+    let card = card_in(dir.path());
+    let command_line = command_line(dir.path());
+
+    app.pause();
+    let job = app.look(&named, &card, None).unwrap();
+    // Asked straight away, not after the other program's next tick.
+    let seen = command_line.jobs(None);
+    assert_eq!(seen.len(), 1, "{seen:?}");
+    assert_eq!(seen[0].handle, job);
+    assert!(seen[0].elsewhere);
+    app.stop(Which::All);
+    app.carry_on();
+    app.wait_for_jobs();
+}
+
+#[test]
 fn a_job_in_another_program_is_seen_refused_followed_waited_for_and_stopped() {
     let _turn = one_at_a_time();
     let _after = CarryOnAfter;

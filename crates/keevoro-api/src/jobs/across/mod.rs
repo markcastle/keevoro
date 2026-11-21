@@ -199,6 +199,10 @@ struct Keeper {
     dirty: AtomicBool,
     ending: Mutex<bool>,
     wake: Condvar,
+    /// Held while a status is worked out and written, so two writes of it
+    /// (the keeper's and [`Across::share_now`]) land in the order they
+    /// were worked out, and an older one never replaces a newer.
+    writing: Mutex<()>,
 }
 
 /// One backup this program holds.
@@ -333,6 +337,7 @@ impl Across {
             dirty: AtomicBool::new(true),
             ending: Mutex::new(false),
             wake: Condvar::new(),
+            writing: Mutex::new(()),
         });
         let spawned = {
             let keeper = keeper.clone();
@@ -521,6 +526,18 @@ impl Across {
         }
     }
 
+    /// Writes the status of `backup` now, rather than at the keeper's next
+    /// tick. A job that has just begun calls it, so another program asking
+    /// straight away what is running finds it, rather than "nothing".
+    pub(crate) fn share_now(&self, backup: &str, work: &dyn Work) {
+        let held = lock_of(&self.held)
+            .get(backup)
+            .map(|held| (held.token.clone(), held.keeper.clone()));
+        if let Some((token, keeper)) = held {
+            write_status(&self.place(backup), &token, &keeper, &*self.clock, work);
+        }
+    }
+
     /// Something on `backup` has changed that is worth writing.
     pub(crate) fn touched(&self, backup: &str) {
         if let Some(held) = lock_of(&self.held).get(backup) {
@@ -648,14 +665,8 @@ fn keep(place: &Place, token: &str, keeper: &Keeper, clock: &dyn Clock, work: &W
             keeper.dirty.store(true, Ordering::SeqCst);
         }
         let due = written.is_none_or(|at| at.elapsed() >= lock::BEAT);
-        if keeper.dirty.swap(false, Ordering::SeqCst) || due {
-            let status = work.status(&place.backup, token, clock.now_ms());
-            if files::write_whole(&place.status_path(), &status.to_bytes()).is_ok() {
-                written = Some(Instant::now());
-            } else {
-                // Not written, so still worth writing at the next tick.
-                keeper.dirty.store(true, Ordering::SeqCst);
-            }
+        if (keeper.dirty.swap(false, Ordering::SeqCst) || due) && write_status(place, token, keeper, clock, &*work) {
+            written = Some(Instant::now());
         }
         if checked.elapsed() >= lock::BEAT {
             checked = Instant::now();
@@ -665,6 +676,18 @@ fn keep(place: &Place, token: &str, keeper: &Keeper, clock: &dyn Clock, work: &W
             }
         }
     }
+}
+
+/// Works out the status and writes it, true if it was written. One that
+/// could not be is still worth writing at the next tick.
+fn write_status(place: &Place, token: &str, keeper: &Keeper, clock: &dyn Clock, work: &dyn Work) -> bool {
+    let _writing = lock_of(&keeper.writing);
+    let status = work.status(&place.backup, token, clock.now_ms());
+    let written = files::write_whole(&place.status_path(), &status.to_bytes()).is_ok();
+    if !written {
+        keeper.dirty.store(true, Ordering::SeqCst);
+    }
+    written
 }
 
 /// True if the lock is still under `token`. A lock briefly missing, while

@@ -25,7 +25,7 @@ Small, known, and better closed while the work is fresh.
 - [x] After an agent looks through a folder, keep the automatic duplicate check to folders that agent may read
 - [ ] Decide what a key given in a request means when a key is also set in the environment (today the environment wins)
 - [ ] Pause and carry on should reach a survey or a duplicate check running alone in another program
-- [ ] `keevoro status` straight after another program starts a job can say "Nothing is running" for a moment
+- [x] `keevoro status` straight after another program starts a job can say "Nothing is running" for a moment
 - [ ] `keevoro update --check` on Linux always says there is nothing newer
 - [ ] Remove the unused MP4 conversion code, or bring it back as a proper feature (see "Old video conversion prompt")
 - [ ] Third-party licence acknowledgements in the app, now including the MCP library
