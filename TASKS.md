@@ -21,7 +21,7 @@ Everything below was built and tested by machine. None of it has been tried by a
 
 Small, known, and better closed while the work is fresh.
 
-- [ ] Close the gap between checking a folder for an agent and opening it: pass the checked path on, so a link swapped in between cannot be followed
+- [x] Close the gap between checking a folder for an agent and opening it: pass the checked path on, so a link swapped in between cannot be followed
 - [ ] After an agent looks through a folder, keep the automatic duplicate check to folders that agent may read
 - [ ] Decide what a key given in a request means when a key is also set in the environment (today the environment wins)
 - [ ] Pause and carry on should reach a survey or a duplicate check running alone in another program

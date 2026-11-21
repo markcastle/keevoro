@@ -6,7 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **An AI app can no longer be led out of a folder you allowed by a shortcut changed at just the wrong moment.** Keevoro already judged every folder an AI app named by where it really leads; it now works on that very place, rather than reading the shortcut again afterwards. A destination an AI app adds through a shortcut is listed under where it really is.
 
 ## [0.37.1] - 2026-11-20
 

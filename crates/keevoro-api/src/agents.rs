@@ -69,12 +69,26 @@ impl AgentAccess {
 
     /// May an agent look in this path?
     pub fn may_look_in(&self, path: &Path) -> bool {
-        is_inside_any(path, &self.look_in)
+        self.real_place_to_look_in(path).is_some()
     }
 
     /// May an agent back up to this path?
     pub fn may_back_up_to(&self, path: &Path) -> bool {
-        is_inside_any(path, &self.back_up_to)
+        self.real_place_to_back_up_to(path).is_some()
+    }
+
+    /// Where `path` really leads, if an agent may look in it: the very
+    /// path that was checked, with no link left in it, to be used in place
+    /// of the one asked for. Using it, rather than the path as asked, means
+    /// a link swapped in after the check cannot be followed.
+    pub fn real_place_to_look_in(&self, path: &Path) -> Option<PathBuf> {
+        inside_any(path, &self.look_in)
+    }
+
+    /// Where `path` really leads, if an agent may back up to it, as
+    /// [`Self::real_place_to_look_in`].
+    pub fn real_place_to_back_up_to(&self, path: &Path) -> Option<PathBuf> {
+        inside_any(path, &self.back_up_to)
     }
 
     /// Applies a request. Every folder named must be a whole path that
@@ -113,15 +127,15 @@ impl AgentAccess {
     }
 }
 
-/// Is `path` inside (or the same as) one of `folders`?
-fn is_inside_any(path: &Path, folders: &[String]) -> bool {
-    let Some(asked) = resolve(path) else {
-        return false;
-    };
+/// Where `path` really leads, if that is inside (or the same as) one of
+/// `folders`.
+fn inside_any(path: &Path, folders: &[String]) -> Option<PathBuf> {
+    let (asked, real) = resolve(path)?;
     folders
         .iter()
         .filter_map(|folder| resolve(Path::new(folder)))
-        .any(|allowed| asked.is_inside(&allowed))
+        .any(|(allowed, _)| asked.is_inside(&allowed))
+        .then_some(real)
 }
 
 /// How the operating system writes paths.
@@ -259,9 +273,10 @@ fn server_and_share(text: &str) -> Option<(String, String)> {
     ))
 }
 
-/// Where a path really leads, in one form. The part that exists is
-/// resolved by the operating system; the rest is added as written.
-fn resolve(path: &Path) -> Option<Spelled> {
+/// Where a path really leads, in one form and as a path. The part that
+/// exists is resolved by the operating system; the rest is added as
+/// written.
+fn resolve(path: &Path) -> Option<(Spelled, PathBuf)> {
     let text = path.to_str()?;
     // Judged as written first: this refuses `..`, relative paths and odd
     // spellings before anything on disk is looked at.
@@ -286,7 +301,8 @@ fn resolve(path: &Path) -> Option<Spelled> {
         }
     };
     let whole = missing.iter().rev().fold(real, |path, part| path.join(part));
-    spelled(whole.to_str()?, Style::NATIVE)
+    let spelled = spelled(whole.to_str()?, Style::NATIVE)?;
+    Some((spelled, whole))
 }
 
 #[cfg(test)]
