@@ -27,6 +27,9 @@ import type {
   ScanEvent,
   SurveyProgress,
   Backup,
+  BackupListing,
+  Removal,
+  RemovedBackup,
   BackupEstimate,
   BackupStage,
   FileView,
@@ -602,6 +605,7 @@ export function demoBackend(): Backend {
   type Kept = { collections: Collection[]; sources: typeof sources; junk: PhotoChoice[]; dests: Place[]; sentSoFar: number }
   let backups: Backup[] = library ? [{ id: 's1', name: 'My photos' }] : []
   let open: string | null = backups[0]?.id ?? null
+  let made = backups.length
   const shelf = new Map<string, Kept>()
   const putAway = () => {
     if (open) shelf.set(open, { collections: [...collections], sources: [...sources], junk: [...junk], dests: [...dests], sentSoFar })
@@ -615,6 +619,44 @@ export function demoBackend(): Backend {
     said()
     sentSoFar = kept.sentSoFar
     open = id
+  }
+  // Backups removed in the last week, with what each held, to put back.
+  const removedRecently: { listed: RemovedBackup; backup: Backup; kept: Kept }[] = []
+  const homeOf = (id: string) => `C:\\Users\\You\\AppData\\Roaming\\com.markcastle.keevoro\\backups\\${id}`
+  const listOf = (things: string[]) =>
+    things.length <= 1 ? (things[0] ?? '') : `${things.slice(0, -1).join(', ')} and ${things[things.length - 1]}`
+  const keptOf = (id: string): Kept => {
+    putAway()
+    return shelf.get(id) ?? { collections: [], sources: [], junk: [], dests: [], sentSoFar: 0 }
+  }
+  const removalOf = (backup: Backup, done: boolean): Removal => {
+    const kept = keptOf(backup.id)
+    const photos = kept.collections.reduce((n, c) => n + c.photos + c.videos, 0)
+    const room = 40 * 1024 * 1024 + photos * 90 * 1024
+    const sourcesNow = kept.sources.map((s) => s.root)
+    const destinationsNow = kept.dests.map((d) => d.name)
+    return {
+      id: backup.id,
+      name: backup.name,
+      removed: done,
+      sources: sourcesNow,
+      destinations: destinationsNow,
+      ownFolder: homeOf(backup.id),
+      ownFolderBytes: room,
+      clearsOwnFolder: true,
+      keysFor: [],
+      ...(done ? { keptUntil: Date.now() / 1000 + 7 * 86_400 } : {}),
+      said: [
+        done
+          ? `Removed “${backup.name}” from Keevoro: its sources, what it found, your choices and its history.`
+          : `Keevoro's record of “${backup.name}” on this computer goes: its sources, what it found, your choices and its history.`,
+        destinationsNow.length === 0
+          ? 'It has not been set to back up anywhere, so there is nothing anywhere else to keep.'
+          : `Everything already backed up to ${listOf(destinationsNow)} stays where it is. Keevoro does not touch it.`,
+        sourcesNow.length === 0 ? 'Nothing on any source is touched.' : `Nothing on its sources (${listOf(sourcesNow)}) is touched.`,
+        `Its previews and working files on this computer (${(room / 1024 / 1024).toFixed(1)} MB) are cleared away. You can put it back from Manage backups for 7 days; after that the room is freed.`,
+      ],
+    }
   }
   const state = (): AppState => ({
     library,
@@ -726,7 +768,9 @@ export function demoBackend(): Backend {
       const wanted = name.trim() || 'My photos'
       let called = wanted
       for (let n = 2; taken(called); n++) called = `${wanted} ${n}`
-      const id = `s${backups.length + 1}`
+      // Never reused, as a real backup's id is not, even once removed.
+      made += 1
+      const id = `s${made}`
       backups = [...backups, { id, name: called }]
       library = `C:\\Users\\You\\AppData\\Keevoro\\backups\\${id}`
       // A new backup starts with nothing found, unless the page asked for a full one.
@@ -739,6 +783,90 @@ export function demoBackend(): Backend {
       putAway()
       takeOut(id)
       return state()
+    },
+    async backupDetails(id) {
+      const backup = backups.find((b) => b.id === id)
+      if (!backup) throw new Error(`There is no backup called "${id}".`)
+      const kept = keptOf(id)
+      const photos = kept.collections.reduce((n, c) => n + c.photos, 0)
+      const videos = kept.collections.reduce((n, c) => n + c.videos, 0)
+      const listed: BackupListing = {
+        id,
+        name: backup.name,
+        home: homeOf(id),
+        open: id === open,
+        found: {
+          sources: kept.sources.length,
+          destinations: kept.dests.length,
+          photos,
+          videos,
+          waiting: 0,
+          waitingBytes: 0,
+          bytes: (photos * 3.2 + videos * 48) * 1024 * 1024,
+          sourcePlaces: kept.sources.map((s) => s.root),
+          destinationNames: kept.dests.map((d) => d.name),
+          ...(kept.sentSoFar > 0 ? { lastRan: Date.now() / 1000 - 3 * 86_400 } : {}),
+        },
+      }
+      return listed
+    },
+    async renameBackup(id, to) {
+      const name = to.trim()
+      if (!name) throw new Error('Give the backup a name.')
+      if (name.length > 60) throw new Error('Keep the name to 60 letters or fewer.')
+      if (backups.some((b) => b.id !== id && b.name.toLowerCase() === name.toLowerCase()))
+        throw new Error(`There is already a backup called "${name}". Choose another name.`)
+      backups = backups.map((b) => (b.id === id ? { ...b, name } : b))
+      return state()
+    },
+    async removeBackup(id, dryRun) {
+      const backup = backups.find((b) => b.id === id)
+      if (!backup) throw new Error(`There is no backup called "${id}".`)
+      const removal = removalOf(backup, !dryRun)
+      if (dryRun) return removal
+      const kept = keptOf(id)
+      const removedAt = Date.now() / 1000
+      const keptUntil = removedAt + 7 * 86_400
+      const day = new Date(keptUntil * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+      removedRecently.push({
+        backup,
+        kept,
+        listed: {
+          id,
+          name: backup.name,
+          removedAt,
+          keptUntil,
+          bytes: removal.ownFolderBytes,
+          said: `Removed just now. It can be put back until ${day}, when its ${(removal.ownFolderBytes / 1024 / 1024).toFixed(1)} MB of previews and working files are cleared away.`,
+        },
+      })
+      shelf.delete(id)
+      backups = backups.filter((b) => b.id !== id)
+      if (open === id) {
+        open = null
+        const next = backups[0]
+        if (next) takeOut(next.id)
+        else library = null
+      }
+      return removal
+    },
+    removedBackups: async () => removedRecently.map((r) => r.listed),
+    async putBackBackup(id) {
+      const at = removedRecently.findIndex((r) => r.listed.id === id)
+      if (at < 0) throw new Error(`There is no removed backup called "${id}" to put back.`)
+      const [back] = removedRecently.splice(at, 1)
+      backups = [...backups, back.backup]
+      shelf.set(id, back.kept)
+      if (!open) {
+        library = homeOf(id)
+        takeOut(id)
+      }
+      return state()
+    },
+    async clearAwayBackup(id) {
+      const at = removedRecently.findIndex((r) => r.listed.id === id)
+      if (at < 0) throw new Error(`There is no removed backup called "${id}" to clear away.`)
+      return removedRecently.splice(at, 1)[0].listed
     },
     openDestination: async () => {},
     openPlace: async () => {},

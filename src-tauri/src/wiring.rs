@@ -238,6 +238,50 @@ fn the_kinds_of_file_looked_for_are_changed_by_the_names_and_shapes_the_screens_
 }
 
 #[test]
+fn backups_are_listed_renamed_removed_and_put_back_by_the_names_and_shapes_the_screens_use() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_app, window, _heard) = the_app(dir.path());
+    invoke(&window, "start_backup", json!({ "name": "My photos" })).unwrap();
+    let state = invoke(&window, "start_backup", json!({ "name": "Test 2" })).unwrap();
+    fits(&state, "AppState");
+    let id = state["backup"]["id"].as_str().unwrap().to_string();
+    let listed = invoke(&window, "backup_details", json!({ "id": id })).unwrap();
+    fits(&listed, "BackupListing");
+    fits(&listed["found"], "BackupCounts");
+    assert_eq!(listed["open"], true);
+
+    let refused = invoke(&window, "rename_backup", json!({ "id": id, "to": "my photos" })).unwrap_err();
+    assert_eq!(
+        refused,
+        "There is already a backup called \"my photos\". Choose another name."
+    );
+    let renamed = invoke(&window, "rename_backup", json!({ "id": id, "to": "Trying it out" })).unwrap();
+    assert_eq!(renamed["backup"]["name"], "Trying it out");
+
+    // Asked first, as `removeBackup(id, true)` sends it.
+    let asked = invoke(&window, "remove_backup", json!({ "id": id, "dryRun": true })).unwrap();
+    fits(&asked, "Removal");
+    assert_eq!(asked["removed"], false);
+    let home = std::path::PathBuf::from(state["library"].as_str().unwrap());
+    assert!(home.is_dir(), "asking changes nothing");
+    let removed = invoke(&window, "remove_backup", json!({ "id": id, "dryRun": false })).unwrap();
+    fits(&removed, "Removal");
+    assert!(!home.exists());
+    let state = invoke(&window, "app_state", json!({})).unwrap();
+    assert_eq!(state["backup"]["name"], "My photos", "the first left is opened");
+
+    let waiting = invoke(&window, "removed_backups", json!({})).unwrap();
+    fits(&waiting[0], "RemovedBackup");
+    let back = invoke(&window, "put_back_backup", json!({ "id": id })).unwrap();
+    assert_eq!(back["backups"].as_array().map(Vec::len), Some(2));
+    assert!(home.is_dir(), "put back where it was");
+    invoke(&window, "remove_backup", json!({ "id": id, "dryRun": false })).unwrap();
+    let cleared = invoke(&window, "clear_away_backup", json!({ "id": id })).unwrap();
+    fits(&cleared, "RemovedBackup");
+    assert_eq!(invoke(&window, "removed_backups", json!({})).unwrap(), json!([]));
+}
+
+#[test]
 fn unfinished_copies_are_said_then_cleared_by_the_names_and_shapes_the_screens_use() {
     let dir = tempfile::tempdir().unwrap();
     let (_app, window, _heard) = the_app(dir.path());

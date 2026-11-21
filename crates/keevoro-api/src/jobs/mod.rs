@@ -737,6 +737,49 @@ impl Jobs {
         self.busy_here() || self.across().is_some_and(|across| !across.others().is_empty())
     }
 
+    /// Why `backup` cannot be changed now, if a search, a backup or a
+    /// check is running on it, here or in another program: the words of
+    /// the refusal, naming what and where.
+    pub(crate) fn working_on(&self, backup: &Named) -> Option<String> {
+        let here = self
+            .running()
+            .into_iter()
+            .find(|job| job.on_backup(&backup.id) && job.kind().slot().is_some());
+        if let Some(job) = here {
+            return Some(across::busy_words(
+                Some(job.kind()),
+                &backup.name,
+                job.handle.started_by,
+            ));
+        }
+        self.across()?
+            .elsewhere(&backup.id)
+            .map(|other| other.refusal(&backup.name))
+    }
+
+    /// Asks these jobs in this program to stop, and waits for them to end,
+    /// for at most `at_most`. True if they all did.
+    pub(crate) fn stop_and_wait(&self, which: Which<'_>, at_most: Duration, log: &Log) -> bool {
+        let asked: Vec<JobId> = self.matching(which).iter().map(|job| job.id()).collect();
+        if asked.is_empty() {
+            return true;
+        }
+        self.stop(which, log);
+        let until = Instant::now() + at_most;
+        let mut registry = lock(&self.registry);
+        while registry.running.iter().any(|job| asked.contains(&job.id())) {
+            let Some(left) = until.checked_duration_since(Instant::now()) else {
+                return false;
+            };
+            registry = self
+                .changed
+                .wait_timeout(registry, left)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+        true
+    }
+
     /// True while another program is working on `backup`.
     pub(crate) fn held_elsewhere(&self, backup: &str) -> bool {
         self.across().is_some_and(|across| across.elsewhere(backup).is_some())

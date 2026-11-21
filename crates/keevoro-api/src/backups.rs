@@ -205,21 +205,19 @@ impl Settings {
     /// Adds a backup called `name`, kept under `backups_dir`. A blank name
     /// becomes "My photos"; a name already in use gets a number, so two
     /// backups can always be told apart. It is opened if nothing else is.
-    fn start(&mut self, name: &str, backups_dir: &Path) -> Named {
+    /// `taken` says whether an id is held by a backup removed and waiting
+    /// to be cleared away, which could still be put back.
+    fn start(&mut self, name: &str, backups_dir: &Path, taken: &dyn Fn(&str) -> bool) -> Named {
         let wanted = match name.trim() {
             "" => "My photos",
             given => given,
         };
-        let mut name = wanted.to_string();
-        let mut n = 2;
-        while self.backups.iter().any(|s| s.name.eq_ignore_ascii_case(&name)) {
-            name = format!("{wanted} {n}");
-            n += 1;
-        }
+        let name = self.free_name(wanted);
         // A folder name that is safe everywhere, and never reused.
         let mut id = 1;
         while self.backups.iter().any(|s| s.id == format!("backup-{id}"))
             || backups_dir.join(format!("backup-{id}")).exists()
+            || taken(&format!("backup-{id}"))
         {
             id += 1;
         }
@@ -232,6 +230,18 @@ impl Settings {
         self.backups.push(started.clone());
         self.fall_back_to_the_first();
         started
+    }
+
+    /// `wanted`, or, when another backup is called that, `wanted 2`, `wanted
+    /// 3` and so on: the first name no backup has, ignoring case.
+    fn free_name(&self, wanted: &str) -> String {
+        let mut name = wanted.to_string();
+        let mut n = 2;
+        while self.backups.iter().any(|s| s.name.eq_ignore_ascii_case(&name)) {
+            name = format!("{wanted} {n}");
+            n += 1;
+        }
+        name
     }
 
     /// The backup with this id or, failing that, this name, ignoring case.
@@ -381,8 +391,14 @@ impl Backups {
     /// once, which proves it can be. It becomes the open one only if no
     /// other is.
     pub fn start(&self, name: &str) -> Result<Named> {
+        let name = match name.trim() {
+            "" => String::new(),
+            given => checked_name(given)?,
+        };
         self.change(|settings| {
-            let started = settings.start(name, &self.data.join("backups"));
+            let started = settings.start(&name, &self.data.join("backups"), &|id| {
+                crate::removing::holds(&self.data, id)
+            });
             // Opening its record proves the folder can be made and written to.
             Backup::open(&started.home)?;
             Ok(started)
@@ -403,10 +419,7 @@ impl Backups {
     /// `backups.rename`: gives a backup a new name. Its folder, its id and
     /// everything it knows stay as they were.
     pub fn rename(&self, id_or_name: &str, to: &str) -> Result<Named> {
-        let to = to.trim();
-        if to.is_empty() {
-            return Err(Error::refused("Give the backup a name."));
-        }
+        let to = &checked_name(to)?;
         self.change(|settings| {
             let id = settings
                 .find(id_or_name)
@@ -432,23 +445,78 @@ impl Backups {
         })
     }
 
-    /// `backups.forget`: takes a backup off Keevoro's list.
+    /// `backups.forget`: takes a backup off Keevoro's list and sets its
+    /// home folder aside for [`crate::removing::KEPT_FOR`], so it can be
+    /// put back (see `removing.rs`). Nothing at a destination or on a
+    /// source is touched. If it was the open one, the first left is opened
+    /// instead; if it was the last, Keevoro is as it was at first.
     ///
-    /// Nothing on disk is deleted: not a source, not anything at a
-    /// destination, and not the backup's own home folder either, which is
-    /// left where it is with its record and previews in it. Only the list
-    /// changes. If it was the open one, the first left is opened instead.
-    pub fn forget(&self, id_or_name: &str) -> Result<Named> {
-        self.change(|settings| {
-            let at = settings
+    /// The folder is moved while the settings are held, so no other
+    /// Keevoro program opens it part-way; if the list cannot then be saved,
+    /// it is moved back, and nothing has changed.
+    pub(crate) fn remove(&self, id_or_name: &str, now: i64) -> Result<crate::removing::Note> {
+        let set_aside = std::cell::RefCell::new(None);
+        let removed = self.change(|settings| {
+            let found = settings
                 .find(id_or_name)
-                .and_then(|found| settings.backups.iter().position(|s| s.id == found.id))
+                .cloned()
                 .ok_or_else(|| Error::no_such_backup(id_or_name))?;
-            let gone = settings.backups.remove(at);
+            let note = crate::removing::set_aside(&self.data, &found, now)?;
+            *set_aside.borrow_mut() = Some(note.clone());
+            settings.backups.retain(|s| s.id != found.id);
             settings.fall_back_to_the_first();
-            Ok(gone)
+            Ok(note)
+        });
+        if removed.is_err() {
+            if let Some(note) = set_aside.borrow().as_ref() {
+                let _ = crate::removing::bring_back(&self.data, note);
+            }
+        }
+        removed
+    }
+
+    /// `backups.put_back`: a removed backup, back on the list exactly as it
+    /// was, under its own name or, if another backup has that name now,
+    /// the name with a number.
+    pub(crate) fn put_back(&self, note: &crate::removing::Note) -> Result<Named> {
+        self.change(|settings| {
+            if settings.backups.iter().any(|s| s.id == note.id) {
+                return Err(Error::refused(format!("\"{}\" is already on the list.", note.name)));
+            }
+            crate::removing::bring_back(&self.data, note)?;
+            let named = Named {
+                id: note.id.clone(),
+                name: settings.free_name(&note.name),
+                home: note.home.clone(),
+            };
+            settings.backups.push(named.clone());
+            settings.fall_back_to_the_first();
+            Ok(named)
         })
     }
+}
+
+/// The longest name a backup can have. Long enough for "Grandad's slides
+/// from the loft, 1960s to 1980s"; short enough to fit the switcher.
+pub const LONGEST_NAME: usize = 60;
+
+/// A name a backup can have, trimmed, or why not. A blank name, one too
+/// long to show, or one with a line break or other control character in
+/// it is refused, in words.
+pub fn checked_name(name: &str) -> Result<String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(Error::refused("Give the backup a name."));
+    }
+    if name.chars().count() > LONGEST_NAME {
+        return Err(Error::refused(format!(
+            "Keep the name to {LONGEST_NAME} letters or fewer."
+        )));
+    }
+    if name.chars().any(char::is_control) {
+        return Err(Error::refused("A name can't have a line break or a tab in it."));
+    }
+    Ok(name.to_string())
 }
 
 #[cfg(test)]
@@ -686,32 +754,92 @@ mod tests {
     }
 
     #[test]
-    fn forgetting_a_backup_only_takes_it_off_the_list() {
+    fn removing_a_backup_takes_it_off_the_list_and_sets_its_folder_aside_to_put_back() {
         let dir = tempfile::tempdir().unwrap();
         let config = dir.path().join("config");
-        let backups = Backups::load(&config, dir.path());
+        let data = dir.path().join("data");
+        let backups = Backups::load(&config, &data);
         let drone = backups.start("Drone footage").unwrap();
         let family = backups.start("Family").unwrap();
         std::fs::write(drone.home.join("a note.txt"), "kept").unwrap();
 
-        assert_eq!(backups.forget("drone footage").unwrap(), drone);
-        assert_eq!(backups.all(), std::slice::from_ref(&family));
-        assert_eq!(backups.current(), Some(family), "the open one moves to what is left");
-        assert_eq!(Backups::load(&config, dir.path()).all().len(), 1);
-        assert!(
-            drone.home.join(".keevoro").join("catalog.sqlite").is_file(),
-            "its folder and record are left where they are"
+        let note = backups.remove("drone footage", 100).unwrap();
+        assert_eq!(
+            (note.id.as_str(), note.name.as_str()),
+            (drone.id.as_str(), "Drone footage")
         );
-        assert!(drone.home.join("a note.txt").is_file());
-        assert_eq!(backups.forget("Drone footage").unwrap_err().kind, crate::Kind::NotFound);
+        assert_eq!(backups.all(), std::slice::from_ref(&family));
+        assert_eq!(
+            backups.current(),
+            Some(family.clone()),
+            "the open one moves to what is left"
+        );
+        assert_eq!(Backups::load(&config, &data).all().len(), 1);
+        assert!(!drone.home.exists(), "its folder is set aside");
+        assert_eq!(
+            backups.remove("Drone footage", 100).unwrap_err().kind,
+            crate::Kind::NotFound
+        );
+        // Its id is not given to a new backup while it could be put back.
+        let next = backups.start("Holidays").unwrap();
+        assert_ne!(next.id, drone.id);
+
+        let back = backups.put_back(&note).unwrap();
+        assert_eq!(back, drone, "exactly as it was");
+        assert_eq!(std::fs::read_to_string(drone.home.join("a note.txt")).unwrap(), "kept");
+        assert!(drone.home.join(".keevoro").join("catalog.sqlite").is_file());
+    }
+
+    #[test]
+    fn the_last_backup_can_be_removed_leaving_keevoro_as_it_was_at_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let backups = Backups::load(&dir.path().join("config"), &dir.path().join("data"));
+        backups.start("Test 2").unwrap();
+        backups.remove("Test 2", 1).unwrap();
+        assert!(backups.all().is_empty());
+        assert_eq!(backups.current(), None, "the first-run state");
+    }
+
+    #[test]
+    fn a_backup_put_back_whose_name_was_taken_since_gets_a_number() {
+        let dir = tempfile::tempdir().unwrap();
+        let backups = Backups::load(&dir.path().join("config"), &dir.path().join("data"));
+        backups.start("Test 2").unwrap();
+        let note = backups.remove("Test 2", 1).unwrap();
+        backups.start("Test 2").unwrap();
+        assert_eq!(backups.put_back(&note).unwrap().name, "Test 2 2");
+    }
+
+    #[test]
+    fn a_name_is_never_empty_too_long_or_on_two_lines() {
+        let dir = tempfile::tempdir().unwrap();
+        let backups = Backups::load(&dir.path().join("config"), &dir.path().join("data"));
+        backups.start("Drone").unwrap();
+        let long = "x".repeat(LONGEST_NAME + 1);
+        for (bad, why) in [
+            ("   ", "Give the backup a name."),
+            (long.as_str(), "Keep the name to 60 letters or fewer."),
+            ("Family\nphotos", "A name can't have a line break or a tab in it."),
+        ] {
+            let e = backups.rename("Drone", bad).unwrap_err();
+            assert_eq!((e.kind, e.message.as_str()), (crate::Kind::Refused, why));
+        }
+        assert_eq!(
+            backups.start(&long).unwrap_err().message,
+            "Keep the name to 60 letters or fewer."
+        );
+        // Sixty letters in any language is fine.
+        let sixty = "é".repeat(LONGEST_NAME);
+        assert_eq!(backups.rename("Drone", &sixty).unwrap().name, sixty);
+        assert_eq!(backups.all().len(), 1, "nothing refused was started");
     }
 
     #[test]
     fn the_open_backup_is_remembered_and_a_stale_one_falls_back() {
         let dir = tempfile::tempdir().unwrap();
         let mut settings = Settings::default();
-        let first = settings.start("One", dir.path()).id;
-        settings.start("Two", dir.path());
+        let first = settings.start("One", dir.path(), &|_| false).id;
+        settings.start("Two", dir.path(), &|_| false);
         settings.current = Some(first);
         settings.save(dir.path()).unwrap();
         assert_eq!(Settings::load(dir.path()).open_backup().unwrap().name, "One");
@@ -751,7 +879,7 @@ mod tests {
 
         command_line.rename("Drone footage", "Drone").unwrap();
         assert_eq!(app.find(&drone.id).unwrap().name, "Drone");
-        app.forget("Family").unwrap();
+        app.remove("Family", 1).unwrap();
         assert_eq!(command_line.all().len(), 1);
         assert_eq!(command_line.current().unwrap().id, drone.id);
     }

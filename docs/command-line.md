@@ -262,8 +262,11 @@ The words each command shows in `keevoro --help` come from the same list the app
 | --- | --- |
 | `keevoro backups` | Every backup, with its sources, destinations, and how many files are safe and waiting. |
 | `keevoro backups start NAME` | Starts a new, empty backup, for everything Keevoro looks for; `--wants photos` (or `videos`, `others`, several with commas) for a backup of only some kinds. |
-| `keevoro backups rename NAME NEW` | Gives a backup a new name. |
-| `keevoro backups forget NAME` | Takes a backup off Keevoro's list. Nothing at any source or destination is touched. |
+| `keevoro backups rename NAME NEW` | Gives a backup a new name, of at most 60 letters and not one another backup has. Refused while it is being searched, backed up or checked. |
+| `keevoro backups forget NAME [--dry-run]` | Removes a backup from Keevoro: its record on this computer goes, and its own folder of previews and working files is set aside for a week, then cleared away. Nothing at any source or destination is touched. `--dry-run` only says what it would do. Refused while it is being searched, backed up or checked. |
+| `keevoro backups removed` | The backups removed in the last week, which can still be put back. |
+| `keevoro backups put-back NAME` | Puts back a backup removed in the last week, exactly as it was. |
+| `keevoro backups clear-away NAME` | Clears away a removed backup now instead of a week after: its own folder on this computer, and storage keys no other backup uses. It can no longer be put back. |
 
 ### Finding
 

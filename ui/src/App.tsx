@@ -74,12 +74,13 @@ import { VirtualTiles } from './tiles'
 import { BackupWants, SourceWants } from './wants'
 import { OtherFilesScreen, OtherFilesSection } from './otherFiles'
 import { ThereNow, WhatWasFound } from './whatIsThere'
+import { ManageBackups } from './manageBackups'
 import { certain, outOfReachLine } from './thereWords'
 import type { Theme } from './theme'
 
 type Step = 'find' | 'choose' | 'send'
 /** Looking inside a collection, or at what was set aside, sits on top of step 2. */
-type Overlay = { collection: Collection } | 'setAside' | 'duplicates' | 'settings' | 'activity' | 'about' | null
+type Overlay = { collection: Collection } | 'setAside' | 'duplicates' | 'settings' | 'activity' | 'about' | 'backups' | null
 
 const STEPS: { id: Step; title: string }[] = [
   { id: 'find', title: 'Find your photos' },
@@ -281,6 +282,7 @@ export function App() {
           backups={state.backups}
           onSwitch={(id) => openBackup(api.switchBackup(id))}
           onStart={(name) => openBackup(api.startBackup(name))}
+          onManage={() => show('backups')}
         />
         <ol className="steps" aria-label="Steps">
           {STEPS.map((s, i) => (
@@ -388,7 +390,31 @@ export function App() {
           </div>
         )}
 
-        {overlay === 'activity' ? (
+        {overlay === 'backups' ? (
+          <ManageBackups
+            api={api}
+            state={state}
+            onState={(s) => {
+              // The open backup may be another now (the one open was
+              // removed), or none at all: then the first-run screen shows.
+              if (!s.backup) {
+                setState(s)
+                setFound(null)
+                setSendingTo(null)
+                setJustFound(null)
+                setOverlay(null)
+                setStep('find')
+              } else if (s.backup.id !== state.backup?.id) {
+                void openBackup(Promise.resolve(s)).then(() => setOverlay('backups'))
+              } else {
+                setState(s)
+              }
+            }}
+            onOpen={(id) => openBackup(api.switchBackup(id))}
+            onBack={() => setOverlay(null)}
+            onProblem={report}
+          />
+        ) : overlay === 'activity' ? (
           <ActivityScreen api={api} onPaused={setPaused} onBack={() => setOverlay(null)} onProblem={report} />
         ) : overlay === 'about' ? (
           <AboutScreen api={api} version={state.version} onBack={() => setOverlay(null)} onProblem={report} />
@@ -604,6 +630,7 @@ function BackupPicker(props: {
   backups: Backup[]
   onSwitch: (id: string) => void
   onStart: (name: string) => void
+  onManage: () => void
 }) {
   const [open, setOpen] = useState(false)
   const [naming, setNaming] = useState<string | null>(null)
@@ -635,9 +662,20 @@ function BackupPicker(props: {
             </button>
           ))}
           {naming === null ? (
-            <button className="button" onClick={() => setNaming('')}>
-              Start a new backup…
-            </button>
+            <>
+              <button className="button" onClick={() => setNaming('')}>
+                Start a new backup…
+              </button>
+              <button
+                className="button"
+                onClick={() => {
+                  close()
+                  props.onManage()
+                }}
+              >
+                Manage backups…
+              </button>
+            </>
           ) : (
             <form
               onSubmit={(e) => {

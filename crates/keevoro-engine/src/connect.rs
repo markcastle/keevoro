@@ -454,6 +454,29 @@ fn prove_and_remember(
     Ok(from)
 }
 
+/// The keychain entries this backup's destinations use, each with the
+/// destination in words. A folder needs none. Two destinations on one
+/// bucket share an entry, which is given once.
+pub fn keys_kept_for(catalog: &Catalog) -> Result<Vec<(String, String)>> {
+    let mut kept: Vec<(String, String)> = Vec::new();
+    for saved in destinations(catalog)? {
+        let name = saved.secret_name();
+        if saved.preset().is_some() && !kept.iter().any(|(n, _)| *n == name) {
+            kept.push((name, saved.describe()));
+        }
+    }
+    Ok(kept)
+}
+
+/// Removes these entries from the keychain. Nothing in the storage itself
+/// is touched.
+pub fn forget_keys(secrets: &dyn SecretStore, names: &[String]) -> Result<()> {
+    for name in names {
+        secrets.delete(name)?;
+    }
+    Ok(())
+}
+
 /// Forgets the saved destination and removes its keys from the keychain.
 /// Nothing in the storage itself is touched.
 pub fn disconnect(out: &mut dyn Write, catalog: &Catalog, secrets: &dyn SecretStore) -> Result<()> {

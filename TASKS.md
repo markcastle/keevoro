@@ -313,7 +313,7 @@ Separate, remembered jobs ("Drone footage to R2", "Family photos to a folder"), 
 - [ ] Show how much room a cloud bucket has, where the provider will say
 - [x] More than one destination per backup
 - [x] Reset to factory settings from Settings (only ever removes Keevoro's own data)
-- [ ] Rename and remove a backup in the app. The API and the command line have it (`keevoro backups rename` and `forget`); the app does not yet
+- [x] Rename and remove a backup in the app: Manage backups, in the switcher, with each backup's sources, destinations, size and last run, Rename in place, and Remove that says first what it does, sets the backup's own folder aside for a week to put back, and touches nothing at a source or destination. Asked for by the first outside tester
 - [x] A backup that only looks for videos, or only photos, and one source that differs from its backup
 - [x] Verify a folder destination by reading it back automatically after sending
 - [x] Backups on the command line

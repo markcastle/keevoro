@@ -950,6 +950,79 @@ try {
   await page.locator('.foot .paused').getByRole('button', { name: 'Carry on' }).click()
   await page.locator('.foot .paused').waitFor({ state: 'detached' })
 
+  // --- Managing backups, as the first tester asked: each with what tells it
+  // apart, renamed in place, removed only once told exactly what that does,
+  // and put back.
+  await page.goto(`${base}/?fast`)
+  for (const name of ['Test 2', 'My photos', 'My photos']) {
+    await page.getByRole('button', { name: 'Backup', exact: true }).click()
+    await page.getByRole('button', { name: 'Start a new backup…' }).click()
+    await page.getByLabel('Name for the new backup').fill(name)
+    await page.getByRole('button', { name: 'Start', exact: true }).click()
+    await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
+  }
+  await page.getByRole('button', { name: 'Backup', exact: true }).click()
+  assert.deepEqual(await page.locator('.backup .menu > button').allInnerTexts(), [
+    'My photos',
+    'Test 2',
+    'My photos 2',
+    'Start a new backup…',
+    'Manage backups…',
+  ])
+  await shot('9ab-switcher-with-manage')
+  await page.getByRole('button', { name: 'Manage backups…' }).click()
+  await page.getByRole('heading', { name: 'Your backups', level: 1 }).waitFor()
+  const backupRow = (name) =>
+    page.locator('.manage-backups > .backup-list > .backup-row').filter({ has: page.getByRole('heading', { name: new RegExp(`^${name}(\\s*Open now)?$`) }) })
+  // Each is filled in as it is counted: where it looks, where it goes, how much, when it last ran.
+  await page.waitForFunction(() => document.querySelectorAll('.backup-row .facts').length === 4)
+  assert.match(await backupRow('My photos').innerText(), /Looks in\s+[A-Z]:\\/)
+  assert.match(await backupRow('Test 2').innerText(), /Looks in\s+No sources yet\s+Backs up to\s+Nowhere yet\s+Holds\s+Nothing found yet\s+Last backed up\s+Never/)
+  assert.match(await backupRow('My photos 3').innerText(), /Open now/)
+  assert.equal(await backupRow('My photos 3').getByRole('button', { name: 'Open' }).count(), 0, 'the open one is not offered to open')
+  await shot('9ac-manage-backups')
+  await fitsNarrow('Manage backups')
+  // Renamed in place; a name in use is refused, in words, and changes nothing.
+  await backupRow('Test 2').getByRole('button', { name: 'Rename' }).click()
+  await page.getByLabel('New name for Test 2').fill('my photos')
+  await page.getByRole('button', { name: 'Save' }).click()
+  await page.getByRole('alert').filter({ hasText: 'There is already a backup called "my photos". Choose another name.' }).waitFor()
+  await shot('9ad-rename-refused')
+  await page.getByLabel('New name for Test 2').fill('Trying it out')
+  await page.getByRole('button', { name: 'Save' }).click()
+  await backupRow('Trying it out').waitFor()
+  // Removing says exactly what it does first, in the page, then asks.
+  await backupRow('Trying it out').getByRole('button', { name: 'Remove…' }).click()
+  await page.getByRole('heading', { name: 'Remove “Trying it out” from Keevoro?' }).waitFor()
+  const removing = await text('.removing')
+  assert.match(removing, /Keevoro's record of “Trying it out” on this computer goes/)
+  assert.match(removing, /there is nothing anywhere else to keep/)
+  assert.match(removing, /Nothing on any source is touched\./)
+  assert.match(removing, /You can put it back from Manage backups for 7 days/)
+  await shot('9ae-remove-backup')
+  await fitsNarrow('Removing a backup')
+  await page.getByRole('button', { name: 'Cancel' }).click()
+  await backupRow('Trying it out').getByRole('button', { name: 'Remove…' }).click()
+  await page.getByRole('button', { name: 'Remove this backup from Keevoro' }).click()
+  await backupRow('Trying it out').waitFor({ state: 'detached' })
+  assert.match(await text('.done-said'), /^Removed “Trying it out” from Keevoro/)
+  await page.getByRole('heading', { name: 'Removed recently' }).waitFor()
+  assert.match(await text('.removed-recently'), /It can be put back until/)
+  await shot('9af-removed-recently')
+  await page.locator('.removed-recently').getByRole('button', { name: 'Put back' }).click()
+  await backupRow('Trying it out').waitFor()
+  assert.equal(await page.locator('.removed-recently').count(), 0, 'nothing left to put back')
+  // The open backup can be removed too: another opens in its place.
+  await backupRow('My photos 3').getByRole('button', { name: 'Remove…' }).click()
+  await page.getByRole('button', { name: 'Remove this backup from Keevoro' }).click()
+  await backupRow('My photos 3').waitFor({ state: 'detached' })
+  assert.match(await text('.backup .current'), /My photos/)
+  assert.doesNotMatch(await text('.backup .current'), /My photos 3/)
+  // And another is opened from the list.
+  await backupRow('My photos 2').getByRole('button', { name: 'Open' }).click()
+  await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
+  assert.match(await text('.backup .current'), /My photos 2/)
+
   // --- Starting again: asked first, told exactly what goes and what stays.
   await page.goto(`${base}/?fast`)
   await page.getByRole('button', { name: 'Settings' }).click()

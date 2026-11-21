@@ -251,6 +251,55 @@ export type Looked = {
  */
 export type Backup = { id: string; name: string }
 
+/** One backup in full, as Manage backups lists it: what tells it apart from the others. */
+export type BackupListing = {
+  id: string
+  name: string
+  /** Its own folder on this computer, which holds Keevoro's record of it. */
+  home: string
+  open: boolean
+  /** What it holds; null when its folder is not there (on a drive that is unplugged). */
+  found: BackupCounts | null
+  /** Why it cannot be renamed or removed right now: it is being worked on. */
+  busy?: string
+}
+
+export type BackupCounts = {
+  sources: number
+  destinations: number
+  photos: number
+  videos: number
+  others?: number
+  waiting: number
+  waitingBytes: number
+  bytes: number
+  /** Where each source is. */
+  sourcePlaces: string[]
+  /** Where it backs up to, in words. */
+  destinationNames: string[]
+  /** When it last backed up, in seconds since 1970. */
+  lastRan?: number
+}
+
+/** What removing a backup does, asked first or once done, in sentences. Nothing at a destination or source is touched. */
+export type Removal = {
+  id: string
+  name: string
+  removed: boolean
+  sources: string[]
+  destinations: string[]
+  ownFolder: string
+  ownFolderBytes: number
+  clearsOwnFolder: boolean
+  keysFor: string[]
+  /** Once removed: when it is cleared away for good unless put back, in seconds since 1970. */
+  keptUntil?: number
+  said: string[]
+}
+
+/** A backup removed in the last week, which can still be put back. */
+export type RemovedBackup = { id: string; name: string; removedAt: number; keptUntil: number; bytes: number; said: string }
+
 export type AppState = {
   /** The open backup's own folder, or null before the first backup. */
   library: string | null
@@ -716,6 +765,18 @@ export interface Backend {
   startBackup(name: string): Promise<AppState>
   /** Opens another backup; the one that was open is left as it was. */
   switchBackup(id: string): Promise<AppState>
+  /** One backup in full: its sources, where it goes, what it holds, when it last ran. */
+  backupDetails(id: string): Promise<BackupListing>
+  /** Gives a backup a new name. Refused while it is being worked on. */
+  renameBackup(id: string, to: string): Promise<AppState>
+  /** Removes a backup from Keevoro, or with `dryRun` only says what that would do. */
+  removeBackup(id: string, dryRun: boolean): Promise<Removal>
+  /** The backups removed in the last week, which can still be put back. */
+  removedBackups(): Promise<RemovedBackup[]>
+  /** Puts back a backup removed in the last week, exactly as it was. */
+  putBackBackup(id: string): Promise<AppState>
+  /** Clears away a removed backup now; it can no longer be put back. */
+  clearAwayBackup(id: string): Promise<RemovedBackup>
   /**
    * Puts Keevoro back as it was when first installed. Sources and anything
    * already sent are not touched.
@@ -894,6 +955,12 @@ async function tauriBackend(): Promise<Backend> {
     state: () => invoke('app_state'),
     startBackup: (name) => invoke('start_backup', { name }),
     switchBackup: (id) => invoke('switch_backup', { id }),
+    backupDetails: (id) => invoke('backup_details', { id }),
+    renameBackup: (id, to) => invoke('rename_backup', { id, to }),
+    removeBackup: (id, dryRun) => invoke('remove_backup', { id, dryRun }),
+    removedBackups: () => invoke('removed_backups'),
+    putBackBackup: (id) => invoke('put_back_backup', { id }),
+    clearAwayBackup: (id) => invoke('clear_away_backup', { id }),
     openDestination: (at) => invoke('open_destination', { at: at ?? null }),
     room: () => invoke('room'),
     previewsWanted: () => invoke('previews_wanted'),

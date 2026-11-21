@@ -268,4 +268,30 @@ fn everything_a_person_set_and_keevoro_recorded_in_0_37_1_is_there_after_updatin
         ask(&keevoro, Op::BackupWants, family, Value::Null)["wants"],
         json!(["photos"])
     );
+
+    // A backup 0.37.1 kept can be removed, saying where it went and what it
+    // looked through, and put back with everything in its record in place.
+    let removal = ask(&keevoro, Op::BackupsForget, None, json!({ "backup": "Family photos" }));
+    assert_eq!(removal["removed"], true);
+    assert_eq!(removal["destinations"].as_array().map(Vec::len), Some(2), "{removal}");
+    assert_eq!(removal["keysFor"], json!(["the Cloudflare R2 bucket family-photos"]));
+    assert_eq!(
+        names(&ask(&keevoro, Op::BackupsList, None, Value::Null)),
+        ["Drone films"]
+    );
+    ask(&keevoro, Op::BackupsPutBack, None, json!({ "backup": "Family photos" }));
+    assert_eq!(
+        names(&ask(&keevoro, Op::SourcesList, family, Value::Null)),
+        ["Mum's card", "Drone"]
+    );
+    assert_eq!(
+        ask(&keevoro, Op::BackupHistory, family, Value::Null)
+            .as_array()
+            .map(Vec::len),
+        Some(2)
+    );
+    assert_eq!(
+        ask(&keevoro, Op::BackupWants, family, Value::Null)["wants"],
+        json!(["photos"])
+    );
 }

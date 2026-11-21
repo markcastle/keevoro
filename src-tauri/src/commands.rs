@@ -100,6 +100,68 @@ pub fn switch_backup(shared: State<'_, Shared>, id: String) -> Said<AppState> {
     Ok(current_state(&shared))
 }
 
+/// One backup as the list of backups shows it: its sources, where it goes,
+/// what it holds and when it last ran. Off the window's thread, as counting
+/// a large backup takes a moment; the screen fills in each as it comes.
+#[tauri::command]
+pub async fn backup_details<R: Runtime>(app: AppHandle<R>, id: String) -> Said<keevoro_api::BackupListing> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<Shared>().keevoro.backup_listing(&id))
+        .await
+        .map_err(say)?
+        .map_err(say)
+}
+
+/// Gives a backup a new name. Refused while it is being worked on.
+#[tauri::command]
+pub fn rename_backup(shared: State<'_, Shared>, id: String, to: String) -> Said<AppState> {
+    shared.keevoro.rename_backup(&id, &to).map_err(say)?;
+    Ok(current_state(&shared))
+}
+
+/// Removes a backup from Keevoro, or with `dry_run` only says what that
+/// would do. Nothing at a destination or on a source is touched, and it
+/// can be put back for a week. Stopping the background check on it can
+/// take a moment, so it is done off the window's thread.
+#[tauri::command]
+pub async fn remove_backup<R: Runtime>(
+    app: AppHandle<R>,
+    id: String,
+    dry_run: bool,
+) -> Said<keevoro_api::removing::Removal> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<Shared>().keevoro.forget_backup(&id, dry_run))
+        .await
+        .map_err(say)?
+        .map_err(say)
+}
+
+/// The backups removed in the last week, which can still be put back.
+#[tauri::command]
+pub async fn removed_backups<R: Runtime>(app: AppHandle<R>) -> Vec<keevoro_api::removing::RemovedBackup> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<Shared>().keevoro.removed_backups())
+        .await
+        .unwrap_or_default()
+}
+
+/// Puts back a backup removed in the last week, exactly as it was.
+#[tauri::command]
+pub fn put_back_backup(shared: State<'_, Shared>, id: String) -> Said<AppState> {
+    shared.keevoro.put_back_backup(&id).map_err(say)?;
+    Ok(current_state(&shared))
+}
+
+/// Clears away a removed backup now: its own folder on this computer and
+/// any keys no other backup uses. It can no longer be put back.
+#[tauri::command]
+pub async fn clear_away_backup<R: Runtime>(
+    app: AppHandle<R>,
+    id: String,
+) -> Said<keevoro_api::removing::RemovedBackup> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<Shared>().keevoro.clear_away_backup(&id))
+        .await
+        .map_err(say)?
+        .map_err(say)
+}
+
 /// Puts Keevoro back as it was when first installed: every backup is
 /// forgotten, along with what it found and chose, the previews, and any
 /// storage keys in the keychain. Nothing on a source, nothing that was sent

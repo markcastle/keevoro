@@ -43,6 +43,7 @@ pub mod picture;
 pub mod places;
 mod rates;
 pub mod register;
+pub mod removing;
 pub mod reset;
 pub mod space;
 pub mod wants;
@@ -68,7 +69,9 @@ pub use picture::{Picture, PictureRequest, PictureSize};
 pub use register::{entries, Agents, Changes, Entry, Op, Tool};
 
 use file_kinds::{AddFileKindRequest, ChangeFileKindRequest, FileKindRequest};
-use keevoro::{ForgetBackupRequest, LogRequest, RenameBackupRequest, SettingsRequest, StartBackupRequest};
+use keevoro::{
+    ForgetBackupRequest, LogRequest, RemovedBackupRequest, RenameBackupRequest, SettingsRequest, StartBackupRequest,
+};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -311,7 +314,19 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
         }
         Op::BackupsForget => {
             let r: ForgetBackupRequest = read(request)?;
-            answer(keevoro.forget_backup(&r.backup)?)
+            answer(keevoro.forget_backup(&r.backup, r.dry_run)?)
+        }
+        Op::BackupsRemoved => {
+            read::<Nothing>(request)?;
+            answer(keevoro.removed_backups())
+        }
+        Op::BackupsPutBack => {
+            let r: RemovedBackupRequest = read(request)?;
+            answer(keevoro.put_back_backup(&r.backup)?)
+        }
+        Op::BackupsClearAway => {
+            let r: RemovedBackupRequest = read(request)?;
+            answer(keevoro.clear_away_backup(&r.backup)?)
         }
         Op::PlacesList => {
             read::<Nothing>(request)?;

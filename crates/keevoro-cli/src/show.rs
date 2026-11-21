@@ -96,12 +96,53 @@ pub fn renamed(io: &mut Io<'_>, _: &ArgMatches, backup: &Value) -> Said_ {
     Ok(Code::Worked)
 }
 
-pub fn forgot(io: &mut Io<'_>, _: &ArgMatches, backup: &Value) -> Said_ {
+pub fn forgot(io: &mut Io<'_>, _: &ArgMatches, removal: &Value) -> Said_ {
+    for line in each(removal.get("said").unwrap_or(&Value::Null)).filter_map(Value::as_str) {
+        writeln!(io.out, "{line}")?;
+    }
+    if removal.get("removed").and_then(Value::as_bool) == Some(true) {
+        writeln!(
+            io.out,
+            "To put it back: keevoro backups put-back \"{}\"",
+            s(removal, "name")
+        )?;
+    } else {
+        writeln!(
+            io.out,
+            "Nothing was changed. To remove it: keevoro backups forget \"{}\"",
+            s(removal, "name")
+        )?;
+    }
+    Ok(Code::Worked)
+}
+
+pub fn removed_backups(io: &mut Io<'_>, _: &ArgMatches, list: &Value) -> Said_ {
+    if each(list).next().is_none() {
+        writeln!(io.out, "No backup has been removed in the last week.")?;
+    }
+    for removed in each(list) {
+        writeln!(io.out, "{}", s(removed, "name"))?;
+        writeln!(io.out, "  {}", s(removed, "said"))?;
+    }
+    Ok(Code::Worked)
+}
+
+pub fn put_back(io: &mut Io<'_>, _: &ArgMatches, backup: &Value) -> Said_ {
     writeln!(
         io.out,
-        "Forgot the backup \"{}\". Nothing at any source or destination was touched, and its own folder is where it was: {}",
-        s(backup, "name"),
-        s(backup, "home")
+        "Put back the backup \"{}\", exactly as it was.",
+        s(backup, "name")
+    )?;
+    Ok(Code::Worked)
+}
+
+pub fn cleared_away(io: &mut Io<'_>, _: &ArgMatches, removed: &Value) -> Said_ {
+    writeln!(
+        io.out,
+        "Cleared away \"{}\": {} freed on this computer. It can no longer be put back. Nothing at its \
+         destinations or on its sources was touched.",
+        s(removed, "name"),
+        bytes(b(removed, "bytes"))
     )?;
     Ok(Code::Worked)
 }

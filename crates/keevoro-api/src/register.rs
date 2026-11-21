@@ -107,7 +107,16 @@ register! {
         "Gives a backup a new name",
         changes: Always, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     BackupsForget = "backups.forget",
-        "Removes a backup from Keevoro. Nothing at any destination or source is touched",
+        "Removes a backup from Keevoro, to put back for a week. No source or destination is touched",
+        changes: OnlyWhenAsked, job: false, command_line: true, agents: Agents::No, implemented: true;
+    BackupsRemoved = "backups.removed",
+        "The backups removed in the last week, which can still be put back",
+        changes: Never, job: false, command_line: true, agents: Agents::No, implemented: true;
+    BackupsPutBack = "backups.put_back",
+        "Puts back a backup removed in the last week, exactly as it was",
+        changes: Always, job: false, command_line: true, agents: Agents::No, implemented: true;
+    BackupsClearAway = "backups.clear_away",
+        "Clears away a removed backup now, with its keys no other backup uses. It can't then be put back",
         changes: Always, job: false, command_line: true, agents: Agents::No, implemented: true;
 
     // Finding
@@ -316,6 +325,9 @@ impl Op {
                 | Op::BackupsStart
                 | Op::BackupsRename
                 | Op::BackupsForget
+                | Op::BackupsRemoved
+                | Op::BackupsPutBack
+                | Op::BackupsClearAway
                 | Op::PlacesList
                 | Op::PlacesForgetMaps
                 | Op::JobsPause
@@ -343,7 +355,7 @@ impl Op {
     pub const fn loses_something(self) -> bool {
         matches!(
             self,
-            Op::SourcesForget | Op::DestinationsRemove | Op::BackupsForget | Op::KeevoroReset
+            Op::SourcesForget | Op::DestinationsRemove | Op::BackupsForget | Op::BackupsClearAway | Op::KeevoroReset
         )
     }
 
@@ -360,7 +372,9 @@ impl Op {
                 Op::BackupWants | Op::SourcesWants => given("wants"),
                 Op::KeevoroSettings => given("ownCodecs"),
                 // Asked only what it would clear, it clears nothing.
-                Op::DestinationsTidy => request.get("dryRun").and_then(serde_json::Value::as_bool) != Some(true),
+                Op::DestinationsTidy | Op::BackupsForget => {
+                    request.get("dryRun").and_then(serde_json::Value::as_bool) != Some(true)
+                }
                 Op::AgentsAccess => given("lookIn") || given("backUpTo") || given("mayChange"),
                 // Through the API, only the check: installing is the app's.
                 Op::KeevoroUpdate => false,
@@ -377,7 +391,8 @@ impl Op {
         use crate::destinations::{AddDestinationRequest as Add, RemoveDestinationRequest as Remove};
         use crate::file_kinds::{AddFileKindRequest, ChangeFileKindRequest, FileKindRequest};
         use crate::keevoro::{
-            ForgetBackupRequest, LogRequest, RenameBackupRequest, SettingsRequest, StartBackupRequest,
+            ForgetBackupRequest, LogRequest, RemovedBackupRequest, RenameBackupRequest, SettingsRequest,
+            StartBackupRequest,
         };
         use crate::picture::PictureRequest;
         use crate::{
@@ -388,6 +403,7 @@ impl Op {
             Op::BackupsStart => schema::<StartBackupRequest>(),
             Op::BackupsRename => schema::<RenameBackupRequest>(),
             Op::BackupsForget => schema::<ForgetBackupRequest>(),
+            Op::BackupsPutBack | Op::BackupsClearAway => schema::<RemovedBackupRequest>(),
             Op::PlacesSurvey | Op::SourcesLook | Op::PlacesFolders => schema::<PlaceRequest>(),
             Op::PlacesFiles => schema::<crate::inside::FilesRequest>(),
             Op::PlacesMap => schema::<crate::space::MapRequest>(),
@@ -415,6 +431,7 @@ impl Op {
             Op::FileKindsChange => schema::<ChangeFileKindRequest>(),
             Op::FileKindsRemove => schema::<FileKindRequest>(),
             Op::BackupsList
+            | Op::BackupsRemoved
             | Op::PlacesList
             | Op::SourcesList
             | Op::FoundSummary
@@ -709,6 +726,9 @@ impl Op {
                  cannot change the list; the person can, in Settings or with the keevoro command. Changes nothing.",
             ),
             Op::BackupsForget
+            | Op::BackupsRemoved
+            | Op::BackupsPutBack
+            | Op::BackupsClearAway
             | Op::KeevoroLog
             | Op::KeevoroReset
             | Op::JobsFollow
@@ -769,7 +789,7 @@ mod tests {
 
     #[test]
     fn the_register_has_every_operation_in_the_plan() {
-        assert_eq!(Op::ALL.len(), 55);
+        assert_eq!(Op::ALL.len(), 58);
         // Each entry is the one for its own operation.
         for op in Op::ALL {
             assert_eq!(op.entry().op, *op);
@@ -830,6 +850,9 @@ mod tests {
         let plan: HashSet<Op> = [
             Op::PlacesForgetMaps,
             Op::BackupsForget,
+            Op::BackupsRemoved,
+            Op::BackupsPutBack,
+            Op::BackupsClearAway,
             Op::KeevoroSettings,
             Op::KeevoroUpdate,
             Op::KeevoroReset,
@@ -1026,7 +1049,8 @@ mod tests {
     fn only_what_changes_things_can_lose_something() {
         for entry in entries() {
             if entry.op.loses_something() {
-                assert_eq!(entry.changes, Changes::Always, "{}", entry.name);
+                // Always, or unless only asked what it would do.
+                assert_ne!(entry.changes, Changes::Never, "{}", entry.name);
             }
         }
     }

@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Added
+
+- **Manage backups: rename one, or remove one you no longer need.** Our first outside tester could not get rid of old trial backups. The backup switcher now has "Manage backups…", which lists every backup with what tells them apart: where it looks, where it backs up to, how many photos and videos it holds and how big, and when it last backed up. Rename one in place, open it, or remove it. Remove says exactly what it does before it does anything, on the page: Keevoro's record of that backup on this computer goes; everything already backed up stays where it is and is not touched; nothing on any source is touched; and its previews and working files on this computer (it says how much room they take) are cleared away. Only then does it offer "Remove this backup from Keevoro". In case of a slip, a removed backup can be put back, exactly as it was, for a week, from "Removed recently" on the same screen; after that it is cleared away by itself, or straight away with "Clear away now", and storage keys that only it used go from your computer's keychain then too. A backup that is being searched, backed up or checked cannot be renamed or removed until that finishes, and the screen says why. The last backup can be removed too, which takes Keevoro back to its first screen. A name can be at most 60 letters and must not be one another backup has. At the command line: `keevoro backups forget NAME` (with `--dry-run` to see what it would do first), `keevoro backups removed`, `keevoro backups put-back NAME` and `keevoro backups clear-away NAME`. An AI agent cannot remove a backup.
+
 ### Fixed
 
 - **"Photos only" and "Videos only" are back as you set them.** Version 0.39.0 changed how Keevoro writes down what a backup, or a source, is for, and did not carry over a choice made before it, so a backup or source set to photos only or videos only quietly went back to taking everything. Keevoro now reads the old choice and keeps it, for every backup and every source. Nothing already backed up was ever touched.

@@ -4453,3 +4453,125 @@ fieldset.wants input[aria-disabled='true'] {
   flex-basis: 100%;
   margin: 0;
 }
+
+/* ---------- managing backups ---------- */
+
+.manage-backups .backup-list {
+  list-style: none;
+  padding: 0;
+  margin: var(--space-4) 0 0;
+  display: grid;
+  gap: var(--space-3);
+  max-width: 820px;
+}
+
+.backup-row {
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  min-width: 0;
+}
+
+.backup-row h2 {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-size: 18px;
+  line-height: 26px;
+  overflow-wrap: anywhere;
+}
+
+.backup-row h3 {
+  font-size: 16px;
+  line-height: 24px;
+  margin: 0;
+  padding-top: 0;
+  border-top: 0;
+  overflow-wrap: anywhere;
+}
+
+.backup-row .choices button.danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.backup-row .facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 2px var(--space-3);
+  margin: var(--space-2) 0 0;
+  font-size: 14px;
+}
+
+.backup-row .facts dt {
+  color: var(--ink-muted);
+}
+
+.backup-row .facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.backup-row .naming {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.backup-row .naming input {
+  flex: 1 1 200px;
+  min-width: 0;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+}
+
+.backup-row .choices {
+  flex-wrap: wrap;
+  margin-top: var(--space-3);
+}
+
+.backup-row .busy-said {
+  margin-top: var(--space-2);
+}
+
+/* Removing: what it does, said in the page, before the button that does it. */
+.backup-row .removing {
+  margin-top: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.backup-row .removing ul {
+  margin: var(--space-2) 0 0;
+  padding-left: 1.2em;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.manage-backups .done-said {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  max-width: 820px;
+}
+
+.manage-backups .removed-recently {
+  margin-top: var(--space-6);
+}
+
+.manage-backups .removed-recently h2 {
+  font-size: 18px;
+}
+
+.backup-row.removed .choices {
+  margin-top: var(--space-2);
+}

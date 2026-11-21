@@ -2069,3 +2069,195 @@ fn a_destination_unplugged_is_said_to_be_out_of_reach_and_nothing_it_holds_is_fo
         back.summary
     );
 }
+
+/// Adds cloud storage to a backup's record as connecting would leave it,
+/// with its keys in the keychain, without asking any storage.
+fn add_bucket(keevoro: &Keevoro, named: &Named, bucket: &str) {
+    let catalog = Catalog::open_in_library(&named.home).unwrap();
+    let mut all: Vec<Value> = catalog
+        .setting("destinations")
+        .unwrap()
+        .map(|json| serde_json::from_str(&json).unwrap())
+        .unwrap_or_default();
+    all.push(json!({ "kind": "r2", "place": "0123456789abcdef0123456789abcdef", "bucket": bucket }));
+    catalog
+        .set_setting("destinations", &Value::from(all).to_string())
+        .unwrap();
+    keevoro
+        .secrets()
+        .set(
+            &format!("r2:0123456789abcdef0123456789abcdef/{bucket}"),
+            "access\nsecret",
+        )
+        .unwrap();
+}
+
+fn key_for(keevoro: &Keevoro, bucket: &str) -> Option<String> {
+    keevoro
+        .secrets()
+        .get(&format!("r2:0123456789abcdef0123456789abcdef/{bucket}"))
+        .unwrap()
+}
+
+#[test]
+fn removing_a_backup_touches_nothing_at_its_sources_or_destinations_and_can_be_put_back() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let k = keevoro(dir.path());
+    let (named, card, usb) = card_going_to_usb(dir.path(), &k);
+    let ran = k.run_backup(&named, None).unwrap();
+    k.wait(ran.id);
+    k.wait_for_jobs();
+    add_bucket(&k, &named, "family");
+    add_bucket(&k, &named, "shared");
+    let other = k.start_backup("Holidays").unwrap();
+    add_bucket(&k, &other, "shared");
+    let card_before = files_under(&card);
+    let usb_before = files_under(&usb);
+    assert!(!usb_before.is_empty(), "something was backed up to remove");
+
+    // Asked first, it says what it would do and changes nothing.
+    let asked = k.forget_backup("card photos", true).unwrap();
+    assert!(!asked.removed);
+    assert!(named.home.join(".keevoro").join("catalog.sqlite").is_file());
+    assert_eq!(asked.said[0], "Keevoro's record of \"Card photos\" on this computer goes: its sources, what it found, your choices and its history.");
+    assert!(
+        asked.said[1].starts_with(&format!(
+            "Everything already backed up to the folder {}, the Cloudflare R2 bucket family and the Cloudflare R2 bucket shared stays where it is.",
+            usb.display()
+        )),
+        "{}",
+        asked.said[1]
+    );
+    assert!(
+        asked.said[2].starts_with("Nothing on its sources ("),
+        "{}",
+        asked.said[2]
+    );
+    assert!(asked.clears_own_folder && asked.own_folder_bytes > 0);
+    assert!(
+        asked.said[3].contains("You can put it back from Manage backups for 7 days"),
+        "{}",
+        asked.said[3]
+    );
+    assert_eq!(
+        asked.keys_for,
+        ["the Cloudflare R2 bucket family"],
+        "a key another backup uses stays"
+    );
+    assert_eq!(k.backups().all().len(), 2);
+
+    // An agent cannot remove a backup at all.
+    let e = crate::call_for_agent(&k, Op::BackupsForget, None, json!({ "backup": "Card photos" })).unwrap_err();
+    assert_eq!(e.kind, Kind::Refused);
+    assert_eq!(k.backups().all().len(), 2);
+
+    let removed = k.forget_backup("Card photos", false).unwrap();
+    assert!(removed.removed && removed.kept_until.is_some());
+    assert!(
+        removed.said[0].starts_with("Removed \"Card photos\" from Keevoro"),
+        "{:?}",
+        removed.said
+    );
+    assert_eq!(k.backups().all(), std::slice::from_ref(&other));
+    assert!(!named.home.exists(), "nothing of it is left lying about");
+    assert_eq!(files_under(&card), card_before, "nothing on the source was touched");
+    assert_eq!(files_under(&usb), usb_before, "nothing at the destination was touched");
+    assert!(
+        key_for(&k, "family").is_some(),
+        "its keys stay while it can be put back"
+    );
+
+    // Put back, it is exactly as it was.
+    let listed = k.removed_backups();
+    assert_eq!(listed.len(), 1);
+    assert!(
+        listed[0].said.contains("It can be put back until"),
+        "{}",
+        listed[0].said
+    );
+    let back = k.put_back_backup("card photos").unwrap();
+    assert_eq!(back, named);
+    assert_eq!(
+        there(&named),
+        Backup::open(&named.home).unwrap().discover().unwrap().photos
+    );
+    assert!(k.removed_backups().is_empty());
+
+    // Removed again and cleared away: its own folder and its own keys go,
+    // and still nothing at a source or a destination.
+    k.forget_backup("Card photos", false).unwrap();
+    let cleared = k.clear_away_backup("Card photos").unwrap();
+    assert!(cleared.bytes > 0);
+    assert!(k.removed_backups().is_empty());
+    assert!(!dir.path().join("data").join("removed").join(&named.id).exists());
+    assert_eq!(key_for(&k, "family"), None, "the keys only it used are gone");
+    assert!(key_for(&k, "shared").is_some(), "the keys another backup uses stay");
+    assert_eq!(files_under(&card), card_before);
+    assert_eq!(files_under(&usb), usb_before);
+    assert_eq!(
+        k.put_back_backup("Card photos").unwrap_err().kind,
+        Kind::NotFound,
+        "cleared away for good"
+    );
+    let log = k.log_tail(20);
+    assert!(log.contains("Removed backup \"Card photos\""), "{log}");
+    assert!(log.contains("Put back backup \"Card photos\""), "{log}");
+    assert!(log.contains("Cleared away backup \"Card photos\""), "{log}");
+}
+
+#[test]
+fn a_removed_backup_is_cleared_away_by_itself_a_week_later() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let k = keevoro(dir.path());
+    let named = k.start_backup("Test 2").unwrap();
+    add_bucket(&k, &named, "test");
+    k.forget_backup("Test 2", false).unwrap();
+    assert_eq!(k.clear_away_old_removed(), 0, "kept for a week");
+    // As if removed eight days ago.
+    let note_file = dir
+        .path()
+        .join("data")
+        .join("removed")
+        .join(&named.id)
+        .join("removed.json");
+    let mut note: Value = serde_json::from_str(&std::fs::read_to_string(&note_file).unwrap()).unwrap();
+    note["removedAt"] = json!(seconds_now() - 8 * 24 * 60 * 60);
+    std::fs::write(&note_file, note.to_string()).unwrap();
+    assert_eq!(k.clear_away_old_removed(), 1);
+    assert!(!note_file.exists());
+    assert_eq!(key_for(&k, "test"), None);
+    assert!(k.backups().all().is_empty(), "the first-run state");
+}
+
+#[test]
+fn a_backup_being_worked_on_cannot_be_removed_or_renamed_here_or_from_another_program() {
+    let _turn = one_at_a_time();
+    let _after = CarryOnAfter;
+    let dir = tempfile::tempdir().unwrap();
+    let app = keevoro(dir.path());
+    let named = app.start_backup("Card photos").unwrap();
+    let card = card_in(dir.path());
+    let command_line = command_line(dir.path());
+    app.pause();
+    app.look(&named, &card, None).unwrap();
+    let said = "Keevoro is already looking through a source for \"Card photos\" in the Keevoro app. Let that finish, or stop it, first.";
+    for refused in [
+        app.forget_backup("Card photos", false).unwrap_err(),
+        app.forget_backup("Card photos", true).unwrap_err(),
+        app.rename_backup("Card photos", "Card").unwrap_err(),
+        command_line.forget_backup("Card photos", false).unwrap_err(),
+        command_line.rename_backup("Card photos", "Card").unwrap_err(),
+    ] {
+        assert_eq!((refused.kind, refused.message.as_str()), (Kind::Busy, said));
+    }
+    let listed = app.list_backups();
+    assert_eq!(listed[0].busy.as_deref(), Some(said), "the list says why too");
+    app.stop(Which::All);
+    app.carry_on();
+    app.wait_for_jobs();
+    assert!(named.home.is_dir());
+    assert_eq!(app.backups().all().len(), 1);
+    assert_eq!(app.list_backups()[0].busy, None);
+}
