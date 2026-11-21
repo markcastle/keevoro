@@ -16,6 +16,7 @@ When you allow it, it can also:
 
 - look through folders you have named, and add them to a backup as sources;
 - start and rename backups, keep or leave out collections and photos, and choose kinds of file;
+- read, and keep or leave out, other files you asked Keevoro to carry along (music, documents): `list_collections` lists them last, one per folder they came from (`byFolder`), `keep_collection` keeps or leaves out a folder of them, `list_photos` lists its files (each with its size and when it last changed) and `keep_photo` one of them, and `backup_wants` says, and with changes allowed sets, whether a backup takes them (`wants`: any of `photos`, `videos`, `others`). Only you can put a kind of file on the list as other files; an agent can read the list (`list_file_kinds`) but never change it;
 - leave a folder you have named out of a backup, or put it back (`leave_out_folder`), so it is not looked through and what was found in it is no longer offered. Nothing in the folder, and nothing already backed up, is touched;
 - add a folder you have named as a destination, or cloud storage with its keys;
 - back up, check what arrived, pause, carry on and stop.

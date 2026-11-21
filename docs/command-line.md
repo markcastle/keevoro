@@ -253,7 +253,7 @@ The words each command shows in `keevoro --help` come from the same list the app
 | Command | What it does |
 | --- | --- |
 | `keevoro backups` | Every backup, with its sources, destinations, and how many files are safe and waiting. |
-| `keevoro backups start NAME` | Starts a new, empty backup; `--photos-only` or `--videos-only` for a backup of one kind. |
+| `keevoro backups start NAME` | Starts a new, empty backup, for everything Keevoro looks for; `--wants photos` (or `videos`, `others`, several with commas) for a backup of only some kinds. |
 | `keevoro backups rename NAME NEW` | Gives a backup a new name. |
 | `keevoro backups forget NAME` | Takes a backup off Keevoro's list. Nothing at any source or destination is touched. |
 
@@ -264,7 +264,7 @@ The words each command shows in `keevoro --help` come from the same list the app
 | `keevoro places` | The drives plugged into this computer. |
 | `keevoro survey PLACE` | Finds the folders in a drive or folder that hold photos and videos, reading listings only. |
 | `keevoro folders PLACE` | The folders inside a surveyed place that hold photos or videos, with how many each holds. |
-| `keevoro files FOLDER [--from N] [--count N] [--sort name\|newest\|oldest] [--photos\|--videos]` | The photos and videos directly in one folder, a page at a time, by name or by the file's date, with each video's length. Nothing is added. |
+| `keevoro files FOLDER [--from N] [--count N] [--sort name\|newest\|oldest] [--photos\|--videos\|--others]` | The photos and videos (and other files carried along) directly in one folder, a page at a time, by name or by the file's date, with each video's length. Nothing is added. |
 | `keevoro map PLACE [--folder FOLDER] [--depth N] [--kinds]` | Where the space goes in a surveyed place: every folder and the biggest files, photos or not, by size, or with `--kinds` by ending. Nothing is opened or changed. |
 | `keevoro forget-maps` | Forgets every survey Keevoro remembers, and so every map. Nothing on any drive is touched. |
 | `keevoro look PLACE` | Looks through a drive or folder and adds it as a source. |
@@ -273,7 +273,7 @@ The words each command shows in `keevoro --help` come from the same list the app
 | `keevoro sources forget SOURCE` | Takes a source off the backup. Nothing on it is touched. |
 | `keevoro sources types SOURCE` | The kinds of file on a source, and which are included. |
 | `keevoro sources types SOURCE --leave-out png` | Leaves out one kind of file; `--include png` brings it back. |
-| `keevoro sources photos-or-videos SOURCE [backup, both, photos or videos]` | Whether one source follows its backup's choice of photos or videos, or has its own. |
+| `keevoro sources wants SOURCE [backup \| KINDS]` | What one source is for: the same as its backup (`backup`), or its own choice of one or more of `photos`, `videos` and `others`. |
 | `keevoro sources leave-out FOLDER [--put-back]` | Leaves a folder out of this backup, so it is not looked through and what was found in it is no longer offered; `--put-back` includes it again. It need not be in a source yet. Nothing in it, or already backed up, is touched. |
 
 A source is named by its number, its place or its name, as `keevoro sources` lists them.
@@ -284,14 +284,19 @@ One list for the whole of Keevoro, the same as Settings, Advanced, in the app. A
 
 | Command | What it does |
 | --- | --- |
-| `keevoro kinds` | Every kind on the list: its ending, photo or video, built in or yours, and whether it is looked for. |
+| `keevoro kinds` | Every kind on the list: its ending, photo, video or other, built in or yours, and whether it is looked for. |
 | `keevoro kinds add heif --photo` | Adds an ending to look for, as photos; `--video` for videos. |
+| `keevoro kinds add flac --other` | Adds an ending as other files, carried along: music, documents, anything. Keevoro will back these up exactly, but cannot show them or group them by date. |
 | `keevoro kinds off avi` | Stops looking for a kind; `keevoro kinds on avi` looks for it again. |
-| `keevoro kinds change xyz --video` | Makes a kind videos (or `--photo`), or gives one you added a new ending with `--to xyz2`. |
+| `keevoro kinds change xyz --video` | Makes a kind videos (or `--photo`, or `--other`), or gives one you added a new ending with `--to xyz2`. |
 | `keevoro kinds remove xyz` | Takes an ending you added off the list. A built-in one can only be switched off. |
 | `keevoro kinds reset` | Puts back the kinds Keevoro comes with, all on. Kinds you added stay. |
 
-An ending is typed with or without its dot, in any case: `.HEIF` and `heif` are the same. It is letters and numbers only, and cannot be one for programs, documents, music or archives (such as `exe`, `pdf`, `mp3` or `zip`), which Keevoro never looks inside. A kind you add is found by its ending alone, so Keevoro backs it up exactly even when it cannot open it, with no preview.
+An ending is typed with or without its dot, in any case: `.HEIF` and `heif` are the same. It is letters and numbers only. One for programs, documents, music or archives (such as `exe`, `pdf`, `mp3` or `zip`) is never a photo or a video, so it can only be added with `--other`. A kind you add is found by its ending alone, so Keevoro backs it up exactly even when it cannot open it, with no preview.
+
+### Other files, carried along
+
+Once a kind is on the list as other files, a search finds them (reading each only to fingerprint it), and they are backed up and proved exactly like photos, into `originals/Other files`, in the folders they came from. They are listed by those folders, never by date: `keevoro collections` lists them last, under "Other files", each folder kept or left out as a whole with `keevoro keep "Other files / Mum / Documents"` (or `skip`), and `keevoro photos "Other files / Mum / Documents"` lists its files, each with its size and when it last changed, to keep or skip one by one with `--photo CODE`. Counts name them: "30 photos, 2 videos and 40 other files". `keevoro files FOLDER --others` lists only the other files in a folder, and `keevoro wants photos videos` leaves them out of a backup while keeping the kind on the list. Nothing is an other file until you add a kind: out of the box, Keevoro finds exactly what it always did. Three system files are never taken, whatever is on the list: Windows' `pagefile.sys`, `hiberfil.sys` and `swapfile.sys`, and the Mac's `sleepimage`.
 
 ### Choosing
 
@@ -331,7 +336,7 @@ A collection is named by its whole name, such as "Holidays / Cornwall", or by it
 | `keevoro history` | How earlier backups went: when, where, how much, how long, numbered from the newest. |
 | `keevoro history N` | Everything recorded about one of them, by its number. |
 | `keevoro last-backup` | What the last backup said when it ended. |
-| `keevoro photos-or-videos [both, photos or videos]` | Whether the backup is for photos and videos, photos only or videos only. It counts at once on what was found; nothing already backed up is touched. |
+| `keevoro wants [KINDS]` | What the backup is for: one or more of `photos`, `videos` and `others` (other files, once a kind of them is on the list), as words of their own or with commas. It counts at once on what was found; nothing already backed up is touched. |
 | `keevoro previews [on or off]` | Whether the backup also makes previews for a gallery, or sends the originals alone. |
 
 `look`, `survey`, `run` and `check` each take `--detach`.

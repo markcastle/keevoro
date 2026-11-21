@@ -64,7 +64,7 @@ Small, known, and better closed while the work is fresh.
 
 Keevoro stays a photo and video tool, but can take your other files with it: music, documents, project files. Asked for by the owner. It comes after the map, which is where a person sees what else a folder holds. See "Other kinds of file".
 
-- [ ] A third kind in the kinds list, "other": found, backed up exactly and listed by folder, with no previews and no clever grouping
+- [x] A third kind in the kinds list, "other": found, backed up exactly and listed by folder, with no previews and no clever grouping
 
 ### 4. Scheduled and repeat backups
 
@@ -457,16 +457,16 @@ The backup itself does not mind what a file is: finding, fingerprinting, leaving
 
 Step 1: "other" files, carried along
 
-- [ ] A third kind beside photo and video in the kinds list: "other". Any ending can be added as it, including the ones refused today (music, documents, archives); the guard becomes a choice, with a plain line about what to expect
-- [ ] Nothing is added by default: Keevoro finds photos and videos unless a person adds something
-- [ ] Other files are found, fingerprinted, told apart from their exact copies, backed up and proved exactly like any other file
-- [ ] Listed by the folders they came from, kept as the person arranged them, not grouped by date
-- [ ] No previews are attempted: a plain tile with the file's name and kind
-- [ ] "Photos only" and "videos only" gain their natural partners, so a backup or a source can be for other files only, or for everything
-- [ ] Counts and wording stay true: "238 photos, 11 videos and 40 other files", and screens that say "photos and videos" are checked one by one
-- [ ] The survey and the map count a wanted "other" kind as wanted, not as "everything else"
-- [ ] The backup's layout at the destination says where other files go, and the guide note explains it
-- [ ] On the command line and in the API; readable by an AI agent, which cannot change the list
+- [x] A third kind beside photo and video in the kinds list: "other". Any ending can be added as it, including the ones refused today (music, documents, archives); the guard becomes a choice, with a plain line about what to expect. Nothing is refused by ending; Windows' page, hibernation and swap files and the Mac's sleep image are never taken, by name
+- [x] Nothing is added by default: Keevoro finds photos and videos unless a person adds something
+- [x] Other files are found, fingerprinted, told apart from their exact copies, backed up and proved exactly like any other file
+- [x] Listed by the folders they came from, kept as the person arranged them, not grouped by date: "Other files" under the collections, a folder at a time, each opening to a plain list
+- [x] No previews are attempted: a plain tile with the file's name and kind, and a closer look that is its details and Show in File Explorer
+- [x] "Photos only" and "videos only" gain their natural partners, so a backup or a source can be for other files only, or for everything: tick boxes, at least one ticked, "Other files" only once a kind of them is listed
+- [x] Counts and wording stay true: "238 photos, 11 videos and 40 other files", and screens that say "photos and videos" are checked one by one
+- [x] The survey and the map count a wanted "other" kind as wanted, not as "everything else"
+- [x] The backup's layout at the destination says where other files go (`originals/Other files`, in their folders), and the guide note explains it
+- [x] On the command line and in the API; readable by an AI agent, which cannot change the list
 
 Step 2: music done properly (later, and only if step 1 is used for music)
 
