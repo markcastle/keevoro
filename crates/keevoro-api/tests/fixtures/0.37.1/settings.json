@@ -1,0 +1,37 @@
+{
+  "backups": [
+    {
+      "id": "backup-1",
+      "name": "Family photos",
+      "home": "{json:DATA}/backups/backup-1"
+    },
+    {
+      "id": "backup-2",
+      "name": "Drone footage",
+      "home": "{json:DATA}/backups/backup-2"
+    }
+  ],
+  "current": "backup-2",
+  "plain_decoding": true,
+  "agents": {
+    "lookIn": [
+      "{json:CARD}"
+    ],
+    "backUpTo": [
+      "{json:USB}"
+    ],
+    "mayChange": true
+  },
+  "file_kinds": [
+    {
+      "ending": "xyz",
+      "kind": "video",
+      "on": true
+    },
+    {
+      "ending": "png",
+      "kind": "photo",
+      "on": false
+    }
+  ]
+}

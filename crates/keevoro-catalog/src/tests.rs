@@ -305,6 +305,92 @@ fn uploads_are_tracked_per_storage_target() {
 }
 
 #[test]
+fn a_file_found_gone_is_written_down_as_gone_and_counts_as_not_there_until_it_is_sent_again() {
+    let c = Catalog::in_memory().unwrap();
+    for key in ["originals/a.jpg", "originals/b.jpg", "originals/c.jpg"] {
+        c.mark_uploaded("usb", key, 10).unwrap();
+    }
+    c.mark_uploaded("nas", "originals/a.jpg", 10).unwrap();
+    c.set_seen(
+        "usb",
+        &[
+            ("originals/a.jpg".into(), Seen::Missing),
+            ("originals/b.jpg".into(), Seen::NotAsSent),
+            // A look never adds what Keevoro did not send.
+            ("originals/not-mine.jpg".into(), Seen::There),
+        ],
+    )
+    .unwrap();
+    assert!(!c.is_uploaded("usb", "originals/a.jpg").unwrap());
+    assert!(!c.is_uploaded("usb", "originals/b.jpg").unwrap());
+    assert!(c.is_uploaded("usb", "originals/c.jpg").unwrap());
+    assert_eq!(c.sent_state("usb", "originals/a.jpg").unwrap(), Some(Seen::Missing));
+    assert_eq!(c.sent_state("usb", "originals/not-mine.jpg").unwrap(), None);
+    assert!(
+        c.is_uploaded("nas", "originals/a.jpg").unwrap(),
+        "another place is its own"
+    );
+    assert!(c.stored_anywhere("originals/a.jpg").unwrap(), "it is still at the NAS");
+    assert!(!c.stored_anywhere("originals/b.jpg").unwrap());
+    let sent = |key: &str, seen| Sent {
+        key: key.into(),
+        bytes: 10,
+        seen,
+    };
+    assert_eq!(
+        c.sent_to("usb").unwrap(),
+        [
+            sent("originals/a.jpg", Seen::Missing),
+            sent("originals/b.jpg", Seen::NotAsSent),
+            sent("originals/c.jpg", Seen::There),
+        ]
+    );
+    assert_eq!(
+        c.seen_counts("usb", "originals/").unwrap(),
+        SeenCounts {
+            there: 1,
+            missing: 1,
+            not_as_sent: 1
+        }
+    );
+    assert_eq!(c.seen_counts("usb", "renditions/").unwrap().sent(), 0);
+    // Sent again, it is there again; found back where it was, likewise.
+    c.mark_uploaded("usb", "originals/a.jpg", 10).unwrap();
+    c.set_seen("usb", &[("originals/b.jpg".into(), Seen::There)]).unwrap();
+    assert!(c.is_uploaded("usb", "originals/a.jpg").unwrap());
+    assert!(c.is_uploaded("usb", "originals/b.jpg").unwrap());
+}
+
+#[test]
+fn what_an_older_catalog_says_was_sent_is_kept_and_counts_as_there_until_it_is_looked_for() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("catalog.sqlite");
+    {
+        // As every version before this one left it.
+        let conn = Connection::open(&file).unwrap();
+        for step in &MIGRATIONS[..8] {
+            conn.execute_batch(step).unwrap();
+        }
+        conn.pragma_update(None, "user_version", 8).unwrap();
+        conn.execute(
+            "INSERT INTO uploaded (target, key, bytes) VALUES ('folder:/usb', 'originals/a.jpg', 12)",
+            [],
+        )
+        .unwrap();
+    }
+    let c = Catalog::open(&file).unwrap();
+    assert!(c.is_uploaded("folder:/usb", "originals/a.jpg").unwrap());
+    assert_eq!(
+        c.sent_to("folder:/usb").unwrap(),
+        [Sent {
+            key: "originals/a.jpg".into(),
+            bytes: 12,
+            seen: Seen::There
+        }]
+    );
+}
+
+#[test]
 fn settings_are_small_named_values() {
     let c = Catalog::in_memory().unwrap();
     assert_eq!(c.setting("index_key").unwrap(), None);
@@ -642,7 +728,9 @@ fn raw_files_wrongly_set_aside_by_an_earlier_version_are_put_back() {
             item.height = Some(120);
         }
         c.save_scan("Card", &report, 1).unwrap();
-        // Rewind to before the fix, so opening again applies it.
+        // Rewind to before the fix, so opening again applies it, taking
+        // away what later steps add so that they can add it again.
+        c.conn.execute_batch("ALTER TABLE uploaded DROP COLUMN gone").unwrap();
         c.conn.pragma_update(None, "user_version", 6).unwrap();
     }
     let c = Catalog::open(&file).unwrap();
@@ -764,4 +852,54 @@ fn how_many_files_were_only_online_is_kept_with_the_source_until_it_is_looked_th
         )
         .unwrap();
     assert_eq!(left, 0, "nothing is kept about a source forgotten");
+}
+
+/// A catalog as 0.38.0 wrote it, with the backup set to photos only, one
+/// source to videos only and another to both, which 0.39.0 read as nothing
+/// chosen.
+#[test]
+fn photos_only_or_videos_only_chosen_before_0_39_is_carried_over() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("catalog.sqlite");
+    {
+        let conn = Connection::open(&file).unwrap();
+        for step in &MIGRATIONS[..8] {
+            conn.execute_batch(step).unwrap();
+        }
+        conn.pragma_update(None, "user_version", 8).unwrap();
+        conn.execute_batch(
+            r#"INSERT INTO sources (id, name, root, scanned_at) VALUES (1, 'Card', '/media/card', 1), (2, 'Drone', '/media/drone', 1), (3, 'Phone', '/media/phone', 1);
+               INSERT INTO settings (key, value) VALUES
+                 ('wants', '"photos"'),
+                 ('wants:/media/card', '"videos"'),
+                 ('wants:/media/drone', '"both"'),
+                 ('left_out_types:/media/card', '["png"]');"#,
+        )
+        .unwrap();
+    }
+    let c = Catalog::open(&file).unwrap();
+    assert_eq!(c.wants().unwrap(), keevoro_core::Wants::only(MediaKind::Photo));
+    assert_eq!(
+        c.source_wants(1).unwrap(),
+        Some(keevoro_core::Wants::only(MediaKind::Video))
+    );
+    assert_eq!(
+        c.source_wants(2).unwrap(),
+        Some(keevoro_core::Wants::default()),
+        "both, chosen for one source, still overrides the backup's photos only"
+    );
+    assert_eq!(
+        c.source_wants(3).unwrap(),
+        None,
+        "a source with no choice still follows its backup"
+    );
+    // Nothing else is touched, and a list written since is left alone.
+    assert_eq!(
+        c.setting("left_out_types:/media/card").unwrap().as_deref(),
+        Some(r#"["png"]"#)
+    );
+    c.set_wants(keevoro_core::Wants::only(MediaKind::Video)).unwrap();
+    drop(c);
+    let c = Catalog::open(&file).unwrap();
+    assert_eq!(c.wants().unwrap(), keevoro_core::Wants::only(MediaKind::Video));
 }

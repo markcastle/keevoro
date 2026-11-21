@@ -73,6 +73,8 @@ import { LeaveOutButton, LeftOutByYou, LeftOutSaid, leftOutByYou } from './leave
 import { VirtualTiles } from './tiles'
 import { BackupWants, SourceWants } from './wants'
 import { OtherFilesScreen, OtherFilesSection } from './otherFiles'
+import { ThereNow, WhatWasFound } from './whatIsThere'
+import { certain, outOfReachLine } from './thereWords'
 import type { Theme } from './theme'
 
 type Step = 'find' | 'choose' | 'send'
@@ -255,7 +257,15 @@ export function App() {
   const note: Record<Step, string> = {
     find: found && found.sources.length > 0 ? count(found.sources.length, 'source') : 'Start here',
     choose: anythingFound ? `Keeping ${thousands(waiting + safe)}` : '',
-    send: safe > 0 ? `${thousands(safe)} safe` : sendingTo ? 'Ready to send' : '',
+    // Said as safe only while Keevoro has looked there a moment ago.
+    send:
+      safe > 0
+        ? certain(found?.destinations ?? [])
+          ? `${thousands(safe)} safe`
+          : `${thousands(safe)} safe when last looked`
+        : sendingTo
+          ? 'Ready to send'
+          : '',
   }
   // A step can be opened once the one before it has something to show.
   const open: Record<Step, boolean> = { find: true, choose: anythingFound, send: anythingFound }
@@ -481,7 +491,16 @@ export function App() {
                   onClick={() => go('send')}
                 />
               ) : safe > 0 ? (
-                <Next back={() => go('find')} say="Everything you’re keeping has already been backed up." button="Next" onClick={() => go('send')} />
+                <Next
+                  back={() => go('find')}
+                  say={
+                    certain(found?.destinations ?? [])
+                      ? 'Everything you’re keeping has already been backed up.'
+                      : 'Everything you’re keeping was backed up when Keevoro last looked.'
+                  }
+                  button="Next"
+                  onClick={() => go('send')}
+                />
               ) : (
                 <Next back={() => go('find')} say="Nothing is being kept yet. Choose at least one collection." />
               )
@@ -2518,7 +2537,28 @@ function SendPanel(props: {
   }, [api, sending])
   // How much room is needed, and whether where it is going has it.
   const [room, setRoom] = useState<Room | null>(null)
-  const weigh = useCallback(() => api.room().then(setRoom).catch(onProblem), [api, onProblem])
+  // Asking for the room first looks at what is really at each destination
+  // (unless Keevoro did a moment ago), so the first answer is followed by
+  // reading the counts again, once, to show what that look found.
+  const lookedOnOpen = useRef(false)
+  const countAgain = useRef(onSent)
+  useEffect(() => {
+    countAgain.current = onSent
+  }, [onSent])
+  const weigh = useCallback(
+    () =>
+      api
+        .room()
+        .then((weighed) => {
+          setRoom(weighed)
+          if (!lookedOnOpen.current) {
+            lookedOnOpen.current = true
+            countAgain.current()
+          }
+        })
+        .catch(onProblem),
+    [api, onProblem],
+  )
 
   useEffect(() => {
     void weigh()
@@ -2781,10 +2821,11 @@ function SendPanel(props: {
                       to.name.replace(/^the /, 'The ')
                     )}
                   </span>
-                  <span className={to.waiting > 0 ? 'quiet small' : 'quiet small all-there'}>
-                    {to.waiting === 0
-                      ? `All ${thousands(to.there)} there`
-                      : `${thousands(to.there)} there · ${thousands(to.waiting)} waiting (${size(to.waitingBytes)})`}
+                  <span className={to.waiting > 0 || outOfReachLine(to) ? 'quiet small' : 'quiet small all-there'}>
+                    {outOfReachLine(to) ??
+                      (to.waiting === 0
+                        ? `All ${thousands(to.there)} there`
+                        : `${thousands(to.there)} there · ${thousands(to.waiting)} waiting (${size(to.waitingBytes)})`)}
                   </span>
                   {!running && to.folder && (
                     <ClearUnfinished api={api} folder={to.folder} label="Clear unfinished copies…" small onProblem={onProblem} />
@@ -2805,17 +2846,8 @@ function SendPanel(props: {
           )}
           {/* While a backup runs its own progress says what is left; these
               counts are from before it began and would only mislead. */}
-          {!sending && (
-            <p>
-              {props.waiting > 0
-                ? `${props.waiting.toLocaleString('en-GB')} ${props.waiting === 1 ? 'file is' : 'files are'} waiting to be backed up.${
-                    props.safe > 0 ? ` ${props.safe.toLocaleString('en-GB')} already there.` : ''
-                  }`
-                : props.safe > 0
-                  ? `Everything you are keeping is there: ${props.safe.toLocaleString('en-GB')} files.`
-                  : 'Nothing is being kept yet.'}
-            </p>
-          )}
+          {!sending && <WhatWasFound destinations={destinations} />}
+          {!sending && <ThereNow destinations={destinations} waiting={props.waiting} safe={props.safe} />}
           {!sending && room && room.needed > 0 && (
             <p className={room.enough ? 'needs' : 'needs short'} role={room.enough ? undefined : 'alert'}>
               {room.free === null ? (

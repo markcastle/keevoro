@@ -144,11 +144,19 @@ Keevoro checks every place works before adding it. For cloud storage, see [Cloud
 
 ### Back up
 
-See what backing up would do first, if you like. It changes nothing:
+See what backing up would do first, if you like. It sends nothing:
 
 ```sh
 keevoro rehearse
 ```
+
+Both this and `keevoro run` first look at what is really at each place you back up to, by name and size, so a backup folder emptied, swapped or cut short is said before anything is sent, and what has gone is sent again:
+
+```text
+The folder E:\Backup looks emptied or replaced: it no longer holds any of the 359 files Keevoro backed up there. They will be sent again.
+```
+
+A place that cannot be reached (a drive unplugged, a share offline, keys refused) is said to be out of reach, and nothing Keevoro knows about it is forgotten.
 
 Then back up:
 
@@ -330,7 +338,7 @@ A collection is named by its whole name, such as "Holidays / Cornwall", or by it
 
 | Command | What it does |
 | --- | --- |
-| `keevoro rehearse` | What backing up now would do: how many files, how much, to where. Changes nothing. |
+| `keevoro rehearse` | What backing up now would do: how many files, how much, to where, after looking at what is really at each place. Sends nothing. |
 | `keevoro run` | Backs up to every destination, originals first. |
 | `keevoro check` | Confirms what is at each destination. |
 | `keevoro history` | How earlier backups went: when, where, how much, how long, numbered from the newest. |

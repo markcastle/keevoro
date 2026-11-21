@@ -1900,3 +1900,172 @@ fn a_photo_with_a_path_longer_than_260_characters_is_found_pictured_and_backed_u
     assert_eq!(sent.len(), 1);
     assert_eq!(sent[0].1, std::fs::read(&photo).unwrap(), "exact");
 }
+
+/// Everything but what starts with a dot, as `rm -rf USB/*` removes.
+fn empty(folder: &Path) {
+    for entry in std::fs::read_dir(folder).unwrap().filter_map(|e| e.ok()) {
+        if entry.file_name().to_string_lossy().starts_with('.') {
+            continue;
+        }
+        let path = entry.path();
+        if path.is_dir() {
+            std::fs::remove_dir_all(path).unwrap();
+        } else {
+            std::fs::remove_file(path).unwrap();
+        }
+    }
+}
+
+fn run_to_its_end(keevoro: &Keevoro, named: &Named) -> SendEvent {
+    let job = keevoro.run_backup(named, None).unwrap();
+    let Some(Said::Send(last)) = keevoro.wait(job.id) else {
+        panic!("it says how it ended")
+    };
+    keevoro.wait_for_jobs();
+    last
+}
+
+/// The first outside tester's report: a backup deleted from its folder
+/// was said to be "already there".
+#[test]
+fn a_backup_deleted_from_its_folder_is_said_to_be_gone_before_anything_is_sent_and_is_sent_again() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro(dir.path());
+    let (named, _card, usb) = card_going_to_usb(dir.path(), &keevoro);
+    let first = run_to_its_end(&keevoro, &named);
+    assert_eq!(first.outcome, Some(Outcome::Worked), "{first:?}");
+    let all = there(&named);
+    assert!(all > 0);
+
+    empty(&usb);
+    let heads_up = format!(
+        "The folder {} looks emptied or replaced: it no longer holds any of the {all} files Keevoro backed up there. \
+         They will be sent again.",
+        usb.display()
+    );
+    // The rehearsal looks first, and says so before anything else.
+    let rehearsal = call(&keevoro, Op::BackupRehearse, Some(&named.name), Value::Null).unwrap();
+    assert_eq!(rehearsal["said"][0], json!(heads_up), "{rehearsal}");
+    assert_eq!(rehearsal["files"], json!(all), "{rehearsal}");
+    assert!(!rehearsal["said"].to_string().contains("already at"), "{rehearsal}");
+    // So does the backup screen, through the same record.
+    let backup = Backup::open(&named.home).unwrap();
+    let place = &backup.destinations().unwrap()[0];
+    assert_eq!((place.there, place.waiting), (0, all));
+    assert_eq!(place.looked.as_ref().unwrap().said, std::slice::from_ref(&heads_up));
+
+    // The backup says it first, sends them all again, and says so at the end
+    // and in its history.
+    let again = run_to_its_end(&keevoro, &named);
+    assert_eq!(again.outcome, Some(Outcome::Worked), "{again:?}");
+    assert_eq!(again.summary[0], heads_up, "{:?}", again.summary);
+    assert!(
+        again.summary.contains(&format!(
+            "Restored {} that had gone from there.",
+            keevoro_engine::summary::count(all, "file")
+        )),
+        "{:?}",
+        again.summary
+    );
+    assert!(
+        !again.summary.iter().any(|l| l.ends_with("already there.")),
+        "{:?}",
+        again.summary
+    );
+    assert_eq!(there(&named), all);
+    let history = backup.history().unwrap();
+    let detail = history[0].detail.as_ref().unwrap();
+    assert_eq!(detail.destinations[0].originals.restored, all);
+    let in_full = crate::words::run_in_full(&history[0]).join("\n");
+    assert!(
+        in_full.contains("sent again because they had gone from there"),
+        "{in_full}"
+    );
+}
+
+#[test]
+fn what_check_they_all_arrived_finds_missing_backing_up_again_sends() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro(dir.path());
+    let (named, _card, usb) = card_going_to_usb(dir.path(), &keevoro);
+    run_to_its_end(&keevoro, &named);
+    let all = there(&named);
+    // One original goes missing.
+    let mut originals = Vec::new();
+    let mut stack = vec![usb.join("originals")];
+    while let Some(at) = stack.pop() {
+        for entry in std::fs::read_dir(at).unwrap().filter_map(|e| e.ok()) {
+            if entry.path().is_dir() {
+                stack.push(entry.path());
+            } else {
+                originals.push(entry.path());
+            }
+        }
+    }
+    std::fs::remove_file(&originals[0]).unwrap();
+
+    let job = keevoro.check_backup(&named, None).unwrap();
+    let Some(Said::Send(checked)) = keevoro.wait(job.id) else {
+        panic!("it says how it ended")
+    };
+    keevoro.wait_for_jobs();
+    assert!(
+        checked
+            .summary
+            .iter()
+            .any(|l| l == "Back up again to send anything that is missing."),
+        "{checked:?}"
+    );
+    // What the check found is what every screen now says.
+    assert_eq!(there(&named), all - 1);
+    let again = run_to_its_end(&keevoro, &named);
+    assert!(
+        again.summary.iter().any(|l| l.starts_with("Safely backed up 1 file ")),
+        "{:?}",
+        again.summary
+    );
+    assert!(originals[0].is_file(), "it was sent again");
+    assert_eq!(there(&named), all);
+}
+
+#[test]
+fn a_destination_unplugged_is_said_to_be_out_of_reach_and_nothing_it_holds_is_forgotten() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro(dir.path());
+    let (named, _card, usb) = card_going_to_usb(dir.path(), &keevoro);
+    run_to_its_end(&keevoro, &named);
+    let all = there(&named);
+    let away = dir.path().join("unplugged");
+    std::fs::rename(&usb, &away).unwrap();
+
+    let rehearsal = call(&keevoro, Op::BackupRehearse, Some(&named.name), Value::Null).unwrap();
+    let said = rehearsal["said"].to_string();
+    assert!(said.contains("what is there can't be confirmed"), "{said}");
+    assert!(said.contains("Is it plugged in?"), "{said}");
+    assert!(!said.contains("no longer holds"), "{said}");
+    assert_eq!(
+        rehearsal["files"],
+        json!(0),
+        "nothing would be sent to where it cannot go"
+    );
+    assert_eq!(there(&named), all, "what was there is still counted as there");
+    let room = call(&keevoro, Op::DestinationsRoom, Some(&named.name), Value::Null).unwrap();
+    assert_eq!(room["places"][0]["files"], json!(0), "{room}");
+
+    let last = run_to_its_end(&keevoro, &named);
+    assert_eq!(last.outcome, Some(Outcome::Unreachable), "{last:?}");
+    assert!(!usb.exists(), "the folder is never made again where the drive was");
+    std::fs::rename(&away, &usb).unwrap();
+    assert_eq!(there(&named), all);
+    let back = run_to_its_end(&keevoro, &named);
+    assert!(
+        back.summary
+            .iter()
+            .any(|l| l == &format!("{} already there.", keevoro_engine::summary::count(all, "file"))),
+        "{:?}",
+        back.summary
+    );
+}

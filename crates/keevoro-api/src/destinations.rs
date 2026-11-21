@@ -152,6 +152,10 @@ pub struct WaitingAt {
     pub free: Option<u64>,
     /// False only when the files are known not to fit.
     pub enough: bool,
+    /// What Keevoro found when it last looked there. Not said before it
+    /// has looked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub looked: Option<keevoro_engine::confirm::LookedView>,
 }
 
 /// The one line the app shows about room: the destination most worth
@@ -179,8 +183,9 @@ pub struct Room {
     pub at_a_glance: RoomAtAGlance,
 }
 
-/// `backup.rehearse`: what backing up now would do. Nothing is changed by
-/// working it out.
+/// `backup.rehearse`: what backing up now would do. Nothing is sent or
+/// changed by working it out; only Keevoro's count of what is at each
+/// destination is brought up to date with what is really there.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Rehearsal {
@@ -270,6 +275,15 @@ impl Backup {
                 Error::from(e)
             }
         })?;
+        // What is there already is looked at now, so a place backed up to
+        // before (by this backup, before it was taken off) is counted as it
+        // really is from the start.
+        if let Some(added) = connect::destinations(self.catalog())?
+            .into_iter()
+            .find(|d| d.same_place(&saved))
+        {
+            keevoro_engine::confirm::look(self.catalog(), &added, &world)?;
+        }
         // What the last backup said was about the places as they were.
         let _ = self.forget_last_summary();
         let at = connect::destinations(self.catalog())?
@@ -323,13 +337,23 @@ impl Backup {
                     bytes: d.waiting_bytes,
                     free: room.map(|r| r.free),
                     enough: room.is_none_or(|r| r.is_enough()),
+                    looked: d.looked.clone(),
                 }
             })
             .collect();
         Ok((found, places))
     }
 
-    /// `destinations.room`
+    /// `destinations.room`, as the backup screen asks it when it opens:
+    /// each destination is looked at first unless it was a moment ago
+    /// (`keevoro_engine::confirm::FRESH_FOR`), so what is waiting is what
+    /// is really missing there.
+    pub fn room_looking(&self, world: &World<'_>) -> Result<Room> {
+        keevoro_engine::confirm::look_where_due(self.catalog(), world, keevoro_engine::confirm::now())?;
+        self.room()
+    }
+
+    /// `destinations.room` from what Keevoro knows, asking no destination.
     pub fn room(&self) -> Result<Room> {
         let (found, places) = self.waiting_at()?;
         let folders: Vec<&WaitingAt> = places.iter().filter(|p| p.folder.is_some()).collect();
@@ -355,15 +379,29 @@ impl Backup {
     }
 
     /// `backup.rehearse`: what backing up now would send, and to where.
-    pub fn rehearse(&self) -> Result<Rehearsal> {
+    /// Each destination is looked at first, as a backup does, so what has
+    /// gone from one is said before anything else, and one that cannot be
+    /// reached is said to be out of reach, never empty.
+    pub fn rehearse(&self, world: &World<'_>) -> Result<Rehearsal> {
+        keevoro_engine::confirm::look_everywhere(self.catalog(), world)?;
         let (found, to) = self.waiting_at()?;
-        let files = to.iter().map(|p| p.files).sum();
-        let bytes = to.iter().map(|p| p.bytes).sum();
         let mut said = Vec::new();
         if to.is_empty() {
             said.push("There is nowhere to back up to yet. Add a destination first.".to_string());
         }
+        let out_of_reach = |place: &WaitingAt| place.looked.as_ref().is_some_and(|l| !l.reached);
         for place in &to {
+            if let Some(looked) = &place.looked {
+                said.extend(looked.said.iter().cloned());
+            }
+        }
+        let files = to.iter().filter(|p| !out_of_reach(p)).map(|p| p.files).sum();
+        let bytes = to.iter().filter(|p| !out_of_reach(p)).map(|p| p.bytes).sum();
+        for place in &to {
+            // Already said, and a backup will not go there.
+            if out_of_reach(place) {
+                continue;
+            }
             if place.files == 0 {
                 said.push(format!("Everything being kept is already at {}.", place.name));
                 continue;
@@ -598,7 +636,11 @@ mod tests {
     #[test]
     fn a_rehearsal_says_what_would_go_where_and_changes_nothing() {
         let (dir, _card, backup) = one_backup();
-        let nowhere = backup.rehearse().unwrap();
+        let world = World {
+            secrets: &MemorySecrets::default(),
+            environment: &no_environment,
+        };
+        let nowhere = backup.rehearse(&world).unwrap();
         assert_eq!((nowhere.files, nowhere.bytes, nowhere.not_yet_safe), (0, 0, 3));
         assert_eq!(
             nowhere.said,
@@ -613,7 +655,7 @@ mod tests {
                 .unwrap();
         }
         let before = backup.found().unwrap();
-        let rehearsal = backup.rehearse().unwrap();
+        let rehearsal = backup.rehearse(&world).unwrap();
         assert_eq!(rehearsal.to.len(), 2);
         assert_eq!(rehearsal.files, 6, "three files to each of two places");
         assert_eq!(rehearsal.bytes, 2 * before.waiting_bytes);

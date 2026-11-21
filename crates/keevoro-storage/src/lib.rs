@@ -155,6 +155,26 @@ pub trait ObjectStore: Send + Sync {
     /// Lists objects whose keys start with `prefix`, in key order.
     async fn list_page(&self, prefix: &str, continuation: Option<String>) -> Result<ListPage, StorageError>;
 
+    /// Every object whose key starts with `prefix`, with its size, in no
+    /// promised order: the quick way to learn what is really there, by
+    /// name and size, without reading any file or asking about each one.
+    /// The default goes through [`ObjectStore::list_page`] a page at a
+    /// time; a store that can do better (a folder, which can read each
+    /// folder's listing once) does. Any problem part-way is an error, never
+    /// a shorter list, so what could not be listed is never taken for gone.
+    async fn list_all(&self, prefix: &str) -> Result<Vec<ObjectInfo>, StorageError> {
+        let mut all = Vec::new();
+        let mut next = None;
+        loop {
+            let page = self.list_page(prefix, next).await?;
+            all.extend(page.objects);
+            match page.next {
+                Some(more) => next = Some(more),
+                None => return Ok(all),
+            }
+        }
+    }
+
     async fn delete(&self, key: &ObjectKey) -> Result<(), StorageError>;
 }
 

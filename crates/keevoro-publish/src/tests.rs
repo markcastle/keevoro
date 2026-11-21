@@ -15,6 +15,9 @@ struct Flaky {
     drop_next: AtomicU32,
     /// Fail every write with "access denied".
     deny: bool,
+    /// Fail every question with a dropped connection, as a server out of
+    /// reach does.
+    out_of_reach: bool,
     puts: AtomicU32,
     parts: AtomicU32,
     /// Makes each write take a moment, as a far-off server does.
@@ -35,6 +38,7 @@ impl Flaky {
             inner,
             drop_next: AtomicU32::new(0),
             deny: false,
+            out_of_reach: false,
             puts: AtomicU32::new(0),
             parts: AtomicU32::new(0),
             slow: false,
@@ -70,6 +74,9 @@ impl ObjectStore for Flaky {
         self.inner.check_connection().await
     }
     async fn head(&self, key: &ObjectKey) -> Result<Option<ObjectInfo>, StorageError> {
+        if self.out_of_reach {
+            return Err(StorageError::Network("no route to host".into()));
+        }
         self.inner.head(key).await
     }
     async fn holds_exactly(&self, key: &ObjectKey, blake3: &str) -> Result<Option<bool>, StorageError> {
@@ -767,6 +774,59 @@ async fn missing_and_altered_backup_copies_are_found() {
     assert_eq!(deep.problems.len(), 3);
     assert_eq!(deep.problems[2].key, "originals/swapped.jpg");
     assert_eq!(deep.problems[2].reason, "The backup's copy does not match the original");
+    // What was found of each, for Keevoro's record.
+    use keevoro_catalog::Seen;
+    assert_eq!(
+        deep.seen,
+        [
+            ("originals/gone.jpg".to_string(), Seen::Missing),
+            ("originals/shrunk.jpg".to_string(), Seen::NotAsSent),
+            ("originals/swapped.jpg".to_string(), Seen::NotAsSent),
+            ("originals/fine.jpg".to_string(), Seen::There),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn a_check_that_cannot_reach_the_storage_finds_nothing_gone() {
+    let mut w = World::new().await;
+    let upload = w.file("originals/a.jpg", b"photo a", true);
+    w.publish(std::slice::from_ref(&upload), &quick()).await;
+    w.store.out_of_reach = true;
+    let check = check_backup(&w.store, &[expected(&upload)], false, &quick(), &mut |_| {}).await;
+    assert_eq!(check.problems.len(), 1, "it is said");
+    assert!(check.seen.is_empty(), "but nothing is taken for gone");
+}
+
+#[tokio::test]
+async fn a_file_found_gone_is_sent_again_and_counted_as_restored() {
+    let w = World::new().await;
+    let uploads = [
+        w.file("originals/a.jpg", b"photo a", true),
+        w.file("originals/b.jpg", b"photo b", true),
+        w.file("renditions/thumb/a.webp", b"thumb", false),
+    ];
+    w.publish(&uploads, &quick()).await;
+    // Someone deleted one original and its preview; a look found them gone.
+    for key in ["originals/a.jpg", "renditions/thumb/a.webp"] {
+        w.store.inner.delete(&ObjectKey::new(key).unwrap()).await.unwrap();
+    }
+    w.catalog
+        .set_seen(
+            "test",
+            &[
+                ("originals/a.jpg".into(), keevoro_catalog::Seen::Missing),
+                ("renditions/thumb/a.webp".into(), keevoro_catalog::Seen::Missing),
+            ],
+        )
+        .unwrap();
+    let again = w.publish(&uploads, &quick()).await;
+    assert_eq!((again.uploaded, again.restored, again.already_there), (2, 2, 1));
+    assert_eq!(w.stored("originals/a.jpg").await, b"photo a");
+    assert!(w.catalog.is_uploaded("test", "originals/a.jpg").unwrap());
+    // And next time, nothing.
+    let third = w.publish(&uploads, &quick()).await;
+    assert_eq!((third.uploaded, third.restored, third.already_there), (0, 0, 3));
 }
 
 #[tokio::test]

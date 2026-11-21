@@ -227,3 +227,83 @@ async fn a_long_job_answers_at_once_and_is_followed_with_job_status() {
     assert_eq!(json[0]["startedBy"], "agent");
     app.close().await;
 }
+
+/// The first outside tester's report, as an agent hears it: a backup
+/// deleted from its folder is said to be gone before anything is sent, and
+/// is sent again.
+#[tokio::test]
+async fn an_agent_hears_that_a_backup_deleted_from_its_folder_is_gone_and_is_sent_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let card = dir.path().join("Card");
+    std::fs::create_dir_all(card.join("Trip")).unwrap();
+    // Big enough not to be set aside as a tiny image.
+    image::RgbImage::from_pixel(640, 480, image::Rgb([10, 120, 60]))
+        .save(card.join("Trip").join("IMG_20240601_100000.jpg"))
+        .unwrap();
+    let usb = dir.path().join("USB");
+    let keevoro = keevoro(dir.path());
+    // Backed up once by the person, outside the async world the server runs in.
+    let (card_at, usb_at) = (card.clone(), usb.clone());
+    let keevoro = tokio::task::spawn_blocking(move || {
+        back_up_once(&keevoro, &card_at, &usb_at);
+        keevoro
+    })
+    .await
+    .unwrap();
+    // rm -rf USB/*
+    for entry in std::fs::read_dir(&usb).unwrap().filter_map(Result::ok) {
+        if !entry.file_name().to_string_lossy().starts_with('.') {
+            let path = entry.path();
+            if path.is_dir() {
+                std::fs::remove_dir_all(path).unwrap();
+            } else {
+                std::fs::remove_file(path).unwrap();
+            }
+        }
+    }
+    let gone = format!(
+        "The folder {} looks emptied or replaced: it no longer holds the file Keevoro backed up there. It will be \
+         sent again.",
+        usb.display()
+    );
+    let mut app = App::connect(keevoro).await;
+    let rehearsal = app.tool("rehearse_backup", json!({ "backup": "T" })).await;
+    let said = text_of(&rehearsal, 0);
+    assert!(said.starts_with(&gone), "{said}");
+    assert!(!said.contains("already at"), "{said}");
+
+    let started = app.tool("run_backup", json!({ "backup": "T" })).await;
+    assert_eq!(started["isError"], false, "{started}");
+    let id = started["structuredContent"]["id"].clone();
+    let status = app.tool("job_status", json!({ "job": id, "waitSeconds": 30 })).await;
+    let said = text_of(&status, 0);
+    assert!(said.contains(&gone), "{said}");
+    assert!(said.contains("Restored 1 file that had gone from there."), "{said}");
+    assert!(!said.contains("already there"), "{said}");
+    app.close().await;
+}
+
+/// A backup "T" of `card`, made by the person and sent once to `usb`, with
+/// an agent then allowed to back it up there.
+fn back_up_once(keevoro: &Keevoro, card: &Path, usb: &Path) {
+    let named = keevoro.start_backup("T").unwrap();
+    let looked = keevoro.look(&named, card, None).unwrap();
+    keevoro.wait(looked.id);
+    keevoro_api::call(
+        keevoro,
+        Op::DestinationsAdd,
+        Some("T"),
+        json!({ "kind": "folder", "place": usb.display().to_string() }),
+    )
+    .unwrap();
+    let ran = keevoro.run_backup(&named, None).unwrap();
+    keevoro.wait(ran.id);
+    keevoro.wait_for_jobs();
+    keevoro
+        .set_agent_access(AgentsAccessRequest {
+            look_in: Some(vec![card.display().to_string()]),
+            back_up_to: Some(vec![usb.display().to_string()]),
+            may_change: Some(true),
+        })
+        .unwrap();
+}

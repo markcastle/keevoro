@@ -303,7 +303,55 @@ export function demoBackend(): Backend {
     if (e.finished) lastSaid = e
   })
   // Where the open backup goes: each place, and how many files are there.
-  type Place = { name: string; kind: string; folder: string | null; there: number }
+  type Place = {
+    name: string
+    kind: string
+    folder: string | null
+    there: number
+    /** Files a look found gone from it, until a backup sends them again. */
+    gone?: number
+    /** The last look could not reach it. */
+    outOfReach?: boolean
+  }
+  // A test empties the first destination, or unplugs it, by hand, as a
+  // person might; Keevoro finds out the next time it looks there.
+  let emptyOnLook = false
+  let unplugOnLook = false
+  const byHand = window as unknown as { keevoroEmptyTheFolder: () => void; keevoroUnplugTheFolder: () => void }
+  byHand.keevoroEmptyTheFolder = () => (emptyOnLook = true)
+  byHand.keevoroUnplugTheFolder = () => (unplugOnLook = true)
+  // What Keevoro would say of a destination it has just looked at, in the
+  // words keevoro_engine::confirm uses.
+  const lookedAt = (d: Place) => {
+    const now = Date.now() / 1000
+    if (d.outOfReach) {
+      return {
+        at: now,
+        lastReached: now - 2 * 86_400,
+        fresh: false,
+        reached: false,
+        gone: 0,
+        notAsSent: 0,
+        said: [
+          `Keevoro can't find the folder ${d.folder}. Is it plugged in? Until Keevoro can reach ${d.name}, what is there can't be confirmed: everything is counted as it was when Keevoro last reached it, 2 days ago.`,
+        ],
+      }
+    }
+    const gone = d.gone ?? 0
+    const name = d.name.charAt(0).toUpperCase() + d.name.slice(1)
+    return {
+      at: now,
+      lastReached: now,
+      fresh: true,
+      reached: true,
+      gone,
+      notAsSent: 0,
+      said:
+        gone > 0
+          ? [`${name} looks emptied or replaced: it no longer holds any of the ${gone.toLocaleString('en-GB')} files Keevoro backed up there. They will be sent again.`]
+          : [],
+    }
+  }
   let dests: Place[] = []
   let sendingTo: string | null = null
   const said = () => {
@@ -599,7 +647,15 @@ export function demoBackend(): Backend {
       destinations: dests.map((d) => {
         const all = kept.reduce((n, c) => n + c.photos + c.videos, 0) + keptOthers.length
         const there = Math.min(d.there, all)
-        return { name: d.name, kind: d.kind, folder: d.folder, there, waiting: all - there, waitingBytes: (all - there) * 3.2 * 1024 * 1024 }
+        return {
+          name: d.name,
+          kind: d.kind,
+          folder: d.folder,
+          there,
+          waiting: all - there,
+          waitingBytes: (all - there) * 3.2 * 1024 * 1024,
+          looked: lookedAt(d),
+        }
       }),
       collections: [...collections.map((c) => ({ ...c })), ...folders],
     }
@@ -832,6 +888,20 @@ export function demoBackend(): Backend {
       previews = wanted
     },
     room: async () => {
+      // Asking for the room looks at each destination first.
+      const first = dests[0]
+      if (first && first.there > 0 && emptyOnLook) {
+        emptyOnLook = false
+        first.gone = first.there
+        first.there = 0
+        sentSoFar = 0
+        collections.forEach((c) => (c.gathered = 0))
+        otherSent.clear()
+      }
+      if (first && first.there > 0 && unplugOnLook) {
+        unplugOnLook = false
+        first.outOfReach = true
+      }
       const folder = sendingTo?.startsWith('the folder') ? sendingTo.replace('the folder ', '') : null
       // `?full` pretends the chosen disk is nearly full.
       const free = folder ? (new URLSearchParams(window.location.search).has('full') ? 90 * 1024 * 1024 : 118 * 1024 ** 3) : null
@@ -1182,6 +1252,10 @@ export function demoBackend(): Backend {
           )
         }
         const fresh = total - sentSoFar
+        // What a look found gone is said first, and sent again.
+        const goneSaid = dests.flatMap((d) => lookedAt(d).said)
+        const restored = dests.reduce((n, d) => n + (d.gone ?? 0), 0)
+        dests.forEach((d) => (d.gone = 0))
         sendStarted = null
         const now = Date.now() / 1000
         const to = sendingTo ?? ''
@@ -1227,9 +1301,11 @@ export function demoBackend(): Backend {
           l({
             finished: true,
             summary: [
+              ...goneSaid,
               fresh > 0
                 ? `Safely backed up ${fresh.toLocaleString('en-GB')} files.`
                 : `${total.toLocaleString('en-GB')} files already there.`,
+              ...(restored > 0 ? [`Restored ${restored.toLocaleString('en-GB')} files that had gone from there.`] : []),
               ...(fresh > 0 ? [`Previews added: ${(fresh * 2).toLocaleString('en-GB')} files.`] : []),
               ...(fresh > 0 ? ['That took about 2 minutes: 1.2 GB at an average of 12.8 MB a second.'] : []),
             ],

@@ -113,6 +113,24 @@ fn how_well_described(item: &FoundItem) -> (bool, std::cmp::Reverse<usize>, bool
     )
 }
 
+/// How long ago a moment was, both given in seconds since 1970, as a
+/// person says it: "just now", "5 minutes ago", "3 hours ago", "2 days
+/// ago", and the date beyond a month.
+pub fn ago(then: i64, now: i64) -> String {
+    let gone = now.saturating_sub(then).max(0);
+    let say = |n: i64, unit: &str| format!("{} ago", count(usize::try_from(n).unwrap_or(0), unit));
+    match gone {
+        0..60 => "just now".to_string(),
+        60..3_600 => say(gone / 60, "minute"),
+        3_600..86_400 => say(gone / 3_600, "hour"),
+        86_400..2_592_000 => say(gone / 86_400, "day"),
+        _ => match keevoro_core::PartialDate::from_unix_seconds(then) {
+            Some(d) => format!("on {:04}-{:02}-{:02}", d.year, d.month.unwrap_or(1), d.day.unwrap_or(1)),
+            None => "a long time ago".to_string(),
+        },
+    }
+}
+
 /// Sums up what was found. The items returned are the ones worth keeping
 /// (unique and not junk); collection `members` and `cover` index into them.
 #[cfg(test)]

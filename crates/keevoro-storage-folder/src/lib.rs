@@ -40,6 +40,9 @@ pub struct FolderStore {
     root: PathBuf,
     caps: Capabilities,
     watcher: Option<Watcher>,
+    /// How many folders' listings are read at the same time by
+    /// [`ObjectStore::list_all`]: one on a disk, a few across a network.
+    listing_at_once: usize,
 }
 
 impl FolderStore {
@@ -47,8 +50,35 @@ impl FolderStore {
     pub async fn open(root: impl Into<PathBuf>) -> Result<Self, StorageError> {
         let root = root.into();
         fs::create_dir_all(root.join(WORK_DIR)).await?;
-        Ok(Self {
+        Ok(Self::at(root))
+    }
+
+    /// A folder that is already there, opened only to look at what is in
+    /// it: nothing is made, not even Keevoro's working folder. A folder
+    /// that is not there is refused, never made, because a backup folder
+    /// that has gone is far more often a drive unplugged than a folder
+    /// someone wants made again on whatever disk is left.
+    pub fn look_at(root: impl Into<PathBuf>) -> Result<Self, StorageError> {
+        let root = root.into();
+        if !root.is_dir() {
+            return Err(StorageError::NotFound(root.display().to_string()));
+        }
+        Ok(Self::at(root))
+    }
+
+    /// Reads up to `folders` folders' listings at the same time when
+    /// listing everything: worth it across a network, where most of the
+    /// time goes on waiting for the far end, and not on a disk.
+    #[must_use]
+    pub fn listing_at_once(mut self, folders: usize) -> Self {
+        self.listing_at_once = folders.max(1);
+        self
+    }
+
+    fn at(root: PathBuf) -> Self {
+        Self {
             root,
+            listing_at_once: 1,
             caps: Capabilities {
                 multipart: Some(MultipartLimits {
                     min_part_bytes: 1024 * 1024,
@@ -62,7 +92,7 @@ impl FolderStore {
                 counts_its_own_bytes: false,
             },
             watcher: None,
-        })
+        }
     }
 
     /// Has `watcher` told about every few megabytes of a file as they are
@@ -256,6 +286,25 @@ impl ObjectStore for FolderStore {
             })
             .collect::<Result<_, StorageError>>()?;
         Ok(ListPage { objects, next })
+    }
+
+    async fn list_all(&self, prefix: &str) -> Result<Vec<ObjectInfo>, StorageError> {
+        let root = self.root.clone();
+        let prefix = prefix.to_string();
+        let at_once = self.listing_at_once;
+        let found = tokio::task::spawn_blocking(move || list_beneath(&root, &prefix, at_once))
+            .await
+            .map_err(|e| StorageError::Provider(e.to_string()))??;
+        found
+            .into_iter()
+            .map(|(k, bytes)| {
+                Ok(ObjectInfo {
+                    key: ObjectKey::new(k)?,
+                    bytes,
+                    metadata: BTreeMap::new(),
+                })
+            })
+            .collect()
     }
 
     async fn delete(&self, key: &ObjectKey) -> Result<(), StorageError> {
@@ -522,6 +571,109 @@ fn collect_keys(root: &Path) -> Result<Vec<(String, u64)>, StorageError> {
         }
     }
     Ok(out)
+}
+
+/// `(key, bytes)` for every file whose key starts with `prefix`, reading
+/// only the folders that can hold one: each folder's listing once, never a
+/// file's contents. On Windows a listing carries each file's size; on a
+/// Mac or Linux the size is one small question per file, which is what a
+/// file manager asks too. With `at_once` above one, that many folders are
+/// read at the same time, a level of the tree at a time.
+///
+/// Any folder that cannot be read is an error for the whole listing, so a
+/// drive unplugged part-way is never taken for files gone. Only the folder
+/// the prefix names being absent, in a root that is there, means nothing
+/// is there.
+fn list_beneath(root: &Path, prefix: &str, at_once: usize) -> Result<Vec<(String, u64)>, StorageError> {
+    // The deepest folder the prefix names whole: `originals/2019/` is the
+    // folder `originals/2019`; `originals/IMG` is inside `originals`.
+    let whole = match prefix.rfind('/') {
+        Some(at) => &prefix[..at],
+        None => "",
+    };
+    let mut start = root.to_path_buf();
+    for seg in whole.split('/').filter(|s| !s.is_empty()) {
+        if seg == "." || seg == ".." {
+            return Ok(Vec::new());
+        }
+        start.push(seg);
+    }
+    let mut level = vec![(start, whole.to_string())];
+    let mut out = Vec::new();
+    let mut first = true;
+    while !level.is_empty() {
+        let read: Vec<Result<Listed, std::io::Error>> = if at_once > 1 && level.len() > 1 {
+            let chunk = level.len().div_ceil(at_once);
+            std::thread::scope(|scope| {
+                let handles: Vec<_> = level
+                    .chunks(chunk)
+                    .map(|dirs| scope.spawn(move || dirs.iter().map(read_one).collect::<Vec<_>>()))
+                    .collect();
+                handles
+                    .into_iter()
+                    .flat_map(|h| {
+                        h.join()
+                            .unwrap_or_else(|_| vec![Err(std::io::Error::other("a listing stopped part-way"))])
+                    })
+                    .collect()
+            })
+        } else {
+            level.iter().map(read_one).collect()
+        };
+        let mut next = Vec::new();
+        for listed in read {
+            let listed = match listed {
+                Ok(listed) => listed,
+                // The prefix's own folder not being there, with the root
+                // there, is simply nothing there.
+                Err(e) if first && e.kind() == ErrorKind::NotFound && root.is_dir() => return Ok(out),
+                Err(e) => return Err(e.into()),
+            };
+            for (key, bytes) in listed.files {
+                if key.starts_with(prefix) {
+                    out.push((key, bytes));
+                }
+            }
+            next.extend(listed.folders);
+        }
+        first = false;
+        level = next;
+    }
+    Ok(out)
+}
+
+/// What one folder holds: its files by key with their sizes, and its
+/// folders, to be read next.
+struct Listed {
+    files: Vec<(String, u64)>,
+    folders: Vec<(PathBuf, String)>,
+}
+
+fn read_one((dir, prefix): &(PathBuf, String)) -> Result<Listed, std::io::Error> {
+    let mut listed = Listed {
+        files: Vec::new(),
+        folders: Vec::new(),
+    };
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().to_string();
+        if prefix.is_empty() && name == WORK_DIR {
+            continue;
+        }
+        let key = if prefix.is_empty() {
+            name
+        } else {
+            format!("{prefix}/{name}")
+        };
+        // Not followed: a link is neither a file nor a folder here.
+        let ty = entry.file_type()?;
+        if ty.is_dir() {
+            listed.folders.push((entry.path(), key));
+        } else if ty.is_file() {
+            listed.files.push((key, entry.metadata()?.len()));
+        }
+    }
+    Ok(listed)
 }
 
 /// Names that are valid object keys but cannot be files on Windows, which
@@ -1007,6 +1159,102 @@ mod tests {
         let second = s.list_page("p/", first.next).await.unwrap();
         assert_eq!(second.objects.len(), 5);
         assert!(second.next.is_none());
+    }
+
+    /// Every key and size `list_all` gives, in order.
+    async fn all_of(s: &FolderStore, prefix: &str) -> Vec<(String, u64)> {
+        let mut all: Vec<(String, u64)> = s
+            .list_all(prefix)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|o| (o.key.to_string(), o.bytes))
+            .collect();
+        all.sort();
+        all
+    }
+
+    #[tokio::test]
+    async fn everything_under_a_prefix_is_listed_with_its_size_one_folder_or_several_at_a_time() {
+        let (dir, s) = store().await;
+        let root = dir.path().join("library");
+        for (k, body) in [
+            ("originals/2019/a.jpg", &b"aaaa"[..]),
+            ("originals/2019/Spain/b.jpg", b"bb"),
+            ("originals/c.jpg", b""),
+            ("renditions/thumb/x.webp", b"x"),
+            ("What is in this backup.txt", b"note"),
+        ] {
+            s.put(
+                &ObjectKey::new(k).unwrap(),
+                ByteSource::Bytes(body.to_vec()),
+                &PutOptions::default(),
+            )
+            .await
+            .unwrap();
+        }
+        // Someone's own file beside the backup, and a link, are listed as
+        // what they are: the file by its name, the link not at all.
+        std::fs::write(root.join("originals").join("mine.txt"), b"mine").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(root.join("renditions"), root.join("originals").join("link")).unwrap();
+        let want = vec![
+            ("originals/2019/Spain/b.jpg".to_string(), 2),
+            ("originals/2019/a.jpg".to_string(), 4),
+            ("originals/c.jpg".to_string(), 0),
+            ("originals/mine.txt".to_string(), 4),
+        ];
+        assert_eq!(all_of(&s, "originals/").await, want);
+        let several = FolderStore::look_at(&root).unwrap().listing_at_once(4);
+        assert_eq!(
+            all_of(&several, "originals/").await,
+            want,
+            "several at a time says the same"
+        );
+        assert_eq!(all_of(&s, "originals/2019/S").await, [want[0].clone()]);
+        // The working folder is never listed, and a prefix with nothing
+        // under it lists nothing.
+        assert!(all_of(&s, "").await.iter().all(|(k, _)| !k.starts_with(WORK_DIR)));
+        assert_eq!(all_of(&s, "").await.len(), 6);
+        assert!(all_of(&s, "index/").await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_folder_that_is_not_there_is_looked_at_but_never_made() {
+        let dir = tempfile::tempdir().unwrap();
+        let gone = dir.path().join("USB stick");
+        assert!(matches!(FolderStore::look_at(&gone), Err(StorageError::NotFound(_))));
+        assert!(!gone.exists(), "looking makes nothing");
+        // One that is there is looked at without anything being made in it.
+        std::fs::create_dir(&gone).unwrap();
+        let s = FolderStore::look_at(&gone).unwrap();
+        assert!(s.list_all("originals/").await.unwrap().is_empty());
+        assert_eq!(std::fs::read_dir(&gone).unwrap().count(), 0);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_folder_that_cannot_be_read_part_way_is_a_problem_never_a_shorter_list() {
+        use std::os::unix::fs::PermissionsExt;
+        let (dir, s) = store().await;
+        for k in ["originals/a/1.jpg", "originals/b/2.jpg"] {
+            s.put(
+                &ObjectKey::new(k).unwrap(),
+                ByteSource::Bytes(b"x".to_vec()),
+                &PutOptions::default(),
+            )
+            .await
+            .unwrap();
+        }
+        let locked = dir.path().join("library").join("originals").join("b");
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let listed = s.list_all("originals/").await;
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+        // Running as an administrator reads anything, which proves nothing.
+        if std::fs::read_dir(&locked).is_ok() && listed.is_ok() && listed.as_ref().unwrap().len() == 2 {
+            return;
+        }
+        assert!(listed.is_err(), "{listed:?}");
     }
 
     mod sweeping {

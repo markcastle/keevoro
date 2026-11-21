@@ -799,6 +799,39 @@ try {
   assert.ok(await page.getByRole('button', { name: 'Back up now' }).isDisabled(), 'sending waits until there is room')
   await shot('9g-not-enough-room')
 
+  // --- A backup deleted from its folder (the first outside tester's
+  // report) is said to be gone before anything is sent, never "already
+  // there", and backing up again sends it all and says so.
+  await page.goto(`${base}/?fast`)
+  await page.getByRole('button', { name: 'Choose where they go' }).click()
+  await page.getByRole('button', { name: /^A folder/ }).click()
+  await page.getByRole('button', { name: 'Back up now' }).click()
+  await page.getByText(/^Everything you are keeping is there: [\d,]+ files\.$/).waitFor()
+  await page.evaluate(() => window.keevoroEmptyTheFolder())
+  // Keevoro looks again when the backup screen is opened.
+  await page.locator('.steps button').nth(1).click()
+  await page.getByRole('button', { name: 'Next' }).click()
+  const found = page.getByRole('status', { name: 'What Keevoro found where this backup goes' })
+  await found
+    .getByText(/^The folder F:\\Family Backup looks emptied or replaced: it no longer holds any of the [\d,]+ files Keevoro backed up there\. They will be sent again\.$/)
+    .waitFor()
+  await page.getByText(/^[\d,]+ files are waiting to be backed up\.$/).waitFor()
+  assert.equal(await page.getByText(/\d already there/).count(), 0, 'nothing gone is said to be there')
+  await shot('9x-backup-folder-emptied')
+  await page.getByRole('button', { name: 'Back up now' }).click()
+  await page.getByText(/^Restored [\d,]+ files that had gone from there\.$/).waitFor()
+  await page.getByText(/^Everything you are keeping is there: [\d,]+ files\.$/).waitFor()
+  assert.equal(await found.count(), 0, 'once sent again there is nothing more to say')
+  // Unplugged, it is out of reach, never empty, and what is there is not said as certain.
+  await page.evaluate(() => window.keevoroUnplugTheFolder())
+  await page.locator('.steps button').nth(1).click()
+  await page.getByRole('button', { name: 'Next' }).click()
+  await found
+    .getByText(/^Keevoro can't find the folder F:\\Family Backup\. Is it plugged in\? Until Keevoro can reach the folder F:\\Family Backup, what is there can't be confirmed: everything is counted as it was when Keevoro last reached it, 2 days ago\.$/)
+    .waitFor()
+  await page.getByText(/^Everything you are keeping was there when Keevoro last looked, 2 days ago: [\d,]+ files\.$/).waitFor()
+  await shot('9y-backup-folder-unplugged')
+
   // --- A search can be stopped, and then nothing from it is kept.
   await page.goto(`${base}/?demo=empty&slow`)
   await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()

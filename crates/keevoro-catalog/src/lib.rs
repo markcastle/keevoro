@@ -136,7 +136,79 @@ const MIGRATIONS: &[&str] = &[
     // can start. These make each an instant lookup.
     "CREATE INDEX IF NOT EXISTS collected_by_path ON collected(path);
      CREATE INDEX IF NOT EXISTS uploaded_by_key ON uploaded(key);",
+    // 9: what Keevoro sent is no longer simply believed. When a look at a
+    // destination finds a file it sent missing (`1`), or not the size it
+    // was sent at (`2`), its record says so instead of being thrown away,
+    // so every screen counts it as not there and the next backup knows it
+    // is sending it again. Everything recorded before was there when it was
+    // sent, so it starts as `0`, there, until it is looked for.
+    "ALTER TABLE uploaded ADD COLUMN gone INTEGER NOT NULL DEFAULT 0;",
+    // 10: until 0.39.0 a backup, or one source, was for "both", "photos"
+    // or "videos", kept as that one word. 0.39.0 made it a list of what it
+    // is for and read the old word as nothing chosen, so a backup or a
+    // source set to photos only or videos only went back to everything.
+    // Each old word becomes the list that means the same. A list already
+    // there is left alone.
+    "UPDATE settings SET value = '[\"photos\"]'
+     WHERE (key = 'wants' OR substr(key, 1, 6) = 'wants:') AND value = '\"photos\"';
+     UPDATE settings SET value = '[\"videos\"]'
+     WHERE (key = 'wants' OR substr(key, 1, 6) = 'wants:') AND value = '\"videos\"';
+     UPDATE settings SET value = '[\"photos\",\"videos\",\"others\"]'
+     WHERE (key = 'wants' OR substr(key, 1, 6) = 'wants:') AND value = '\"both\"';",
 ];
+
+/// What a look at a destination found of a file Keevoro sent there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Seen {
+    /// There, the size it was sent at.
+    There,
+    /// Not there at all.
+    Missing,
+    /// Something is there under its name, but not the size Keevoro sent.
+    NotAsSent,
+}
+
+impl Seen {
+    fn code(self) -> i64 {
+        match self {
+            Seen::There => 0,
+            Seen::Missing => 1,
+            Seen::NotAsSent => 2,
+        }
+    }
+
+    fn from_code(code: i64) -> Self {
+        match code {
+            1 => Seen::Missing,
+            2 => Seen::NotAsSent,
+            _ => Seen::There,
+        }
+    }
+}
+
+/// How many of the files Keevoro sent somewhere were found as they were
+/// sent, missing, or not the size they were sent at.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SeenCounts {
+    pub there: usize,
+    pub missing: usize,
+    pub not_as_sent: usize,
+}
+
+impl SeenCounts {
+    /// Every file Keevoro sent there.
+    pub fn sent(&self) -> usize {
+        self.there + self.missing + self.not_as_sent
+    }
+}
+
+/// One file Keevoro sent to a destination, as its record stands.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Sent {
+    pub key: String,
+    pub bytes: u64,
+    pub seen: Seen,
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum CatalogError {
@@ -884,11 +956,16 @@ impl Catalog {
             .is_some())
     }
 
-    /// Has anything been stored under this name in any storage?
+    /// Is anything stored under this name in any storage, as far as the
+    /// last look there found?
     pub fn stored_anywhere(&self, key: &str) -> Result<bool> {
         Ok(self
             .conn
-            .query_row("SELECT 1 FROM uploaded WHERE key = ?1 LIMIT 1", [key], |_| Ok(()))
+            .query_row(
+                "SELECT 1 FROM uploaded WHERE key = ?1 AND gone = 0 LIMIT 1",
+                [key],
+                |_| Ok(()),
+            )
             .optional()?
             .is_some())
     }
@@ -1091,16 +1168,78 @@ impl Catalog {
         Ok(())
     }
 
+    /// Is `key` at `target`: sent there, and found there the last time
+    /// Keevoro looked? The one question everything that counts what is
+    /// safe asks, so a file found gone is gone everywhere at once.
     pub fn is_uploaded(&self, target: &str, key: &str) -> Result<bool> {
+        Ok(self.sent_state(target, key)? == Some(Seen::There))
+    }
+
+    /// What the record says of `key` at `target`: `None` when Keevoro never
+    /// sent it there.
+    pub fn sent_state(&self, target: &str, key: &str) -> Result<Option<Seen>> {
         Ok(self
             .conn
             .query_row(
-                "SELECT 1 FROM uploaded WHERE target = ?1 AND key = ?2",
+                "SELECT gone FROM uploaded WHERE target = ?1 AND key = ?2",
                 params![target, key],
-                |_| Ok(()),
+                |r| r.get::<_, i64>(0),
             )
             .optional()?
-            .is_some())
+            .map(Seen::from_code))
+    }
+
+    /// Every file Keevoro sent to `target`, as its record stands.
+    pub fn sent_to(&self, target: &str) -> Result<Vec<Sent>> {
+        let mut q = self
+            .conn
+            .prepare("SELECT key, bytes, gone FROM uploaded WHERE target = ?1 ORDER BY key")?;
+        let rows = q.query_map([target], |r| {
+            Ok(Sent {
+                key: r.get(0)?,
+                bytes: u64::try_from(r.get::<_, i64>(1)?).unwrap_or(0),
+                seen: Seen::from_code(r.get(2)?),
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Of the files Keevoro sent to `target` whose names start with
+    /// `prefix`: how many were found there, how many missing, and how
+    /// many not the size they were sent at, the last time it looked.
+    pub fn seen_counts(&self, target: &str, prefix: &str) -> Result<SeenCounts> {
+        let mut q = self.conn.prepare(
+            "SELECT gone, COUNT(*) FROM uploaded WHERE target = ?1 AND substr(key, 1, length(?2)) = ?2 GROUP BY gone",
+        )?;
+        let rows = q.query_map(params![target, prefix], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))
+        })?;
+        let mut counts = SeenCounts::default();
+        for row in rows {
+            let (gone, n) = row?;
+            let n = usize::try_from(n).unwrap_or(0);
+            match Seen::from_code(gone) {
+                Seen::There => counts.there += n,
+                Seen::Missing => counts.missing += n,
+                Seen::NotAsSent => counts.not_as_sent += n,
+            }
+        }
+        Ok(counts)
+    }
+
+    /// Writes down what a look at `target` found of files Keevoro sent
+    /// there, all at once. Only files already recorded are touched: what a
+    /// look finds is never added as something Keevoro sent.
+    pub fn set_seen(&self, target: &str, found: &[(String, Seen)]) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        {
+            let mut q = tx.prepare("UPDATE uploaded SET gone = ?3 WHERE target = ?1 AND key = ?2")?;
+            for (key, seen) in found {
+                q.execute(params![target, key, seen.code()])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
     }
 
     /// Forgets what was uploaded to a target, so everything is checked
