@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.40.0] - 2026-11-21
+
 ### Added
 
 - **Manage backups: rename one, or remove one you no longer need.** Our first outside tester could not get rid of old trial backups. The backup switcher now has "Manage backups…", which lists every backup with what tells them apart: where it looks, where it backs up to, how many photos and videos it holds and how big, and when it last backed up. Rename one in place, open it, or remove it. Remove says exactly what it does before it does anything, on the page: Keevoro's record of that backup on this computer goes; everything already backed up stays where it is and is not touched; nothing on any source is touched; and its previews and working files on this computer (it says how much room they take) are cleared away. Only then does it offer "Remove this backup from Keevoro". In case of a slip, a removed backup can be put back, exactly as it was, for a week, from "Removed recently" on the same screen; after that it is cleared away by itself, or straight away with "Clear away now", and storage keys that only it used go from your computer's keychain then too. A backup that is being searched, backed up or checked cannot be renamed or removed until that finishes, and the screen says why. The last backup can be removed too, which takes Keevoro back to its first screen. A name can be at most 60 letters and must not be one another backup has. At the command line: `keevoro backups forget NAME` (with `--dry-run` to see what it would do first), `keevoro backups removed`, `keevoro backups put-back NAME` and `keevoro backups clear-away NAME`. An AI agent cannot remove a backup.
@@ -668,7 +672,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.39.1...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.40.0...HEAD
+[0.40.0]: https://github.com/markcastle/keevoro/compare/v0.39.1...v0.40.0
 [0.39.1]: https://github.com/markcastle/keevoro/compare/v0.39.0...v0.39.1
 [0.39.0]: https://github.com/markcastle/keevoro/compare/v0.38.0...v0.39.0
 [0.38.0]: https://github.com/markcastle/keevoro/compare/v0.37.1...v0.38.0

@@ -153,6 +153,11 @@ mod imp {
     }
 
     pub fn volume_of(folder: &Path) -> Option<String> {
+        // Windows will name the volume a path would be on even when nothing
+        // is there. A folder that is not there is on no disk.
+        if !folder.exists() {
+            return None;
+        }
         let wide: Vec<u16> = folder.as_os_str().encode_wide().chain([0]).collect();
         let mut root = [0u16; 1024];
         // SAFETY: the path ends in a nul, and the buffer's length is given.
