@@ -119,6 +119,10 @@ pub struct CollectionView {
     /// it came from rather than shown as photos.
     #[serde(skip_serializing_if = "is_false")]
     pub by_folder: bool,
+    /// A folder of photos and videos from a source that keeps its folders
+    /// as they are: shown as it will be in the backup, in folder order.
+    #[serde(skip_serializing_if = "is_false")]
+    pub kept_folders: bool,
     /// The room its files take, for a folder of other files.
     #[serde(skip_serializing_if = "is_zero")]
     pub bytes: u64,
@@ -193,9 +197,13 @@ fn keys_of(collections: &[keevoro_core::collections::Collection]) -> Vec<String>
     collections
         .iter()
         .map(|c| {
-            // A folder of other files is never taken for an album of the
-            // same name.
-            let first = c.by_folder.then_some(keevoro_core::OTHER_FILES);
+            // A folder of other files, or one kept as it is, is never taken
+            // for an album of the same name.
+            let first = if c.by_folder {
+                Some(keevoro_core::OTHER_FILES)
+            } else {
+                c.kept_folders.then_some(KEPT_AS_THEY_ARE)
+            };
             let plain = first
                 .into_iter()
                 .chain(c.parents.iter().map(String::as_str))
@@ -212,6 +220,9 @@ fn keys_of(collections: &[keevoro_core::collections::Collection]) -> Vec<String>
         })
         .collect()
 }
+
+/// What the key of a folder kept as it is starts with.
+pub const KEPT_AS_THEY_ARE: &str = "Kept as they are";
 
 /// The collection with this key, if it is still there.
 fn with_key<'a>(
@@ -383,6 +394,7 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
             videos: c.videos,
             others: c.others,
             by_folder: c.by_folder,
+            kept_folders: c.kept_folders,
             bytes: if c.by_folder {
                 members.iter().map(|i| i.bytes).sum()
             } else {
@@ -666,6 +678,7 @@ pub(crate) mod tests {
             videos: 0,
             others: 0,
             by_folder: false,
+            kept_folders: false,
             cover,
             members: vec![cover],
         };

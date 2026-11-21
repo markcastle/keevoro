@@ -796,6 +796,11 @@ pub fn wants(io: &mut Io<'_>, _: &ArgMatches, view: &Value) -> Said_ {
     Ok(Code::Worked)
 }
 
+pub fn arrange(io: &mut Io<'_>, _: &ArgMatches, view: &Value) -> Said_ {
+    writeln!(io.out, "{}", s(view, "said"))?;
+    Ok(Code::Worked)
+}
+
 pub fn previews(io: &mut Io<'_>, _: &ArgMatches, wanted: &Value) -> Said_ {
     if wanted.as_bool().unwrap_or(true) {
         writeln!(io.out, "This backup also makes previews, for a gallery to show.")?;

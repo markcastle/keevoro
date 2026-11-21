@@ -19,7 +19,7 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-use keevoro_core::{DateGuess, DateSource, FolderHints, JunkReason, PartialDate};
+use keevoro_core::{Arrange, DateGuess, DateSource, FolderHints, JunkReason, PartialDate};
 use keevoro_scan::{FoundItem, ScanReport, SkippedFolder, Unreadable};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::de::DeserializeOwned;
@@ -160,6 +160,16 @@ const MIGRATIONS: &[&str] = &[
     // those already agreed without regard to case, which this makes an
     // instant lookup. Only an index: nothing stored changes.
     "CREATE INDEX IF NOT EXISTS collected_by_path_nocase ON collected(path COLLATE NOCASE);",
+    // 12: a backup can now keep a source's folders exactly as they are
+    // instead of arranging by date, and a new backup is asked which. One
+    // made before the choice existed was arranged by date, and is not
+    // asked: anything in it at all (a source, a place, a setting) says it
+    // was used, and by date is written down. A new catalog has nothing in
+    // it yet when this runs, so it is asked.
+    "INSERT OR IGNORE INTO settings (key, value)
+     SELECT 'arrange', '\"byDate\"'
+     WHERE EXISTS (SELECT 1 FROM sources) OR EXISTS (SELECT 1 FROM collected)
+        OR EXISTS (SELECT 1 FROM settings);",
 ];
 
 /// What a look at a destination found of a file Keevoro sent there.
@@ -270,6 +280,22 @@ const WANTS: &str = "wants";
 /// The folders the person left out of this backup, kept in its settings
 /// as a list of full paths.
 const LEFT_OUT_FOLDERS: &str = "left_out_folders";
+
+/// How the backup arranges photos and videos, kept in its settings.
+/// Missing means by date, and not chosen yet.
+const ARRANGE: &str = "arrange";
+
+/// The arrangement the places were last agreed under, so a backup knows
+/// when it has changed.
+const ARRANGED_AS: &str = "arranged_as";
+
+/// When the arrangement was last changed after something had been sent,
+/// in seconds since 1970.
+const ARRANGE_CHANGED_AT: &str = "arrange_changed_at";
+
+fn arrange_key(root: &str) -> String {
+    format!("arrange:{root}")
+}
 
 fn wants_key(root: &str) -> String {
     format!("wants:{root}")
@@ -735,6 +761,7 @@ impl Catalog {
             sources.push(keevoro_core::SourceChoices {
                 wants: self.source_wants_at(&root)?,
                 endings_left_out: self.left_out_types(&root)?,
+                arrange: self.source_arrange_at(&root)?,
                 root: PathBuf::from(root),
             });
         }
@@ -742,7 +769,105 @@ impl Catalog {
             backup: self.wants()?,
             sources,
             left_out_folders: self.left_out_folders()?,
+            arrange: self.arrange()?.unwrap_or_default(),
         })
+    }
+
+    /// How this backup arranges photos and videos where it sends them;
+    /// `None` when nobody has chosen yet, which means by date.
+    pub fn arrange(&self) -> Result<Option<Arrange>> {
+        Ok(self.setting(ARRANGE)?.and_then(|text| serde_json::from_str(&text).ok()))
+    }
+
+    pub fn set_arrange(&self, arrange: Arrange) -> Result<()> {
+        self.set_setting(ARRANGE, &serde_json::to_string(&arrange).map_err(damaged)?)
+    }
+
+    /// A source's own arrangement; `None` when it follows the backup's.
+    pub fn source_arrange(&self, source: i64) -> Result<Option<Arrange>> {
+        match self.root_of(source)? {
+            Some(root) => self.source_arrange_at(&root),
+            None => Ok(None),
+        }
+    }
+
+    /// Sets a source's own arrangement, or with `None` makes it follow the
+    /// backup's. Kept by the source's place, like what it is for. False if
+    /// there is no such source.
+    pub fn set_source_arrange(&self, source: i64, arrange: Option<Arrange>) -> Result<bool> {
+        let Some(root) = self.root_of(source)? else {
+            return Ok(false);
+        };
+        match arrange {
+            Some(arrange) => {
+                self.set_setting(&arrange_key(&root), &serde_json::to_string(&arrange).map_err(damaged)?)?;
+            }
+            None => {
+                self.conn
+                    .execute("DELETE FROM settings WHERE key = ?1", [arrange_key(&root)])?;
+            }
+        }
+        Ok(true)
+    }
+
+    fn source_arrange_at(&self, root: &str) -> Result<Option<Arrange>> {
+        Ok(self
+            .setting(&arrange_key(root))?
+            .and_then(|text| serde_json::from_str(&text).ok()))
+    }
+
+    /// The arrangement places were last agreed under, as
+    /// `keevoro_core::arrange::arrangement_said` wrote it.
+    pub fn arranged_as(&self) -> Result<Option<String>> {
+        self.setting(ARRANGED_AS)
+    }
+
+    pub fn set_arranged_as(&self, said: &str) -> Result<()> {
+        self.set_setting(ARRANGED_AS, said)
+    }
+
+    /// When the arrangement was last changed after anything was sent.
+    pub fn arrange_changed_at(&self) -> Result<Option<i64>> {
+        Ok(self.setting(ARRANGE_CHANGED_AT)?.and_then(|t| t.parse().ok()))
+    }
+
+    pub fn set_arrange_changed_at(&self, at: i64) -> Result<()> {
+        self.set_setting(ARRANGE_CHANGED_AT, &at.to_string())
+    }
+
+    /// How many files with a place have been sent to at least one
+    /// destination: what a change of arrangement leaves where it is.
+    pub fn placed_and_sent(&self) -> Result<usize> {
+        let n: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM collected c WHERE EXISTS (SELECT 1 FROM uploaded u WHERE u.key = c.path)",
+            [],
+            |r| r.get(0),
+        )?;
+        Ok(usize::try_from(n).unwrap_or(0))
+    }
+
+    /// Forgets the place of each of these files that has never been sent
+    /// anywhere, so it can follow a new arrangement. A place that any
+    /// destination has a record of (found there or not, since a file gone
+    /// from a backup is sent again where it was), that an upload in parts
+    /// was started for, or that has a copy in the backup's own folder, is
+    /// never forgotten: a file is never moved once it is backed up.
+    /// Answers how many were forgotten.
+    pub fn forget_unsent_places(&self, hashes: &[&str]) -> Result<usize> {
+        let tx = self.conn.unchecked_transaction()?;
+        let mut forgotten = 0;
+        {
+            let mut q = tx.prepare(
+                "DELETE FROM collected WHERE blake3 = ?1 AND here = 0
+                 AND NOT EXISTS (SELECT 1 FROM uploaded WHERE key = collected.path)
+                 AND NOT EXISTS (SELECT 1 FROM multipart WHERE key = collected.path)",
+            )?;
+            for hash in hashes {
+                forgotten += q.execute([hash])?;
+            }
+        }
+        tx.commit()?;
+        Ok(forgotten)
     }
 
     fn left_out_types(&self, root: &str) -> Result<std::collections::BTreeSet<String>> {
@@ -760,19 +885,39 @@ impl Catalog {
     /// in it, so to everything else, counts and backups alike, it is simply
     /// not there. Nothing found is forgotten: changing a choice back brings
     /// it straight back.
+    ///
+    /// Photos and videos from a source that keeps its folders are given
+    /// those folders as their album here, in memory only
+    /// (`keevoro_core::arrange`), so collections, places and the index all
+    /// follow with no other change. Nothing is written back.
     pub fn load_reports(&self) -> Result<Vec<ScanReport>> {
+        self.reports(true)
+    }
+
+    /// As [`Catalog::load_reports`], with every album as it was found:
+    /// for what is written back with [`Catalog::save_scan`].
+    pub fn load_reports_as_found(&self) -> Result<Vec<ScanReport>> {
+        self.reports(false)
+    }
+
+    fn reports(&self, arranged: bool) -> Result<Vec<ScanReport>> {
         let choices = self.choices()?;
         let mut sources = self
             .conn
-            .prepare("SELECT id, root, other_files FROM sources ORDER BY id")?;
+            .prepare("SELECT id, root, other_files, name FROM sources ORDER BY id")?;
         let heads = sources
             .query_map([], |r| {
-                Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?))
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, i64>(2)?,
+                    r.get::<_, String>(3)?,
+                ))
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         heads
             .into_iter()
-            .map(|(id, root, other)| {
+            .map(|(id, root, other, name)| {
                 Ok(ScanReport {
                     root: PathBuf::from(&root),
                     items: {
@@ -789,6 +934,16 @@ impl Catalog {
                             };
                             choices.offered_in(&facts, &root).is_ok()
                         });
+                        if arranged && choices.arrangement_in(&root) == Arrange::Folders {
+                            for item in items.iter_mut().filter(|i| i.kind != keevoro_core::MediaKind::Other) {
+                                item.folder = FolderHints {
+                                    album: keevoro_core::arrange::kept_folders(&root, &name, &item.path),
+                                    // A folder's date only places a file by date.
+                                    date: None,
+                                    kept: true,
+                                };
+                            }
+                        }
                         items
                     },
                     skipped: self.skipped_of(id)?,
@@ -837,6 +992,7 @@ impl Catalog {
                         Some(d) => Some(PartialDate::parse(&d).ok_or_else(|| damaged(format!("date {d}")))?),
                         None => None,
                     },
+                    kept: false,
                 },
                 width: r.get(9)?,
                 height: r.get(10)?,

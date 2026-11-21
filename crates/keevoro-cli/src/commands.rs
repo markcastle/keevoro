@@ -257,11 +257,18 @@ pub static ROWS: &[Row] = &[
                         .num_args(1..)
                         .help(format!("What it is for, when not everything Keevoro looks for: {WANTS_HELP}")),
                 )
+                .arg(
+                    Arg::new("arrange")
+                        .long("arrange")
+                        .value_name("HOW")
+                        .help("How it arranges files where it sends them: by-date or folders"),
+                )
         },
         ask: |_, m, _| {
+            let arrange = text(m, "arrange").map(|w| arrange_typed(&w)).transpose()?;
             Ok((
                 Op::BackupsStart,
-                json!({ "name": required(m, "name"), "wants": wants_typed(m, "wants") }),
+                json!({ "name": required(m, "name"), "wants": wants_typed(m, "wants"), "arrange": arrange }),
             ))
         },
         show: show::started,
@@ -816,6 +823,19 @@ pub static ROWS: &[Row] = &[
         ask: |_, m, _| Ok((Op::BackupWants, json!({ "wants": wants_typed(m, "wants") }))),
         show: show::wants,
     },
+    Row {
+        words: &["arrange"],
+        ops: &[Op::BackupArrange],
+        about: Some(
+            "How this backup arranges photos and videos where it sends them: by date, or keeping your folders as they are. Give by-date or folders to change it; it only changes where files go from now on, and nothing already backed up is moved.",
+        ),
+        args: |c| c.arg(arg("how", "by-date or folders")),
+        ask: |_, m, _| {
+            let arrange = text(m, "how").map(|w| arrange_typed(&w)).transpose()?;
+            Ok((Op::BackupArrange, json!({ "arrange": arrange })))
+        },
+        show: show::arrange,
+    },
     // Jobs
     Row {
         words: &["status"],
@@ -1129,6 +1149,13 @@ fn wants_typed(m: &ArgMatches, name: &str) -> Option<Vec<String>> {
             .filter(|w| !w.is_empty())
             .collect()
     })
+}
+
+/// `by-date` or `folders`, as typed, in the words a request uses.
+fn arrange_typed(word: &str) -> Result<&'static str, Failure> {
+    keevoro_api::arrange::Arrange::from_word(word)
+        .map(keevoro_api::arrange::Arrange::name)
+        .ok_or_else(|| Failure::not_understood(format!("Say by-date or folders, not \"{word}\".")))
 }
 
 const WANTS_HELP: &str = "photos, videos and others: one or more, such as photos others";

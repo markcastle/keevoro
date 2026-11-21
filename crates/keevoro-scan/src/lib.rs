@@ -595,7 +595,11 @@ fn examine_other(root: &Path, path: &Path, opts: &ScanOptions) -> std::io::Resul
         blake3,
         hashed,
         date,
-        folder: FolderHints { album, date: None },
+        folder: FolderHints {
+            album,
+            date: None,
+            kept: false,
+        },
         width: None,
         height: None,
         junk: None,

@@ -229,6 +229,18 @@ fn everything_a_person_set_and_keevoro_recorded_in_0_37_1_is_there_after_updatin
         (Some(2), Some(0))
     );
 
+    // A backup from before the choice of arranging existed is arranged by
+    // date, as it always was, and is not asked; nor is the other, which
+    // has a source too.
+    for backup in [family, Some("Drone footage")] {
+        let arrange = ask(&keevoro, Op::BackupArrange, backup, Value::Null);
+        assert_eq!(
+            (arrange["arrange"].as_str(), arrange["asked"].as_bool()),
+            (Some("byDate"), Some(true)),
+            "{arrange}"
+        );
+    }
+
     // Whether previews are made, each backup's own choice.
     assert_eq!(ask(&keevoro, Op::BackupPreviews, family, Value::Null), true);
     assert_eq!(
@@ -297,6 +309,21 @@ fn everything_a_person_set_and_keevoro_recorded_in_0_37_1_is_there_after_updatin
     );
     assert!(catalog.place_taken("originals/dcim/img_20240601_100000.JPG").unwrap());
     drop(catalog);
+
+    // Choosing to keep the folders now moves nothing already backed up and
+    // loses nothing sent: the same places, both still at the folder.
+    let changed = ask(&keevoro, Op::BackupArrange, family, json!({ "arrange": "folders" }));
+    assert_eq!(
+        changed["said"],
+        "From now on, new files are kept in your folders. The 2 files already backed up stay where they are."
+    );
+    let catalog = keevoro_catalog::Catalog::open_in_library(&home).unwrap();
+    let after: Vec<String> = catalog.collected().unwrap().into_iter().map(|c| c.path).collect();
+    assert_eq!(after, placed);
+    drop(catalog);
+    let destinations = ask(&keevoro, Op::DestinationsList, family, Value::Null);
+    assert_eq!(destinations[0]["there"].as_u64(), Some(2), "{destinations}");
+    ask(&keevoro, Op::BackupArrange, family, json!({ "arrange": "byDate" }));
     std::fs::create_dir_all(&places.usb).unwrap();
     ask(&keevoro, Op::DestinationsRoom, family, Value::Null);
     assert!(volume().is_some(), "known by its disk once reached");

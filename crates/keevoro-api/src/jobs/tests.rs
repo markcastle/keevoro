@@ -1557,8 +1557,11 @@ fn a_person_who_adds_no_kind_of_other_file_sees_nothing_new_anywhere() {
     let guide = std::fs::read_to_string(usb.join(keevoro_core::BACKUP_GUIDE)).unwrap();
     assert_eq!(
         guide,
-        keevoro_engine::layout::guide(false),
-        "the guide reads as it always did"
+        keevoro_engine::layout::guide(&keevoro_engine::layout::GuideFacts {
+            by_date: true,
+            ..keevoro_engine::layout::GuideFacts::default()
+        }),
+        "the guide reads as it always did, saying it is arranged by date"
     );
 }
 

@@ -17,6 +17,11 @@
 //! **the folder they came from**, as the person arranged them: one
 //! collection per folder, holding the files directly in it, after every
 //! collection of photos and videos, in the order of their folders.
+//!
+//! Photos and videos from a source that keeps its folders as they are
+//! (`crate::arrange`) are grouped the same way: one collection per folder
+//! that holds them, in folder order, after the dated ones, never by date,
+//! because each is exactly one folder in the backup.
 
 use crate::date::PartialDate;
 use crate::media::MediaKind;
@@ -35,6 +40,8 @@ pub struct CollectionInput {
     pub date: Option<PartialDate>,
     pub kind: MediaKind,
     pub bytes: u64,
+    /// True when `album` is the file's folders kept as they are.
+    pub kept: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -51,6 +58,9 @@ pub struct Collection {
     /// True for a folder of other files: listed by the folder, not shown
     /// as photos.
     pub by_folder: bool,
+    /// True for a folder of photos and videos from a source that keeps its
+    /// folders: shown as pictures, listed in folder order, never by date.
+    pub kept_folders: bool,
     /// Index into the input of the file to show large.
     pub cover: usize,
     /// Indices into the input, in date order.
@@ -61,7 +71,7 @@ impl Collection {
     /// "August 2008 · 83 photos · 6 videos", the line under the title.
     pub fn summary(&self) -> String {
         let mut parts = Vec::new();
-        if let Some(range) = date_range_label(self.first, self.last).filter(|_| !self.by_folder) {
+        if let Some(range) = date_range_label(self.first, self.last).filter(|_| !self.by_folder && !self.kept_folders) {
             if range != self.title {
                 parts.push(range);
             }
@@ -87,11 +97,14 @@ pub const NOT_IN_A_FOLDER: &str = "Not in a folder";
 pub fn group_into_collections(items: &[CollectionInput]) -> Vec<Collection> {
     let mut albums: BTreeMap<&[String], Vec<usize>> = BTreeMap::new();
     let mut folders: BTreeMap<&[String], Vec<usize>> = BTreeMap::new();
+    let mut kept: BTreeMap<&[String], Vec<usize>> = BTreeMap::new();
     let mut loose_dated = Vec::new();
     let mut undated = Vec::new();
     for (i, it) in items.iter().enumerate() {
         if it.kind == MediaKind::Other {
             folders.entry(it.album.as_slice()).or_default().push(i);
+        } else if it.kept && !it.album.is_empty() {
+            kept.entry(it.album.as_slice()).or_default().push(i);
         } else if !it.album.is_empty() {
             albums.entry(it.album.as_slice()).or_default().push(i);
         } else if it.date.is_some() {
@@ -137,6 +150,14 @@ pub fn group_into_collections(items: &[CollectionInput]) -> Vec<Collection> {
             .then(b.last.cmp(&a.last))
             .then(a.title.cmp(&b.title))
     });
+    out.extend(kept.into_iter().map(|(album, members)| {
+        let (parents, title) = album.split_at(album.len() - 1);
+        let mut c = build(items, title[0].clone(), parents.to_vec(), members);
+        // Kept as the person arranged them, by name, not by date.
+        c.members.sort_by_key(|&i| i);
+        c.kept_folders = true;
+        c
+    }));
     out.extend(folders.into_iter().map(|(folder, members)| {
         let (parents, title) = match folder.split_last() {
             Some((title, parents)) => (parents.to_vec(), title.clone()),
@@ -213,6 +234,7 @@ fn build(items: &[CollectionInput], title: String, parents: Vec<String>, mut mem
         videos,
         others,
         by_folder: false,
+        kept_folders: false,
         cover,
         members,
     }
@@ -242,7 +264,8 @@ pub fn date_range_label(first: Option<PartialDate>, last: Option<PartialDate>) -
     Some(label)
 }
 
-fn month_name(m: u8) -> &'static str {
+/// "January" for 1, up to "December" for 12.
+pub fn month_name(m: u8) -> &'static str {
     const NAMES: [&str; 12] = [
         "January",
         "February",
@@ -297,7 +320,31 @@ mod tests {
             date,
             kind: MediaKind::Photo,
             bytes,
+            kept: false,
         }
+    }
+
+    #[test]
+    fn folders_kept_as_they_are_are_one_collection_each_in_folder_order_after_the_dated_ones() {
+        let d = PartialDate::parse("2021-01-05");
+        let kept = |album: &[&str]| CollectionInput {
+            kept: true,
+            ..photo(album, d, 1)
+        };
+        let items = vec![
+            kept(&["Family Scans", "Smith"]),
+            photo(&[], d, 1),
+            kept(&["Family Scans"]),
+            kept(&["Family Scans", "Jones"]),
+            kept(&["Family Scans", "Smith"]),
+        ];
+        let c = group_into_collections(&items);
+        let titles: Vec<&str> = c.iter().map(|c| c.title.as_str()).collect();
+        assert_eq!(titles, ["January 2021", "Family Scans", "Jones", "Smith"]);
+        assert!(c[1..].iter().all(|c| c.kept_folders && !c.by_folder));
+        assert_eq!(c[3].members, [0, 4]);
+        assert_eq!(c[3].summary(), "2 photos", "no date: a scan's date says nothing");
+        assert_eq!(c[3].parents, ["Family Scans"]);
     }
 
     fn video(album: &[&str], date: Option<PartialDate>) -> CollectionInput {

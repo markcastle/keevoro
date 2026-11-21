@@ -135,6 +135,10 @@ pub struct StartBackupRequest {
     /// Left out, everything Keevoro looks for.
     #[serde(default)]
     pub wants: Option<Vec<crate::wants::WantsWord>>,
+    /// How it arranges files where it sends them: `byDate` or `folders`.
+    /// Left out, it is asked the first time, and goes by date until then.
+    #[serde(default)]
+    pub arrange: Option<crate::arrange::ArrangeWord>,
 }
 
 /// `backups.rename`
@@ -438,6 +442,20 @@ impl Keevoro {
         self.log.say(&format!(
             "This backup is now for {}. Nothing already backed up was changed",
             wants.words(others)
+        ));
+        Ok(view)
+    }
+
+    /// `backup.arrange`, set, and said in the log.
+    pub fn set_arrangement(
+        &self,
+        backup: &Backup,
+        arrange: keevoro_core::Arrange,
+    ) -> Result<crate::arrange::ArrangeView> {
+        let view = backup.set_arrangement(arrange)?;
+        self.log.say(&format!(
+            "This backup now arranges new files {}. Nothing already backed up was moved",
+            arrange.words()
         ));
         Ok(view)
     }

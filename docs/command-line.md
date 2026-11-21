@@ -263,7 +263,7 @@ The words each command shows in `keevoro --help` come from the same list the app
 | Command | What it does |
 | --- | --- |
 | `keevoro backups` | Every backup, with its sources, destinations, and how many files are safe and waiting. |
-| `keevoro backups start NAME` | Starts a new, empty backup, for everything Keevoro looks for; `--wants photos` (or `videos`, `others`, several with commas) for a backup of only some kinds. |
+| `keevoro backups start NAME` | Starts a new, empty backup, for everything Keevoro looks for; `--wants photos` (or `videos`, `others`, several with commas) for a backup of only some kinds; `--arrange folders` to keep its sources' folders as they are rather than arrange it by date. |
 | `keevoro backups rename NAME NEW` | Gives a backup a new name, of at most 60 letters and not one another backup has. Refused while it is being searched, backed up or checked. |
 | `keevoro backups forget NAME [--dry-run]` | Removes a backup from Keevoro: its record on this computer goes, and its own folder of previews and working files is set aside for a week, then cleared away. Nothing at any source or destination is touched. `--dry-run` only says what it would do. Refused while it is being searched, backed up or checked. |
 | `keevoro backups removed` | The backups removed in the last week, which can still be put back. |
@@ -350,6 +350,7 @@ A collection is named by its whole name, such as "Holidays / Cornwall", or by it
 | `keevoro history` | How earlier backups went: when, where, how much, how long, numbered from the newest. |
 | `keevoro history N` | Everything recorded about one of them, by its number. |
 | `keevoro last-backup` | What the last backup said when it ended. |
+| `keevoro arrange [by-date or folders]` | How the backup arranges photos and videos where it sends them: `by-date` (a folder for each year and month, keeping folders with real names) or `folders` (the same folders and names as on the source, starting with the source's own folder). It only changes where files go from now on: nothing already backed up is moved, sent again or counted missing. A backup made before this choice existed is by date. |
 | `keevoro wants [KINDS]` | What the backup is for: one or more of `photos`, `videos` and `others` (other files, once a kind of them is on the list), as words of their own or with commas. It counts at once on what was found; nothing already backed up is touched. |
 | `keevoro previews [on or off]` | Whether the backup also makes previews for a gallery, or sends the originals alone. |
 
