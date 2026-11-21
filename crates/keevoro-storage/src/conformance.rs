@@ -169,6 +169,45 @@ async fn list_by_prefix_in_key_order(store: &dyn MultipartStore, p: &str) {
         .map(|n| format!("{p}/{n}"))
         .collect();
     assert_eq!(keys, want, "list must return exactly the prefix's keys, in order");
+
+    // Everything at once says the same, with each one's size.
+    store
+        .put(
+            &key(p, "list/sub/longer.jpg"),
+            ByteSource::Bytes(b"twelve bytes".to_vec()),
+            &PutOptions::default(),
+        )
+        .await
+        .expect("put");
+    let mut all: Vec<(String, u64)> = store
+        .list_all(&format!("{p}/list/"))
+        .await
+        .expect("list_all")
+        .into_iter()
+        .map(|o| (o.key.to_string(), o.bytes))
+        .collect();
+    all.sort();
+    let want: Vec<(String, u64)> = [
+        ("list/a.jpg", 1),
+        ("list/b.jpg", 1),
+        ("list/sub/c.jpg", 1),
+        ("list/sub/longer.jpg", 12),
+    ]
+    .iter()
+    .map(|(n, bytes)| (format!("{p}/{n}"), *bytes))
+    .collect();
+    assert_eq!(
+        all, want,
+        "list_all must return exactly the prefix's keys and their sizes"
+    );
+    assert!(
+        store
+            .list_all(&format!("{p}/nothing-here/"))
+            .await
+            .expect("list_all of nothing")
+            .is_empty(),
+        "a prefix with nothing under it lists nothing"
+    );
 }
 
 async fn delete_removes(store: &dyn MultipartStore, p: &str) {
