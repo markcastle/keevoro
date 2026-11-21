@@ -36,6 +36,7 @@ import type {
   LeftOut,
   LeftOutFolder,
   StageRecord,
+  BackupStage,
   Sending,
   AppState,
   Backend,
@@ -1568,6 +1569,15 @@ function AboutScreen(props: { api: Backend; version: string; onBack: () => void;
   )
 }
 
+/** Said before each stage's line for a screen reader, since its mark is a picture. */
+const STAGE_STATE_WORDS: Record<BackupStage['state'], string> = {
+  done: 'Done: ',
+  problem: 'Went wrong: ',
+  now: 'Now: ',
+  alongside: 'Now: ',
+  next: 'Then: ',
+}
+
 /** Keevoro's home on the web: the source, the licence and the releases. */
 const PROJECT = 'https://github.com/markcastle/keevoro'
 
@@ -2851,9 +2861,7 @@ function SendPanel(props: {
                     <li key={`${stage.kind} ${stage.to ?? ''}`} className={`is-${stage.state}`}>
                       <span className="mark" aria-hidden="true" />
                       <span>
-                        <span className="visually-hidden">
-                          {stage.state === 'done' ? 'Done: ' : stage.state === 'next' ? 'Then: ' : 'Now: '}
-                        </span>
+                        <span className="visually-hidden">{STAGE_STATE_WORDS[stage.state]}</span>
                         {stage.line}
                       </span>
                     </li>
@@ -3192,6 +3200,11 @@ function RunDetailPanel(props: { sent: Sent }) {
                   {STAGE_NAMES[stage.kind]}
                   {stage.to && d.destinations.length > 1 && <span className="quiet"> to {stage.to.replace(/^the /, '')}</span>}
                   {!stage.finished && <span className="quiet"> (not finished)</span>}
+                  {stage.problem && (
+                    <span className="went-wrong">
+                      <span className="mark" aria-hidden="true" /> Went wrong: {stage.problem}
+                    </span>
+                  )}
                 </td>
                 <td>{took(stage.seconds)}</td>
                 <td>{stage.unit === 'bytes' ? size(stage.done) : count(stage.done, 'file')}</td>

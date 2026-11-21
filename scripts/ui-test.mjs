@@ -334,7 +334,9 @@ try {
   const panel = page.locator('.run-detail')
   assert.match(await panel.innerText(), /720\.6 GB to the folder \\\\NAS\\Photos in about 22 hours 50 minutes, at an average of 9\.0 MB a second\./)
   assert.match(await panel.innerText(), /from the app, with Keevoro 0\.32\.0\. It finished\. It was paused for about 10 minutes/)
-  assert.match(await panel.locator('table.stages').innerText(), /Backing up your files\s+about 21 hours\s+716\.8 GB\s+9\.7 MB a second\s+slowest 3\.2 MB a second, fastest 14\.6 MB a second/)
+  assert.match(await panel.locator('table.stages').innerText(), /Backing up your files\s+Went wrong: Couldn’t back up 2 files\s+about 21 hours\s+716\.8 GB\s+9\.7 MB a second\s+slowest 3\.2 MB a second, fastest 14\.6 MB a second/)
+  // A stage that went wrong says so in words beside its mark, not by colour alone.
+  assert.equal(await panel.locator('table.stages .went-wrong').count(), 1)
   assert.match(await panel.innerText(), /11,243 files sent \(716\.8 GB\), 2 could not be sent\./)
   assert.match(await panel.innerText(), /1,406 duplicates left out, saving 38\.2 GB\./)
   assert.match(await panel.innerText(), /21,792 preview files sent \(3\.8 GB\)/)

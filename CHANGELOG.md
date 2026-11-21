@@ -12,6 +12,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- **A step of a backup that goes wrong now says so.** If a destination cannot be reached, or some files could not be sent, that step is marked with a red cross and the reason beside it, such as "Couldn't back up 3 files", instead of a green tick or being left as still to come. The same is shown in the backup's history, and said by `keevoro status`, `keevoro history` and to an AI app. The time left no longer waits for a destination that could not be reached.
 - **An AI app can no longer be led out of a folder you allowed by a shortcut changed at just the wrong moment.** Keevoro already judged every folder an AI app named by where it really leads; it now works on that very place, rather than reading the shortcut again afterwards. A destination an AI app adds through a shortcut is listed under where it really is.
 - **After an AI app looks through a folder, Keevoro's check for duplicates stays in the folders you allowed it.** The check Keevoro starts by itself after a search used to read, in full, large files from every source of the backup, including ones the AI app was not allowed to look in. Those are now left for the next check you start, or the next backup.
 - **`keevoro status` sees a job another Keevoro program has only just started.** Asked the moment the app or another command started a backup or a search, it could say "Nothing is running" for a quarter of a second.

@@ -516,6 +516,9 @@ pub fn everywhere(
             }
             Err(refused) => {
                 writeln!(out, "Couldn't back up to {name}. {refused:#}")?;
+                // The stage it had got to says why, and the rest of its
+                // work is not waited for.
+                tracker.could_not_finish_at(&name, &refused.to_string());
                 if refused.downcast_ref::<crate::room::NotEnoughRoom>().is_some() {
                     went.no_room += 1;
                 } else {
@@ -755,7 +758,16 @@ fn run_until(
             p.latest
         ));
     }))?;
-    tracker.finish(pass.sending, Some(pass.to));
+    // Files that could not be sent mark the stage as gone wrong, saying
+    // how many, so it is never shown as done when it was not.
+    match report.failed.len() {
+        0 => tracker.finish(pass.sending, Some(pass.to)),
+        failed => tracker.went_wrong(
+            pass.sending,
+            Some(pass.to),
+            &format!("Couldn't back up {}", summary::count(failed, "file")),
+        ),
+    }
 
     // Files sent before their whole fingerprint was known now have one,
     // worked out as they went. Each is recorded, and from here on the file
@@ -1420,6 +1432,7 @@ mod tests {
 
         let mut said = Vec::new();
         let mut turns = 0;
+        let tracker = Tracker::new(keevoro_core::estimate::Remembered::default());
         let went = everywhere(
             &mut said,
             &catalog,
@@ -1427,11 +1440,32 @@ mod tests {
             &world,
             None,
             &Stop::default(),
-            &Tracker::new(keevoro_core::estimate::Remembered::default()),
+            &tracker,
             &mut |_| {},
             &mut |_| turns += 1,
         )
         .unwrap();
+        // Its stages say it went wrong, and why, in one line; the other's
+        // are all done.
+        use keevoro_core::estimate::State;
+        let end = tracker.estimate();
+        let gone_wrong: Vec<_> = end.stages.iter().filter(|s| s.state == State::Problem).collect();
+        assert_eq!(gone_wrong.len(), 1, "{:?}", end.stages);
+        assert!(gone_wrong[0]
+            .to
+            .as_deref()
+            .is_some_and(|to| to.contains("not a folder")));
+        assert!(gone_wrong[0].problem.as_ref().is_some_and(|p| !p.is_empty()));
+        assert!(gone_wrong[0].line.contains(gone_wrong[0].problem.as_deref().unwrap()));
+        assert!(end
+            .stages
+            .iter()
+            .filter(|s| s.to.as_deref().is_some_and(|to| to.contains("usb")))
+            .all(|s| s.state == State::Done));
+        assert!(
+            tracker.record().iter().any(|r| r.problem.is_some()),
+            "kept for the history"
+        );
         let said = String::from_utf8(said).unwrap();
         assert!(said.contains("Couldn't back up to the folder"), "{said}");
         assert_eq!(turns, 1, "the one that works had its turn");
@@ -1449,6 +1483,48 @@ mod tests {
         assert!(good.join("originals/Flights/IMG_20240601_100000.jpg").is_file());
         // And it is not called safe: one of its two places has nothing.
         assert!(crate::discover(&home, &catalog).unwrap().waiting_to_gather > 0);
+    }
+
+    #[test]
+    fn a_stage_with_files_that_could_not_be_sent_is_marked_as_gone_wrong() {
+        use crate::connect::{self, testing::MemorySecrets, Flags, Saved, World};
+        use keevoro_core::estimate::{Kind, State};
+        let (dir, card, home, catalog) = one_backup();
+        let secrets = MemorySecrets::default();
+        let world = World {
+            secrets: &secrets,
+            ask: &connect::testing::nobody_to_ask,
+        };
+        let to = Saved::from_flags(&Flags {
+            to_folder: Some(dir.path().join("usb")),
+            ..Flags::default()
+        })
+        .unwrap();
+        connect::add(&mut Vec::new(), &catalog, &to, &world).unwrap();
+        // Gone from the source since it was found, so it cannot be sent.
+        std::fs::remove_file(card.join("Flights/IMG_20240601_100500.jpg")).unwrap();
+        let tracker = Tracker::new(keevoro_core::estimate::Remembered::default());
+        let went = everywhere(
+            &mut Vec::new(),
+            &catalog,
+            &home,
+            &world,
+            None,
+            &Stop::default(),
+            &tracker,
+            &mut |_| {},
+            &mut |_| {},
+        )
+        .unwrap();
+        assert_eq!(went.failed_files, 1);
+        let end = tracker.estimate();
+        let originals = end.stages.iter().find(|s| s.kind == Kind::SendingOriginals).unwrap();
+        assert_eq!(originals.state, State::Problem);
+        assert_eq!(originals.problem.as_deref(), Some("Couldn't back up 1 file"));
+        assert_eq!(originals.line, "Backing up your files: Couldn't back up 1 file");
+        let recorded = tracker.record();
+        let originals = recorded.iter().find(|r| r.kind == Kind::SendingOriginals).unwrap();
+        assert_eq!(originals.problem.as_deref(), Some("Couldn't back up 1 file"));
     }
 
     #[test]

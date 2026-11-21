@@ -3355,6 +3355,33 @@ main > section > :nth-last-child(2) {
   display: block;
 }
 
+/* A stage that went wrong, in the history: the same red mark with a cross
+   as the stages of a running backup, and the reason in words beside it. */
+.run-detail .went-wrong {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--danger);
+}
+
+.run-detail .went-wrong .mark {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-pill);
+  background: var(--status-problem);
+  color: var(--on-status);
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 700;
+}
+
+.run-detail .went-wrong .mark::before {
+  content: '×';
+}
+
 .run-detail .summary-lines p {
   margin: 0;
   white-space: pre-wrap;

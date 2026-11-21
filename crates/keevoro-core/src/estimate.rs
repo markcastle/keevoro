@@ -207,6 +207,9 @@ pub enum Sureness {
 #[serde(rename_all = "camelCase")]
 pub enum State {
     Done,
+    /// Over, but with a problem: a destination that could not be reached,
+    /// or files that could not be sent. [`StageView::problem`] says what.
+    Problem,
     /// What the backup is doing now.
     Now,
     /// Under way in the background, beside what it is doing now.
@@ -229,8 +232,12 @@ pub struct StageView {
     /// Per second, while it runs and once measured.
     pub per_second: Option<f64>,
     /// In a few words, as shown: "Backing up your files: 708.4 GB of 716.8
-    /// GB at 7.5 MB/s".
+    /// GB at 7.5 MB/s". For a stage that went wrong, what went wrong is
+    /// in it too.
     pub line: String,
+    /// What went wrong, in words, when it did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub problem: Option<String>,
 }
 
 /// How long until the whole backup is finished, as published.
@@ -326,6 +333,9 @@ pub struct StageRecord {
     /// shorter than that.
     pub slowest: Option<f64>,
     pub fastest: Option<f64>,
+    /// What went wrong, in words, for a stage that ended with a problem.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub problem: Option<String>,
 }
 
 /// The work to do changing by this share counts as material.
@@ -350,6 +360,8 @@ struct Stage {
     /// has run a minute: what a person would call its sustained speeds.
     slowest: Option<f64>,
     fastest: Option<f64>,
+    /// What went wrong, if it ended with a problem.
+    problem: Option<String>,
 }
 
 impl Stage {
@@ -366,6 +378,7 @@ impl Stage {
             diverged: None,
             slowest: None,
             fastest: None,
+            problem: None,
         }
     }
 
@@ -464,6 +477,7 @@ impl Stage {
             per_second: (seconds >= 1.0 && self.done > 0).then(|| self.done as f64 / seconds),
             slowest: self.slowest,
             fastest: self.fastest,
+            problem: self.problem.clone(),
         }
     }
 
@@ -622,6 +636,39 @@ impl Estimator {
             if stage.done > 0 {
                 stage.work = stage.done;
             }
+            self.material = true;
+        }
+    }
+
+    /// A stage is over with a problem, said in `why`: some of its files
+    /// could not be sent, say. A stage the plan never had is left out.
+    pub fn went_wrong(&mut self, kind: Kind, to: Option<&str>, why: &str, now: f64) {
+        self.finish(kind, to, now);
+        if let Some(stage) = self.stages.iter_mut().find(|s| s.is(kind, to)) {
+            stage.problem = Some(why.to_string());
+            self.material = true;
+        }
+    }
+
+    /// Destination `to` could not be finished with, for the reason said in
+    /// `why`: it could not be reached, say. The stage it had got to ends
+    /// with that problem, and its stages still to come are dropped, since
+    /// none of their work will be done this time and none of it should be
+    /// waited for. One line says what went wrong, not one for each stage.
+    pub fn could_not_finish_at(&mut self, to: &str, why: &str, now: f64) {
+        let t = self.active(now);
+        let mut said = false;
+        for stage in self.stages.iter_mut().filter(|s| s.to.as_deref() == Some(to)) {
+            if stage.finished() {
+                continue;
+            }
+            if !said {
+                stage.began.get_or_insert(t);
+                stage.problem = Some(why.to_string());
+                said = true;
+            }
+            stage.ended = Some(t);
+            stage.work = stage.done;
             self.material = true;
         }
     }
@@ -858,14 +905,17 @@ impl Estimator {
         };
         self.stages
             .iter()
-            // A stage that had nothing to do is not worth a line.
-            .filter(|s| s.work > 0 || s.done > 0 || s.running())
+            // A stage that had nothing to do is not worth a line, unless
+            // it went wrong.
+            .filter(|s| s.work > 0 || s.done > 0 || s.running() || s.problem.is_some())
             .map(|s| {
                 // Work made alongside (previews) has no moment it is told it
                 // is over until the sending ends, but once every one is made
                 // it is done, and should say so.
                 let all_made = s.kind.alongside() && s.running() && s.work > 0 && s.left() == 0;
-                let state = if s.finished() || all_made {
+                let state = if s.problem.is_some() {
+                    State::Problem
+                } else if s.finished() || all_made {
                     State::Done
                 } else if s.running() && s.kind.alongside() && sending {
                     State::Alongside
@@ -886,6 +936,7 @@ impl Estimator {
                     }
                 }
                 let line = match (state, s.kind.unit()) {
+                    (State::Problem, _) => format!("{label}: {}", s.problem.as_deref().unwrap_or_default()),
                     // One small file per destination: nothing to count.
                     _ if s.kind == Kind::WritingIndex => label,
                     (State::Done, _) => label,
@@ -910,6 +961,7 @@ impl Estimator {
                     work: s.work,
                     per_second,
                     line,
+                    problem: s.problem.clone(),
                 }
             })
             .collect()
@@ -1058,7 +1110,7 @@ pub fn headline(running_seconds: u64, estimate: &Estimate) -> String {
 }
 
 /// The headline and then each stage on a line of its own, marked done,
-/// now or still to come, for front ends that write text: the command line
+/// gone wrong, now or still to come, for front ends that write text: the command line
 /// and an agent's summaries.
 pub fn in_lines(estimate: &Estimate) -> Vec<String> {
     let mut lines = vec![estimate.headline.clone()];
@@ -1066,6 +1118,7 @@ pub fn in_lines(estimate: &Estimate) -> Vec<String> {
     for stage in &estimate.stages {
         let mark = match stage.state {
             State::Done => "Done",
+            State::Problem => "Went wrong",
             State::Now | State::Alongside => "Now",
             State::Next => "Then",
         };
@@ -1166,6 +1219,32 @@ impl Tracker {
                 t.metered = None;
             }
             t.estimator.finish(kind, to, now);
+        });
+    }
+
+    /// A stage is over with a problem, said in `why`.
+    pub fn went_wrong(&self, kind: Kind, to: Option<&str>, why: &str) {
+        self.with(|t, now| {
+            Self::read_meter(t, now);
+            if t.metered
+                .as_ref()
+                .is_some_and(|(k, d, _)| *k == kind && d.as_deref() == to)
+            {
+                t.metered = None;
+            }
+            t.estimator.went_wrong(kind, to, why, now);
+        });
+    }
+
+    /// Every stage for destination `to` not over yet ends with the problem
+    /// said in `why`.
+    pub fn could_not_finish_at(&self, to: &str, why: &str) {
+        self.with(|t, now| {
+            Self::read_meter(t, now);
+            if t.metered.as_ref().is_some_and(|(_, d, _)| d.as_deref() == Some(to)) {
+                t.metered = None;
+            }
+            t.estimator.could_not_finish_at(to, why, now);
         });
     }
 
@@ -1666,6 +1745,66 @@ mod tests {
         let views = e.estimate(0.0).stages;
         assert_eq!(views[0].line, "Backing up your files to the folder A:: 1.0 GB");
         assert_eq!(views[1].to.as_deref(), Some("the bucket b"));
+    }
+
+    #[test]
+    fn a_stage_that_ends_with_a_problem_says_so_in_words_and_is_not_waited_for() {
+        let mut e = Estimator::new(Remembered::default());
+        e.plan(vec![
+            Planned::new(Kind::SendingOriginals, Some("the folder A:"), GB),
+            Planned::new(Kind::WritingIndex, Some("the folder A:"), 1),
+            Planned::new(Kind::SendingOriginals, Some("the bucket b"), GB),
+            Planned::new(Kind::SendingPreviews, Some("the bucket b"), GB),
+            Planned::new(Kind::WritingIndex, Some("the bucket b"), 1),
+        ]);
+        e.progress(Kind::SendingOriginals, Some("the folder A:"), GB / 2, 10.0);
+        e.went_wrong(
+            Kind::SendingOriginals,
+            Some("the folder A:"),
+            "couldn't back up 3 files",
+            20.0,
+        );
+        e.finish(Kind::WritingIndex, Some("the folder A:"), 21.0);
+        // The bucket could not be reached: none of its work happens.
+        e.could_not_finish_at("the bucket b", "it couldn't be reached", 22.0);
+
+        let est = e.estimate(22.0);
+        let states: Vec<State> = est.stages.iter().map(|s| s.state).collect();
+        assert_eq!(
+            states,
+            [State::Problem, State::Done, State::Problem],
+            "one line for the bucket"
+        );
+        assert_eq!(
+            est.stages[0].line,
+            "Backing up your files to the folder A:: couldn't back up 3 files"
+        );
+        assert_eq!(est.stages[0].problem.as_deref(), Some("couldn't back up 3 files"));
+        assert_eq!(est.stages[1].problem, None);
+        assert_eq!(est.stages[2].problem.as_deref(), Some("it couldn't be reached"));
+        assert_eq!(est.seconds_left, Some(0), "nothing left is waited for");
+        let lines = in_lines(&est);
+        assert!(
+            lines.contains(&"Went wrong: Backing up your files to the folder A:: couldn't back up 3 files".to_string()),
+            "{lines:?}"
+        );
+
+        // The history keeps what went wrong, and only that.
+        let record = e.record(22.0);
+        assert_eq!(record.len(), 3, "the stages the bucket never got to are not recorded");
+        assert_eq!(record[0].problem.as_deref(), Some("couldn't back up 3 files"));
+        assert_eq!(record[1].problem, None);
+        let json = serde_json::to_value(&record[1]).unwrap();
+        assert!(json.get("problem").is_none(), "{json}");
+        let older: StageRecord = serde_json::from_value(serde_json::json!({
+            "kind": "sendingOriginals", "unit": "bytes", "done": 1, "seconds": 1, "finished": true,
+            "perSecond": null, "slowest": null, "fastest": null
+        }))
+        .unwrap();
+        assert_eq!(
+            older.problem, None,
+            "a record from before this was kept reads as it was"
+        );
     }
 
     #[test]
