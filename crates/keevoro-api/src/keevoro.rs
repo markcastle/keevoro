@@ -460,6 +460,21 @@ impl Keevoro {
         Ok(view)
     }
 
+    /// `sources.arrange`, set, and said in the log.
+    pub fn set_source_arrangement(
+        &self,
+        backup: &Backup,
+        source: i64,
+        own: Option<keevoro_core::Arrange>,
+    ) -> Result<crate::arrange::SourceArrangeView> {
+        let view = backup.set_source_arrangement(source, own)?;
+        self.log.say(&format!(
+            "{} Nothing already backed up was moved",
+            view.said.split(" From now on").next().unwrap_or_default()
+        ));
+        Ok(view)
+    }
+
     /// `sources.wants`, set, and said in the log.
     pub fn set_source_wants(
         &self,

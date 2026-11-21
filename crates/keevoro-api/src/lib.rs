@@ -477,6 +477,14 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
                 None => answer(backup.arrangement()?),
             }
         }
+        Op::SourcesArrange => {
+            let r: arrange::SourceArrangeRequest = read(request)?;
+            let backup = open()?;
+            match r.arrange {
+                Some(word) => answer(keevoro.set_source_arrangement(&backup, r.source, word.own())?),
+                None => answer(backup.source_arrangement(r.source)?),
+            }
+        }
         Op::SourcesWants => {
             let r: wants::SourceWantsRequest = read(request)?;
             let backup = open()?;

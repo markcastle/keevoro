@@ -46,6 +46,22 @@ pub struct SourceView {
     /// as a person would write them, each with Put back beside it.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub left_out: Vec<String>,
+    /// Its own way of arranging its photos and videos, when it has one;
+    /// left out when it follows the backup.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub arrange: Option<keevoro_core::Arrange>,
+    /// The folder its files are kept in at the top of the backup, when it
+    /// keeps its folders as they are.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kept_as: Option<String>,
+    /// Other sources whose folders go into that same folder, as a person
+    /// would write them.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub shares_folder_with: Vec<String>,
+    /// The same in words: "In the backup, its folder Photos is shared with
+    /// E:\Photos."
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shared_said: Option<String>,
 }
 
 fn is_zero(n: &u64) -> bool {
@@ -408,10 +424,40 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
     }
 
     let left_out = catalog.left_out_folders()?;
-    let sources = catalog
-        .sources()?
-        .into_iter()
-        .map(|s| SourceView {
+    let found = catalog.sources()?;
+    let choices = catalog.choices()?;
+    let arranged: Vec<keevoro_core::arrange::SourceArranged<'_>> = found
+        .iter()
+        .map(|s| keevoro_core::arrange::SourceArranged {
+            root: &s.root,
+            name: &s.name,
+            arrange: choices.arrangement_in(&s.root),
+        })
+        .collect();
+    let sharing = keevoro_core::arrange::sharing_a_folder(&arranged);
+    let mut kept_as = Vec::with_capacity(found.len());
+    for (s, with) in arranged.iter().zip(&sharing) {
+        let top =
+            (s.arrange == keevoro_core::Arrange::Folders).then(|| keevoro_core::arrange::top_folder(s.root, s.name));
+        let with: Vec<String> = with.iter().map(|&j| friendly_path(arranged[j].root)).collect();
+        let said = top
+            .as_deref()
+            .and_then(|top| keevoro_core::arrange::shared_words(top, &with));
+        kept_as.push((top, with, said));
+    }
+    let sources = found
+        .iter()
+        .cloned()
+        .zip(kept_as)
+        .map(|(s, (kept_as, shares_folder_with, shared_said))| SourceView {
+            arrange: choices
+                .sources
+                .iter()
+                .find(|c| keevoro_core::places::same_place(&c.root, &s.root))
+                .and_then(|c| c.arrange),
+            kept_as,
+            shares_folder_with,
+            shared_said,
             left_out: left_out
                 .iter()
                 .filter(|f| keevoro_core::places::within(f, &s.root) || keevoro_core::places::within(&s.root, f))

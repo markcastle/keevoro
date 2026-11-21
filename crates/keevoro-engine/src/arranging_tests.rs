@@ -278,3 +278,76 @@ fn a_backup_nobody_asked_goes_by_date_and_says_so_once() {
     s.look();
     assert!(!s.back_up().contains("Arranged by date"));
 }
+
+#[test]
+fn the_same_photo_in_a_source_by_date_and_one_keeping_its_folders_is_kept_in_the_folders() {
+    let dir = tempfile::tempdir().unwrap();
+    let photo = real_jpeg(77);
+    // By date, the camera card's copy sits deep in named folders, which
+    // would win by itself.
+    let card = dir.path().join("Card");
+    let deep = card.join("Holidays").join("Spain").join("Day 2");
+    std::fs::create_dir_all(&deep).unwrap();
+    std::fs::write(deep.join("IMG_0001.jpg"), &photo).unwrap();
+    let scans = dir.path().join("Family Scans");
+    std::fs::create_dir_all(&scans).unwrap();
+    std::fs::write(scans.join("scan0001.jpg"), &photo).unwrap();
+    let home = dir.path().join("home");
+    let mut catalog = Catalog::open_in_library(&home).unwrap();
+    crate::scan_into(&mut catalog, &card, Some("Card"), &mut |_| {}).unwrap();
+    crate::scan_into(&mut catalog, &scans, Some("Family Scans"), &mut |_| {}).unwrap();
+    catalog.set_arrange(Arrange::ByDate).unwrap();
+    let id = catalog.sources().unwrap()[1].id;
+    catalog.set_source_arrange(id, Some(Arrange::Folders)).unwrap();
+
+    crate::check_and_place(&home, &catalog, &|| true, &mut |_| {}).unwrap();
+    assert_eq!(
+        catalog
+            .collected()
+            .unwrap()
+            .into_iter()
+            .map(|c| c.path)
+            .collect::<Vec<_>>(),
+        ["originals/Family Scans/scan0001.jpg"]
+    );
+    // And the list of duplicates says the same copy is the one kept.
+    let reports = catalog.load_reports().unwrap();
+    let groups = crate::summary::duplicate_groups(&reports);
+    assert!(groups[0].0.path.ends_with("scan0001.jpg"));
+}
+
+#[test]
+fn two_sources_called_photos_that_keep_their_folders_share_one_and_both_say_so() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let mut catalog = Catalog::open_in_library(&home).unwrap();
+    for (disk, shade) in [("D", 10), ("E", 200)] {
+        let photos = dir.path().join(disk).join("Photos");
+        std::fs::create_dir_all(&photos).unwrap();
+        std::fs::write(photos.join("IMG_0001.jpg"), real_jpeg(shade)).unwrap();
+        crate::scan_into(&mut catalog, &photos, Some("Photos"), &mut |_| {}).unwrap();
+    }
+    catalog.set_arrange(Arrange::Folders).unwrap();
+    crate::check_and_place(&home, &catalog, &|| true, &mut |_| {}).unwrap();
+    let mut places: Vec<String> = catalog.collected().unwrap().into_iter().map(|c| c.path).collect();
+    places.sort();
+    assert_eq!(
+        places,
+        ["originals/Photos/IMG_0001 (2).jpg", "originals/Photos/IMG_0001.jpg"],
+        "one folder, the second file numbered"
+    );
+    let sources = crate::discover(&home, &catalog).unwrap().sources;
+    for (mine, theirs) in [(0, 1), (1, 0)] {
+        assert_eq!(sources[mine].kept_as.as_deref(), Some("Photos"));
+        assert_eq!(
+            sources[mine].shared_said.as_deref(),
+            Some(
+                format!(
+                    "In the backup, its folder Photos is shared with {}.",
+                    sources[theirs].root
+                )
+                .as_str()
+            )
+        );
+    }
+}

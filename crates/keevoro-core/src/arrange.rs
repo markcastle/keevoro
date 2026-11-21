@@ -109,6 +109,51 @@ pub fn arrangement_said(choices: &crate::Choices) -> String {
         .join("\n")
 }
 
+/// One source, for working out which share a folder in the backup.
+#[derive(Debug, Clone)]
+pub struct SourceArranged<'a> {
+    pub root: &'a Path,
+    pub name: &'a str,
+    /// How its photos and videos are arranged, its own choice or else the
+    /// backup's.
+    pub arrange: Arrange,
+}
+
+/// For each source that keeps its folders, the others that keep theirs
+/// under the same top folder, so their files merge into one folder in the
+/// backup (`D:\Photos` and `E:\Photos` both into `originals/Photos`), by
+/// their place in `sources`. Compared without case, as Windows and a Mac
+/// compare names. Empty for a source arranged by date.
+pub fn sharing_a_folder(sources: &[SourceArranged<'_>]) -> Vec<Vec<usize>> {
+    let tops: Vec<Option<String>> = sources
+        .iter()
+        .map(|s| (s.arrange == Arrange::Folders).then(|| top_folder(s.root, s.name).to_lowercase()))
+        .collect();
+    tops.iter()
+        .enumerate()
+        .map(|(i, mine)| match mine {
+            Some(mine) => tops
+                .iter()
+                .enumerate()
+                .filter(|(j, theirs)| *j != i && theirs.as_ref() == Some(mine))
+                .map(|(j, _)| j)
+                .collect(),
+            None => Vec::new(),
+        })
+        .collect()
+}
+
+/// "In the backup, its folder Photos is shared with D:\Photos." The places
+/// are as a person would write them.
+pub fn shared_words(top: &str, with: &[String]) -> Option<String> {
+    let names = match with {
+        [] => return None,
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    };
+    Some(format!("In the backup, its folder {top} is shared with {names}."))
+}
+
 /// "KINGSTON (E:)" becomes "KINGSTON"; "Drive E:" stays.
 fn without_drive_letter(name: &str) -> &str {
     let name = name.trim();
@@ -229,6 +274,66 @@ mod tests {
         assert_eq!(Arrange::from_word("sideways"), None);
         assert_eq!(serde_json_name(Arrange::ByDate), "\"byDate\"");
         assert_eq!(serde_json_name(Arrange::Folders), "\"folders\"");
+    }
+
+    #[test]
+    fn two_sources_called_photos_that_keep_their_folders_share_one_and_each_says_so() {
+        let d = PathBuf::from("/mnt/d/Photos");
+        let e = PathBuf::from("/mnt/e/PHOTOS");
+        let card = PathBuf::from("/media/card");
+        let sources = [
+            SourceArranged {
+                root: &d,
+                name: "Photos",
+                arrange: Arrange::Folders,
+            },
+            SourceArranged {
+                root: &e,
+                name: "PHOTOS",
+                arrange: Arrange::Folders,
+            },
+            SourceArranged {
+                root: &card,
+                name: "card",
+                arrange: Arrange::Folders,
+            },
+        ];
+        assert_eq!(sharing_a_folder(&sources), [vec![1], vec![0], Vec::<usize>::new()]);
+        let by_date = [
+            SourceArranged {
+                arrange: Arrange::ByDate,
+                ..sources[0].clone()
+            },
+            sources[1].clone(),
+        ];
+        assert_eq!(
+            sharing_a_folder(&by_date),
+            [Vec::<usize>::new(), Vec::new()],
+            "a source by date shares nothing"
+        );
+        assert_eq!(
+            shared_words("Photos", &[r"E:\Photos".to_string()]).as_deref(),
+            Some(r"In the backup, its folder Photos is shared with E:\Photos.")
+        );
+        assert_eq!(
+            shared_words("Photos", &["E:\\Photos".into(), "F:\\Photos".into()]).as_deref(),
+            Some("In the backup, its folder Photos is shared with E:\\Photos and F:\\Photos.")
+        );
+        assert_eq!(shared_words("Photos", &[]), None);
+    }
+
+    #[test]
+    fn the_arrangement_is_said_in_one_line_that_changes_with_any_choice() {
+        let mut choices = crate::Choices::default();
+        assert_eq!(arrangement_said(&choices), "byDate");
+        choices.sources.push(crate::SourceChoices {
+            root: PathBuf::from("/m/Scans"),
+            arrange: Some(Arrange::Folders),
+            ..crate::SourceChoices::default()
+        });
+        assert_eq!(arrangement_said(&choices), "byDate\nfolders\t/m/Scans");
+        assert_eq!(choices.arrangement_in(Path::new("/m/Scans")), Arrange::Folders);
+        assert_eq!(choices.arrangement_in(Path::new("/m/Card")), Arrange::ByDate);
     }
 
     fn serde_json_name(a: Arrange) -> String {

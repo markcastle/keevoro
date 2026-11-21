@@ -575,6 +575,31 @@ pub static ROWS: &[Row] = &[
         },
         show: show::wants,
     },
+    Row {
+        words: &["sources", "arrange"],
+        ops: &[Op::SourcesArrange],
+        about: Some(
+            "How one source's photos and videos are arranged where they are sent: the same as its backup, by date, or keeping its folders as they are. Give backup, by-date or folders to change it; nothing already backed up is moved.",
+        ),
+        args: |c| {
+            c.arg(arg("source", "The source's number, place or name").required(true))
+                .arg(arg("how", "backup, by-date or folders"))
+        },
+        ask: |c, m, _| {
+            let source = source(c, &required(m, "source"))?;
+            let arrange = text(m, "how")
+                .map(|w| {
+                    if w.eq_ignore_ascii_case("backup") {
+                        Ok("backup")
+                    } else {
+                        arrange_typed(&w)
+                    }
+                })
+                .transpose()?;
+            Ok((Op::SourcesArrange, json!({ "source": source, "arrange": arrange })))
+        },
+        show: show::arrange,
+    },
     // Choosing
     Row {
         words: &["found"],

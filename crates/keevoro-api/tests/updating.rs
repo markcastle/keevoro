@@ -241,6 +241,14 @@ fn everything_a_person_set_and_keevoro_recorded_in_0_37_1_is_there_after_updatin
         );
     }
 
+    for source in [1, 2] {
+        let arranged = ask(&keevoro, Op::SourcesArrange, family, json!({ "source": source }));
+        assert_eq!(
+            (arranged["own"].as_bool(), arranged["arrange"].as_str()),
+            (Some(false), Some("byDate"))
+        );
+    }
+
     // Whether previews are made, each backup's own choice.
     assert_eq!(ask(&keevoro, Op::BackupPreviews, family, Value::Null), true);
     assert_eq!(

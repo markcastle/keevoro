@@ -537,7 +537,7 @@ Their source was Pictures / Scans / Family Scans; the backup put the files under
 
 - [ ] Asked the first time a backup is set up, in one plain sentence: "Arrange by date" or "Keep my folders as they are" (decided by the owner: ask on first use)
 - [x] "Keep my folders" writes originals / source name / their folders / file, the same arrangement other files use
-- [ ] Per source as well, so a camera card can go by date while a folder of scans keeps its folders
+- [x] Per source as well, so a camera card can go by date while a folder of scans keeps its folders
 - [x] Changing it later affects only what is sent from then on; nothing already backed up is moved or removed
 - [ ] A suggestion with its reason when a source's files nearly all share one date or sit in folders with real names
 - [x] Backups made before the choice existed stay "by date"; the guide note says which was used

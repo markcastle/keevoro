@@ -701,6 +701,24 @@ fn smaller_things_a_backup_can_be_asked() {
     let ran = at.keevoro(&["arrange", "sideways"]);
     assert_eq!(ran.code, Code::NotUnderstood, "{}", ran.err);
     at.keevoro(&["arrange", "by-date"]);
+    let ran = at.keevoro(&["sources", "arrange", "1", "folders"]);
+    assert!(
+        ran.out.starts_with("Files from Card keep their folders as they are."),
+        "{}",
+        ran.out
+    );
+    let ran = at.keevoro(&["sources", "arrange", "1", "--json"]);
+    assert_eq!(
+        (ran.json()["own"].as_bool(), ran.json()["keptAs"].as_str()),
+        (Some(true), Some("Card"))
+    );
+    let ran = at.keevoro(&["sources", "arrange", "1", "backup"]);
+    assert!(
+        ran.out
+            .starts_with("Files from Card are arranged as the backup is: by date."),
+        "{}",
+        ran.out
+    );
     let ran = at.keevoro(&["backups", "start", "Scans", "--arrange", "folders"]);
     assert_eq!(ran.code, Code::Worked, "{}", ran.err);
     let ran = at.keevoro(&["-b", "Scans", "arrange"]);

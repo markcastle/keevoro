@@ -286,6 +286,7 @@ The words each command shows in `keevoro --help` come from the same list the app
 | `keevoro sources forget SOURCE` | Takes a source off the backup. Nothing on it is touched. |
 | `keevoro sources types SOURCE` | The kinds of file on a source, and which are included. |
 | `keevoro sources types SOURCE --leave-out png` | Leaves out one kind of file; `--include png` brings it back. |
+| `keevoro sources arrange SOURCE [backup \| by-date \| folders]` | How one source's photos and videos are arranged: the same as its backup (`backup`), or its own. Two sources whose folders have the same name, both kept as they are, share one folder in the backup, and both say so ("In the backup, its folder Photos is shared with E:\Photos."). |
 | `keevoro sources wants SOURCE [backup \| KINDS]` | What one source is for: the same as its backup (`backup`), or its own choice of one or more of `photos`, `videos` and `others`. |
 | `keevoro sources leave-out FOLDER [--put-back]` | Leaves a folder out of this backup, so it is not looked through and what was found in it is no longer offered; `--put-back` includes it again. It need not be in a source yet. Nothing in it, or already backed up, is touched. |
 
