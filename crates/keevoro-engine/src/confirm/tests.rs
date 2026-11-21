@@ -268,6 +268,9 @@ fn the_testers_case_a_folder_emptied_is_said_before_anything_is_sent_then_sent_a
     // The backup screen and the rehearsal look first.
     look_everywhere(&t.catalog, &t.world()).unwrap();
     assert_eq!(t.waiting(), 4, "nothing gone is counted as safe");
+    // The map's "Backed up: N of M" goes by the same rule.
+    let by_folder = crate::safe_by_folder(&t.catalog).unwrap();
+    assert!(by_folder.values().all(|(safe, _)| *safe == 0), "{by_folder:?}");
     let view = t.view();
     assert!(view.fresh && view.reached);
     assert_eq!((view.gone, view.not_as_sent), (4, 0));
