@@ -282,6 +282,8 @@ pub fn still_to_make(catalog: &Catalog) -> Result<(u64, u64)> {
                     videos += 1;
                 }
             }
+            // No preview is ever made of an other file.
+            MediaKind::Other => {}
         }
     }
     Ok((photos, videos))
@@ -309,6 +311,7 @@ pub fn without_previews(catalog: &Catalog) -> Result<(u64, u64)> {
                     videos += 1;
                 }
             }
+            MediaKind::Other => {}
         }
     }
     Ok((photos, videos))

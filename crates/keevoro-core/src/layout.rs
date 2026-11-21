@@ -7,21 +7,36 @@
 //! originals/Holidays/Spain 2009/Day 2/IMG_1234.jpg   came from a named folder
 //! originals/By date/2009/2009-07/IMG_0042.jpg        no useful folder, but dated
 //! originals/Undated/scan0001.jpg                     no believable date anywhere
+//! originals/Other files/Mum/Documents/Tax/return.pdf an other file, in its folder
 //! ```
+//!
+//! Other files keep the folders they came from, starting with the source's
+//! own folder's name, under one clear folder of their own, so they never
+//! mix with the photos. Two sources with the same folders share them; a
+//! name already taken by a different file is numbered, as for photos.
 //!
 //! Names are made safe for every disk the library might live on. A library
 //! built on a Mac must still open on a Windows PC, so the stricter Windows
 //! rules are applied everywhere.
 
 use crate::date::{DateGuess, DateSource};
+use crate::media::MediaKind;
 
 pub const ORIGINALS: &str = "originals";
 pub const BY_DATE: &str = "By date";
 pub const UNDATED: &str = "Undated";
+/// Where other files go, inside `originals`.
+pub const OTHER_FILES: &str = "Other files";
 
-/// The folders, from the library root down, that a file belongs in.
-pub fn library_folder(album: &[String], date: Option<&DateGuess>) -> Vec<String> {
+/// The folders, from the library root down, that a file belongs in. For an
+/// other file, `album` is the folder it came from.
+pub fn library_folder(kind: MediaKind, album: &[String], date: Option<&DateGuess>) -> Vec<String> {
     let mut path = vec![ORIGINALS.to_string()];
+    if kind == MediaKind::Other {
+        path.push(OTHER_FILES.to_string());
+        path.extend(album.iter().map(|a| safe_name(a)));
+        return path;
+    }
     if !album.is_empty() {
         path.extend(album.iter().map(|a| safe_name(a)));
         return path;
@@ -98,7 +113,7 @@ mod tests {
     fn named_folders_are_kept_as_they_were() {
         let g = guess("2009-07-14", DateSource::Exif);
         assert_eq!(
-            library_folder(&album(&["Holidays", "Spain 2009", "Day 2"]), Some(&g)),
+            library_folder(MediaKind::Photo, &album(&["Holidays", "Spain 2009", "Day 2"]), Some(&g)),
             ["originals", "Holidays", "Spain 2009", "Day 2"]
         );
     }
@@ -107,18 +122,37 @@ mod tests {
     fn unnamed_files_go_by_date() {
         let day = guess("2009-07-14T21:03:11", DateSource::Exif);
         assert_eq!(
-            library_folder(&[], Some(&day)),
+            library_folder(MediaKind::Photo, &[], Some(&day)),
             ["originals", "By date", "2009", "2009-07"]
         );
         let year = guess("2009", DateSource::Folder);
-        assert_eq!(library_folder(&[], Some(&year)), ["originals", "By date", "2009"]);
+        assert_eq!(
+            library_folder(MediaKind::Photo, &[], Some(&year)),
+            ["originals", "By date", "2009"]
+        );
     }
 
     #[test]
     fn a_copy_date_is_not_a_capture_date() {
         let copied = guess("2015-01-01", DateSource::Modified);
-        assert_eq!(library_folder(&[], Some(&copied)), ["originals", "Undated"]);
-        assert_eq!(library_folder(&[], None), ["originals", "Undated"]);
+        assert_eq!(
+            library_folder(MediaKind::Photo, &[], Some(&copied)),
+            ["originals", "Undated"]
+        );
+        assert_eq!(library_folder(MediaKind::Photo, &[], None), ["originals", "Undated"]);
+    }
+
+    #[test]
+    fn other_files_keep_their_folders_under_their_own_and_are_never_put_by_date() {
+        let day = guess("2009-07-14", DateSource::Exif);
+        assert_eq!(
+            library_folder(MediaKind::Other, &album(&["Mum", "Documents", "Tax?"]), Some(&day)),
+            ["originals", "Other files", "Mum", "Documents", "Tax_"]
+        );
+        assert_eq!(
+            library_folder(MediaKind::Other, &[], None),
+            ["originals", "Other files"]
+        );
     }
 
     #[test]
@@ -132,7 +166,10 @@ mod tests {
         assert_eq!(safe_name("nul.jpg"), "_nul.jpg");
         assert_eq!(safe_name("Console"), "Console");
         assert_eq!(safe_name(" . "), "_");
-        assert_eq!(library_folder(&album(&["What?"]), None), ["originals", "What_"]);
+        assert_eq!(
+            library_folder(MediaKind::Photo, &album(&["What?"]), None),
+            ["originals", "What_"]
+        );
     }
 
     #[test]

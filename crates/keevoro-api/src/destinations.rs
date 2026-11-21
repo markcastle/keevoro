@@ -15,7 +15,7 @@
 
 use crate::backup::Backup;
 use crate::error::{Error, Result};
-use keevoro_engine::connect::{self, Flags, Saved, SecretStore, World};
+use keevoro_engine::connect::{self, Flags, Keys, KeysFrom, Saved, SecretStore, World};
 use keevoro_engine::summary;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::path::Path;
@@ -112,6 +112,10 @@ pub struct DestinationAdded {
     pub name: String,
     /// Its place in `destinations.list`.
     pub at: usize,
+    /// Said only when no keys were given and those set in the environment
+    /// were tested and saved instead: which variables, never the keys.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub keys: Option<String>,
 }
 
 /// `destinations.remove`: one place by its place in the list, or all of
@@ -215,14 +219,19 @@ impl Backup {
     /// `destinations.add`: checks the place works, then adds it to those
     /// this backup goes to. Those already there stay. Adding one that is
     /// already there only refreshes its keys.
+    ///
+    /// The keys in the request are the ones tested and saved. Only when it
+    /// gives none are those set in the environment used, and the answer
+    /// then says so in [`DestinationAdded::keys`].
     pub fn add_destination(
         &self,
         request: &AddDestinationRequest,
         secrets: &dyn SecretStore,
+        environment: &dyn Fn(&str) -> Option<String>,
     ) -> Result<DestinationAdded> {
         let access = request.access_key_id.as_ref().map(Key::reveal).unwrap_or_default();
         let secret = request.secret_access_key.as_ref().map(Key::reveal).unwrap_or_default();
-        self.add_with_keys(request, access, secret, secrets)
+        self.add_with_keys(request, access, secret, secrets, environment)
             .map_err(|e| without_keys(e, &[access, secret]))
     }
 
@@ -232,6 +241,7 @@ impl Backup {
         access: &str,
         secret: &str,
         secrets: &dyn SecretStore,
+        environment: &dyn Fn(&str) -> Option<String>,
     ) -> Result<DestinationAdded> {
         let place = Some(request.place.trim().to_string()).filter(|p| !p.is_empty());
         let mut flags = Flags {
@@ -245,18 +255,15 @@ impl Backup {
             DestinationKind::Endpoint => flags.to_endpoint = place,
         }
         let saved = Saved::from_flags(&flags).ok_or_else(|| Error::failed("Say where to back up to first.".into()))?;
-        // The keys given are what a terminal would be asked for.
-        let ask = |_: &str, hidden: bool| {
-            let answer = if hidden { secret } else { access };
-            if answer.is_empty() {
-                anyhow::bail!("Enter both keys for the storage.");
-            }
-            Ok(answer.to_string())
-        };
-        let world = World { secrets, ask: &ask };
+        // Half a pair is a mistake to say, not a reason to use other keys.
+        let given = Keys::new(access, secret);
+        if given.is_none() && !(access.is_empty() && secret.is_empty()) && request.kind != DestinationKind::Folder {
+            return Err(Error::failed("Enter both keys for the storage.".into()));
+        }
+        let world = World { secrets, environment };
         // Any warning (such as a publicly listable bucket) and the command
         // line's hints are written here, and not passed on.
-        connect::add(&mut Vec::new(), self.catalog(), &saved, &world).map_err(|e| {
+        let from = connect::add(&mut Vec::new(), self.catalog(), &saved, given, &world).map_err(|e| {
             if e.downcast_ref::<connect::CannotReach>().is_some() {
                 Error::unreachable(format!("{e:#}"))
             } else {
@@ -272,6 +279,7 @@ impl Backup {
         Ok(DestinationAdded {
             name: saved.describe(),
             at,
+            keys: (from == KeysFrom::Environment).then(|| connect::environment_keys_saved(&saved)),
         })
     }
 
@@ -280,20 +288,16 @@ impl Backup {
     /// keys from the keychain. Nothing stored at any of them is touched.
     /// Answers the places removed, in words.
     pub fn remove_destination(&self, at: Option<usize>, secrets: &dyn SecretStore) -> Result<Vec<String>> {
-        let world = World {
-            secrets,
-            ask: &connect::testing::nobody_to_ask,
-        };
         // What the last backup said was about the destinations as they were.
         let _ = self.forget_last_summary();
         match at {
-            Some(at) => Ok(connect::remove(self.catalog(), &world, at)?
+            Some(at) => Ok(connect::remove(self.catalog(), secrets, at)?
                 .iter()
                 .map(Saved::describe)
                 .collect()),
             None => {
                 let names = self.destination_names()?;
-                connect::disconnect(&mut Vec::new(), self.catalog(), &world)?;
+                connect::disconnect(&mut Vec::new(), self.catalog(), secrets)?;
                 Ok(names)
             }
         }
@@ -405,7 +409,7 @@ pub(crate) fn without_keys(mut e: Error, keys: &[&str]) -> Error {
 mod tests {
     use super::*;
     use crate::backup::tests::one_backup;
-    use keevoro_engine::connect::testing::MemorySecrets;
+    use keevoro_engine::connect::testing::{no_environment, MemorySecrets};
 
     fn folder(place: &Path) -> AddDestinationRequest {
         AddDestinationRequest {
@@ -423,7 +427,9 @@ mod tests {
         assert_eq!(backup.destinations_in_words().unwrap(), None);
         let secrets = MemorySecrets::default();
         let usb = dir.path().join("USB stick");
-        let added = backup.add_destination(&folder(&usb), &secrets).unwrap();
+        let added = backup
+            .add_destination(&folder(&usb), &secrets, &no_environment)
+            .unwrap();
         assert_eq!(added.name, format!("the folder {}", usb.display()));
         assert_eq!(added.at, 0);
         assert!(usb.is_dir(), "checking it works makes the folder");
@@ -432,10 +438,22 @@ mod tests {
         assert_eq!(backup.destinations_in_words().unwrap(), Some(added.name.clone()));
 
         let nas = dir.path().join("NAS");
-        assert_eq!(backup.add_destination(&folder(&nas), &secrets).unwrap().at, 1);
+        assert_eq!(
+            backup
+                .add_destination(&folder(&nas), &secrets, &no_environment)
+                .unwrap()
+                .at,
+            1
+        );
         assert_eq!(backup.destinations_in_words().unwrap().as_deref(), Some("2 places"));
         // Adding one that is there already adds nothing.
-        assert_eq!(backup.add_destination(&folder(&usb), &secrets).unwrap().at, 0);
+        assert_eq!(
+            backup
+                .add_destination(&folder(&usb), &secrets, &no_environment)
+                .unwrap()
+                .at,
+            0
+        );
         assert_eq!(backup.destination_names().unwrap().len(), 2);
     }
 
@@ -446,7 +464,11 @@ mod tests {
             .remember_last_summary(&serde_json::json!({ "finished": true }))
             .unwrap();
         backup
-            .add_destination(&folder(&dir.path().join("USB")), &MemorySecrets::default())
+            .add_destination(
+                &folder(&dir.path().join("USB")),
+                &MemorySecrets::default(),
+                &no_environment,
+            )
             .unwrap();
         assert_eq!(backup.last_summary().unwrap(), None);
     }
@@ -455,19 +477,20 @@ mod tests {
     fn a_place_that_is_not_said_is_refused_plainly() {
         let (_dir, _card, backup) = one_backup();
         let mut request = folder(Path::new("  "));
-        let e = backup.add_destination(&request, &MemorySecrets::default()).unwrap_err();
+        let e = backup
+            .add_destination(&request, &MemorySecrets::default(), &no_environment)
+            .unwrap_err();
         assert_eq!(e.message, "Say where to back up to first.");
         request.kind = DestinationKind::R2;
         request.bucket = Some("family".into());
-        let e = backup.add_destination(&request, &MemorySecrets::default()).unwrap_err();
+        let e = backup
+            .add_destination(&request, &MemorySecrets::default(), &no_environment)
+            .unwrap_err();
         assert_eq!(e.message, "Say where to back up to first.");
     }
 
     #[test]
     fn cloud_storage_without_both_keys_is_refused_before_anything_is_tried() {
-        if std::env::var_os(keevoro_engine::send::ACCESS_KEY_VAR).is_some() {
-            return; // Keys in the environment are used instead.
-        }
         let (_dir, _card, backup) = one_backup();
         let request = AddDestinationRequest {
             kind: DestinationKind::R2,
@@ -476,7 +499,9 @@ mod tests {
             access_key_id: Some(Key::new("AKIAONLYONE")),
             secret_access_key: None,
         };
-        let e = backup.add_destination(&request, &MemorySecrets::default()).unwrap_err();
+        let e = backup
+            .add_destination(&request, &MemorySecrets::default(), &no_environment)
+            .unwrap_err();
         assert_eq!(e.message, "Enter both keys for the storage.");
         assert!(backup.destination_names().unwrap().is_empty());
     }
@@ -487,7 +512,9 @@ mod tests {
         let secrets = MemorySecrets::default();
         let (usb, nas) = (dir.path().join("USB"), dir.path().join("NAS"));
         for place in [&usb, &nas] {
-            backup.add_destination(&folder(place), &secrets).unwrap();
+            backup
+                .add_destination(&folder(place), &secrets, &no_environment)
+                .unwrap();
         }
         std::fs::write(usb.join("kept.txt"), "mine").unwrap();
 
@@ -553,7 +580,7 @@ mod tests {
 
         let usb = dir.path().join("USB");
         backup
-            .add_destination(&folder(&usb), &MemorySecrets::default())
+            .add_destination(&folder(&usb), &MemorySecrets::default(), &no_environment)
             .unwrap();
         let room = backup.room().unwrap();
         assert_eq!(room.places.len(), 1);
@@ -581,7 +608,9 @@ mod tests {
         let secrets = MemorySecrets::default();
         let (usb, nas) = (dir.path().join("USB"), dir.path().join("NAS"));
         for place in [&usb, &nas] {
-            backup.add_destination(&folder(place), &secrets).unwrap();
+            backup
+                .add_destination(&folder(place), &secrets, &no_environment)
+                .unwrap();
         }
         let before = backup.found().unwrap();
         let rehearsal = backup.rehearse().unwrap();

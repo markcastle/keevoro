@@ -54,7 +54,7 @@ fn place_for(item: &FoundItem) -> (Vec<String>, String) {
         .path
         .file_name()
         .map_or_else(|| "unnamed".to_string(), |n| safe_name(&n.to_string_lossy()));
-    (library_folder(&item.folder.album, item.date.as_ref()), name)
+    (library_folder(item.kind, &item.folder.album, item.date.as_ref()), name)
 }
 
 /// Agrees a place for each of `items` without copying anything: the files

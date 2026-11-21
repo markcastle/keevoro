@@ -7,7 +7,19 @@
 
 import type { KindView, MapNode, MapRequest, MapView } from './backend'
 
-type Kind = 'photo' | 'video' | 'other'
+type Kind = 'photo' | 'video' | 'other' | 'carried'
+const KINDS: Kind[] = ['photo', 'video', 'carried', 'other']
+
+/**
+ * The endings a person has put on the kinds list as other files, to be
+ * carried along: files with them are a kind of their own on the map, not
+ * everything else. Set for each answer.
+ */
+let carriedNow = new Set<string>()
+
+/** The kind a made-up folder's files of `kind` count as now. */
+const now = (folder: string, kind: Kind, file?: string): Kind =>
+  kind === 'other' && carriedNow.has(endingOf(folder, 'other', file)) ? 'carried' : kind
 
 /** A made-up folder. */
 type Made = {
@@ -103,6 +115,7 @@ const DISK: Made = {
             PICTURES,
             { name: 'Videos', folders: [{ name: 'Drone', rest: { photo: [333, 2.1 * GB], video: [26, 92 * GB] } }] },
             { name: 'Documents', rest: { other: [4_120, 2.1 * GB], photo: [14, 30 * MB] } },
+            { name: 'Music', folders: [{ name: 'Holiday mix', rest: { other: [240, 7.2 * GB] } }] },
             { name: 'AppData', skipped: 'App or cache folder', rest: { other: [210_000, 9.4 * GB], photo: [30_000, 0.6 * GB] } },
           ],
         },
@@ -129,25 +142,42 @@ const anyPlace = (name: string): Made => ({
 
 /** The ending each kind of file has in a made-up folder. */
 const endingOf = (folder: string, kind: Kind, file?: string) =>
-  file ? (file.split('.').pop() ?? '').toLowerCase() : kind === 'video' ? 'mp4' : kind === 'photo' ? (folder === 'Screenshots' ? 'png' : 'jpg') : folder.startsWith('Texture') || ['Minecraft', 'Skyrim', 'Factorio'].includes(folder) ? 'zip' : folder === 'Windows' || folder === 'Program Files' || folder === 'AppData' ? 'dll' : 'txt'
+  file
+    ? (file.split('.').pop() ?? '').toLowerCase()
+    : kind === 'video'
+      ? 'mp4'
+      : kind === 'photo'
+        ? folder === 'Screenshots'
+          ? 'png'
+          : 'jpg'
+        : folder.startsWith('Texture') || ['Minecraft', 'Skyrim', 'Factorio'].includes(folder)
+          ? 'zip'
+          : folder === 'Windows' || folder === 'Program Files' || folder === 'AppData'
+            ? 'dll'
+            : folder === 'Documents'
+              ? 'pdf'
+              : folder === 'Holiday mix'
+                ? 'flac'
+                : 'txt'
 
-type Sums = { photo: [number, number]; video: [number, number]; other: [number, number]; online: number; folders: number }
+type Sums = Record<Kind, [number, number]> & { online: number; folders: number }
 
 function sums(made: Made): Sums {
-  const total: Sums = { photo: [0, 0], video: [0, 0], other: [0, 0], online: made.onlineOnly ?? 0, folders: 0 }
+  const total: Sums = { photo: [0, 0], video: [0, 0], other: [0, 0], carried: [0, 0], online: made.onlineOnly ?? 0, folders: 0 }
   for (const kind of ['photo', 'video', 'other'] as Kind[]) {
     const [files, bytes] = made.rest?.[kind] ?? [0, 0]
-    total[kind][0] += files
-    total[kind][1] += bytes
+    const counted = now(made.name, kind)
+    total[counted][0] += files
+    total[counted][1] += bytes
   }
   for (const [name, bytes] of made.files ?? []) {
-    const kind = kindOf(name)
+    const kind = now(made.name, kindOf(name), name)
     total[kind][0] += 1
     total[kind][1] += bytes
   }
   for (const inside of made.folders ?? []) {
     const more = sums(inside)
-    for (const kind of ['photo', 'video', 'other'] as Kind[]) {
+    for (const kind of KINDS) {
       total[kind][0] += more[kind][0]
       total[kind][1] += more[kind][1]
     }
@@ -207,7 +237,9 @@ export function demoMap(
   request: MapRequest,
   leftOutOf: (path: string) => string | undefined,
   surveyedAt: number,
+  carried: Set<string> = new Set(),
 ): MapView | null {
+  carriedNow = carried
   const place = request.place.replace(/[\\/]+$/, '')
   const folder = (request.folder ?? request.place).replace(/[\\/]+$/, '')
   const { tree, top } = treeFor(place)
@@ -215,7 +247,7 @@ export function demoMap(
   const start = find(tree, top, place)
   if (!at || !start) return null
   const total = sums(at)
-  const bytes = total.photo[1] + total.video[1] + total.other[1]
+  const bytes = total.photo[1] + total.video[1] + total.other[1] + total.carried[1]
   const smallest = Math.max(1, request.smallest ?? Math.floor(bytes / 2000))
   const depth = Math.min(6, Math.max(1, request.depth))
 
@@ -226,18 +258,19 @@ export function demoMap(
     const skipped = made.skipped ? made : passed
     const s = sums(made)
     const out = skipped ? undefined : leftOutOf(path)
-    const media = s.photo[1] + s.video[1]
+    const media = s.photo[1] + s.video[1] + s.carried[1]
     const shown: MapNode = {
       name: made === tree ? (path === 'C:' ? 'Windows (C:)' : made.name) : made.name,
       path: path === 'C:' ? 'C:\\' : path,
       node: 'folder',
-      bytes: s.photo[1] + s.video[1] + s.other[1],
+      bytes: s.photo[1] + s.video[1] + s.other[1] + s.carried[1],
       photos: s.photo[0],
       videos: s.video[0],
       others: s.other[0],
       photoBytes: s.photo[1],
       videoBytes: s.video[1],
       otherBytes: s.other[1],
+      ...(s.carried[0] ? { carried: s.carried[0], carriedBytes: s.carried[1] } : {}),
       ...(s.online ? { onlineOnlyBytes: s.online } : {}),
       ...(s.folders ? { folders: s.folders } : {}),
       ...(skipped?.skipped ? { skipped: skipped.skipped } : {}),
@@ -255,16 +288,16 @@ export function demoMap(
       return shown
     }
     const children: MapNode[] = []
-    const smaller = { bytes: 0, folders: 0, photo: [0, 0], video: [0, 0], other: [0, 0], endings: new Set<string>() }
+    const smaller = { bytes: 0, folders: 0, photo: [0, 0], video: [0, 0], other: [0, 0], carried: [0, 0], endings: new Set<string>() }
     for (const inside of made.folders ?? []) {
       const t = sums(inside)
-      const b = t.photo[1] + t.video[1] + t.other[1]
+      const b = t.photo[1] + t.video[1] + t.other[1] + t.carried[1]
       if (b >= smallest) children.push(node(inside, `${path}\\${inside.name}`, level - 1, skipped))
       else {
         smaller.bytes += b
         smaller.folders += 1 + t.folders
         endingsIn(inside, smaller.endings)
-        for (const kind of ['photo', 'video', 'other'] as Kind[]) {
+        for (const kind of KINDS) {
           smaller[kind][0] += t[kind][0]
           smaller[kind][1] += t[kind][1]
         }
@@ -281,15 +314,17 @@ export function demoMap(
         photoBytes: smaller.photo[1],
         videoBytes: smaller.video[1],
         otherBytes: smaller.other[1],
+        ...(smaller.carried[0] ? { carried: smaller.carried[0], carriedBytes: smaller.carried[1] } : {}),
         folders: smaller.folders,
         wouldBackUp: 0,
         endings: placesOf(smaller.endings),
       })
     }
-    const rest: Record<Kind, [number, number]> = {
-      photo: [...(made.rest?.photo ?? [0, 0])] as [number, number],
-      video: [...(made.rest?.video ?? [0, 0])] as [number, number],
-      other: [...(made.rest?.other ?? [0, 0])] as [number, number],
+    const rest: Record<Kind, [number, number]> = { photo: [0, 0], video: [0, 0], other: [0, 0], carried: [0, 0] }
+    for (const kind of ['photo', 'video', 'other'] as Kind[]) {
+      const [files, b] = made.rest?.[kind] ?? [0, 0]
+      rest[now(made.name, kind)][0] += files
+      rest[now(made.name, kind)][1] += b
     }
     const notes = (kind: Kind) =>
       skipped?.madeByKeevoro
@@ -299,8 +334,17 @@ export function demoMap(
           : out && kind !== 'other'
             ? { leftOut: 'you left this folder out of this backup' }
             : {}
+    const one = (kind: Kind, files: number, b: number) => ({
+      photos: kind === 'photo' ? files : 0,
+      videos: kind === 'video' ? files : 0,
+      others: kind === 'other' ? files : 0,
+      photoBytes: kind === 'photo' ? b : 0,
+      videoBytes: kind === 'video' ? b : 0,
+      otherBytes: kind === 'other' ? b : 0,
+      ...(kind === 'carried' ? { carried: files, carriedBytes: b } : {}),
+    })
     for (const [name, b] of made.files ?? []) {
-      const kind = kindOf(name)
+      const kind = now(made.name, kindOf(name), name)
       if (b < smallest) {
         rest[kind][0] += 1
         rest[kind][1] += b
@@ -311,31 +355,30 @@ export function demoMap(
         node: 'file',
         kind,
         bytes: b,
-        photos: kind === 'photo' ? 1 : 0,
-        videos: kind === 'video' ? 1 : 0,
-        others: kind === 'other' ? 1 : 0,
-        photoBytes: kind === 'photo' ? b : 0,
-        videoBytes: kind === 'video' ? b : 0,
-        otherBytes: kind === 'other' ? b : 0,
+        ...one(kind, 1, b),
         ...notes(kind),
         wouldBackUp: kind === 'other' || skipped || out ? 0 : b,
         endings: placesOf([endingOf(made.name, kind, name)]),
       })
     }
-    for (const kind of ['photo', 'video', 'other'] as Kind[]) {
+    for (const kind of KINDS) {
       const [files, b] = rest[kind]
       if (files === 0) continue
       children.push({
-        name: kind === 'photo' ? 'Photos' : kind === 'video' ? 'Videos' : 'Other files',
+        name:
+          kind === 'photo'
+            ? 'Photos'
+            : kind === 'video'
+              ? 'Videos'
+              : kind === 'carried'
+                ? 'Other files to carry along'
+                : carriedNow.size > 0
+                  ? 'Everything else'
+                  : 'Other files',
         node: 'files',
         kind,
         bytes: b,
-        photos: kind === 'photo' ? files : 0,
-        videos: kind === 'video' ? files : 0,
-        others: kind === 'other' ? files : 0,
-        photoBytes: kind === 'photo' ? b : 0,
-        videoBytes: kind === 'video' ? b : 0,
-        otherBytes: kind === 'other' ? b : 0,
+        ...one(kind, files, b),
         ...(made.onlineOnly && kind !== 'other' ? { onlineOnlyBytes: Math.round(made.onlineOnly / 2) } : {}),
         ...notes(kind),
         wouldBackUp: kind === 'other' || skipped || out ? 0 : b,
@@ -351,9 +394,9 @@ export function demoMap(
   const count = (made: Made) => {
     for (const kind of ['photo', 'video', 'other'] as Kind[]) {
       const [files, b] = made.rest?.[kind] ?? [0, 0]
-      if (files > 0) add(endingOf(made.name, kind), kind, files, b)
+      if (files > 0) add(endingOf(made.name, kind), now(made.name, kind), files, b)
     }
-    for (const [name, b] of made.files ?? []) add(endingOf(made.name, kindOf(name), name), kindOf(name), 1, b)
+    for (const [name, b] of made.files ?? []) add(endingOf(made.name, kindOf(name), name), now(made.name, kindOf(name), name), 1, b)
     made.folders?.forEach(count)
   }
   const add = (ending: string, kind: Kind, files: number, b: number) => {

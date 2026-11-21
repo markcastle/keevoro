@@ -16,6 +16,7 @@ When you allow it, it can also:
 
 - look through folders you have named, and add them to a backup as sources;
 - start and rename backups, keep or leave out collections and photos, and choose kinds of file;
+- read, and keep or leave out, other files you asked Keevoro to carry along (music, documents): `list_collections` lists them last, one per folder they came from (`byFolder`), `keep_collection` keeps or leaves out a folder of them, `list_photos` lists its files (each with its size and when it last changed) and `keep_photo` one of them, and `backup_wants` says, and with changes allowed sets, whether a backup takes them (`wants`: any of `photos`, `videos`, `others`). Only you can put a kind of file on the list as other files; an agent can read the list (`list_file_kinds`) but never change it;
 - leave a folder you have named out of a backup, or put it back (`leave_out_folder`), so it is not looked through and what was found in it is no longer offered. Nothing in the folder, and nothing already backed up, is touched;
 - add a folder you have named as a destination, or cloud storage with its keys;
 - back up, check what arrived, pause, carry on and stop.
@@ -30,6 +31,8 @@ Whatever you allow, an agent can never:
 - change what it is allowed to do. It can ask what it may do, and nothing more.
 
 Everything an agent does is written to Keevoro's log, in plain words: which tool it used, on which backup, and how it went. Settings, "What Keevoro has been doing", shows it.
+
+The keys an agent gives are the ones checked and saved. If it gives none and `KEEVORO_ACCESS_KEY_ID` and `KEEVORO_SECRET_ACCESS_KEY` are set where `keevoro mcp` runs, those are used instead, and the answer says so in words, naming the variables and never the keys.
 
 One thing to know about keys: a key you give an agent has passed through the AI app on its way, so it may be in that app's own history of your conversation. Use a key that can reach one bucket and nothing else, which is good practice anyway, or add cloud storage yourself in the app and let the agent only back up to it.
 

@@ -6,7 +6,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Carry your other files along with your photos.** Keevoro is still for photos and videos, but you can now have it take other files with it: music, documents, project files. In Settings, Advanced, add a kind of file and choose "Other files" (or `keevoro kinds add flac --other`). Any ending can be added this way, even ones Keevoro used to refuse, such as .pdf or .mp3. Keevoro finds them, leaves out exact copies, backs them up and checks every copy exactly like your photos, into an "Other files" folder inside "originals" in the folders they came from, and the note in the backup says so. It never opens them to show a picture or sorts them by date: on "Choose what to keep" they are listed under "Other files" by the folder they came from, each folder kept or left out as a whole, and each opening to a plain list of its files with their size and when they last changed, a tick each, and Show in File Explorer. Counts name them ("238 photos, 11 videos and 40 other files"), "Find where the photos are" can suggest a folder of them, and the map shows them as a kind of their own, with its own pattern in the key. Nothing changes until you add a kind: out of the box Keevoro finds exactly what it always did.
+
+### Changed
+
+- **What a backup is for is now a set of tick boxes.** "Photos and videos", "Photos only" and "Videos only" are now "Photos" and "Videos" tick boxes, with "Other files" beside them once you have added a kind of other file, and at least one always ticked; a source can follow its backup or have its own. At the command line this is `keevoro wants photos videos` (it was `keevoro photos-or-videos`), `keevoro sources wants`, and `keevoro backups start NAME --wants photos` (it was `--photos-only`). A choice of photos only or videos only made before this version reads as everything again, so set it once more if you had one.
+
+### Fixed
+
+- **Storage keys you give are the ones Keevoro uses.** If `KEEVORO_ACCESS_KEY_ID` and `KEEVORO_SECRET_ACCESS_KEY` were set on your computer, keys you gave when adding cloud storage, in the app, at the command line or through an AI app, were quietly ignored, and the other keys were checked and saved instead. The keys you give now always win. Those set on the computer are used only when you give none, and Keevoro then says so, naming the settings but never the keys, before saving them for that place. A backup uses the keys saved for each place first.
 
 ## [0.38.0] - 2026-11-21
 

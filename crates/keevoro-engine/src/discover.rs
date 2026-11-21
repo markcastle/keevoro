@@ -7,6 +7,11 @@
 //!
 //! A collection is identified by its [`CollectionView::key`], made from its
 //! album path. That is what the "Keep collection" button sends back.
+//!
+//! Other files a person asked Keevoro to carry along come last, one
+//! collection per folder they came from ([`CollectionView::by_folder`]),
+//! so they are kept or left out a folder at a time with the same buttons,
+//! and counted, sent and proved by exactly the same rules as photos.
 
 use crate::{summary, wanted};
 use anyhow::{bail, Result};
@@ -47,6 +52,14 @@ fn is_zero(n: &u64) -> bool {
     *n == 0
 }
 
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+fn is_none_of_them(n: &usize) -> bool {
+    *n == 0
+}
+
 /// A path as a person would write it. Windows gives long paths back as
 /// `\\?\C:\Users\...`, which means nothing to most people.
 pub fn friendly_path(path: &Path) -> String {
@@ -75,6 +88,9 @@ pub struct PhotoView {
     /// The short content id.
     pub id: String,
     pub is_video: bool,
+    /// An other file: shown as its name and kind, never as a picture.
+    #[serde(skip_serializing_if = "is_false")]
+    pub is_other: bool,
     pub name: String,
     /// Where it is on its source. The app asks for a preview by `id`,
     /// never by this path; it is here for showing, not for reading.
@@ -96,6 +112,16 @@ pub struct CollectionView {
     pub parents: Vec<String>,
     pub photos: usize,
     pub videos: usize,
+    /// Other files in it. Only a folder of other files has any.
+    #[serde(skip_serializing_if = "is_none_of_them")]
+    pub others: usize,
+    /// A folder of other files, listed under "Other files" by the folder
+    /// it came from rather than shown as photos.
+    #[serde(skip_serializing_if = "is_false")]
+    pub by_folder: bool,
+    /// The room its files take, for a folder of other files.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub bytes: u64,
     /// False when the user has skipped every file in it.
     pub kept: bool,
     /// How many of its files are safely backed up already.
@@ -129,6 +155,10 @@ pub struct DestinationView {
 pub struct Discover {
     pub photos: usize,
     pub videos: usize,
+    /// Other files a person asked Keevoro to carry along. Never said when
+    /// there are none.
+    #[serde(skip_serializing_if = "is_none_of_them")]
+    pub others: usize,
     pub bytes: u64,
     /// Extra copies that will be kept once.
     pub duplicates: usize,
@@ -159,10 +189,12 @@ fn keys_of(collections: &[keevoro_core::collections::Collection]) -> Vec<String>
     collections
         .iter()
         .map(|c| {
-            let plain = c
-                .parents
-                .iter()
-                .map(String::as_str)
+            // A folder of other files is never taken for an album of the
+            // same name.
+            let first = c.by_folder.then_some(keevoro_core::OTHER_FILES);
+            let plain = first
+                .into_iter()
+                .chain(c.parents.iter().map(String::as_str))
                 .chain([c.title.as_str()])
                 .collect::<Vec<_>>()
                 .join(" / ");
@@ -192,15 +224,17 @@ fn photo_view(library: &Path, catalog: &Catalog, item: &FoundItem) -> Result<Pho
     let hash = item.blake3.as_deref().unwrap_or_default();
     let id = hash[..hash.len().min(16)].to_string();
     let is_video = item.kind == MediaKind::Video;
+    let is_other = item.kind == MediaKind::Other;
     // A thumbnail exists once a backup has made the file's previews.
     let kind = if is_video { Rendition::Poster } else { Rendition::Thumb };
     let relative = rendition_path(kind, &id);
     let on_disk = relative.split('/').fold(library.to_path_buf(), |p, s| p.join(s));
-    let thumbnail =
-        (!id.is_empty() && catalog.collected_path(hash)?.is_some() && on_disk.is_file()).then_some(relative);
+    let thumbnail = (!is_other && !id.is_empty() && catalog.collected_path(hash)?.is_some() && on_disk.is_file())
+        .then_some(relative);
     Ok(PhotoView {
         id,
         is_video,
+        is_other,
         name: item
             .path
             .file_name()
@@ -343,6 +377,13 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
             parents: c.parents.clone(),
             photos: c.photos,
             videos: c.videos,
+            others: c.others,
+            by_folder: c.by_folder,
+            bytes: if c.by_folder {
+                members.iter().map(|i| i.bytes).sum()
+            } else {
+                0
+            },
             kept,
             gathered,
             cover,
@@ -372,6 +413,7 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
     Ok(Discover {
         photos: summary.photos,
         videos: summary.videos,
+        others: summary.others,
         bytes: summary.bytes,
         duplicates: summary.duplicates.as_ref().map_or(0, |d| d.copies),
         duplicate_bytes: summary.duplicates.as_ref().map_or(0, |d| d.bytes),
@@ -423,17 +465,27 @@ pub fn set_collection_kept(catalog: &Catalog, key: &str, keep: bool) -> Result<u
 pub struct PhotoChoice {
     #[serde(flatten)]
     pub photo: PhotoView,
-    /// When it was taken, as precisely as is known, or `None`.
+    /// When it was taken, as precisely as is known, or `None`. Never for
+    /// an other file, which has no such date.
     pub taken: Option<String>,
+    /// For an other file: the day it last changed, as a file manager says
+    /// it, and its size.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub changed: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bytes: Option<u64>,
     pub kept: bool,
     /// Why it was set aside, for pictures in the junk list.
     pub junk_reason: Option<String>,
 }
 
 fn choice(library: &Path, catalog: &Catalog, item: &FoundItem) -> Result<PhotoChoice> {
+    let other = item.kind == MediaKind::Other;
     Ok(PhotoChoice {
         photo: photo_view(library, catalog, item)?,
-        taken: item.date.map(|d| d.date.to_string()),
+        taken: item.date.filter(|_| !other).map(|d| d.date.to_string()),
+        changed: item.date.filter(|_| other).map(|d| d.date.to_string()),
+        bytes: other.then_some(item.bytes),
         kept: wanted(catalog, item)?,
         junk_reason: item.junk.map(|r| r.describe().to_string()),
     })
@@ -604,6 +656,8 @@ pub(crate) mod tests {
             last: None,
             photos: 1,
             videos: 0,
+            others: 0,
+            by_folder: false,
             cover,
             members: vec![cover],
         };

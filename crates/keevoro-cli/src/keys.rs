@@ -4,15 +4,16 @@
 //!
 //! 1. `--keys-from-stdin`: two lines on standard input, the access key ID
 //!    and then the secret. Nothing is left in the shell's history.
-//! 2. `KEEVORO_ACCESS_KEY_ID` and `KEEVORO_SECRET_ACCESS_KEY` in the
-//!    environment.
-//! 3. `--access-key-id` and `--secret-access-key`. These end up in the
+//! 2. `--access-key-id` and `--secret-access-key`. These end up in the
 //!    shell's history, and the help says so.
+//! 3. `KEEVORO_ACCESS_KEY_ID` and `KEEVORO_SECRET_ACCESS_KEY` in the
+//!    environment. Then the request carries no keys, and the API uses the
+//!    environment's and says so, as it does for the app and an agent.
 //! 4. Asked for at the keyboard, the secret without being shown.
 //!
-//! However they come, they go straight into the request for
-//! `destinations.add`, and from there to the computer's keychain and
-//! nowhere else. Nothing here prints, logs or keeps them.
+//! Keys given go straight into the request for `destinations.add`, and
+//! from there to the computer's keychain and nowhere else. Nothing here
+//! prints, logs or keeps them.
 
 use crate::{Code, Failure, Io};
 use clap::{Arg, ArgAction, ArgGroup, ArgMatches, Command};
@@ -91,17 +92,22 @@ pub fn request(m: &ArgMatches, io: &mut Io<'_>) -> Result<Value, Failure> {
     let bucket = given("bucket")
         .filter(|b| !b.trim().is_empty())
         .ok_or_else(|| Failure::not_understood("Say which bucket, with --bucket."))?;
-    let (access, secret) = keys(m, io)?;
-    Ok(json!({
-        "kind": kind,
-        "place": place,
-        "bucket": bucket,
-        "accessKeyId": access,
-        "secretAccessKey": secret,
-    }))
+    Ok(match keys(m, io)? {
+        Some((access, secret)) => json!({
+            "kind": kind,
+            "place": place,
+            "bucket": bucket,
+            "accessKeyId": access,
+            "secretAccessKey": secret,
+        }),
+        // The environment's, which the API reads itself, and says it did.
+        None => json!({ "kind": kind, "place": place, "bucket": bucket }),
+    })
 }
 
-fn keys(m: &ArgMatches, io: &mut Io<'_>) -> Result<(String, String), Failure> {
+/// The keys given, or `None` when those set in the environment are to be
+/// used.
+fn keys(m: &ArgMatches, io: &mut Io<'_>) -> Result<Option<(String, String)>, Failure> {
     let missing = || {
         Failure::not_understood(format!(
             "Keevoro needs the storage keys. Give them with --keys-from-stdin, or set {ACCESS_VAR} and {SECRET_VAR}."
@@ -115,14 +121,20 @@ fn keys(m: &ArgMatches, io: &mut Io<'_>) -> Result<(String, String), Failure> {
         };
         let access = line();
         let secret = line();
-        return access.zip(secret).ok_or_else(missing);
-    }
-    if let (Some(access), Some(secret)) = (some((io.env)(ACCESS_VAR)), some((io.env)(SECRET_VAR))) {
-        return Ok((access, secret));
+        return access.zip(secret).map(Some).ok_or_else(missing);
     }
     let typed = |name: &str| some(m.get_one::<String>(name).cloned());
-    if let (Some(access), Some(secret)) = (typed("access-key-id"), typed("secret-access-key")) {
-        return Ok((access, secret));
+    match (typed("access-key-id"), typed("secret-access-key")) {
+        (Some(access), Some(secret)) => return Ok(Some((access, secret))),
+        (None, None) => {}
+        _ => {
+            return Err(Failure::not_understood(
+                "Give both keys: --access-key-id and --secret-access-key.",
+            ))
+        }
+    }
+    if some((io.env)(ACCESS_VAR)).is_some() && some((io.env)(SECRET_VAR)).is_some() {
+        return Ok(None);
     }
     if !io.keyboard {
         return Err(missing());
@@ -132,7 +144,7 @@ fn keys(m: &ArgMatches, io: &mut Io<'_>) -> Result<(String, String), Failure> {
     let mut access = String::new();
     io.input.read_line(&mut access)?;
     let secret = (io.ask_hidden)("Secret access key (it won't be shown): ");
-    some(Some(access)).zip(some(secret)).ok_or_else(missing)
+    some(Some(access)).zip(some(secret)).map(Some).ok_or_else(missing)
 }
 
 /// Asks before something that cannot be undone, unless `--yes` was given.
@@ -158,5 +170,50 @@ pub fn sure(yes: bool, io: &mut Io<'_>) -> Result<(), Failure> {
         Ok(())
     } else {
         Err(Failure::new(Code::Refused, "Nothing was changed."))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The request `keevoro destinations add` makes, given what was typed
+    /// and what is set in the environment.
+    fn asked(typed: &[&str], env: &[(&str, &str)]) -> Result<Value, Failure> {
+        let mut all = vec!["add", "--endpoint", "http://127.0.0.1:9", "--bucket", "family"];
+        all.extend(typed);
+        let m = args(Command::new("add")).try_get_matches_from(all).unwrap();
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let mut input = std::io::Cursor::new(Vec::new());
+        let env: Vec<(String, String)> = env.iter().map(|(n, v)| (n.to_string(), v.to_string())).collect();
+        let lookup = move |name: &str| env.iter().find(|(n, _)| n == name).map(|(_, v)| v.clone());
+        let mut io = Io {
+            out: &mut out,
+            err: &mut err,
+            input: &mut input,
+            env: &lookup,
+            watched: false,
+            keyboard: false,
+            ask_hidden: &|_| None,
+        };
+        request(&m, &mut io)
+    }
+
+    #[test]
+    fn keys_typed_win_over_the_environments_which_are_left_for_the_api_to_use_and_say() {
+        let env = [(ACCESS_VAR, "AKIAFROMENV"), (SECRET_VAR, "secret-from-env")];
+        let typed = ["--access-key-id", "AKIATYPED", "--secret-access-key", "secret-typed"];
+        let request = asked(&typed, &env).unwrap();
+        assert_eq!(request["accessKeyId"], "AKIATYPED");
+        assert_eq!(request["secretAccessKey"], "secret-typed");
+
+        let request = asked(&[], &env).unwrap();
+        assert!(request.get("accessKeyId").is_none(), "{request}");
+        assert!(!request.to_string().contains("FROMENV"), "{request}");
+
+        let half = asked(&["--access-key-id", "AKIATYPED"], &env).unwrap_err();
+        assert!(half.message.contains("both keys"), "{}", half.message);
+        let none = asked(&[], &[]).unwrap_err();
+        assert!(none.message.contains("--keys-from-stdin"), "{}", none.message);
     }
 }

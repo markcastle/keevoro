@@ -56,12 +56,12 @@ pub use destinations::{
     RoomAtAGlance, WaitingAt,
 };
 pub use error::{Error, Kind, Result};
-pub use file_kinds::PhotoOrVideo;
+pub use file_kinds::ListedAs;
 pub use for_agents::{call_for_agent, read_for_agent};
 pub use jobs::{Event, FrontEnd, JobHandle, JobId, JobKind, JobStatus, Listener, Outcome, Said, Which, PROGRESS_EVERY};
 pub use keevoro::{BackupListing, Codecs, Folders, Keevoro, Offer, SettingsView};
 pub use keevoro_core::estimate;
-pub use keevoro_core::{FileKind, KindChange, MediaKind};
+pub use keevoro_core::{FileKind, KindChange, MediaKind, OTHER_FILES_SAID};
 pub use keevoro_engine::connect::SecretStore;
 pub use keevoro_engine::history;
 pub use picture::{Picture, PictureRequest, PictureSize};
@@ -297,9 +297,11 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
         }
         Op::BackupsStart => {
             let r: StartBackupRequest = read(request)?;
+            // What it is for is checked before anything is started.
+            let wants = r.wants.as_deref().map(wants::wants_of).transpose()?;
             let started = keevoro.start_backup(&r.name)?;
-            if let Some(choice) = r.wants {
-                keevoro.set_backup_wants(&Backup::open(&started.home)?, choice.into())?;
+            if let Some(wants) = wants {
+                keevoro.set_backup_wants(&Backup::open(&started.home)?, wants)?;
             }
             answer(started)
         }
@@ -325,7 +327,7 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
         }
         Op::SourcesFileTypes => {
             let r: SourceRequest = read(request)?;
-            answer(open()?.file_types(r.source)?)
+            answer(open()?.file_types(r.source, keevoro.lists_other_files())?)
         }
         Op::SourcesIncludeType => {
             let r: IncludeTypeRequest = read(request)?;
@@ -440,20 +442,20 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
             read::<Nothing>(request)?;
             answer(open()?.last_summary()?)
         }
-        Op::BackupPhotosOrVideos => {
+        Op::BackupWants => {
             let r: wants::BackupWantsRequest = read(request)?;
             let backup = open()?;
             match r.wants {
-                Some(choice) => answer(keevoro.set_backup_wants(&backup, choice.into())?),
-                None => answer(backup.wants()?),
+                Some(words) => answer(keevoro.set_backup_wants(&backup, wants::wants_of(&words)?)?),
+                None => answer(backup.wants(keevoro.lists_other_files())?),
             }
         }
-        Op::SourcesPhotosOrVideos => {
+        Op::SourcesWants => {
             let r: wants::SourceWantsRequest = read(request)?;
             let backup = open()?;
             match r.wants {
-                Some(choice) => answer(keevoro.set_source_wants(&backup, r.source, choice.into())?),
-                None => answer(backup.source_wants(r.source)?),
+                Some(choice) => answer(keevoro.set_source_wants(&backup, r.source, choice.wants()?)?),
+                None => answer(backup.source_wants(r.source, keevoro.lists_other_files())?),
             }
         }
         Op::BackupPreviews => {
@@ -1080,6 +1082,28 @@ mod tests {
         .unwrap_err();
         assert!(!has_a_key(&format!("{e:?}")), "even where serde would repeat it: {e:?}");
 
+        // The same when no keys are given and the environment's are used
+        // instead: refused, and neither pair is said anywhere.
+        const ENV_ACCESS: &str = "AKIAKEEVOROENVMARKER03";
+        const ENV_SECRET: &str = "keevoro-env-secret-marker/0004";
+        let has_any_key = |text: &str| has_a_key(text) || text.contains(ENV_ACCESS) || text.contains(ENV_SECRET);
+        let from_env = keevoro::tests::keevoro(dir.path()).with_environment(|name: &str| match name {
+            keevoro_engine::send::ACCESS_KEY_VAR => Some(ENV_ACCESS.to_string()),
+            keevoro_engine::send::SECRET_KEY_VAR => Some(ENV_SECRET.to_string()),
+            _ => None,
+        });
+        let no_keys = json!({ "kind": "endpoint", "place": "http://127.0.0.1:9", "bucket": "family" });
+        let e = call(&from_env, op("destinations.add"), Some("Card photos"), no_keys).unwrap_err();
+        let said = format!("{e} {e:#} {e:?} {}", serde_json::to_string(&e).unwrap());
+        assert!(!has_any_key(&said), "{said}");
+        assert_eq!(e.kind, Kind::Unreachable, "{e}");
+        // And half a pair is refused, never made up from the environment.
+        let half =
+            json!({ "kind": "endpoint", "place": "http://127.0.0.1:9", "bucket": "family", "accessKeyId": ACCESS });
+        let e = call(&from_env, op("destinations.add"), Some("Card photos"), half).unwrap_err();
+        assert_eq!(e.message, "Enter both keys for the storage.");
+        drop(from_env);
+
         // Its answer, when the destination is accepted. A folder needs no
         // keys, and the ones given are not kept with it.
         let added = call(
@@ -1114,7 +1138,7 @@ mod tests {
         assert!(written.iter().any(|(path, _)| path.ends_with("keevoro.log")));
         for (path, bytes) in written {
             let text = String::from_utf8_lossy(&bytes);
-            assert!(!has_a_key(&text), "a key was written to {}", path.display());
+            assert!(!has_any_key(&text), "a key was written to {}", path.display());
         }
     }
 }

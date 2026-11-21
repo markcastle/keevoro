@@ -16,10 +16,12 @@
 
 import { useCallback, useRef, useState } from 'react'
 import type { Backend, FilesShow, FilesSort, FileView, LeftOutFolder } from './backend'
-import { photosAndVideos, size, thousands } from './format'
+import { files, size, thousands } from './format'
 import { LeaveOutButton, LeftOutSaid } from './leaveOut'
 import { fileKey } from './pictureQueue'
 import { Picture, Viewer } from './pictures'
+import { FileTile } from './otherFiles'
+import { FILE_MANAGER } from './mapWords'
 import { SurveyingPanel, useAfterSurvey } from './surveyFirst'
 import { VirtualTiles } from './tiles'
 import type { TileSection } from './tiles'
@@ -38,7 +40,14 @@ const SHOWS: { value: FilesShow; words: string }[] = [
   { value: 'all', words: 'All' },
   { value: 'photos', words: 'Photos' },
   { value: 'videos', words: 'Videos' },
+  { value: 'others', words: 'Other files' },
 ]
+
+/** What the closer look says of an other file, which is never opened to be shown. */
+const NOT_SHOWN = 'An other file: Keevoro backs it up exactly, but does not show it'
+
+/** The folder a file is in. */
+const folderOf = (path: string) => path.replace(/[\\/][^\\/]*$/, '')
 
 /** The last part of a path, as a person would name the folder. */
 export const nameOf = (place: string) => place.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || place
@@ -93,8 +102,16 @@ export function LookInside(props: {
   }
 
   const name = props.name ?? nameOf(place)
-  const shownOf = (f: { photos: number; videos: number }) =>
-    only === 'photos' ? f.photos : only === 'videos' ? f.videos : f.photos + f.videos
+  const shownOf = (f: { photos: number; videos: number; others?: number }) =>
+    only === 'photos'
+      ? f.photos
+      : only === 'videos'
+        ? f.videos
+        : only === 'others'
+          ? (f.others ?? 0)
+          : f.photos + f.videos + (f.others ?? 0)
+  // "Other files" is only offered where there are some.
+  const shows = SHOWS.filter((show) => show.value !== 'others' || (outline?.others ?? 0) > 0)
   const sections: TileSection<FileView>[] = (outline?.folders ?? [])
     .filter((folder) => shownOf(folder) > 0)
     .map((folder) => ({
@@ -103,7 +120,7 @@ export function LookInside(props: {
       heading: (
         <>
           <b>{folder.relative || name}</b>
-          <span className="quiet small">{photosAndVideos(folder.photos, folder.videos)}</span>
+          <span className="quiet small">{files(folder.photos, folder.videos, folder.others ?? 0)}</span>
           {folder.leftOut && <span className="badge">Left out</span>}
           {!outline?.leftOut && (
             <LeaveOutButton
@@ -161,7 +178,7 @@ export function LookInside(props: {
         </button>
         <h1>Inside {name}</h1>
         <p className="status">
-          {`${photosAndVideos(outline.photos, outline.videos)}, ${size(outline.bytes)}. Nothing here is added or changed until you choose.`}
+          {`${files(outline.photos, outline.videos, outline.others ?? 0)}, ${size(outline.bytes)}. Nothing here is added or changed until you choose.`}
         </p>
         {outline.onlineOnly > 0 && (
           <p className="online-only small">
@@ -194,7 +211,7 @@ export function LookInside(props: {
         {outline.folders.length > 0 && (
           <div className="arrange">
             <div className="segmented" role="radiogroup" aria-label="Show">
-              {SHOWS.map((show) => (
+              {shows.map((show) => (
                 <button
                   key={show.value}
                   role="radio"
@@ -232,7 +249,20 @@ export function LookInside(props: {
         sections={sections}
         tile={(file, at, section) => (
           <div className="tile">
-            {file ? (
+            {file?.isOther ? (
+              <button
+                className="look"
+                onClick={() => setLooking({ folder: section.key, at, file })}
+                aria-label={`About ${file.name}`}
+              >
+                <FileTile photo={{ id: file.path, isVideo: false, isOther: true, name: file.name, sourcePath: file.path, thumbnail: null }} />
+                {file.leftOut && (
+                  <span className="out-mark" title={`Left out: ${file.leftOut}`}>
+                    Left out
+                  </span>
+                )}
+              </button>
+            ) : file ? (
               <button
                 className="look"
                 onClick={() => setLooking({ folder: section.key, at, file })}
@@ -263,7 +293,7 @@ export function LookInside(props: {
             name: current.name,
             isVideo: current.isVideo,
             where: current.path,
-            missing: current.onlineOnly ? ONLINE_ONLY : undefined,
+            missing: current.onlineOnly ? ONLINE_ONLY : current.isOther ? NOT_SHOWN : undefined,
             seconds: current.seconds,
             leftOut: current.leftOut,
           }}
@@ -271,11 +301,18 @@ export function LookInside(props: {
           large={() => api.closerLookAtFile(current.path)}
           place={`${thousands(looking.at + 1)} of ${thousands(inFolder ? shownOf(inFolder) : 0)}`}
           actions={
-            outline.leftOut ? undefined : (
-              <button className="button" onClick={() => props.onLookThrough(place)}>
-                {lookThrough}
-              </button>
-            )
+            <>
+              {current.isOther && (
+                <button className="button" onClick={() => api.openPlace(folderOf(current.path)).catch(onProblem)}>
+                  Show in {FILE_MANAGER}
+                </button>
+              )}
+              {!outline.leftOut && (
+                <button className="button" onClick={() => props.onLookThrough(place)}>
+                  {lookThrough}
+                </button>
+              )}
+            </>
           }
           onMove={move}
           onClose={close}

@@ -14,7 +14,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Backend, LeftOutFolder, MapNode, MapView } from './backend'
-import { ago, photosAndVideos, share, size } from './format'
+import { ago, files, share, size } from './format'
 import { nameOf } from './inside'
 import { LeaveOutButton, LeftOutSaid } from './leaveOut'
 import { MapCanvas, MapKey } from './mapCanvas'
@@ -140,11 +140,12 @@ export function SpaceScreen(props: {
         </button>
         <h1>Where the space goes on {name}</h1>
         <p className="status">
-          {size(top.bytes)} in {top.name}: photos {size(top.photoBytes)}, videos {size(top.videoBytes)}, everything
-          else {size(top.otherBytes)}.{' '}
+          {size(top.bytes)} in {top.name}: photos {size(top.photoBytes)}, videos {size(top.videoBytes)},{' '}
+          {top.carriedBytes ? `other files to carry along ${size(top.carriedBytes)}, ` : ''}everything else{' '}
+          {size(top.otherBytes)}.{' '}
           {view.backup
             ? `This backup would take ${size(top.wouldBackUp)} of it.`
-            : `${size(top.wouldBackUp)} of it is photos and videos Keevoro would back up.`}
+            : `${size(top.wouldBackUp)} of it is ${top.carried ? 'photos, videos and other files' : 'photos and videos'} Keevoro would back up.`}
         </p>
         <p className="quiet small">
           Each box is a folder or file, sized by the room it takes; click one to choose it, and again to go inside.
@@ -214,7 +215,7 @@ export function SpaceScreen(props: {
             onPoint={setMapPoint}
             picked={byKind ? picked : null}
           />
-          <MapKey />
+          <MapKey carried={(top.carried ?? 0) > 0} />
         </div>
         <div className="space-side">
           <div className="segmented list-tabs" role="tablist" aria-label="Show the list">
@@ -456,15 +457,16 @@ export function SpaceList(props: {
   )
 }
 
-/** A row's share of the folder: a bar in three parts, photos, videos and the rest, and the figure. */
+/** A row's share of the folder: a bar in parts, photos, videos, other files carried along and the rest, and the figure. */
 function ShareBar(props: { node: MapNode; whole: number }) {
   const { node, whole } = props
   const part = (bytes: number) => `${whole > 0 ? (bytes * 100) / whole : 0}%`
   return (
-    <span className="share" title={`${photosAndVideos(node.photos, node.videos)}, ${size(node.bytes)}`}>
+    <span className="share" title={`${files(node.photos, node.videos, node.carried ?? 0)}, ${size(node.bytes)}`}>
       <span className="share-bar" aria-hidden>
         <span className="photo" style={{ width: part(node.photoBytes) }} />
         <span className="video" style={{ width: part(node.videoBytes) }} />
+        {node.carriedBytes ? <span className="carried" style={{ width: part(node.carriedBytes) }} /> : null}
         <span className="other" style={{ width: part(node.otherBytes) }} />
       </span>
       <span className="share-figure">{share(node.bytes, whole)}</span>

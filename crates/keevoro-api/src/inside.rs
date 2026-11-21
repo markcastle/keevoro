@@ -42,7 +42,7 @@ pub struct FilesRequest {
     /// changed: often when it was copied, not when it was taken.
     #[serde(default)]
     pub sort: Sort,
-    /// `all` (the default), `photos` or `videos`.
+    /// `all` (the default), `photos`, `videos` or `others`.
     #[serde(default)]
     pub only: Show,
 }
@@ -64,11 +64,13 @@ pub enum Sort {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Show {
-    /// Photos and videos.
+    /// Everything Keevoro looks for: photos, videos and other files.
     #[default]
     All,
     Photos,
     Videos,
+    /// Other files a person put on the list.
+    Others,
 }
 
 impl Show {
@@ -77,8 +79,13 @@ impl Show {
             Show::All => true,
             Show::Photos => kind == MediaKind::Photo,
             Show::Videos => kind == MediaKind::Video,
+            Show::Others => kind == MediaKind::Other,
         }
     }
+}
+
+fn is_none_of_them(n: &usize) -> bool {
+    *n == 0
 }
 
 /// The files to show, in order: those `only` takes, sorted by `sort`.
@@ -127,6 +134,9 @@ pub struct FolderView {
     pub relative: String,
     pub photos: usize,
     pub videos: usize,
+    /// Other files a person put on the list. Never said when there are none.
+    #[serde(skip_serializing_if = "is_none_of_them")]
+    pub others: usize,
     pub bytes: u64,
     /// Of them, how many are only in online storage, never opened.
     pub online_only: usize,
@@ -148,6 +158,8 @@ pub struct FoldersView {
     pub folders: Vec<FolderView>,
     pub photos: usize,
     pub videos: usize,
+    #[serde(skip_serializing_if = "is_none_of_them")]
+    pub others: usize,
     pub bytes: u64,
     pub online_only: usize,
     /// The folder left out of the backup in hand that the place is in (or
@@ -164,6 +176,10 @@ pub struct FileView {
     pub path: String,
     pub name: String,
     pub is_video: bool,
+    /// An other file: listed as a row with its name and kind, never shown
+    /// as a picture.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub is_other: bool,
     pub bytes: u64,
     /// When the file was last changed (not when it was taken), in seconds
     /// since 1970.
@@ -191,6 +207,8 @@ pub struct FilesView {
     pub total: usize,
     pub photos: usize,
     pub videos: usize,
+    #[serde(skip_serializing_if = "is_none_of_them")]
+    pub others: usize,
     pub online_only: usize,
     /// This page of them, in the order asked for.
     pub files: Vec<FileView>,
@@ -266,6 +284,7 @@ impl Keevoro {
                     .unwrap_or_default(),
                 photos: f.photos,
                 videos: f.videos,
+                others: f.carried,
                 bytes: f.bytes,
                 online_only: f.online_only,
                 left_out: choices.left_out_folder(&f.folder).is_some(),
@@ -278,6 +297,7 @@ impl Keevoro {
             complete: loaded.survey.complete,
             photos: folders.iter().map(|f| f.photos).sum(),
             videos: folders.iter().map(|f| f.videos).sum(),
+            others: folders.iter().map(|f| f.others).sum(),
             bytes: folders.iter().map(|f| f.bytes).sum(),
             online_only: folders.iter().map(|f| f.online_only).sum(),
             folders,
@@ -294,6 +314,7 @@ impl Keevoro {
             return Err(Error::refused(said));
         }
         let kinds = self.kinds_to_look_for();
+        let kinds_listed_other = kinds.lists_other();
         let choices = Self::choices_for(backup);
         let files = self.listing(&real, &kinds)?;
         let shown = arranged(&files, ask.sort, ask.only);
@@ -305,6 +326,7 @@ impl Keevoro {
                 path: friendly_path(&f.path),
                 name: f.name.clone(),
                 is_video: f.kind == MediaKind::Video,
+                is_other: f.kind == MediaKind::Other,
                 bytes: f.bytes,
                 modified: f.modified,
                 online_only: f.online_only,
@@ -319,7 +341,7 @@ impl Keevoro {
                         made_by_keevoro: false,
                     })
                     .err()
-                    .map(|by| by.why(f.kind).to_string()),
+                    .map(|by| by.why(kinds_listed_other)),
             })
             .collect();
         Ok(FilesView {
@@ -327,6 +349,7 @@ impl Keevoro {
             total: shown.len(),
             photos: files.iter().filter(|f| f.kind == MediaKind::Photo).count(),
             videos: files.iter().filter(|f| f.kind == MediaKind::Video).count(),
+            others: files.iter().filter(|f| f.kind == MediaKind::Other).count(),
             online_only: files.iter().filter(|f| f.online_only).count(),
             files: page,
         })
@@ -574,7 +597,8 @@ mod tests {
         let k = keevoro(dir.path());
         let named = k.start_backup("Stills").unwrap();
         let backup = crate::Backup::open(&named.home).unwrap();
-        k.set_backup_wants(&backup, keevoro_core::Wants::Photos).unwrap();
+        k.set_backup_wants(&backup, keevoro_core::Wants::only(keevoro_core::MediaKind::Photo))
+            .unwrap();
         let place = pictures(dir.path(), 3);
         surveyed(&k, &place);
         let folder = place.join("2019");

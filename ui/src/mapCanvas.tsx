@@ -19,7 +19,7 @@
 // map simply appears.
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { MapNode } from './backend'
+import type { MapKind, MapNode } from './backend'
 import { share, size } from './format'
 import { allBackedUp, called, holds, holdsPicked, mainKind, notesOn } from './mapWords'
 import type { Picked } from './mapWords'
@@ -38,6 +38,9 @@ type Look = {
   videoEdge: string
   other: string
   otherEdge: string
+  /** Other files a person put on the list, to be carried along. */
+  carried: string
+  carriedEdge: string
   ground: string
   strip: string
   ink: string
@@ -48,6 +51,7 @@ type Look = {
   success: string
   font: string
   stripes: CanvasPattern | null
+  rows: CanvasPattern | null
   dots: CanvasPattern | null
   hatch: CanvasPattern | null
 }
@@ -88,6 +92,8 @@ export function lookOf(ctx: CanvasRenderingContext2D): Look {
     videoEdge: token(style, '--hill'),
     other,
     otherEdge: token(style, '--line-strong'),
+    carried: token(style, '--peach'),
+    carriedEdge: token(style, '--sun-ink'),
     ground: surface,
     strip: mix(lineStrong, sunken, 0.18),
     ink,
@@ -104,6 +110,17 @@ export function lookOf(ctx: CanvasRenderingContext2D): Look {
       t.beginPath()
       t.moveTo(-2, 10)
       t.lineTo(10, -2)
+      t.stroke()
+    }),
+    // Level lines, like lines of writing: other files carried along.
+    rows: pattern(ctx, (t) => {
+      t.strokeStyle = mix(token(style, '--sun-ink'), token(style, '--peach'), 0.55)
+      t.lineWidth = 1
+      t.beginPath()
+      t.moveTo(0, 2.5)
+      t.lineTo(8, 2.5)
+      t.moveTo(0, 6.5)
+      t.lineTo(8, 6.5)
       t.stroke()
     }),
     // Sparse dots: a folder Keevoro never looks through.
@@ -157,12 +174,24 @@ export function draw(ctx: CanvasRenderingContext2D, top: Laid<MapNode>, look: Lo
     const out = !never && (leftOut || Boolean(n.leftOut))
     const kind = never ? 'other' : mainKind(n)
     const fill = look[kind]
-    const edge = never ? look.otherEdge : kind === 'photo' ? look.photoEdge : kind === 'video' ? look.videoEdge : look.otherEdge
+    const edge = never
+      ? look.otherEdge
+      : kind === 'photo'
+        ? look.photoEdge
+        : kind === 'video'
+          ? look.videoEdge
+          : kind === 'carried'
+            ? look.carriedEdge
+            : look.otherEdge
     const opened = Boolean(b.inner && b.children.length > 0)
     ctx.fillStyle = opened ? mix(fill, look.ground, 0.35) : fill
     ctx.fillRect(b.x, b.y, b.w, b.h)
     if (!opened && kind === 'video' && look.stripes) {
       ctx.fillStyle = look.stripes
+      ctx.fillRect(b.x, b.y, b.w, b.h)
+    }
+    if (!opened && kind === 'carried' && look.rows) {
+      ctx.fillStyle = look.rows
       ctx.fillRect(b.x, b.y, b.w, b.h)
     }
     if (never && look.dots) {
@@ -218,10 +247,11 @@ export function draw(ctx: CanvasRenderingContext2D, top: Laid<MapNode>, look: Lo
     ctx.stroke()
     ctx.restore()
   }
-  const label = (b: Laid<MapNode>, opened: boolean, kind: 'photo' | 'video' | 'other') => {
+  const label = (b: Laid<MapNode>, opened: boolean, kind: MapKind) => {
     if (b.w < 36 || b.h < 14) return
     ctx.textBaseline = 'top'
-    ctx.fillStyle = opened || kind === 'other' ? look.ink : kind === 'photo' ? look.onSun : look.onPine
+    ctx.fillStyle =
+      opened || kind === 'other' ? look.ink : kind === 'photo' || kind === 'carried' ? look.onSun : look.onPine
     ctx.font = `${opened ? 600 : 400} 12px ${look.font}`
     const name = fit(ctx, called(b.item), b.w - 8)
     if (!name) return
@@ -256,10 +286,11 @@ export const motionWelcome = () => !window.matchMedia('(prefers-reduced-motion: 
 
 /** What the map is, in words, for a screen reader: the list beside it says the rest. */
 function summary(top: MapNode) {
+  const carried = top.carriedBytes ? `, other files to carry along ${share(top.carriedBytes, top.bytes)}` : ''
   return `Map of ${top.name}: ${size(top.bytes)}. Photos ${share(top.photoBytes, top.bytes)}, videos ${share(
     top.videoBytes,
     top.bytes,
-  )}, everything else ${share(top.otherBytes, top.bytes)}. The list has every folder.`
+  )}${carried}, everything else ${share(top.otherBytes, top.bytes)}. The list has every folder.`
 }
 
 export function MapCanvas(props: {
@@ -508,8 +539,12 @@ export function MapCanvas(props: {
   )
 }
 
-/** What each pattern on the map means, in words, so colour is never the only sign. */
-export function MapKey() {
+/**
+ * What each pattern on the map means, in words, so colour is never the
+ * only sign. Other files to carry along are only in the key when the map
+ * has some.
+ */
+export function MapKey(props: { carried?: boolean }) {
   return (
     <ul className="key" aria-label="Key">
       <li>
@@ -518,6 +553,11 @@ export function MapKey() {
       <li>
         <span className="swatch video" aria-hidden /> Videos
       </li>
+      {props.carried && (
+        <li>
+          <span className="swatch carried" aria-hidden /> Other files to carry along
+        </li>
+      )}
       <li>
         <span className="swatch other" aria-hidden /> Everything else
       </li>

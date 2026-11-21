@@ -8,25 +8,34 @@
 //! change counts from the next time a source is looked through or a place
 //! surveyed: each of those reads the list once, as it starts. Nothing
 //! already found or backed up is ever taken away by a change here.
+//!
+//! Any ending can be added as an other file (music, documents, project
+//! files), even one Keevoro passes over as never a photo or video; it is
+//! then found, backed up and proved exactly, but never shown or grouped by
+//! date. An AI agent may read the list but never change it.
 
 use crate::error::{Error, Result};
 use crate::keevoro::Keevoro;
 use keevoro_core::{FileKind, KindChange, KindRefusal, Kinds, MediaKind};
 use serde::{Deserialize, Serialize};
 
-/// Photo or video, as a request says it.
+/// What files with an ending are listed as, as a request says it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
-pub enum PhotoOrVideo {
+pub enum ListedAs {
     Photo,
     Video,
+    /// An other file, carried along: backed up exactly, never shown or
+    /// grouped by date.
+    Other,
 }
 
-impl From<PhotoOrVideo> for MediaKind {
-    fn from(kind: PhotoOrVideo) -> Self {
+impl From<ListedAs> for MediaKind {
+    fn from(kind: ListedAs) -> Self {
         match kind {
-            PhotoOrVideo::Photo => MediaKind::Photo,
-            PhotoOrVideo::Video => MediaKind::Video,
+            ListedAs::Photo => MediaKind::Photo,
+            ListedAs::Video => MediaKind::Video,
+            ListedAs::Other => MediaKind::Other,
         }
     }
 }
@@ -37,8 +46,9 @@ impl From<PhotoOrVideo> for MediaKind {
 pub struct AddFileKindRequest {
     /// The ending of the files, such as `heif`, with or without its dot.
     pub ending: String,
-    /// `photo` or `video`.
-    pub kind: PhotoOrVideo,
+    /// `photo`, `video` or `other`. Documents, music, programs and
+    /// archives can only be `other`.
+    pub kind: ListedAs,
 }
 
 /// `file_kinds.change`: anything left out stays as it is.
@@ -47,9 +57,9 @@ pub struct AddFileKindRequest {
 pub struct ChangeFileKindRequest {
     /// The ending as it is on the list now.
     pub ending: String,
-    /// `photo` or `video`.
+    /// `photo`, `video` or `other`.
     #[serde(default)]
-    pub kind: Option<PhotoOrVideo>,
+    pub kind: Option<ListedAs>,
     /// True to look for these files, false to pass them over.
     #[serde(default)]
     pub on: Option<bool>,
@@ -78,6 +88,7 @@ fn plural(kind: MediaKind) -> &'static str {
     match kind {
         MediaKind::Photo => "photos",
         MediaKind::Video => "videos",
+        MediaKind::Other => "other files",
     }
 }
 
@@ -99,9 +110,14 @@ impl Keevoro {
             .backups()
             .change(|settings| settings.file_kinds.add(ending, kind).map_err(refused))?;
         self.log().say(&format!(
-            "Keevoro now looks for .{} files, as {}, from the next time a source is looked through",
+            "Keevoro now looks for .{} files, as {}, from the next time a source is looked through{}",
             added.ending,
-            plural(added.kind)
+            plural(added.kind),
+            if added.kind == MediaKind::Other {
+                format!(". {}", keevoro_core::OTHER_FILES_SAID.trim_end_matches('.'))
+            } else {
+                String::new()
+            }
         ));
         Ok(added)
     }
@@ -220,6 +236,18 @@ mod tests {
         .unwrap_err();
         assert_eq!(e.kind, Kind::Refused);
         assert!(call(&k, Op::FileKindsAdd, None, json!({ "ending": "x", "kind": "music" })).is_err());
+        // A document is never a photo, but can be carried along as an
+        // other file.
+        let e = call(&k, Op::FileKindsAdd, None, json!({ "ending": "pdf", "kind": "photo" })).unwrap_err();
+        assert!(e.message.contains("add .pdf as an other file"), "{}", e.message);
+        let flac = call(&k, Op::FileKindsAdd, None, json!({ "ending": "flac", "kind": "other" })).unwrap();
+        assert_eq!(
+            flac,
+            json!({ "ending": "flac", "kind": "other", "on": true, "builtIn": false })
+        );
+        assert!(k.lists_other_files());
+        assert!(k.log_tail(5).contains("as other files"));
+        call(&k, Op::FileKindsRemove, None, json!({ "ending": "flac" })).unwrap();
 
         let off = call(
             &other,

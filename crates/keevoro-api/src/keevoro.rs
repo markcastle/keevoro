@@ -23,6 +23,14 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+fn is_none_of_them(n: &usize) -> bool {
+    *n == 0
+}
+
+/// Reads one variable of the environment, as storage keys set for scripts
+/// are read.
+pub type Environment = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
+
 /// The folders Keevoro keeps its own things in. None of them holds anyone's
 /// photos.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -96,6 +104,9 @@ pub struct BackupCounts {
     pub destinations: usize,
     pub photos: usize,
     pub videos: usize,
+    /// Other files carried along. Never said when there are none.
+    #[serde(skip_serializing_if = "is_none_of_them")]
+    pub others: usize,
     /// Files being kept that are not yet safely everywhere they should be,
     /// and the room they need.
     pub waiting: usize,
@@ -107,9 +118,10 @@ pub struct BackupCounts {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StartBackupRequest {
     pub name: String,
-    /// `both` (photos and videos, as when left out), `photos` or `videos`.
+    /// What it is for: one or more of `photos`, `videos` and `others`.
+    /// Left out, everything Keevoro looks for.
     #[serde(default)]
-    pub wants: Option<crate::wants::WantsChoice>,
+    pub wants: Option<Vec<crate::wants::WantsWord>>,
 }
 
 /// `backups.rename`
@@ -216,6 +228,8 @@ pub struct Keevoro {
     rates: PathBuf,
     log: Arc<Log>,
     secrets: Arc<dyn SecretStore + Send + Sync>,
+    /// Where storage keys set for scripts are read, when none are given.
+    environment: Environment,
     web: Box<dyn Web + Send + Sync>,
     /// The jobs running, and everyone listening to them.
     pub(crate) jobs: Arc<Jobs>,
@@ -244,6 +258,7 @@ impl Keevoro {
             rates: folders.data.join(crate::rates::FILE),
             log,
             secrets: Arc::new(Keychain),
+            environment: Arc::new(keevoro_engine::connect::the_environment),
             web: Box::new(GitHub::from_env()),
             jobs,
             listings: crate::inside::Listings::default(),
@@ -259,6 +274,14 @@ impl Keevoro {
     #[must_use]
     pub fn with_secrets(mut self, secrets: impl SecretStore + Send + Sync + 'static) -> Self {
         self.secrets = Arc::new(secrets);
+        self
+    }
+
+    /// Reads storage keys set for scripts somewhere else than this
+    /// program's environment: for tests, one made up.
+    #[must_use]
+    pub fn with_environment(mut self, environment: impl Fn(&str) -> Option<String> + Send + Sync + 'static) -> Self {
+        self.environment = Arc::new(environment);
         self
     }
 
@@ -315,6 +338,10 @@ impl Keevoro {
         &*self.secrets
     }
 
+    pub(crate) fn environment_shared(&self) -> Environment {
+        self.environment.clone()
+    }
+
     fn apply_saved_choices(&self) {
         keevoro_media::decode::set_use_system(!self.backups.read().plain_decoding);
     }
@@ -335,6 +362,7 @@ impl Keevoro {
                         destinations: d.destinations.len(),
                         photos: d.photos,
                         videos: d.videos,
+                        others: d.others,
                         waiting: d.waiting_to_gather,
                         waiting_bytes: d.waiting_bytes,
                     }),
@@ -353,24 +381,31 @@ impl Keevoro {
         Ok(started)
     }
 
-    /// `backup.photos_or_videos`, set, and said in the log.
+    /// Is some kind of other file on the list? Only then are other files
+    /// offered as a choice, or spoken of.
+    pub fn lists_other_files(&self) -> bool {
+        self.backups.read().file_kinds.has_other()
+    }
+
+    /// `backup.wants`, set, and said in the log.
     pub fn set_backup_wants(&self, backup: &Backup, wants: keevoro_core::Wants) -> Result<crate::wants::WantsView> {
-        let view = backup.set_wants(wants)?;
+        let others = self.lists_other_files();
+        let view = backup.set_wants(wants, others)?;
         self.log.say(&format!(
             "This backup is now for {}. Nothing already backed up was changed",
-            wants.words()
+            wants.words(others)
         ));
         Ok(view)
     }
 
-    /// `sources.photos_or_videos`, set, and said in the log.
+    /// `sources.wants`, set, and said in the log.
     pub fn set_source_wants(
         &self,
         backup: &Backup,
         source: i64,
         wants: Option<keevoro_core::Wants>,
     ) -> Result<crate::wants::WantsView> {
-        let view = backup.set_source_wants(source, wants)?;
+        let view = backup.set_source_wants(source, wants, self.lists_other_files())?;
         self.log.say(&format!(
             "{} Nothing already backed up was changed",
             view.said
@@ -414,8 +449,14 @@ impl Keevoro {
     }
 
     /// `destinations.add`. The keys go to the keychain and nowhere else.
+    /// When none were given and the environment's were used, the log says
+    /// so, naming the variables and never the keys.
     pub fn add_destination(&self, backup: &Backup, request: &AddDestinationRequest) -> Result<DestinationAdded> {
-        backup.add_destination(request, self.secrets())
+        let added = backup.add_destination(request, self.secrets(), &*self.environment)?;
+        if let Some(keys) = &added.keys {
+            self.log.say(keys);
+        }
+        Ok(added)
     }
 
     /// `destinations.remove`: one by its place in the list, or every one.
@@ -702,11 +743,12 @@ pub(crate) mod tests {
         assert_eq!(Folders::under(dir).data, dir.join("data"));
     }
 
-    /// Keevoro in a temporary folder, with a keychain in memory and no
-    /// network.
+    /// Keevoro in a temporary folder, with a keychain in memory, nothing
+    /// set in its environment and no network.
     pub(crate) fn keevoro(dir: &Path) -> Keevoro {
         Keevoro::open(&folders(dir))
             .with_secrets(SharedSecrets::default())
+            .with_environment(keevoro_engine::connect::testing::no_environment)
             .with_web(FakeGitHub(None))
     }
 

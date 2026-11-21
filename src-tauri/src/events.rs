@@ -89,6 +89,7 @@ pub(crate) mod tests {
             name: "Card".into(),
             photos: 1,
             videos: 2,
+            others: 5,
             files: 3,
             folder: "DCIM".into(),
             reading: Some(("a.mov".into(), 4)),
@@ -131,6 +132,8 @@ pub(crate) mod tests {
             photo_bytes: 8,
             video_bytes: 0,
             other_bytes: 1,
+            carried: 4,
+            carried_bytes: 40,
             folders: 3,
         };
         assert_eq!(keys(&top), fields_of("TopBox"));
@@ -139,6 +142,7 @@ pub(crate) mod tests {
             files: 2,
             photos: 3,
             videos: 4,
+            others: 6,
             sizing: true,
             top: vec![top],
         };
@@ -147,6 +151,7 @@ pub(crate) mod tests {
             folder: "x".into(),
             photos: 1,
             videos: 2,
+            others: 7,
             bytes: 3,
             likely_photos: true,
             already_a_source: false,

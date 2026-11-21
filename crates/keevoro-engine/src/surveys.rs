@@ -112,14 +112,16 @@ struct Header {
 }
 
 /// One folder: parent, name, `[photo files, photo bytes, video files,
-/// video bytes, other files, other bytes]`, online-only bytes, online-only
-/// photos and videos, why it is passed by, flags, more folders, first
-/// subfolder, subfolders, endings, and what the suggestions did not count.
+/// video bytes, other files, other bytes, carried files, carried bytes]`,
+/// online-only bytes, online-only photos and videos, why it is passed by,
+/// flags, more folders, first subfolder, subfolders, endings, and what the
+/// suggestions did not count. Other files carried along came last, so a
+/// line written before they could be is simply one with none of them.
 #[derive(Serialize, Deserialize)]
 struct FolderLine(
     u32,
     String,
-    [u64; 6],
+    Vec<u64>,
     u64,
     u32,
     Option<SkipReason>,
@@ -128,7 +130,7 @@ struct FolderLine(
     u32,
     u32,
     Vec<(u16, u32, u64)>,
-    #[serde(default)] Option<[u64; 10]>,
+    #[serde(default)] Option<Vec<u64>>,
 );
 
 /// One file kept by name: folder, name, bytes, kind, only online.
@@ -143,9 +145,26 @@ fn kind_from(number: u8) -> Kind {
     match number {
         0 => Kind::Photo,
         1 => Kind::Video,
+        3 => Kind::Carried,
         _ => Kind::Other,
     }
 }
+
+/// The order a folder's sums are written in: the kinds a map has always
+/// had, then other files carried along.
+const WRITTEN: [Kind; 4] = [Kind::Photo, Kind::Video, Kind::Other, Kind::Carried];
+
+/// What the suggestions did not count, in the order written: photos and
+/// videos not looked for, everything never seen, then other files.
+const UNCOUNTED: [(bool, Kind); 7] = [
+    (true, Kind::Photo),
+    (true, Kind::Video),
+    (false, Kind::Photo),
+    (false, Kind::Video),
+    (false, Kind::Other),
+    (true, Kind::Carried),
+    (false, Kind::Carried),
+];
 
 /// Where surveys are kept inside the cache.
 fn folder(cache: &Path) -> PathBuf {
@@ -200,7 +219,10 @@ pub fn save(cache: &Path, survey: &Remembered) -> std::io::Result<()> {
             &FolderLine(
                 n.parent,
                 n.name.to_string(),
-                [d[0].files, d[0].bytes, d[1].files, d[1].bytes, d[2].files, d[2].bytes],
+                WRITTEN
+                    .iter()
+                    .flat_map(|k| [d[k.index()].files, d[k.index()].bytes])
+                    .collect(),
                 n.online_only_bytes,
                 n.online_only_media,
                 n.skipped,
@@ -210,18 +232,13 @@ pub fn save(cache: &Path, survey: &Remembered) -> std::io::Result<()> {
                 n.children,
                 n.endings.iter().map(|e| (e.ending, e.files, e.bytes)).collect(),
                 n.uncounted.as_deref().map(|u| {
-                    [
-                        u.off[0].files,
-                        u.off[0].bytes,
-                        u.off[1].files,
-                        u.off[1].bytes,
-                        u.unseen[0].files,
-                        u.unseen[0].bytes,
-                        u.unseen[1].files,
-                        u.unseen[1].bytes,
-                        u.unseen[2].files,
-                        u.unseen[2].bytes,
-                    ]
+                    UNCOUNTED
+                        .iter()
+                        .flat_map(|(off, k)| {
+                            let sum = if *off { u.off[k.index()] } else { u.unseen[k.index()] };
+                            [sum.files, sum.bytes]
+                        })
+                        .collect()
                 }),
             ),
         )?;
@@ -251,8 +268,12 @@ pub fn save(cache: &Path, survey: &Remembered) -> std::io::Result<()> {
     Ok(())
 }
 
-fn sum(files: u64, bytes: u64) -> KindSum {
-    KindSum { files, bytes }
+/// The `at`th pair of files and bytes written, or none.
+fn pair(written: &[u64], at: usize) -> KindSum {
+    KindSum {
+        files: written.get(at * 2).copied().unwrap_or(0),
+        bytes: written.get(at * 2 + 1).copied().unwrap_or(0),
+    }
 }
 
 /// Reads one remembered survey file; `None` for anything that is not one
@@ -276,7 +297,13 @@ fn read(file: &Path) -> Option<Remembered> {
         nodes.push(FolderNode {
             parent,
             name: name.into(),
-            direct: [sum(d[0], d[1]), sum(d[2], d[3]), sum(d[4], d[5])],
+            direct: {
+                let mut direct = [KindSum::default(); keevoro_scan::map::KINDS];
+                for (at, k) in WRITTEN.iter().enumerate() {
+                    direct[k.index()] = pair(&d, at);
+                }
+                direct
+            },
             online_only_bytes: online_bytes,
             online_only_media: online_media,
             skipped,
@@ -289,10 +316,16 @@ fn read(file: &Path) -> Option<Remembered> {
                 .map(|(ending, files, bytes)| EndingSum { ending, files, bytes })
                 .collect(),
             uncounted: u.map(|u| {
-                Box::new(Uncounted {
-                    off: [sum(u[0], u[1]), sum(u[2], u[3])],
-                    unseen: [sum(u[4], u[5]), sum(u[6], u[7]), sum(u[8], u[9])],
-                })
+                let mut uncounted = Uncounted::default();
+                for (at, (off, k)) in UNCOUNTED.iter().enumerate() {
+                    let into = if *off {
+                        &mut uncounted.off
+                    } else {
+                        &mut uncounted.unseen
+                    };
+                    into[k.index()] = pair(&u, at);
+                }
+                Box::new(uncounted)
             }),
         });
     }
@@ -318,7 +351,10 @@ fn read(file: &Path) -> Option<Remembered> {
             })
             .collect(),
         named,
-        ending_totals: totals.into_iter().map(|(files, bytes)| sum(files, bytes)).collect(),
+        ending_totals: totals
+            .into_iter()
+            .map(|(files, bytes)| KindSum { files, bytes })
+            .collect(),
         endings_dropped: header.endings_dropped,
     };
     holds_together(&map).then_some(Remembered {

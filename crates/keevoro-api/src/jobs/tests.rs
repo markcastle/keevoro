@@ -1421,7 +1421,7 @@ fn a_kind_added_that_keevoro_cannot_open_is_found_and_backed_up_exactly_with_no_
     assert_eq!(backup.duplicates().unwrap().len(), 1);
     assert!(backup.set_aside().unwrap().is_empty());
     assert!(!backup.collections().unwrap().is_empty());
-    let types = backup.file_types(backup.sources().unwrap()[0].id).unwrap();
+    let types = backup.file_types(backup.sources().unwrap()[0].id, false).unwrap();
     assert_eq!((types[0].ending.as_str(), types[0].files), ("xyz", 3));
 
     // No picture: the screens show their placeholder.
@@ -1471,6 +1471,250 @@ fn a_kind_added_that_keevoro_cannot_open_is_found_and_backed_up_exactly_with_no_
         pano,
         "the source is untouched"
     );
+}
+
+/// Every key in a JSON answer, however deep.
+fn keys_in(value: &Value, into: &mut std::collections::BTreeSet<String>) {
+    match value {
+        Value::Object(map) => {
+            for (key, inner) in map {
+                into.insert(key.clone());
+                keys_in(inner, into);
+            }
+        }
+        Value::Array(list) => list.iter().for_each(|v| keys_in(v, into)),
+        _ => {}
+    }
+}
+
+#[test]
+fn a_person_who_adds_no_kind_of_other_file_sees_nothing_new_anywhere() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro(dir.path());
+    let card = dir.path().join("Card");
+    for (rel, bytes) in [
+        ("DCIM/IMG_20190601_120000.jpg", large_photo(40)),
+        ("Documents/letter.pdf", b"%PDF a letter".to_vec()),
+        ("Music/song.mp3", vec![1u8; 3_000]),
+    ] {
+        std::fs::create_dir_all(card.join(rel).parent().unwrap()).unwrap();
+        std::fs::write(card.join(rel), bytes).unwrap();
+    }
+    let named = keevoro.start_backup("Card").unwrap();
+    let mut seen = std::collections::BTreeSet::new();
+    let survey = keevoro.survey(&card, Some(&named), None).unwrap();
+    let Some(said) = keevoro.wait(survey.id) else {
+        panic!("a survey ends with what it found")
+    };
+    keys_in(&serde_json::to_value(&said).unwrap(), &mut seen);
+    assert!(!serde_json::to_value(&said).unwrap().to_string().contains("\"others\""));
+    let last = look_and_wait(&keevoro, &named, &card);
+    keys_in(&serde_json::to_value(&last).unwrap(), &mut seen);
+    assert!(serde_json::to_value(&last).unwrap().get("others").is_none());
+    for (op, request) in [
+        (crate::Op::FoundSummary, json!({})),
+        (crate::Op::CollectionsList, json!({})),
+        (crate::Op::BackupWants, json!({})),
+        (crate::Op::SourcesWants, json!({ "source": 1 })),
+        (crate::Op::FileKindsList, json!({})),
+        (crate::Op::BackupsList, json!({})),
+        (crate::Op::PlacesFolders, json!({ "place": card.display().to_string() })),
+        (
+            crate::Op::PlacesFiles,
+            json!({ "place": card.join("DCIM").display().to_string() }),
+        ),
+        (crate::Op::PlacesMap, json!({ "place": card.display().to_string() })),
+    ] {
+        let answer = call(&keevoro, op, Some("Card"), request).unwrap();
+        keys_in(&answer, &mut seen);
+    }
+    // (`others` on the map has always meant everything else; where it is
+    // new, it is checked below.)
+    for new in [
+        "carried",
+        "carriedBytes",
+        "byFolder",
+        "isOther",
+        "offersOthers",
+        "changed",
+    ] {
+        assert!(!seen.contains(new), "{new} is said to a person who added nothing");
+    }
+    let found = serde_json::to_value(Backup::open(&named.home).unwrap().found().unwrap()).unwrap();
+    assert!(found.get("others").is_none(), "{found}");
+    assert_eq!(found["photos"], 1, "the letter and the song are not looked for");
+    let wants = call(&keevoro, crate::Op::BackupWants, Some("Card"), json!({})).unwrap();
+    assert_eq!(wants["said"], "This backup is for photos and videos.");
+    let usb = dir.path().join("USB");
+    keevoro
+        .add_destination(&Backup::open(&named.home).unwrap(), &folder(&usb))
+        .unwrap();
+    let job = keevoro.run_backup(&named, None).unwrap();
+    keevoro.wait(job.id);
+    keevoro.wait_for_jobs();
+    assert!(!usb.join("originals").join(keevoro_core::OTHER_FILES).exists());
+    let guide = std::fs::read_to_string(usb.join(keevoro_core::BACKUP_GUIDE)).unwrap();
+    assert_eq!(
+        guide,
+        keevoro_engine::layout::guide(false),
+        "the guide reads as it always did"
+    );
+}
+
+#[test]
+fn other_files_carried_along_are_surveyed_found_kept_by_folder_backed_up_exactly_and_an_agent_keeps_within_its_folders()
+{
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro(dir.path());
+    let mum = dir.path().join("Mum");
+    let songs: Vec<(String, Vec<u8>)> = (0..3u8)
+        .map(|n| (format!("Music/Album/track {n}.flac"), vec![n; 2_000 + usize::from(n)]))
+        .collect();
+    let mut files: Vec<(String, Vec<u8>)> = songs.clone();
+    files.push(("Documents/letter.pdf".into(), b"%PDF a letter".to_vec()));
+    files.push((
+        "Pictures/IMG_20190601_120000.jpg".into(),
+        crate::backup::tests::large_photo(40),
+    ));
+    for (rel, bytes) in &files {
+        std::fs::create_dir_all(mum.join(rel).parent().unwrap()).unwrap();
+        std::fs::write(mum.join(rel), bytes).unwrap();
+    }
+
+    // With nothing added, nothing changes: only the photo is found.
+    let named = keevoro.start_backup("Mum").unwrap();
+    let last = look_and_wait(&keevoro, &named, &mum);
+    assert_eq!((last.photos, last.others), (1, 0));
+    let plain = serde_json::to_value(Backup::open(&named.home).unwrap().discover().unwrap()).unwrap();
+    assert!(plain.get("others").is_none(), "{plain}");
+
+    keevoro.add_file_kind("flac", keevoro_core::MediaKind::Other).unwrap();
+    keevoro.add_file_kind("pdf", keevoro_core::MediaKind::Other).unwrap();
+    let survey = keevoro.survey(&mum, None, None).unwrap();
+    let Some(Said::Surveyed(found)) = keevoro.wait(survey.id) else {
+        panic!("a survey ends with what it found")
+    };
+    assert_eq!(found.hints.iter().map(|h| h.others).sum::<usize>(), 4, "{found:?}");
+    let last = look_and_wait(&keevoro, &named, &mum);
+    assert_eq!((last.photos, last.others), (1, 4));
+
+    let backup = Backup::open(&named.home).unwrap();
+    let found = backup.found().unwrap();
+    assert_eq!((found.photos, found.videos, found.others), (1, 0, 4));
+    let folders: Vec<String> = backup
+        .collections()
+        .unwrap()
+        .into_iter()
+        .filter(|c| c.by_folder)
+        .map(|c| c.key)
+        .collect();
+    assert_eq!(
+        folders,
+        ["Other files / Mum / Documents", "Other files / Mum / Music / Album"]
+    );
+
+    // An agent allowed this folder may read it all and leave out a folder
+    // of other files, but may not change the kinds list.
+    keevoro
+        .set_agent_access(crate::agents::AgentsAccessRequest {
+            look_in: Some(vec![mum.display().to_string()]),
+            back_up_to: None,
+            may_change: Some(true),
+        })
+        .unwrap();
+    let listed = crate::call_for_agent(&keevoro, crate::Op::CollectionsList, Some("Mum"), json!({})).unwrap();
+    assert!(listed.to_string().contains("Other files / Mum / Documents"), "{listed}");
+    let inside = crate::call_for_agent(
+        &keevoro,
+        crate::Op::CollectionsPhotos,
+        Some("Mum"),
+        json!({ "collection": "Other files / Mum / Music / Album" }),
+    )
+    .unwrap();
+    assert_eq!(inside.as_array().unwrap().len(), 3);
+    assert!(
+        inside[0]["isOther"] == true && inside[0]["bytes"].as_u64().is_some(),
+        "{inside}"
+    );
+    crate::call_for_agent(
+        &keevoro,
+        crate::Op::CollectionsKeep,
+        Some("Mum"),
+        json!({ "collection": "Other files / Mum / Documents", "keep": false }),
+    )
+    .unwrap();
+    let e = crate::call_for_agent(
+        &keevoro,
+        crate::Op::FileKindsAdd,
+        None,
+        json!({ "ending": "docx", "kind": "other" }),
+    )
+    .unwrap_err();
+    assert_eq!(e.kind, crate::Kind::Refused);
+    let listing = crate::call_for_agent(
+        &keevoro,
+        crate::Op::PlacesFiles,
+        Some("Mum"),
+        json!({ "place": mum.join("Music/Album").display().to_string(), "only": "others" }),
+    )
+    .unwrap();
+    assert_eq!(listing["others"], 3, "{listing}");
+    assert!(listing["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|f| f["isOther"] == true));
+    let outside = dir.path().join("Elsewhere");
+    std::fs::create_dir_all(&outside).unwrap();
+    let e = crate::call_for_agent(
+        &keevoro,
+        crate::Op::PlacesFiles,
+        Some("Mum"),
+        json!({ "place": outside.display().to_string() }),
+    )
+    .unwrap_err();
+    assert_eq!(e.kind, crate::Kind::Refused, "an agent stays in the folders allowed");
+
+    // No picture is ever made of an other file, and it is never opened to try.
+    let song = backup
+        .catalog()
+        .load_reports()
+        .unwrap()
+        .iter()
+        .flat_map(|r| r.items.clone())
+        .find(|i| i.kind == keevoro_core::MediaKind::Other)
+        .unwrap();
+    let e = keevoro
+        .picture(&backup, song.id().unwrap(), crate::PictureSize::Small)
+        .unwrap_err();
+    assert!(e.message.contains("doesn't make pictures of other files"), "{e}");
+
+    // Backed up exactly, in their folders; the folder left out is not.
+    let usb = dir.path().join("USB");
+    keevoro.add_destination(&backup, &folder(&usb)).unwrap();
+    let job = keevoro.run_backup(&named, None).unwrap();
+    let Some(Said::Send(last)) = keevoro.wait(job.id) else {
+        panic!("a backup ends with what it said")
+    };
+    keevoro.wait_for_jobs();
+    assert_eq!(last.outcome, Some(Outcome::Worked), "{last:?}");
+    let at = |rel: &str| std::fs::read(usb.join("originals").join("Other files").join("Mum").join(rel)).ok();
+    for (rel, bytes) in &songs {
+        assert_eq!(at(rel).as_ref(), Some(bytes), "{rel}");
+    }
+    assert_eq!(at("Documents/letter.pdf"), None, "left out by the agent, so not sent");
+    let check = keevoro.check_backup(&named, None).unwrap();
+    let Some(Said::Send(checked)) = keevoro.wait(check.id) else {
+        panic!("a check ends with what it said")
+    };
+    keevoro.wait_for_jobs();
+    assert_eq!(checked.outcome, Some(Outcome::Worked), "{checked:?}");
+    // The source is exactly as it was.
+    for (rel, bytes) in &files {
+        assert_eq!(&std::fs::read(mum.join(rel)).unwrap(), bytes, "{rel}");
+    }
 }
 
 /// Looks through `place` for `named`, waits, and gives the last event.

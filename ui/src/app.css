@@ -3412,7 +3412,7 @@ main > section > :nth-last-child(2) {
   margin-top: var(--space-3);
 }
 
-/* Photos and videos, photos only, or videos only: plain radio buttons. */
+/* What a backup or a source is for: plain tick boxes. */
 fieldset.wants {
   margin: var(--space-3) 0;
   padding: 0;
@@ -3890,6 +3890,14 @@ fieldset.wants [role='status'] {
   background: color-mix(in srgb, var(--line-strong) 35%, var(--surface-sunken));
 }
 
+/* Other files a person put on the list, to be carried along: level lines, like lines of writing. */
+.share-bar .carried,
+.key .carried,
+.kinds-list .swatch.carried {
+  background-color: var(--peach);
+  background-image: repeating-linear-gradient(0deg, transparent 0 2px, color-mix(in srgb, var(--sun-ink) 45%, transparent) 2px 3px);
+}
+
 .share-figure {
   min-width: 3em;
   text-align: right;
@@ -4205,4 +4213,225 @@ fieldset.wants [role='status'] {
   .licences .licensed li {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* ---------- other files, carried along ---------- */
+
+/* What a backup or a source is for: tick boxes, the last one always ticked. */
+fieldset.wants input[aria-disabled='true'] {
+  cursor: not-allowed;
+}
+
+.source-wants .follow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+/* An other file where a picture would be: its name and its kind, never a broken picture. */
+.picture.file-tile {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  text-align: center;
+  color: var(--ink);
+  background: var(--peach-soft);
+}
+
+.file-tile .file-mark,
+.folder-rows .folder-mark {
+  width: 28px;
+  height: 34px;
+  border-radius: 4px 10px 4px 4px;
+  background-color: var(--peach);
+  background-image: repeating-linear-gradient(0deg, transparent 0 5px, color-mix(in srgb, var(--sun-ink) 45%, transparent) 5px 6px);
+  background-position: 0 10px;
+  box-shadow: inset 0 0 0 1px var(--sun-ink);
+}
+
+.file-tile .file-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  font-size: 13px;
+}
+
+.file-tile .file-kind {
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+/* "Other files" on Choose what to keep: a row per folder, as the person arranged them. */
+.other-files {
+  margin-top: var(--space-6);
+}
+
+.other-files h2 {
+  margin-bottom: var(--space-1);
+}
+
+.folder-rows {
+  list-style: none;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.folder-rows li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-sm);
+  min-width: 0;
+}
+
+.folder-rows li.skipped {
+  background: var(--surface-sunken);
+  box-shadow: none;
+}
+
+.folder-rows .open-folder {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.folder-rows .folder-mark {
+  flex: none;
+  width: 30px;
+  height: 24px;
+  border-radius: 3px 8px 4px 4px;
+}
+
+.folder-rows .open-folder {
+  height: auto;
+  min-height: 44px;
+}
+
+.folder-rows .folder-words {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  line-height: 1.35;
+}
+
+.folder-rows .folder-words > * {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder-rows .keep {
+  flex: none;
+  width: 200px;
+  margin-top: 0;
+}
+
+.folder-rows .keep .toggle {
+  gap: var(--space-3);
+}
+
+@media (max-width: 560px) {
+  .folder-rows li {
+    flex-wrap: wrap;
+  }
+
+  .folder-rows .keep {
+    width: 100%;
+  }
+}
+
+/* One folder of other files, opened: a plain list with a tick for each. */
+.file-table {
+  overflow-x: auto;
+  margin-top: var(--space-4);
+}
+
+.file-table table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.file-table th,
+.file-table td {
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+.file-table .number {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.file-table .tick {
+  position: static;
+}
+
+.file-table tr.out .tick {
+  background: var(--surface-raised);
+  color: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--line-strong);
+}
+
+.file-table tr.out .name {
+  color: var(--ink-muted);
+}
+
+.file-table tr[aria-selected='true'] td {
+  background: var(--peach-soft);
+}
+
+.file-table .name {
+  overflow-wrap: anywhere;
+}
+
+.file-details {
+  margin-top: var(--space-4);
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-md);
+  overflow-wrap: anywhere;
+}
+
+.file-details dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-1) var(--space-4);
+  margin: var(--space-3) 0;
+}
+
+.file-details dt {
+  color: var(--ink-muted);
+}
+
+.file-details dd {
+  margin: 0;
+}
+
+.kind-form .what-to-expect {
+  flex-basis: 100%;
+  margin: 0;
 }

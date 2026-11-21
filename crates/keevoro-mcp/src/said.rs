@@ -23,8 +23,10 @@ fn each(v: &Value) -> impl Iterator<Item = &Value> {
     v.as_array().into_iter().flatten()
 }
 
-fn photos_and_videos(photos: usize, videos: usize) -> String {
-    format!("{} and {}", count(photos, "photo"), count(videos, "video"))
+/// "30 photos and 2 videos", with any other files carried along after:
+/// what was found in `v`, said the one way (`keevoro_api::words`).
+fn found_in(v: &Value) -> String {
+    keevoro_api::words::photos_and_videos(n(v, "photos"), n(v, "videos"), n(v, "others"))
 }
 
 /// What a tool for `op` gave back, in a few plain words.
@@ -60,16 +62,12 @@ pub fn summary(op: Op, answer: &Value) -> String {
                         0 => String::new(),
                         many => format!(" ({} only in online storage)", thousands(many)),
                     };
-                    format!(
-                        "{}: {}{online}",
-                        s(f, "folder"),
-                        photos_and_videos(n(f, "photos"), n(f, "videos"))
-                    )
+                    format!("{}: {}{online}", s(f, "folder"), found_in(f))
                 })
                 .collect();
             let mut lines = vec![format!(
                 "{} in {}, in {}. files_in_folder lists a folder's files.",
-                photos_and_videos(n(answer, "photos"), n(answer, "videos")),
+                found_in(answer),
                 s(answer, "place"),
                 count(folders.len(), "folder")
             )];
@@ -79,8 +77,12 @@ pub fn summary(op: Op, answer: &Value) -> String {
         Op::PlacesMap => {
             let top = answer.get("top").unwrap_or(&Value::Null);
             let size = |v: &Value, field: &str| bytes(v.get(field).and_then(Value::as_u64).unwrap_or(0));
+            let carried = match top.get("carriedBytes").and_then(Value::as_u64) {
+                Some(b) if b > 0 => format!(", other files to carry along {}", bytes(b)),
+                _ => String::new(),
+            };
             let mut lines = vec![format!(
-                "{} in {}: photos {}, videos {}, everything else {}; the backup would take {}. The biggest:",
+                "{} in {}: photos {}, videos {}{carried}, everything else {}; the backup would take {}. The biggest:",
                 size(top, "bytes"),
                 s(answer, "folder"),
                 size(top, "photoBytes"),
@@ -112,14 +114,14 @@ pub fn summary(op: Op, answer: &Value) -> String {
             };
             format!(
                 "{} in {}; {} given here. show_picture with a file's path shows it.{online}",
-                photos_and_videos(n(answer, "photos"), n(answer, "videos")),
+                found_in(answer),
                 s(answer, "folder"),
                 thousands(shown)
             )
         }
         Op::FoundSummary => format!(
             "Found {}, {} in all. {} left out, {} set aside as probably not photos.",
-            photos_and_videos(n(answer, "photos"), n(answer, "videos")),
+            found_in(answer),
             bytes(answer.get("bytes").and_then(Value::as_u64).unwrap_or(0)),
             count(n(answer, "duplicates"), "duplicate"),
             count(n(answer, "setAside"), "picture")
@@ -128,7 +130,7 @@ pub fn summary(op: Op, answer: &Value) -> String {
             format!(
                 "{} ({}{})",
                 s(c, "key"),
-                count(n(c, "photos") + n(c, "videos"), "file"),
+                count(n(c, "photos") + n(c, "videos") + n(c, "others"), "file"),
                 if c.get("kept").and_then(Value::as_bool) == Some(false) {
                     ", left out"
                 } else {
@@ -139,10 +141,16 @@ pub fn summary(op: Op, answer: &Value) -> String {
         Op::DestinationsList => listed(answer, "destination", |d| {
             format!("{}: {} there", s(d, "name"), thousands(n(d, "there")))
         }),
-        Op::DestinationsAdd => format!(
-            "{} works, and the backup will go there too.",
-            capital(s(answer, "name"))
-        ),
+        Op::DestinationsAdd => {
+            let works = format!(
+                "{} works, and the backup will go there too.",
+                capital(s(answer, "name"))
+            );
+            match answer.get("keys").and_then(Value::as_str) {
+                Some(keys) => format!("{works} {keys}"),
+                None => works,
+            }
+        }
         Op::DestinationsRemove => {
             let gone: Vec<&str> = each(answer).filter_map(Value::as_str).collect();
             format!(
@@ -219,7 +227,8 @@ fn history(answer: &Value) -> String {
     }
 }
 
-/// The endings looked for, photos then videos, and those switched off.
+/// The endings looked for, photos then videos, then any other files
+/// carried along, and those switched off.
 fn file_kinds(answer: &Value) -> String {
     let endings = |pick: &dyn Fn(&Value) -> bool| -> String {
         let all: Vec<String> = each(answer)
@@ -233,8 +242,16 @@ fn file_kinds(answer: &Value) -> String {
         }
     };
     let on = |k: &Value| k.get("on").and_then(Value::as_bool).unwrap_or_default();
+    let others = if each(answer).any(|k| s(k, "kind") == "other") {
+        format!(
+            " And these other files, carried along: {}.",
+            endings(&|k| on(k) && s(k, "kind") == "other")
+        )
+    } else {
+        String::new()
+    };
     format!(
-        "Keevoro looks for these photos: {}. And these videos: {}. Switched off: {}.",
+        "Keevoro looks for these photos: {}. And these videos: {}.{others} Switched off: {}.",
         endings(&|k| on(k) && s(k, "kind") == "photo"),
         endings(&|k| on(k) && s(k, "kind") == "video"),
         endings(&|k| !on(k)),
@@ -271,7 +288,7 @@ fn backups(answer: &Value) -> String {
             } else {
                 ""
             },
-            photos_and_videos(n(found, "photos"), n(found, "videos")),
+            found_in(found),
             thousands(n(found, "waiting"))
         )
     })
@@ -333,10 +350,8 @@ fn last_word(last: Option<&Said>) -> Vec<String> {
             e.name
         )],
         Some(Said::Scan(e)) => {
-            let found = photos_and_videos(
-                usize::try_from(e.photos).unwrap_or(usize::MAX),
-                usize::try_from(e.videos).unwrap_or(usize::MAX),
-            );
+            let n = |n: u64| usize::try_from(n).unwrap_or(usize::MAX);
+            let found = keevoro_api::words::photos_and_videos(n(e.photos), n(e.videos), n(e.others));
             let mut lines = vec![format!("Looked through {}: found {found}.", e.name)];
             if e.unreadable > 0 {
                 lines.push(format!("{} couldn't be read.", count(e.unreadable, "file")));
@@ -359,7 +374,7 @@ fn last_word(last: Option<&Said>) -> Vec<String> {
                 lines.push(format!(
                     "{}: {}{}",
                     hint.folder,
-                    photos_and_videos(hint.photos, hint.videos),
+                    keevoro_api::words::photos_and_videos(hint.photos, hint.videos, hint.others),
                     if hint.already_a_source {
                         " (a source already)"
                     } else if !hint.likely_photos {

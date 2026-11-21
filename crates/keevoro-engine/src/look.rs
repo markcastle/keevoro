@@ -132,6 +132,10 @@ pub fn picture_of_file(
     online: &dyn OnlineCheck,
     found: Option<Found<'_>>,
 ) -> Result<Vec<u8>> {
+    // An other file is never opened to be shown.
+    if kind == MediaKind::Other {
+        bail!(crate::preview::NO_PICTURE_OF_OTHER_FILES);
+    }
     // What the listing says, without opening the file.
     let listing = std::fs::symlink_metadata(file).map_err(|_| anyhow!("That file isn't there any more."))?;
     if !listing.is_file() {
@@ -194,6 +198,7 @@ pub fn picture_of_file(
             let _ = write_rendition(&cache.join(format!("{id}.webp")), &still.webp);
             still.webp
         }),
+        MediaKind::Other => bail!(crate::preview::NO_PICTURE_OF_OTHER_FILES),
     };
     match made {
         Ok(bytes) => {
@@ -493,7 +498,12 @@ mod tests {
         assert_eq!(names, ["a.jpg", "b.JPG", "C (online).jpg", "clip.mp4"]);
         assert_eq!(listed[3].kind, MediaKind::Video);
         assert!(listed[2].online_only && !listed[0].online_only);
-        let photos_only = list_folder(dir.path(), &Kinds::default().only(MediaKind::Photo), &NamedOnline).unwrap();
+        let photos_only = list_folder(
+            dir.path(),
+            &Kinds::default().wanted_by(keevoro_core::Wants::only(MediaKind::Photo)),
+            &NamedOnline,
+        )
+        .unwrap();
         assert_eq!(photos_only.len(), 4, "a kind switched off is still listed");
         assert!(
             !photos_only[3].looked_for && photos_only[0].looked_for,

@@ -62,6 +62,9 @@ pub struct RenditionRule {
 pub enum ItemType {
     Photo,
     Video,
+    /// A file the person asked Keevoro to carry along (music, a document):
+    /// kept exactly, with no renditions, in an album named after its folder.
+    Other,
 }
 
 /// Where an item's date came from, so a gallery can show a weak guess as
@@ -88,7 +91,7 @@ impl From<DateSource> for IndexDateSource {
     }
 }
 
-/// One photo or video.
+/// One photo, video or other file.
 #[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Item {
@@ -221,6 +224,7 @@ pub fn build_index(base_url: &str, generated_at_unix: i64, albums: &[AlbumInput]
                 kind: match i.kind {
                     MediaKind::Photo => ItemType::Photo,
                     MediaKind::Video => ItemType::Video,
+                    MediaKind::Other => ItemType::Other,
                 },
                 path: i.path,
                 taken: i.date.map(|d| d.date.to_string()),
@@ -340,8 +344,8 @@ pub struct GalleryV1 {
 }
 
 /// Converts a v2 index to the v1 format the current gallery site reads.
-/// v1 knows only photos and flat albums, so videos and empty parent albums
-/// are left out, and a nested album's title spells out where it sits.
+/// v1 knows only photos and flat albums, so videos, other files and empty
+/// parent albums are left out, and a nested album's title spells out where it sits.
 pub fn gallery_v1(index: &Index) -> GalleryV1 {
     let title_of = |album: &Album| {
         let mut parts = vec![album.title.clone()];

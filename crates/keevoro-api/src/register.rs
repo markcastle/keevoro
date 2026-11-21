@@ -141,8 +141,8 @@ register! {
     SourcesForget = "sources.forget",
         "Takes a source off the backup. Nothing on it is touched",
         changes: Always, job: false, command_line: true, agents: Agents::Yes, implemented: true;
-    SourcesPhotosOrVideos = "sources.photos_or_videos",
-        "Whether one source follows its backup's choice of photos or videos, or has its own",
+    SourcesWants = "sources.wants",
+        "What one source is for: its backup's choice of photos, videos and other files, or its own",
         changes: OnlyWhenAsked, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     SourcesFileTypes = "sources.file_types",
         "The kinds of file on a source, and which are included",
@@ -213,8 +213,8 @@ register! {
     BackupLastSummary = "backup.last_summary",
         "What the last backup said when it ended",
         changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
-    BackupPhotosOrVideos = "backup.photos_or_videos",
-        "Whether a backup is for photos and videos, photos only or videos only, and changing it",
+    BackupWants = "backup.wants",
+        "What a backup is for: photos, videos, other files, or some of them, and changing it",
         changes: OnlyWhenAsked, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     BackupPreviews = "backup.previews",
         "Whether previews are made, and switching that on or off",
@@ -262,13 +262,13 @@ register! {
 
     // The kinds of file looked for
     FileKindsList = "file_kinds.list",
-        "The kinds of file Keevoro looks for, by ending: photo or video, built in or added, on or off",
+        "The kinds of file Keevoro looks for, by ending: photo, video or other, built in or added, on or off",
         changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     FileKindsAdd = "file_kinds.add",
-        "Adds an ending for Keevoro to look for, as a photo or a video",
+        "Adds an ending for Keevoro to look for, as a photo, a video or an other file",
         changes: Always, job: false, command_line: true, agents: Agents::No, implemented: true;
     FileKindsChange = "file_kinds.change",
-        "Switches a kind of file on or off, makes it a photo or a video, or renames one you added",
+        "Switches a kind of file on or off, makes it a photo, video or other file, or renames yours",
         changes: Always, job: false, command_line: true, agents: Agents::No, implemented: true;
     FileKindsRemove = "file_kinds.remove",
         "Takes an ending you added off the list. Nothing already found is taken away",
@@ -357,7 +357,7 @@ impl Op {
             Changes::Always => true,
             Changes::OnlyWhenAsked => match self {
                 Op::BackupPreviews => given("wanted"),
-                Op::BackupPhotosOrVideos | Op::SourcesPhotosOrVideos => given("wants"),
+                Op::BackupWants | Op::SourcesWants => given("wants"),
                 Op::KeevoroSettings => given("ownCodecs"),
                 // Asked only what it would clear, it clears nothing.
                 Op::DestinationsTidy => request.get("dryRun").and_then(serde_json::Value::as_bool) != Some(true),
@@ -408,8 +408,8 @@ impl Op {
             Op::KeevoroSettings => schema::<SettingsRequest>(),
             Op::AgentsAccess => schema::<Agents>(),
             Op::BackupHistory => schema::<HistoryRequest>(),
-            Op::BackupPhotosOrVideos => schema::<crate::wants::BackupWantsRequest>(),
-            Op::SourcesPhotosOrVideos => schema::<crate::wants::SourceWantsRequest>(),
+            Op::BackupWants => schema::<crate::wants::BackupWantsRequest>(),
+            Op::SourcesWants => schema::<crate::wants::SourceWantsRequest>(),
             Op::DestinationsTidy => schema::<crate::keevoro::TidyRequest>(),
             Op::FileKindsAdd => schema::<AddFileKindRequest>(),
             Op::FileKindsChange => schema::<ChangeFileKindRequest>(),
@@ -482,8 +482,9 @@ impl Op {
                 "files_in_folder",
                 "Lists the photos and videos directly in one folder, a page at a time (from and count, at most \
                  500), by name or by the file's date (sort: name, newest or oldest; the date is when the file last \
-                 changed, not when it was taken), all or only photos or videos (only): each one's path, size, \
-                 whether it is a video and how many seconds it lasts, and whether it is only in online storage. \
+                 changed, not when it was taken), all or only photos, videos or others (only): each one's path, \
+                 size, whether it is a video (or an other file) and how many seconds it lasts, and whether it is only \
+                 in online storage. Other files the person put on the kinds list are listed too. \
                  Give a path to show_picture as file to see one. Reads the folder's listing only; changes nothing \
                  and adds nothing to a backup. Only works in folders the person has allowed (see my_access).",
             ),
@@ -519,11 +520,11 @@ impl Op {
                 "Takes a source off a backup, by the id list_sources gives. Nothing on the source is changed or \
                  deleted, and what has already been backed up stays where it is.",
             ),
-            Op::SourcesPhotosOrVideos => (
-                "source_photos_or_videos",
-                "Says whether one source, by the id list_sources gives, follows its backup's choice of photos and \
-                 videos, photos only or videos only, or has its own. Give wants (backup, both, photos or videos) to \
-                 change it. It counts at once on what was found, with no new search. Leaving photos or videos out \
+            Op::SourcesWants => (
+                "source_wants",
+                "Says what one source, by the id list_sources gives, is for: its backup's choice, or its own of \
+                 photos, videos and other files. Give wants (backup, or a list of one or more of photos, videos and \
+                 others) to change it. It counts at once on what was found, with no new search. Leaving a kind out \
                  only means they are not offered or backed up from now on; nothing already backed up is touched.",
             ),
             Op::SourcesFileTypes => (
@@ -546,18 +547,22 @@ impl Op {
             ),
             Op::FoundSummary => (
                 "summarise_backup",
-                "Says what a backup holds: how many photos and videos, their size, the duplicates left out and the \
-                 room that saves, and how many pictures were set aside as probably not photos. Changes nothing.",
+                "Says what a backup holds: how many photos and videos (and other files, when the person asked for \
+                 any), their size, the duplicates left out and the room that saves, and how many pictures were set \
+                 aside as probably not photos. Changes nothing.",
             ),
             Op::CollectionsList => (
                 "list_collections",
                 "Lists a backup's collections (the folders and moments its photos fall into), newest first, with \
-                 each one's key, how many files it holds, and whether it is being kept. Changes nothing.",
+                 each one's key, how many files it holds, and whether it is being kept. Other files the person asked \
+                 Keevoro to carry along come last, one per folder they came from (byFolder), each kept or left out \
+                 as a whole with keep_collection. Changes nothing.",
             ),
             Op::CollectionsPhotos => (
                 "list_photos",
-                "Lists the photos and videos in one collection, by the key list_collections gives, with each one's \
-                 short id and whether it is being kept. Changes nothing.",
+                "Lists the photos and videos in one collection, or the files in a folder of other files, by the key \
+                 list_collections gives, with each one's short id and whether it is being kept (an other file also \
+                 has its size and when it last changed). Changes nothing.",
             ),
             Op::CollectionsKeep => (
                 "keep_collection",
@@ -639,11 +644,12 @@ impl Op {
                 "Gives back what the last backup said when it finished, in the words the person would have seen, or \
                  nothing if it has never run. Changes nothing.",
             ),
-            Op::BackupPhotosOrVideos => (
-                "backup_photos_or_videos",
-                "Says whether a backup is for photos and videos, photos only, or videos only. Give wants (both, \
-                 photos or videos) to change it. It counts at once on what was found, with no new search, and a \
-                 source can have its own choice (see source_photos_or_videos). Nothing already backed up is touched.",
+            Op::BackupWants => (
+                "backup_wants",
+                "Says what a backup is for: photos, videos, and other files once the person has put a kind of them \
+                 on the list (offersOthers). Give wants (a list of one or more of photos, videos and others) to \
+                 change it. It counts at once on what was found, with no new search, and a \
+                 source can have its own choice (see source_wants). Nothing already backed up is touched.",
             ),
             Op::BackupPreviews => (
                 "set_previews",
@@ -697,7 +703,8 @@ impl Op {
             Op::FileKindsList => (
                 "list_file_kinds",
                 "Lists the kinds of file Keevoro looks for on every source, by ending (such as jpg or mov): whether \
-                 each is a photo or a video, whether it came with Keevoro or the person added it, and whether it is \
+                 each is a photo, a video or an other file carried along, whether it came with Keevoro or the person \
+                 added it, and whether it is \
                  switched on. A search only finds files of kinds switched on, and a survey only counts them. You \
                  cannot change the list; the person can, in Settings or with the keevoro command. Changes nothing.",
             ),
@@ -892,7 +899,7 @@ mod tests {
         "look_through",
         "look_again",
         "forget_source",
-        "source_photos_or_videos",
+        "source_wants",
         "list_file_types",
         "include_file_type",
         "leave_out_folder",
@@ -913,7 +920,7 @@ mod tests {
         "check_arrived",
         "backup_history",
         "last_summary",
-        "backup_photos_or_videos",
+        "backup_wants",
         "set_previews",
         "job_status",
         "pause_jobs",

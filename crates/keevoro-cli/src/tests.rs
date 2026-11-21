@@ -67,6 +67,7 @@ fn keevoro_in(dir: &Path, front_end: FrontEnd) -> Keevoro {
     Keevoro::open(&keevoro_api::Folders::under(&dir.join("home")))
         .as_front_end(front_end)
         .with_secrets(KeysInMemory::default())
+        .with_environment(|_| None)
         .with_web(Offline)
         .with_progress_every(std::time::Duration::ZERO)
 }
@@ -119,7 +120,13 @@ impl<'a> At<'a> {
             ask_hidden: &|_| None,
         };
         let dir = self.dir.to_path_buf();
-        let opener = move |_: &Io<'_>| -> Result<Keevoro, Failure> { Ok(keevoro_in(&dir, FrontEnd::CommandLine)) };
+        // Keevoro reads the same environment the command line was given.
+        let env = self.env.clone();
+        let opener = move |_: &Io<'_>| -> Result<Keevoro, Failure> {
+            let env = env.clone();
+            Ok(keevoro_in(&dir, FrontEnd::CommandLine)
+                .with_environment(move |name| env.iter().find(|(n, _)| *n == name).map(|(_, v)| v.clone())))
+        };
         let mut all = vec!["keevoro".into()];
         all.extend(args.iter().map(|a| std::ffi::OsString::from(*a)));
         let code = run(all, &mut io, &opener);
@@ -568,7 +575,7 @@ fn smaller_things_a_backup_can_be_asked() {
         "it says where"
     );
 
-    let ran = at.keevoro(&["photos-or-videos", "videos"]);
+    let ran = at.keevoro(&["wants", "videos"]);
     assert!(
         ran.out
             .starts_with("This backup is for videos only. Anything already backed up stays backed up"),
@@ -581,19 +588,39 @@ fn smaller_things_a_backup_can_be_asked() {
         "{}",
         ran.out
     );
-    let ran = at.keevoro(&["sources", "photos-or-videos", "1", "both"]);
+    let ran = at.keevoro(&["sources", "wants", "1", "photos", "videos"]);
     assert!(
         ran.out.starts_with("This source is set to photos and videos."),
         "{}",
         ran.out
     );
-    at.keevoro(&["sources", "photos-or-videos", "1", "backup"]);
-    let ran = at.keevoro(&["photos-or-videos", "both"]);
+    at.keevoro(&["sources", "wants", "1", "backup"]);
+    let ran = at.keevoro(&["wants", "photos,videos"]);
     assert_eq!(ran.out.trim(), "This backup is for photos and videos.");
-    let ran = at.keevoro(&["backups", "start", "Drone", "--videos-only", "--json"]);
+    let ran = at.keevoro(&["wants", "music"]);
+    assert_eq!(ran.code, Code::NotUnderstood, "{}", ran.err);
+    let ran = at.keevoro(&["backups", "start", "Drone", "--wants", "videos", "--json"]);
     assert_eq!(ran.code, Code::Worked, "{}", ran.err);
-    let ran = at.keevoro(&["-b", "Drone", "photos-or-videos"]);
+    let ran = at.keevoro(&["-b", "Drone", "wants"]);
     assert_eq!(ran.out.trim(), "This backup is for videos only.");
+    // Other files are offered as a choice once a kind of them is listed.
+    let ran = at.keevoro(&["kinds", "add", "flac", "--other"]);
+    assert!(
+        ran.out.contains("as other files") && ran.out.contains("exactly"),
+        "{}",
+        ran.out
+    );
+    let ran = at.keevoro(&["-b", "Drone", "wants", "--json"]);
+    assert_eq!(ran.json()["offersOthers"], true, "{}", ran.out);
+    let ran = at.keevoro(&["-b", "Drone", "wants", "videos", "others"]);
+    assert!(
+        ran.out.starts_with("This backup is for videos and other files only."),
+        "{}",
+        ran.out
+    );
+    let ran = at.keevoro(&["kinds", "add", "pdf", "--photo"]);
+    assert!(ran.err.contains("add .pdf as an other file"), "{}", ran.err);
+    at.keevoro(&["kinds", "remove", "flac"]);
     let ran = at.keevoro(&["previews", "off"]);
     assert!(ran.out.contains("originals alone"), "{}", ran.out);
     let ran = at.keevoro(&["settings", "set", "own-codecs", "off"]);
@@ -723,6 +750,13 @@ fn a_key_given_is_never_shown_logged_or_written_down() {
     let mut typed = add.to_vec();
     typed.extend(["--access-key-id", ACCESS, "--secret-access-key", SECRET]);
     ran.push(at.keevoro(&typed));
+    // Typed, with other keys in the environment too: neither is said.
+    let mut both = At::new(dir.path());
+    both.env = vec![
+        (crate::keys::ACCESS_VAR, format!("{ACCESS}ENV")),
+        (crate::keys::SECRET_VAR, format!("{SECRET}ENV")),
+    ];
+    ran.push(both.keevoro(&typed));
 
     for said in &ran {
         assert_eq!(said.code, Code::Unreachable, "{}", said.err);

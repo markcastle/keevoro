@@ -11,6 +11,12 @@
 //!
 //! Files with no believable date and no album go into one "Undated"
 //! collection.
+//!
+//! Other files (music, documents and the like, which a person asked
+//! Keevoro to carry along) are never grouped by date. They are listed by
+//! **the folder they came from**, as the person arranged them: one
+//! collection per folder, holding the files directly in it, after every
+//! collection of photos and videos, in the order of their folders.
 
 use crate::date::PartialDate;
 use crate::media::MediaKind;
@@ -23,6 +29,8 @@ pub const MOMENT_GAP_DAYS: i64 = 3;
 /// The facts about one file that grouping needs.
 #[derive(Debug, Clone)]
 pub struct CollectionInput {
+    /// For a photo or video, its album; for an other file, the folder it
+    /// is in, from the source's own folder down.
     pub album: Vec<String>,
     pub date: Option<PartialDate>,
     pub kind: MediaKind,
@@ -39,6 +47,10 @@ pub struct Collection {
     pub last: Option<PartialDate>,
     pub photos: usize,
     pub videos: usize,
+    pub others: usize,
+    /// True for a folder of other files: listed by the folder, not shown
+    /// as photos.
+    pub by_folder: bool,
     /// Index into the input of the file to show large.
     pub cover: usize,
     /// Indices into the input, in date order.
@@ -49,7 +61,7 @@ impl Collection {
     /// "August 2008 · 83 photos · 6 videos", the line under the title.
     pub fn summary(&self) -> String {
         let mut parts = Vec::new();
-        if let Some(range) = date_range_label(self.first, self.last) {
+        if let Some(range) = date_range_label(self.first, self.last).filter(|_| !self.by_folder) {
             if range != self.title {
                 parts.push(range);
             }
@@ -60,17 +72,27 @@ impl Collection {
         if self.videos > 0 {
             parts.push(plural(self.videos, "video"));
         }
+        if self.others > 0 {
+            parts.push(plural(self.others, "other file"));
+        }
         parts.join(" \u{b7} ")
     }
 }
 
-/// Groups files into collections, newest first.
+/// What a folder of other files at the very top of a drive is called.
+pub const NOT_IN_A_FOLDER: &str = "Not in a folder";
+
+/// Groups files into collections, newest first, then the folders of other
+/// files in folder order.
 pub fn group_into_collections(items: &[CollectionInput]) -> Vec<Collection> {
     let mut albums: BTreeMap<&[String], Vec<usize>> = BTreeMap::new();
+    let mut folders: BTreeMap<&[String], Vec<usize>> = BTreeMap::new();
     let mut loose_dated = Vec::new();
     let mut undated = Vec::new();
     for (i, it) in items.iter().enumerate() {
-        if !it.album.is_empty() {
+        if it.kind == MediaKind::Other {
+            folders.entry(it.album.as_slice()).or_default().push(i);
+        } else if !it.album.is_empty() {
             albums.entry(it.album.as_slice()).or_default().push(i);
         } else if it.date.is_some() {
             loose_dated.push(i);
@@ -115,6 +137,17 @@ pub fn group_into_collections(items: &[CollectionInput]) -> Vec<Collection> {
             .then(b.last.cmp(&a.last))
             .then(a.title.cmp(&b.title))
     });
+    out.extend(folders.into_iter().map(|(folder, members)| {
+        let (parents, title) = match folder.split_last() {
+            Some((title, parents)) => (parents.to_vec(), title.clone()),
+            None => (Vec::new(), NOT_IN_A_FOLDER.to_string()),
+        };
+        let mut c = build(items, title, parents, members);
+        // A folder is listed as the person arranged it, by name.
+        c.members.sort_by_key(|&i| i);
+        c.by_folder = true;
+        c
+    }));
     out
 }
 
@@ -162,8 +195,8 @@ fn build(items: &[CollectionInput], title: String, parents: Vec<String>, mut mem
     let dates = members.iter().filter_map(|&i| items[i].date);
     let first = dates.clone().min();
     let last = dates.max();
-    let photos = members.iter().filter(|&&i| items[i].kind == MediaKind::Photo).count();
-    let videos = members.len() - photos;
+    let of = |kind: MediaKind| members.iter().filter(|&&i| items[i].kind == kind).count();
+    let (photos, videos, others) = (of(MediaKind::Photo), of(MediaKind::Video), of(MediaKind::Other));
     // The largest photo is a decent first guess at the best one: originals
     // beat thumbnails and resized copies. Fall back to a video.
     let cover = members
@@ -178,6 +211,8 @@ fn build(items: &[CollectionInput], title: String, parents: Vec<String>, mut mem
         last,
         photos,
         videos,
+        others,
+        by_folder: false,
         cover,
         members,
     }
@@ -330,6 +365,43 @@ mod tests {
         let c = group_into_collections(&items);
         assert_eq!(c[0].title, "Scans");
         assert_eq!(c[0].summary(), "1 photo");
+    }
+
+    fn other(folder: &[&str], date: Option<PartialDate>) -> CollectionInput {
+        CollectionInput {
+            kind: MediaKind::Other,
+            ..photo(folder, date, 2_000)
+        }
+    }
+
+    #[test]
+    fn other_files_are_listed_by_their_folder_after_every_collection_and_never_by_date() {
+        let items = vec![
+            other(&["Mum", "Documents", "Tax 2019"], day(2019, 4, 1)),
+            photo(&["Holidays"], day(2008, 8, 10), 1),
+            other(&["Mum", "Music"], day(2001, 1, 1)),
+            other(&["Mum", "Documents", "Tax 2019"], day(2010, 1, 1)),
+            other(&[], None),
+            photo(&[], None, 1),
+        ];
+        let c = group_into_collections(&items);
+        let titles: Vec<(&str, bool)> = c.iter().map(|c| (c.title.as_str(), c.by_folder)).collect();
+        assert_eq!(
+            titles,
+            [
+                ("Holidays", false),
+                ("Undated", false),
+                (NOT_IN_A_FOLDER, true),
+                ("Tax 2019", true),
+                ("Music", true),
+            ]
+        );
+        let tax = &c[3];
+        assert_eq!(tax.parents, ["Mum", "Documents"]);
+        assert_eq!(tax.members, [0, 3], "in the order found, not by date");
+        assert_eq!((tax.photos, tax.videos, tax.others), (0, 0, 2));
+        assert_eq!(tax.summary(), "2 other files", "no dates for a folder");
+        assert_eq!(c[0].others, 0);
     }
 
     #[test]

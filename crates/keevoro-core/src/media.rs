@@ -1,13 +1,34 @@
-//! What counts as a photo or a video.
+//! What counts as a photo or a video, and the third kind a person can ask
+//! for: other files, carried along.
 
 use serde::{Deserialize, Serialize};
 
-/// The two kinds of file keevoro cares about.
+/// The kinds of file Keevoro backs up. Photos and videos are what it is
+/// for; an other file is one a person asked it to take along (music, a
+/// document, a project file): found, backed up and proved exactly, but
+/// never opened to be shown and never grouped by date.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MediaKind {
     Photo,
     Video,
+    Other,
+}
+
+impl MediaKind {
+    /// "photo", "video", "other file".
+    pub fn word(self) -> &'static str {
+        match self {
+            MediaKind::Photo => "photo",
+            MediaKind::Video => "video",
+            MediaKind::Other => "other file",
+        }
+    }
+
+    /// Photos and videos are shown and grouped; other files are not.
+    pub fn is_media(self) -> bool {
+        self != MediaKind::Other
+    }
 }
 
 /// Classify a detected MIME type. Content detection comes first, so this is
@@ -147,5 +168,8 @@ mod tests {
     #[test]
     fn kind_serialises_lowercase() {
         assert_eq!(serde_json::to_string(&MediaKind::Video).unwrap(), "\"video\"");
+        assert_eq!(serde_json::to_string(&MediaKind::Other).unwrap(), "\"other\"");
+        assert_eq!(MediaKind::Other.word(), "other file");
+        assert!(MediaKind::Photo.is_media() && !MediaKind::Other.is_media());
     }
 }

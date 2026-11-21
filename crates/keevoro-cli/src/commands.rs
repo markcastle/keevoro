@@ -250,18 +250,19 @@ pub static ROWS: &[Row] = &[
         about: None,
         args: |c| {
             c.arg(arg("name", "What to call it, such as \"Drone footage\"").required(true))
-                .arg(flag("photos-only", "A backup of photos only, leaving videos out").conflicts_with("videos-only"))
-                .arg(flag("videos-only", "A backup of videos only, leaving photos out"))
+                .arg(
+                    Arg::new("wants")
+                        .long("wants")
+                        .value_name("KINDS")
+                        .num_args(1..)
+                        .help(format!("What it is for, when not everything Keevoro looks for: {WANTS_HELP}")),
+                )
         },
         ask: |_, m, _| {
-            let wants = if m.get_flag("photos-only") {
-                Some("photos")
-            } else if m.get_flag("videos-only") {
-                Some("videos")
-            } else {
-                None
-            };
-            Ok((Op::BackupsStart, json!({ "name": required(m, "name"), "wants": wants })))
+            Ok((
+                Op::BackupsStart,
+                json!({ "name": required(m, "name"), "wants": wants_typed(m, "wants") }),
+            ))
         },
         show: show::started,
     },
@@ -345,17 +346,15 @@ pub static ROWS: &[Row] = &[
                         .help("name (the default), or newest or oldest by the file's date, which is when it was last changed, not when it was taken")
                         .value_parser(["name", "newest", "oldest"]),
                 )
-                .arg(flag("photos", "Only the photos").conflicts_with("videos"))
-                .arg(flag("videos", "Only the videos"))
+                .arg(flag("photos", "Only the photos").conflicts_with_all(["videos", "others"]))
+                .arg(flag("videos", "Only the videos").conflicts_with("others"))
+                .arg(flag("others", "Only the other files you asked Keevoro to carry along"))
         },
         ask: |_, m, _| {
-            let only = if m.get_flag("photos") {
-                "photos"
-            } else if m.get_flag("videos") {
-                "videos"
-            } else {
-                "all"
-            };
+            let only = ["photos", "videos", "others"]
+                .into_iter()
+                .find(|kind| m.get_flag(kind))
+                .unwrap_or("all");
             Ok((
                 Op::PlacesFiles,
                 json!({
@@ -508,18 +507,30 @@ pub static ROWS: &[Row] = &[
         show: show::said,
     },
     Row {
-        words: &["sources", "photos-or-videos"],
-        ops: &[Op::SourcesPhotosOrVideos],
+        words: &["sources", "wants"],
+        ops: &[Op::SourcesWants],
         about: Some(
-            "Whether one source follows its backup's choice of photos or videos, or has its own. Give backup, both, photos or videos to change it.",
+            "What one source is for: the same as its backup, or its own choice of photos, videos and other files. Give backup, or one or more of photos, videos and others, to change it.",
         ),
         args: |c| {
             c.arg(arg("source", "The source's number, place or name").required(true))
-                .arg(arg("wants", "backup, both, photos or videos").value_parser(["backup", "both", "photos", "videos"]))
+                .arg(
+                    Arg::new("wants")
+                        .value_name("KINDS")
+                        .num_args(1..)
+                        .help(format!("backup, or {WANTS_HELP}")),
+                )
         },
         ask: |c, m, _| {
             let source = source(c, &required(m, "source"))?;
-            Ok((Op::SourcesPhotosOrVideos, json!({ "source": source, "wants": text(m, "wants") })))
+            let wants = wants_typed(m, "wants").map(|words| {
+                if words.iter().any(|w| w == "backup") {
+                    json!("backup")
+                } else {
+                    json!(words)
+                }
+            });
+            Ok((Op::SourcesWants, json!({ "source": source, "wants": wants })))
         },
         show: show::wants,
     },
@@ -754,13 +765,13 @@ pub static ROWS: &[Row] = &[
         show: show::previews,
     },
     Row {
-        words: &["photos-or-videos"],
-        ops: &[Op::BackupPhotosOrVideos],
+        words: &["wants"],
+        ops: &[Op::BackupWants],
         about: Some(
-            "Whether this backup is for photos and videos, photos only, or videos only. Give both, photos or videos to change it; it counts at once, and nothing already backed up is touched.",
+            "What this backup is for: photos, videos and, once a kind of other file is on the list, other files. Give one or more of them to change it; it counts at once, and nothing already backed up is touched.",
         ),
-        args: |c| c.arg(arg("wants", "both, photos or videos").value_parser(["both", "photos", "videos"])),
-        ask: |_, m, _| Ok((Op::BackupPhotosOrVideos, json!({ "wants": text(m, "wants") }))),
+        args: |c| c.arg(Arg::new("wants").value_name("KINDS").num_args(1..).help(WANTS_HELP)),
+        ask: |_, m, _| Ok((Op::BackupWants, json!({ "wants": wants_typed(m, "wants") }))),
         show: show::wants,
     },
     // Jobs
@@ -949,7 +960,7 @@ pub static ROWS: &[Row] = &[
         words: &["kinds"],
         ops: &[Op::FileKindsList],
         about: Some(
-            "The kinds of file Keevoro looks for on every source, by ending: photo or video, built in or yours, on or off.",
+            "The kinds of file Keevoro looks for on every source, by ending: photo, video or other file, built in or yours, on or off.",
         ),
         args: none,
         ask: |c, m, io| nothing(c, m, io, Op::FileKindsList),
@@ -959,17 +970,17 @@ pub static ROWS: &[Row] = &[
         words: &["kinds", "add"],
         ops: &[Op::FileKindsAdd],
         about: Some(
-            "Adds an ending for Keevoro to look for, as photos or videos. Counts from the next time a source is looked through.",
+            "Adds an ending for Keevoro to look for, as photos, videos or other files. Other files (music, documents, anything) are backed up exactly, but cannot be shown or grouped by date. Counts from the next time a source is looked through.",
         ),
         args: |c| {
             c.arg(arg("ending", "The ending, such as heif").required(true))
-                .args(photo_or_video())
-                .group(clap::ArgGroup::new("kind").args(["photo", "video"]).required(true))
+                .args(listed_as())
+                .group(clap::ArgGroup::new("kind").args(["photo", "video", "other"]).required(true))
         },
         ask: |_, m, _| {
             Ok((
                 Op::FileKindsAdd,
-                json!({ "ending": required(m, "ending"), "kind": photo_or_video_given(m) }),
+                json!({ "ending": required(m, "ending"), "kind": listed_as_given(m) }),
             ))
         },
         show: show::kind_changed,
@@ -978,11 +989,11 @@ pub static ROWS: &[Row] = &[
         words: &["kinds", "change"],
         ops: &[Op::FileKindsChange],
         about: Some(
-            "Makes a kind of file photos or videos, or gives one you added a new ending. Counts from the next time a source is looked through.",
+            "Makes a kind of file photos, videos or other files, or gives one you added a new ending. Counts from the next time a source is looked through.",
         ),
         args: |c| {
             c.arg(arg("ending", "The ending as it is on the list, such as heif").required(true))
-                .args(photo_or_video())
+                .args(listed_as())
                 .arg(
                     Arg::new("to")
                         .long("to")
@@ -991,7 +1002,7 @@ pub static ROWS: &[Row] = &[
                 )
                 .group(
                     clap::ArgGroup::new("change")
-                        .args(["photo", "video", "to"])
+                        .args(["photo", "video", "other", "to"])
                         .multiple(true)
                         .required(true),
                 )
@@ -999,7 +1010,7 @@ pub static ROWS: &[Row] = &[
         ask: |_, m, _| {
             Ok((
                 Op::FileKindsChange,
-                json!({ "ending": required(m, "ending"), "kind": photo_or_video_given(m), "to": text(m, "to") }),
+                json!({ "ending": required(m, "ending"), "kind": listed_as_given(m), "to": text(m, "to") }),
             ))
         },
         show: show::kind_changed,
@@ -1040,23 +1051,35 @@ pub static ROWS: &[Row] = &[
     },
 ];
 
-fn photo_or_video() -> [Arg; 2] {
+fn listed_as() -> [Arg; 3] {
     [
-        flag("photo", "They are photos").conflicts_with("video"),
-        flag("video", "They are videos"),
+        flag("photo", "They are photos").conflicts_with_all(["video", "other"]),
+        flag("video", "They are videos").conflicts_with("other"),
+        flag(
+            "other",
+            "They are other files, carried along: backed up exactly, but never shown or grouped by date",
+        ),
     ]
 }
 
-/// `photo`, `video`, or nothing when neither was given.
-fn photo_or_video_given(m: &ArgMatches) -> Option<&'static str> {
-    if m.get_flag("photo") {
-        Some("photo")
-    } else if m.get_flag("video") {
-        Some("video")
-    } else {
-        None
-    }
+/// `photo`, `video`, `other`, or nothing when none was given.
+fn listed_as_given(m: &ArgMatches) -> Option<&'static str> {
+    ["photo", "video", "other"].into_iter().find(|kind| m.get_flag(kind))
 }
+
+/// What a backup or a source is for, as typed: `photos`, `videos` and
+/// `others`, each a word of its own or with commas between.
+fn wants_typed(m: &ArgMatches, name: &str) -> Option<Vec<String>> {
+    m.get_many::<String>(name).map(|words| {
+        words
+            .flat_map(|w| w.split(','))
+            .map(|w| w.trim().to_lowercase())
+            .filter(|w| !w.is_empty())
+            .collect()
+    })
+}
+
+const WANTS_HELP: &str = "photos, videos and others: one or more, such as photos others";
 
 fn choose_args(command: Command) -> Command {
     command

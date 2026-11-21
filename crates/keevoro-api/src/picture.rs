@@ -368,7 +368,9 @@ mod tests {
         assert_eq!(&small[8..12], b"WEBP");
         // A kind switched off is still pictured, so the look inside can show
         // it and say it is left out; one not on the list at all is not.
-        let videos_only = kinds.clone().only(keevoro_core::MediaKind::Video);
+        let videos_only = kinds
+            .clone()
+            .wanted_by(keevoro_core::Wants::only(keevoro_core::MediaKind::Video));
         assert!(picture_of_file(&cache, &photo, &videos_only, PictureSize::Small, None).is_ok());
         let text = card.join("notes.txt");
         std::fs::write(&text, b"words").unwrap();

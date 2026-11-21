@@ -2,8 +2,9 @@
 //! "4.2 GB", "about 3 minutes". The app, the command line and an agent use
 //! these so that the same thing reads the same in each.
 
+pub use keevoro_core::words::photos_and_videos;
 pub use keevoro_engine::history::duration;
-pub use keevoro_engine::summary::{bytes, count, thousands};
+pub use keevoro_engine::summary::{bytes, count, files, thousands};
 
 /// What clearing Keevoro's unfinished copies from a folder did (`cleared`)
 /// or, asked first, would do: what goes, and what stays and why.

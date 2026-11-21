@@ -443,7 +443,7 @@ pub fn everywhere(
         let mut record = crate::history::DestinationRecord::new(&name);
         let mut cleared = keevoro_storage_folder::Swept::default();
         let turn = (|| {
-            let destination = to.open(world)?;
+            let destination = to.open(out, world)?;
             // Working files an earlier backup left behind go first, so the
             // room they took is free for this one.
             if let Destination::Folder(folder) = &destination {
@@ -616,7 +616,7 @@ fn plan(catalog: &Catalog, home: &Path, all: &[crate::connect::Saved], tracker: 
     let per_original = tracker.preview_bytes();
     let mut planned = vec![
         Planned::new(Kind::TellingApart, None, 0),
-        Planned::new(Kind::Placing, None, (found.photos + found.videos) as u64),
+        Planned::new(Kind::Placing, None, (found.photos + found.videos + found.others) as u64),
     ];
     for (at, to) in all.iter().enumerate() {
         let name = to.describe();
@@ -834,7 +834,7 @@ fn run_until(
         // A note for whoever opens the backup, explaining its folders.
         (
             crate::layout::GUIDE_NAME.to_string(),
-            crate::layout::guide().into_bytes(),
+            crate::layout::guide(stored.iter().any(|k| k.item.kind == keevoro_core::MediaKind::Other)).into_bytes(),
             "text/plain; charset=utf-8",
         ),
     ];
@@ -1067,7 +1067,8 @@ fn item_for(k: &Kept<'_>, renditions: Vec<Rendition>) -> ItemInput {
 }
 
 /// The same collections the Discover screen shows become the albums:
-/// the user's named folders, then moments for everything unfiled.
+/// the user's named folders, then moments for everything unfiled, then
+/// each folder of other files.
 fn albums_for(stored: &[&Kept<'_>]) -> Vec<AlbumInput> {
     let inputs: Vec<CollectionInput> = stored
         .iter()
@@ -1081,7 +1082,15 @@ fn albums_for(stored: &[&Kept<'_>]) -> Vec<AlbumInput> {
     group_into_collections(&inputs)
         .into_iter()
         .map(|c| AlbumInput {
-            path: c.parents.iter().cloned().chain([c.title.clone()]).collect(),
+            // A folder of other files is an album named after its folder,
+            // inside one for them all.
+            path: c
+                .by_folder
+                .then(|| keevoro_core::OTHER_FILES.to_string())
+                .into_iter()
+                .chain(c.parents.iter().cloned())
+                .chain([c.title.clone()])
+                .collect(),
             items: c
                 .members
                 .iter()
@@ -1210,13 +1219,156 @@ mod tests {
         assert_eq!(std::fs::read_dir(card.join("Flights")).unwrap().count(), 2);
     }
 
+    /// Every file under `dir`, by its path from there, with its bytes.
+    fn everything_in(dir: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
+        fn walk(top: &Path, at: &Path, all: &mut BTreeMap<PathBuf, Vec<u8>>) {
+            for entry in std::fs::read_dir(at).into_iter().flatten().filter_map(Result::ok) {
+                let path = entry.path();
+                if path.is_dir() {
+                    walk(top, &path, all);
+                } else {
+                    all.insert(
+                        path.strip_prefix(top).unwrap().to_path_buf(),
+                        std::fs::read(&path).unwrap(),
+                    );
+                }
+            }
+        }
+        let mut all = BTreeMap::new();
+        walk(dir, dir, &mut all);
+        all
+    }
+
+    #[test]
+    fn other_files_are_found_kept_by_folder_backed_up_exactly_and_explained() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mum, dad) = (dir.path().join("Mum"), dir.path().join("Second drive").join("Mum"));
+        let put = |root: &Path, rel: &str, bytes: &[u8]| {
+            let p = root.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, bytes).unwrap();
+        };
+        put(&mum, "Documents/Tax 2019/return.pdf", b"%PDF mum's return");
+        put(&mum, "Documents/letter.pdf", b"%PDF the same letter");
+        put(&mum, "Music/song.flac", &[1u8; 1]);
+        put(
+            &mum,
+            "Pictures/IMG_20240601_100000.jpg",
+            &crate::discover::tests::real_jpeg(30),
+        );
+        // A second source: an exact copy of the letter, and a different
+        // file under the same name in the same folders.
+        put(&dad, "Documents/letter.pdf", b"%PDF the same letter");
+        put(&dad, "Documents/Tax 2019/return.pdf", b"%PDF dad's return");
+        let sources_before: Vec<_> = [&mum, &dad].iter().map(|s| everything_in(s)).collect();
+
+        let mut kinds = keevoro_core::FileKinds::default();
+        kinds.add("pdf", keevoro_core::MediaKind::Other).unwrap();
+        kinds.add("flac", keevoro_core::MediaKind::Other).unwrap();
+        let opts = keevoro_scan::ScanOptions {
+            kinds: kinds.lookup(),
+            ..keevoro_scan::ScanOptions::default()
+        };
+        let home = dir.path().join("home");
+        let mut catalog = Catalog::open_in_library(&home).unwrap();
+        for source in [&mum, &dad] {
+            crate::scan_into_with(&mut catalog, source, None, &opts, &mut |_| {}, &mut || {}).unwrap();
+        }
+
+        let found = crate::discover(&home, &catalog).unwrap();
+        assert_eq!(
+            (found.photos, found.videos, found.others),
+            (1, 0, 4),
+            "one letter is a copy"
+        );
+        assert_eq!(found.duplicates, 1);
+        let folders: Vec<(&str, usize, bool)> = found
+            .collections
+            .iter()
+            .filter(|c| c.by_folder)
+            .map(|c| (c.key.as_str(), c.others, c.kept))
+            .collect();
+        assert_eq!(
+            folders,
+            [
+                ("Other files / Mum / Documents", 1, true),
+                ("Other files / Mum / Documents / Tax 2019", 2, true),
+                ("Other files / Mum / Music", 1, true),
+            ]
+        );
+        assert!(found
+            .collections
+            .iter()
+            .filter(|c| c.by_folder)
+            .all(|c| c.cover.is_other));
+        assert_eq!(found.waiting_to_gather, 5);
+
+        // Leaving out a folder of other files is the same button as a
+        // collection, and the room needed follows it.
+        crate::set_collection_kept(&catalog, "Other files / Mum / Music", false).unwrap();
+        assert_eq!(crate::discover(&home, &catalog).unwrap().waiting_to_gather, 4);
+
+        let to = dir.path().join("usb");
+        let said = send(&catalog, &home, &to);
+        assert!(said.contains("Safely backed up"), "{said}");
+        let at = everything_in(&to.join("originals"));
+        let other = |rel: &str| at.get(&Path::new("Other files").join(rel)).cloned();
+        assert_eq!(
+            other("Mum/Documents/letter.pdf").as_deref(),
+            Some(&b"%PDF the same letter"[..])
+        );
+        let mut returns = vec![
+            other("Mum/Documents/Tax 2019/return.pdf").unwrap(),
+            other("Mum/Documents/Tax 2019/return (2).pdf").unwrap(),
+        ];
+        returns.sort();
+        assert_eq!(returns, [b"%PDF dad's return".to_vec(), b"%PDF mum's return".to_vec()]);
+        assert_eq!(other("Mum/Music/song.flac"), None, "left out, so not sent");
+        assert_eq!(at.keys().filter(|p| p.starts_with("Other files")).count(), 3);
+        // Nothing was made to show them.
+        assert_eq!(
+            everything_in(&to.join("renditions")).len(),
+            2,
+            "the photo's thumbnail and display, no more"
+        );
+
+        // The index lists them, as other files in albums of their folders.
+        let index_dir = to.join("index");
+        let index: serde_json::Value = std::fs::read_dir(&index_dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|e| e.file_name() != "gallery.json")
+            .find_map(|e| serde_json::from_slice(&std::fs::read(e.path()).ok()?).ok())
+            .unwrap();
+        let items = index["items"].as_object().unwrap();
+        let types: Vec<&str> = items.values().filter_map(|i| i["type"].as_str()).collect();
+        assert_eq!(types.iter().filter(|t| **t == "other").count(), 3);
+        assert!(items
+            .values()
+            .filter(|i| i["type"] == "other")
+            .all(|i| i["renditions"] == serde_json::json!([])));
+        let albums = index["albums"].to_string();
+        assert!(
+            albums.contains("Tax 2019") && albums.contains("Other files"),
+            "{albums}"
+        );
+        let gallery = std::fs::read_to_string(index_dir.join("gallery.json")).unwrap();
+        assert!(!gallery.contains(".pdf"), "the old gallery shows photos only");
+
+        let guide = std::fs::read_to_string(to.join(crate::layout::GUIDE_NAME)).unwrap();
+        assert_eq!(guide, crate::layout::guide(true));
+        // Every copy was proved, and the sources are exactly as they were.
+        let after: Vec<_> = [&mum, &dad].iter().map(|s| everything_in(s)).collect();
+        assert_eq!(after, sources_before);
+    }
+
     #[test]
     fn a_backup_explains_itself_and_leaves_no_folder_unexplained() {
         let (dir, _card, home, catalog) = one_backup();
         let to = dir.path().join("usb");
         send(&catalog, &home, &to);
         let guide = std::fs::read_to_string(to.join(crate::layout::GUIDE_NAME)).unwrap();
-        assert_eq!(guide, crate::layout::guide());
+        assert_eq!(guide, crate::layout::guide(false));
         for entry in std::fs::read_dir(&to).unwrap() {
             let entry = entry.unwrap();
             let name = entry.file_name().to_string_lossy().to_string();
@@ -1270,7 +1422,7 @@ mod tests {
         let secrets = MemorySecrets::default();
         let world = World {
             secrets: &secrets,
-            ask: &connect::testing::nobody_to_ask,
+            environment: &connect::testing::no_environment,
         };
         let folder = |to: &Path| {
             Saved::from_flags(&Flags {
@@ -1279,7 +1431,7 @@ mod tests {
             })
             .unwrap()
         };
-        connect::add(&mut Vec::new(), &catalog, &folder(&first), &world).unwrap();
+        connect::add(&mut Vec::new(), &catalog, &folder(&first), None, &world).unwrap();
         let go = |catalog: &Catalog| {
             let mut said = Vec::new();
             let mut turns = Vec::new();
@@ -1304,7 +1456,7 @@ mod tests {
         assert!(all > 0);
 
         // A second destination is added. Nothing is safe until it has them too.
-        connect::add(&mut Vec::new(), &catalog, &folder(&second), &world).unwrap();
+        connect::add(&mut Vec::new(), &catalog, &folder(&second), None, &world).unwrap();
         let found = crate::discover(&home, &catalog).unwrap();
         assert_eq!(found.destinations.len(), 2);
         assert_eq!((found.destinations[0].there, found.destinations[0].waiting), (all, 0));
@@ -1324,7 +1476,7 @@ mod tests {
         }
 
         // Taking one off the list deletes nothing there, and the other still counts.
-        connect::remove(&catalog, &world, 0).unwrap();
+        connect::remove(&catalog, &secrets, 0).unwrap();
         assert!(first.join("originals/Flights/IMG_20240601_100000.jpg").is_file());
         let found = crate::discover(&home, &catalog).unwrap();
         assert_eq!((found.destinations.len(), found.waiting_to_gather), (1, 0));
@@ -1338,14 +1490,14 @@ mod tests {
         let secrets = MemorySecrets::default();
         let world = World {
             secrets: &secrets,
-            ask: &connect::testing::nobody_to_ask,
+            environment: &connect::testing::no_environment,
         };
         let to = Saved::from_flags(&Flags {
             to_folder: Some(dir.path().join("usb")),
             ..Flags::default()
         })
         .unwrap();
-        connect::add(&mut Vec::new(), &catalog, &to, &world).unwrap();
+        connect::add(&mut Vec::new(), &catalog, &to, None, &world).unwrap();
         let tracker = Tracker::new(keevoro_core::estimate::Remembered::default());
         let mut seen = Vec::new();
         everywhere(
@@ -1401,7 +1553,7 @@ mod tests {
         let secrets = MemorySecrets::default();
         let world = World {
             secrets: &secrets,
-            ask: &connect::testing::nobody_to_ask,
+            environment: &connect::testing::no_environment,
         };
         connect::add(
             &mut Vec::new(),
@@ -1411,6 +1563,7 @@ mod tests {
                 ..Flags::default()
             })
             .unwrap(),
+            None,
             &world,
         )
         .unwrap();
@@ -1493,14 +1646,14 @@ mod tests {
         let secrets = MemorySecrets::default();
         let world = World {
             secrets: &secrets,
-            ask: &connect::testing::nobody_to_ask,
+            environment: &connect::testing::no_environment,
         };
         let to = Saved::from_flags(&Flags {
             to_folder: Some(dir.path().join("usb")),
             ..Flags::default()
         })
         .unwrap();
-        connect::add(&mut Vec::new(), &catalog, &to, &world).unwrap();
+        connect::add(&mut Vec::new(), &catalog, &to, None, &world).unwrap();
         // Gone from the source since it was found, so it cannot be sent.
         std::fs::remove_file(card.join("Flights/IMG_20240601_100500.jpg")).unwrap();
         let tracker = Tracker::new(keevoro_core::estimate::Remembered::default());
@@ -1718,7 +1871,7 @@ mod tests {
         let secrets = MemorySecrets::default();
         let world = World {
             secrets: &secrets,
-            ask: &connect::testing::nobody_to_ask,
+            environment: &connect::testing::no_environment,
         };
         let to = dir.path().join("usb");
         let folder = Saved::from_flags(&Flags {
@@ -1726,7 +1879,7 @@ mod tests {
             ..Flags::default()
         })
         .unwrap();
-        connect::add(&mut Vec::new(), &catalog, &folder, &world).unwrap();
+        connect::add(&mut Vec::new(), &catalog, &folder, None, &world).unwrap();
         // Asked to stop while it was still getting ready.
         let stop = Stop::default();
         stop.store(true, Ordering::SeqCst);
@@ -1755,7 +1908,7 @@ mod tests {
         let secrets = MemorySecrets::default();
         let world = World {
             secrets: &secrets,
-            ask: &connect::testing::nobody_to_ask,
+            environment: &connect::testing::no_environment,
         };
         let to = dir.path().join("usb");
         let folder = Saved::from_flags(&Flags {
@@ -1763,7 +1916,7 @@ mod tests {
             ..Flags::default()
         })
         .unwrap();
-        connect::add(&mut Vec::new(), &catalog, &folder, &world).unwrap();
+        connect::add(&mut Vec::new(), &catalog, &folder, None, &world).unwrap();
         let work = to.join(".keevoro-uploads");
         std::fs::create_dir_all(work.join("18e866207c01f87097a80")).unwrap();
         let aged = |path: &Path, bytes: usize, seconds_ago: u64| {
@@ -1812,7 +1965,7 @@ mod tests {
         let secrets = MemorySecrets::default();
         let world = World {
             secrets: &secrets,
-            ask: &connect::testing::nobody_to_ask,
+            environment: &connect::testing::no_environment,
         };
         let to = dir.path().join("usb");
         let folder = Saved::from_flags(&Flags {
@@ -1820,7 +1973,7 @@ mod tests {
             ..Flags::default()
         })
         .unwrap();
-        connect::add(&mut Vec::new(), &catalog, &folder, &world).unwrap();
+        connect::add(&mut Vec::new(), &catalog, &folder, None, &world).unwrap();
         let target = format!("folder:{}", std::fs::canonicalize(&to).unwrap().display());
         // Two uploads this backup started earlier: one for a file it has
         // stopped keeping, and one in a part of the backup not sent now.

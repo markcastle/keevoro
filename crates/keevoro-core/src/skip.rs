@@ -232,7 +232,22 @@ impl SkipRules {
     pub fn skip_file(&self, name: &str) -> Option<SkipReason> {
         let lower = name.to_lowercase();
         // macOS AppleDouble resource files carry media extensions but no media.
-        if name.starts_with("._") || matches!(lower.as_str(), "thumbs.db" | "desktop.ini" | ".ds_store") {
+        // The rest are the system's own: Windows' page, hibernation and
+        // swap files and the Mac's sleep image are the size of the
+        // computer's memory, locked while it runs, and never anyone's
+        // file, so nobody adding .sys as an other kind means them.
+        if name.starts_with("._")
+            || matches!(
+                lower.as_str(),
+                "thumbs.db"
+                    | "desktop.ini"
+                    | ".ds_store"
+                    | "pagefile.sys"
+                    | "hiberfil.sys"
+                    | "swapfile.sys"
+                    | "sleepimage"
+            )
+        {
             return Some(SkipReason::SystemFile);
         }
         None
@@ -296,6 +311,10 @@ mod tests {
         assert_eq!(r.skip_file("Thumbs.db"), Some(SkipReason::SystemFile));
         assert_eq!(r.skip_file(".DS_Store"), Some(SkipReason::SystemFile));
         assert_eq!(r.skip_file("IMG_0001.JPG"), None);
+        for system in ["pagefile.sys", "HIBERFIL.SYS", "swapfile.sys", "sleepimage"] {
+            assert_eq!(r.skip_file(system), Some(SkipReason::SystemFile), "{system}");
+        }
+        assert_eq!(r.skip_file("driver.sys"), None, "only the system's own, by name");
     }
 
     #[test]

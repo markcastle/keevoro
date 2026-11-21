@@ -83,7 +83,10 @@ pub enum NodeKind {
 pub enum KindName {
     Photo,
     Video,
+    /// Everything Keevoro does not look for.
     Other,
+    /// Other files a person put on the list, to be carried along.
+    Carried,
 }
 
 impl From<Kind> for KindName {
@@ -92,6 +95,7 @@ impl From<Kind> for KindName {
             Kind::Photo => KindName::Photo,
             Kind::Video => KindName::Video,
             Kind::Other => KindName::Other,
+            Kind::Carried => KindName::Carried,
         }
     }
 }
@@ -126,6 +130,12 @@ pub struct MapNode {
     pub photo_bytes: u64,
     pub video_bytes: u64,
     pub other_bytes: u64,
+    /// Other files a person put on the list, to be carried along. Never
+    /// said when there are none.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub carried: u64,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub carried_bytes: u64,
     /// Of `bytes`, how many are only in online storage, not on this
     /// computer. Never opened.
     #[serde(skip_serializing_if = "is_zero")]
@@ -342,10 +352,7 @@ impl Keevoro {
                     .media()
                     .and(above.is_none().then_some(()))
                     .and_then(|()| judge.offered(&folder_path, ending.kind, &ending.name).err())
-                    .map(|by| {
-                        by.why(ending.kind.media().unwrap_or(keevoro_core::MediaKind::Photo))
-                            .to_string()
-                    });
+                    .map(|by| by.why(kinds.lists_other()));
                 Some(KindView {
                     ending: ending.name.to_string(),
                     kind: ending.kind.into(),
@@ -585,12 +592,14 @@ impl Said<'_> {
             node: NodeKind::Smaller,
             kind: None,
             bytes: shown.bytes(),
-            photos: k[0].files,
-            videos: k[1].files,
-            others: k[2].files,
-            photo_bytes: k[0].bytes,
-            video_bytes: k[1].bytes,
-            other_bytes: k[2].bytes,
+            photos: k[Kind::Photo.index()].files,
+            videos: k[Kind::Video.index()].files,
+            others: k[Kind::Other.index()].files,
+            photo_bytes: k[Kind::Photo.index()].bytes,
+            video_bytes: k[Kind::Video.index()].bytes,
+            other_bytes: k[Kind::Other.index()].bytes,
+            carried: k[Kind::Carried.index()].files,
+            carried_bytes: k[Kind::Carried.index()].bytes,
             online_only_bytes: shown.online_only_bytes,
             folders: shown.folders,
             skipped: None,
@@ -637,11 +646,9 @@ impl Said<'_> {
                 }
                 if passed.is_none() {
                     node.left_out_folder = self.judge.choices.left_out_folder(&path).map(friendly_path);
-                    node.left_out = node
-                        .left_out_folder
-                        .as_ref()
-                        .map(|_| LeftOutBy::Folder.why(keevoro_core::MediaKind::Photo).to_string());
-                    if node.left_out.is_none() && k[0].files + k[1].files > 0 && node.would_back_up == 0 {
+                    node.left_out = node.left_out_folder.as_ref().map(|_| self.why(LeftOutBy::Folder));
+                    let wanted = Kind::LISTED.iter().map(|kind| k[kind.index()].files).sum::<u64>();
+                    if node.left_out.is_none() && wanted > 0 && node.would_back_up == 0 {
                         // Nothing here would be backed up: say the choice
                         // that leaves out the most.
                         node.left_out = self.why_none(at);
@@ -658,7 +665,7 @@ impl Said<'_> {
                     let path = self.map.path_of(file.folder).join(&*file.name);
                     match self.judge.file(&path, file.kind) {
                         Ok(()) => node.would_back_up = file.bytes,
-                        Err(by) => node.left_out = Some(why(by, file.kind)),
+                        Err(by) => node.left_out = Some(self.why(by)),
                     }
                 }
             }
@@ -666,19 +673,23 @@ impl Said<'_> {
                 node.name = match kind {
                     Kind::Photo => "Photos",
                     Kind::Video => "Videos",
+                    // Shown beside other files carried along, everything
+                    // else is said as such; with none on the list, as ever.
+                    Kind::Other if self.judge.kinds.lists_other() => "Everything else",
                     Kind::Other => "Other files",
+                    Kind::Carried => "Other files to carry along",
                 }
                 .to_string();
                 node.node = NodeKind::Files;
                 node.kind = Some(kind.into());
-                if let (None, Some(folder), Some(media)) = (passed, folder, kind.media()) {
-                    let i = usize::from(media == keevoro_core::MediaKind::Video);
+                if let (None, Some(folder), Some(_)) = (passed, folder, kind.media()) {
+                    let i = kind.index();
                     let offer = self.offered.by_folder.get(&folder);
                     // The folder's own offered bytes of this kind, at most
                     // what is in this box.
                     node.would_back_up = offer.map_or(0, |o| o.bytes[i]).min(node.bytes);
                     if node.would_back_up == 0 {
-                        node.left_out = offer.and_then(|o| o.why_not[i]).map(|(by, _)| why(by, kind));
+                        node.left_out = offer.and_then(|o| o.why_not[i]).map(|(by, _)| self.why(by));
                     }
                 }
             }
@@ -690,7 +701,7 @@ impl Said<'_> {
             node.skipped = Some(reason.describe().to_string());
             node.made_by_keevoro = reason.keevoro_made();
             if reason.keevoro_made() {
-                node.left_out = Some(why(LeftOutBy::MadeByKeevoro, Kind::Photo));
+                node.left_out = Some(self.why(LeftOutBy::MadeByKeevoro));
             }
             node.would_back_up = 0;
         }
@@ -700,26 +711,27 @@ impl Said<'_> {
     /// Why none of a folder's photos and videos, everything beneath it
     /// counted in, would be backed up: the choice that leaves out the most.
     fn why_none(&self, top: u32) -> Option<String> {
-        let mut most: Option<(LeftOutBy, Kind, u64)> = None;
+        let mut most: Option<(LeftOutBy, u64)> = None;
         for at in self.map.beneath(top) {
             let Some(offer) = self.offered.by_folder.get(&at) else {
                 continue;
             };
-            for (i, kind) in [Kind::Photo, Kind::Video].into_iter().enumerate() {
-                if let Some((by, bytes)) = offer.why_not[i] {
-                    if most.is_none_or(|(_, _, m)| bytes > m) {
-                        most = Some((by, kind, bytes));
+            for kind in Kind::LISTED {
+                if let Some((by, bytes)) = offer.why_not[kind.index()] {
+                    if most.is_none_or(|(_, m)| bytes > m) {
+                        most = Some((by, bytes));
                     }
                 }
             }
         }
-        most.map(|(by, kind, _)| why(by, kind))
+        most.map(|(by, _)| self.why(by))
     }
-}
 
-fn why(by: LeftOutBy, kind: Kind) -> String {
-    by.why(kind.media().unwrap_or(keevoro_core::MediaKind::Photo))
-        .to_string()
+    /// Why, in words: other files are spoken of only when some kind of
+    /// them is on the list.
+    fn why(&self, by: LeftOutBy) -> String {
+        by.why(self.judge.kinds.lists_other())
+    }
 }
 
 #[cfg(test)]
@@ -863,7 +875,8 @@ mod tests {
         let k = keevoro(dir.path());
         let named = k.start_backup("Stills").unwrap();
         let backup = crate::Backup::open(&named.home).unwrap();
-        k.set_backup_wants(&backup, keevoro_core::Wants::Photos).unwrap();
+        k.set_backup_wants(&backup, keevoro_core::Wants::only(keevoro_core::MediaKind::Photo))
+            .unwrap();
         let place = pictures(dir.path());
         // A Mac's hidden companion file, which no search ever takes, and a
         // backup Keevoro made inside the place.

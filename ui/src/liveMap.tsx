@@ -32,6 +32,8 @@ export function placeSoFar(name: string, top: TopBox[]): MapNode {
     photoBytes: sum((b) => b.photoBytes),
     videoBytes: sum((b) => b.videoBytes),
     otherBytes: sum((b) => b.otherBytes),
+    carried: sum((b) => b.carried ?? 0),
+    carriedBytes: sum((b) => b.carriedBytes ?? 0),
     wouldBackUp: 0,
     children: top.map((b) => ({ ...b, wouldBackUp: 0 })),
   }
@@ -116,7 +118,7 @@ export function LiveMap(props: { name: string; top: TopBox[] | undefined }) {
         aria-label={`Map of ${props.name} so far: ${size(place.bytes)}. Photos ${share(place.photoBytes, place.bytes)}, videos ${share(
           place.videoBytes,
           place.bytes,
-        )}, everything else ${share(place.otherBytes, place.bytes)}.`}
+        )}${place.carriedBytes ? `, other files to carry along ${share(place.carriedBytes, place.bytes)}` : ''}, everything else ${share(place.otherBytes, place.bytes)}.`}
       />
     </div>
   )

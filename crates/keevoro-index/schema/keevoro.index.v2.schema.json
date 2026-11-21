@@ -113,7 +113,7 @@
       ]
     },
     "Item": {
-      "description": "One photo or video.",
+      "description": "One photo, video or other file.",
       "type": "object",
       "properties": {
         "blurhash": {
@@ -195,10 +195,19 @@
       ]
     },
     "ItemType": {
-      "type": "string",
-      "enum": [
-        "photo",
-        "video"
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "photo",
+            "video"
+          ]
+        },
+        {
+          "description": "A file the person asked Keevoro to carry along (music, a document):\nkept exactly, with no renditions, in an album named after its folder.",
+          "type": "string",
+          "const": "other"
+        }
       ]
     },
     "Rendition": {
