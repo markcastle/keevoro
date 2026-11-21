@@ -431,3 +431,79 @@ fn two_different_files_with_one_name_in_one_place_are_told_apart() {
     assert_ne!(names[0], names[1]);
     assert!(names.iter().any(|n| n.ends_with("IMG_0001 (2).jpg")), "{names:?}");
 }
+
+#[test]
+fn a_folder_spelt_another_way_goes_into_the_first_spelling_and_a_name_differing_by_case_is_numbered() {
+    // Folders on this computer's disk may ignore case themselves, so the
+    // files are found in folders of their own and given their albums after.
+    let w = World::new();
+    w.add("one/IMG_0001.jpg", &jpeg(1, 100));
+    w.add("two/img_0001.JPG", &jpeg(2, 100));
+    w.add("three/b.jpg", &jpeg(3, 100));
+    let mut report = w.scan();
+    report.items.sort_by(|a, b| a.path.cmp(&b.path));
+    let albums: [&[&str]; 3] = [&["Smith"], &["SMITH", "Holiday"], &["SMITH"]];
+    for (item, album) in report.items.iter_mut().zip(albums) {
+        item.folder.album = album.iter().map(|a| (*a).to_string()).collect();
+    }
+    // Placed one at a time, the way two backups a week apart would.
+    for item in &report.items {
+        agree_places(&w.catalog, &[item], false, &mut |_, _| {}).unwrap();
+    }
+    let mut names: Vec<String> = w.catalog.collected().unwrap().into_iter().map(|p| p.path).collect();
+    names.sort();
+    assert!(
+        names.iter().all(|n| n.starts_with("originals/Smith/")),
+        "one folder, spelt as it was first: {names:?}"
+    );
+    assert!(
+        names.iter().any(|n| n.ends_with(" (2).jpg") || n.ends_with(" (2).JPG")),
+        "{names:?}"
+    );
+    assert!(names.iter().any(|n| n.ends_with("/Holiday/b.jpg")), "{names:?}");
+}
+
+#[test]
+fn a_place_too_long_for_a_destination_is_cut_to_fit() {
+    // Too long for any disk to hold here, so the file is found under a
+    // short name and its folders and name are made long afterwards, as a
+    // share from another computer could give them.
+    let w = World::new();
+    w.add("a.jpg", &jpeg(1, 100));
+    let mut report = w.scan();
+    let item = &mut report.items[0];
+    item.folder.album = (0..12).map(|i| format!("{i} {}", "folder name ".repeat(10))).collect();
+    item.path = item.path.with_file_name(format!("{}.jpg", "n".repeat(300)));
+    w.place(&report);
+    let place = &w.catalog.collected().unwrap()[0].path;
+    assert!(place.len() <= keevoro_core::layout::LONGEST_PLACE, "{}", place.len());
+    assert!(place
+        .split('/')
+        .all(|part| part.len() <= keevoro_core::layout::LONGEST_NAME));
+    assert!(place.ends_with(".jpg"));
+}
+
+/// Placing is the part of getting ready that touches every kept file, so
+/// how long it takes for a big backup is measured here, by hand:
+/// `cargo test -p keevoro-collect how_long_placing -- --ignored --nocapture`.
+#[test]
+#[ignore = "a measurement, run by hand"]
+fn how_long_placing_100_000_files_takes() {
+    let w = World::new();
+    w.add("a.jpg", &jpeg(1, 100));
+    let template = w.scan().items.remove(0);
+    let items: Vec<FoundItem> = (0..100_000u32)
+        .map(|i| {
+            let mut item = template.clone();
+            item.blake3 = Some(format!("{i:064x}"));
+            item.path = item.path.with_file_name(format!("IMG_{:04}.jpg", i % 5000));
+            item.folder.album = vec![format!("Family {}", i % 40), format!("Box {}", i % 7)];
+            item
+        })
+        .collect();
+    let refs: Vec<&FoundItem> = items.iter().collect();
+    let started = std::time::Instant::now();
+    agree_places(&w.catalog, &refs, true, &mut |_, _| {}).unwrap();
+    println!("placed 100,000 files in {:?}", started.elapsed());
+    assert_eq!(w.catalog.collected().unwrap().len(), 100_000);
+}

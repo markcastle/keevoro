@@ -155,6 +155,11 @@ const MIGRATIONS: &[&str] = &[
      WHERE (key = 'wants' OR substr(key, 1, 6) = 'wants:') AND value = '\"videos\"';
      UPDATE settings SET value = '[\"photos\",\"videos\",\"others\"]'
      WHERE (key = 'wants' OR substr(key, 1, 6) = 'wants:') AND value = '\"both\"';",
+    // 11: Windows and a Mac see `Smith` and `smith` as one folder, and
+    // cloud storage as two that look alike. A new place is checked against
+    // those already agreed without regard to case, which this makes an
+    // instant lookup. Only an index: nothing stored changes.
+    "CREATE INDEX IF NOT EXISTS collected_by_path_nocase ON collected(path COLLATE NOCASE);",
 ];
 
 /// What a look at a destination found of a file Keevoro sent there.
@@ -971,13 +976,40 @@ impl Catalog {
         Ok(done)
     }
 
-    /// Is this place already taken by some file?
+    /// Is this place already taken by some file? Case is ignored, as
+    /// Windows and a Mac ignore it, so `smith/a.jpg` is taken once
+    /// `Smith/a.jpg` is. (Only the letters A to Z: see step 11.)
     pub fn place_taken(&self, path: &str) -> Result<bool> {
         Ok(self
             .conn
-            .query_row("SELECT 1 FROM collected WHERE path = ?1", [path], |_| Ok(()))
+            .query_row(
+                "SELECT 1 FROM collected WHERE path = ?1 COLLATE NOCASE LIMIT 1",
+                [path],
+                |_| Ok(()),
+            )
             .optional()?
             .is_some())
+    }
+
+    /// How a folder (`originals/Smith`) is already spelt among the places
+    /// agreed, ignoring case, if any place is inside it: `originals/SMITH`
+    /// when that came first. So one folder is never made twice with two
+    /// spellings, which Windows and a Mac would make one.
+    pub fn folder_spelled(&self, folder: &str) -> Result<Option<String>> {
+        // Every place inside the folder sorts, without case, from
+        // `folder/` up to `folder0`, `0` being the character after `/`.
+        let found: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT path FROM collected
+                 WHERE path >= ?1 COLLATE NOCASE AND path < ?2 COLLATE NOCASE LIMIT 1",
+                params![format!("{folder}/"), format!("{folder}0")],
+                |r| r.get(0),
+            )
+            .optional()?;
+        // Case is only ignored for A to Z, so the spelling found is the same
+        // length in bytes.
+        Ok(found.and_then(|path| path.get(..folder.len()).map(str::to_string)))
     }
 
     /// Is anything stored under this name in any storage, as far as the

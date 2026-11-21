@@ -283,6 +283,20 @@ fn everything_a_person_set_and_keevoro_recorded_in_0_37_1_is_there_after_updatin
             .clone()
     };
     assert_eq!(volume(), None);
+
+    // The places 0.37.1 agreed are exactly as they were: catalog step 11
+    // only adds a way to look them up without regard to case.
+    let catalog = keevoro_catalog::Catalog::open_in_library(&home).unwrap();
+    let placed: Vec<String> = catalog.collected().unwrap().into_iter().map(|c| c.path).collect();
+    assert_eq!(
+        placed,
+        [
+            "originals/DCIM/IMG_20240601_100000.jpg",
+            "originals/DCIM/IMG_20240601_100500.jpg"
+        ]
+    );
+    assert!(catalog.place_taken("originals/dcim/img_20240601_100000.JPG").unwrap());
+    drop(catalog);
     std::fs::create_dir_all(&places.usb).unwrap();
     ask(&keevoro, Op::DestinationsRoom, family, Value::Null);
     assert!(volume().is_some(), "known by its disk once reached");

@@ -227,6 +227,77 @@ fn places_are_agreed_once() {
 }
 
 #[test]
+fn a_place_is_taken_whatever_its_case_and_a_folder_keeps_its_first_spelling() {
+    let c = Catalog::in_memory().unwrap();
+    c.mark_placed("aa", "originals/Smith/a.jpg", 1).unwrap();
+    c.mark_placed("bb", "originals/Smith 2/b.jpg", 1).unwrap();
+    assert!(c.place_taken("originals/smith/A.JPG").unwrap());
+    assert!(!c.place_taken("originals/smith/b.jpg").unwrap());
+    assert_eq!(
+        c.folder_spelled("originals/SMITH").unwrap().as_deref(),
+        Some("originals/Smith")
+    );
+    assert_eq!(
+        c.folder_spelled("originals/smith 2").unwrap().as_deref(),
+        Some("originals/Smith 2")
+    );
+    assert_eq!(
+        c.folder_spelled("originals/Smit").unwrap(),
+        None,
+        "by whole folders, never letters"
+    );
+    assert_eq!(c.folder_spelled("originals/Jones").unwrap(), None);
+}
+
+/// Placing a hundred thousand files asks these once each: they must be
+/// lookups in the index, never a read of every place.
+#[test]
+fn looking_up_a_place_without_case_uses_the_index() {
+    let c = Catalog::in_memory().unwrap();
+    for (sql, args) in [
+        ("SELECT 1 FROM collected WHERE path = ?1 COLLATE NOCASE LIMIT 1", 1),
+        (
+            "SELECT path FROM collected WHERE path >= ?1 COLLATE NOCASE AND path < ?2 COLLATE NOCASE LIMIT 1",
+            2,
+        ),
+    ] {
+        let mut q = c.conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
+        let plan: Vec<String> = q
+            .query_map(rusqlite::params_from_iter(std::iter::repeat_n("x", args)), |r| r.get(3))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert!(plan.iter().any(|p| p.contains("collected_by_path_nocase")), "{plan:?}");
+    }
+}
+
+#[test]
+fn a_catalog_at_step_10_reaches_step_11_with_everything_in_place() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("catalog.sqlite");
+    {
+        let conn = Connection::open(&file).unwrap();
+        for step in &MIGRATIONS[..10] {
+            conn.execute_batch(step).unwrap();
+        }
+        conn.pragma_update(None, "user_version", 10).unwrap();
+        conn.execute(
+            "INSERT INTO collected (blake3, path, bytes, here) VALUES ('aa', 'originals/By date/2021/2021-01/a.jpg', 5, 0)",
+            [],
+        )
+        .unwrap();
+    }
+    let c = Catalog::open(&file).unwrap();
+    let version: i64 = c.conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+    assert_eq!(version, 11);
+    assert_eq!(
+        c.collected_path("aa").unwrap().as_deref(),
+        Some("originals/By date/2021/2021-01/a.jpg")
+    );
+    assert!(c.place_taken("originals/by date/2021/2021-01/A.jpg").unwrap());
+}
+
+#[test]
 fn an_older_catalog_is_upgraded_in_place() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("catalog.sqlite");
