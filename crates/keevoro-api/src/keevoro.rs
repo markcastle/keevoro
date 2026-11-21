@@ -637,7 +637,19 @@ impl Keevoro {
 
     /// `keevoro.activity`
     pub fn activity(&self) -> ActivityView {
-        activity::now(Some(&self.backup_step()))
+        ActivityView {
+            check: self.jobs.check_now(),
+            ..activity::now(Some(&self.backup_step()))
+        }
+    }
+
+    /// How the check for duplicates stands on a backup when none is
+    /// running: how many files it has still to read, and whether a person
+    /// stopped it, with what that means.
+    pub fn duplicates_left(&self, backup: &Named) -> crate::jobs::DuplicatesLeft {
+        Backup::open_existing(&backup.home)
+            .map(|b| crate::jobs::DuplicatesLeft::of(b.catalog()))
+            .unwrap_or_default()
     }
 
     /// `keevoro.reset`: puts Keevoro back as it was when first installed.

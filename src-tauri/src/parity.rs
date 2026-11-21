@@ -103,6 +103,10 @@ const BACKED: &[(&str, &[Op])] = &[
     // background, what the quick search only sampled. The API starts it
     // after every search and backup; the screens ask for it when they open.
     ("keep_checking", &[Op::SourcesLook]),
+    // The check's own Pause and Stop, and "Check for duplicates now".
+    ("pause_checking", &[Op::JobsPause, Op::JobsCarryOn]),
+    ("stop_checking", &[Op::JobsStop]),
+    ("check_duplicates_now", &[Op::DuplicatesCheck]),
     ("send", &[Op::BackupRun]),
     ("stop_sending", &[Op::JobsStop]),
     ("check_arrived", &[Op::BackupCheck]),

@@ -2261,3 +2261,142 @@ fn a_backup_being_worked_on_cannot_be_removed_or_renamed_here_or_from_another_pr
     assert_eq!(app.backups().all().len(), 1);
     assert_eq!(app.list_backups()[0].busy, None);
 }
+
+/// Two large photos on the card, sampled by a quick search made outside
+/// any job, so the check for duplicates has two files to read.
+fn two_to_check(dir: &Path, named: &Named) -> PathBuf {
+    let card = card_in(dir);
+    for (name, shade) in [("IMG_20200101_120000.jpg", 200), ("IMG_20200102_120000.jpg", 220)] {
+        std::fs::write(card.join("DCIM").join(name), large_photo(shade)).unwrap();
+    }
+    let mut catalog = Catalog::open_in_library(&named.home).unwrap();
+    let quick = keevoro_scan::ScanOptions {
+        quick: true,
+        ..Default::default()
+    };
+    keevoro_engine::scan_into_with(&mut catalog, &card, None, &quick, &mut |_| {}, &mut || {}).unwrap();
+    card
+}
+
+#[test]
+fn the_check_for_duplicates_has_a_pause_and_a_stop_of_its_own_and_once_stopped_waits_to_be_asked() {
+    let _turn = one_at_a_time();
+    let _after = CarryOnAfter;
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro(dir.path());
+    let named = keevoro.start_backup("Card photos").unwrap();
+    let card = two_to_check(dir.path(), &named);
+    let unchecked = || Catalog::open_in_library(&named.home).unwrap().unhashed_count().unwrap();
+    assert_eq!(unchecked(), 2);
+
+    // Held by Keevoro's Pause before its first file, then paused on its own
+    // and Keevoro let go on: only the check waits.
+    keevoro.pause();
+    let check = keevoro.keep_checking(&named).unwrap();
+    keevoro.pause_job(check.id).unwrap();
+    keevoro.carry_on();
+    assert!(!keevoro_core::pause::is_paused(), "everything else carries on");
+    let status = keevoro
+        .jobs(None)
+        .into_iter()
+        .find(|j| j.handle.id == check.id)
+        .unwrap();
+    assert!(status.paused && status.paused_alone, "{status:?}");
+    let now = keevoro.activity().check.unwrap();
+    assert!(now.paused_alone);
+    assert!(
+        now.said.starts_with("Checking for duplicates is paused ("),
+        "{}",
+        now.said
+    );
+    assert_eq!(unchecked(), 2, "nothing read while paused");
+    // Its own pause is for the check alone; asked of another job it is refused.
+    assert_eq!(keevoro.pause_job(JobId(1)).unwrap_err().kind, Kind::NotFound);
+
+    // Stopped while Keevoro as a whole is paused too: the check ends, and
+    // the pause stays for everything else.
+    keevoro.pause();
+    assert_eq!(keevoro.stop(Which::Job(check.id)), [check.id]);
+    let Some(Said::Check(last)) = keevoro.wait(check.id) else {
+        panic!("a check says how it ended")
+    };
+    assert!(
+        keevoro_core::pause::is_paused(),
+        "stopping the check does not lift the pause"
+    );
+    keevoro.carry_on();
+    assert!(last.finished && last.stopped, "{last:?}");
+    assert_eq!(last.left, 2);
+    assert_eq!(
+        last.said,
+        [
+            "Stopped checking for duplicates, with 2 files not checked yet.",
+            "Until they are, the counts of copies may be a little out, but nothing is backed up twice or left out by mistake: before sending, a backup reads in full any file that looks like another.",
+            "Checking starts again by itself after your next search or backup, or now if you ask.",
+        ]
+    );
+
+    // Stopped, it does not start again by itself when Keevoro or the
+    // backup is opened, and that is said wherever what was found is.
+    assert!(keevoro.keep_checking(&named).is_none());
+    let left = keevoro.duplicates_left(&named);
+    assert!(left.stopped && left.left == 2, "{left:?}");
+    let found = call(&keevoro, Op::FoundSummary, Some("Card photos"), json!({})).unwrap();
+    assert_eq!(found["notChecked"], 2);
+    assert_eq!(
+        found["checkStopped"][0],
+        "Stopped checking for duplicates, with 2 files not checked yet."
+    );
+    assert!(keevoro.log_tail(10).contains("Background checking stopped after"));
+
+    // Asked, it runs, and is no longer said to be stopped.
+    let asked = call(&keevoro, Op::DuplicatesCheck, Some("Card photos"), json!({})).unwrap();
+    keevoro.wait(serde_json::from_value(asked["id"].clone()).unwrap());
+    keevoro.wait_for_jobs();
+    assert_eq!(unchecked(), 0);
+    assert_eq!(keevoro.duplicates_left(&named), crate::jobs::DuplicatesLeft::default());
+
+    // Stopped again, the next search starts it again by itself.
+    std::fs::write(card.join("DCIM/IMG_20200103_120000.jpg"), large_photo(240)).unwrap();
+    keevoro.pause();
+    let check = keevoro.keep_checking(&named);
+    keevoro.carry_on();
+    if let Some(check) = check {
+        keevoro.stop(Which::Job(check.id));
+        keevoro.wait(check.id);
+    }
+    let job = keevoro.look(&named, &card, None).unwrap();
+    keevoro.wait(job.id);
+    keevoro.wait_for_jobs();
+    assert_eq!(unchecked(), 0, "the search starts it again");
+    assert!(!keevoro.duplicates_left(&named).stopped);
+}
+
+#[test]
+fn the_check_for_duplicates_is_paused_and_let_go_on_alone_by_name_with_json() {
+    let _turn = one_at_a_time();
+    let _after = CarryOnAfter;
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro(dir.path());
+    let named = keevoro.start_backup("Card photos").unwrap();
+    two_to_check(dir.path(), &named);
+    keevoro.pause();
+    let check = keevoro.keep_checking(&named).unwrap();
+    call(&keevoro, Op::JobsPause, None, json!({ "job": check.id })).unwrap();
+    keevoro.carry_on();
+    let status = call(&keevoro, Op::JobsStatus, None, json!({})).unwrap();
+    assert_eq!(status[0]["pausedAlone"], true, "{status}");
+    // A search cannot be paused alone.
+    let card = dir.path().join("Card");
+    keevoro.pause();
+    let search = keevoro.look(&named, &card, None).unwrap();
+    let e = call(&keevoro, Op::JobsPause, None, json!({ "job": search.id })).unwrap_err();
+    assert_eq!(e.kind, Kind::Refused);
+    keevoro.carry_on();
+    call(&keevoro, Op::JobsCarryOn, None, json!({ "job": check.id })).ok();
+    keevoro.wait(search.id);
+    keevoro.wait_for_jobs();
+    assert!(keevoro
+        .log_tail(20)
+        .contains("Paused the check for duplicates; everything else carries on"));
+}

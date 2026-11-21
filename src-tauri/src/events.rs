@@ -119,7 +119,10 @@ pub(crate) mod tests {
         let check = CheckEvent {
             done: 1,
             total: 2,
-            finished: false,
+            finished: true,
+            stopped: true,
+            left: 1,
+            said: vec!["Stopped.".into()],
         };
         assert_eq!(keys(&check), fields_of("CheckEvent"));
         let top = TopView {

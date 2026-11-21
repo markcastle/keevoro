@@ -111,7 +111,7 @@ pub(super) fn start(
         if let Some(said) = &last {
             ctx.jobs.heard(job, said.clone(), true);
         }
-        super::duplicates::start(ctx, &backup, for_agent);
+        super::duplicates::start(ctx, &backup, for_agent, super::duplicates::Why::AfterWork);
         ending.with(last);
     })?;
     Ok(handle)

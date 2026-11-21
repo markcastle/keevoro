@@ -88,11 +88,26 @@ impl From<&keevoro_scan::map::TopBox> for TopView {
 
 /// Progress reading, in the background, the files a quick search only
 /// sampled, and a last one when the pass ends.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CheckEvent {
     pub done: usize,
     pub total: usize,
     pub finished: bool,
+    /// On the last event: true when a person stopped it, so it does not
+    /// start again by itself until the next search or backup.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stopped: bool,
+    /// On the last event: how many files are still to be checked.
+    #[serde(default, skip_serializing_if = "is_none")]
+    pub left: usize,
+    /// What is said: while it runs, what it is doing, in a line; at the
+    /// end of one a person stopped, what that means, a sentence each.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub said: Vec<String>,
+}
+
+fn is_none(n: &usize) -> bool {
+    *n == 0
 }
 
 /// Progress looking through a drive, and a last one when it is done.
@@ -403,6 +418,15 @@ mod tests {
                 done: 1,
                 total: 2,
                 finished: false,
+                ..CheckEvent::default()
+            }),
+            Said::Check(CheckEvent {
+                done: 1,
+                total: 2,
+                finished: true,
+                stopped: true,
+                left: 1,
+                said: crate::words::check_stopped(1),
             }),
         ];
         for said in all {
@@ -473,6 +497,7 @@ mod tests {
             done: 2,
             total: 9,
             finished: false,
+            ..CheckEvent::default()
         };
         assert_eq!(
             serde_json::to_value(Said::Check(check.clone())).unwrap(),

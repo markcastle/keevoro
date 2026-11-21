@@ -633,6 +633,14 @@ pub static ROWS: &[Row] = &[
         show: show::duplicates,
     },
     Row {
+        words: &["check-duplicates"],
+        ops: &[Op::DuplicatesCheck],
+        about: None,
+        args: none,
+        ask: |c, m, io| nothing(c, m, io, Op::DuplicatesCheck),
+        show: show::nothing_more,
+    },
+    Row {
         words: &["picture"],
         ops: &[Op::PhotosPicture],
         about: Some(
@@ -829,16 +837,26 @@ pub static ROWS: &[Row] = &[
         words: &["pause"],
         ops: &[Op::JobsPause],
         about: None,
-        args: none,
-        ask: |c, m, io| nothing(c, m, io, Op::JobsPause),
+        args: |c| {
+            c.arg(arg(
+                "job",
+                "Only the check for duplicates, by the number `keevoro status` shows; everything when left out",
+            ))
+        },
+        ask: |_, m, _| Ok((Op::JobsPause, json!({ "job": job(m)? }))),
         show: show::paused,
     },
     Row {
         words: &["carry-on"],
         ops: &[Op::JobsCarryOn],
         about: None,
-        args: none,
-        ask: |c, m, io| nothing(c, m, io, Op::JobsCarryOn),
+        args: |c| {
+            c.arg(arg(
+                "job",
+                "Only a check for duplicates paused on its own, by its number; everything when left out",
+            ))
+        },
+        ask: |_, m, _| Ok((Op::JobsCarryOn, json!({ "job": job(m)? }))),
         show: show::paused,
     },
     Row {

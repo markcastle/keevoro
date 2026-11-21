@@ -211,6 +211,8 @@ Then, from any window:
 
 These work whichever program is running the job: the app, the command line, or another window. Only one program at a time works on a backup, so if the app is already backing it up, `keevoro run` says so and does nothing more.
 
+After a search or a backup, Keevoro checks for duplicates in the background: it reads in full the large files a quick search only sampled. `keevoro status` shows it ("Checking "Family" for duplicates", with how far it has got) in the program running it. `keevoro pause JOB` with its number pauses only that check while everything else carries on, `keevoro carry-on JOB` lets it go on, and `keevoro stop JOB` stops it. A check you stop does not start again by itself until your next search or backup on that backup; `keevoro found` says how many files are not checked yet and what that means, and `keevoro check-duplicates` checks now. Nothing is backed up twice or left out because of it: before sending, a backup reads in full any file that looks like another. A check the app is running is not seen from the command line, as it holds no lock on the backup; stop or pause it in the app.
+
 ## Cloud storage and keys
 
 The same command adds cloud storage. First make a key that can read and write **that one bucket and nothing else** (in Cloudflare: R2, Manage API tokens, Object Read & Write, limited to the bucket). Then give the place and the bucket:
@@ -313,7 +315,7 @@ Once a kind is on the list as other files, a search finds them (reading each onl
 
 | Command | What it does |
 | --- | --- |
-| `keevoro found` | What the backup holds: counts, size, duplicates left out and room saved, set aside. |
+| `keevoro found` | What the backup holds: counts, size, duplicates left out and room saved, set aside, and, when you stopped the check for duplicates, how many files it has not checked and what that means. |
 | `keevoro collections` | The collections, newest first, each kept or not. |
 | `keevoro photos COLLECTION` | The files in one collection, each with its code, kept or not. |
 | `keevoro keep COLLECTION` | Keeps a whole collection. |
@@ -321,6 +323,7 @@ Once a kind is on the list as other files, a search finds them (reading each onl
 | `keevoro keep --photo CODE` | Keeps one photo or video; `skip --photo CODE` leaves one out. |
 | `keevoro set-aside` | Pictures set aside as probably not photos, each with the reason. |
 | `keevoro duplicates` | Files found more than once: the copy kept, and the copies left out. |
+| `keevoro check-duplicates` | Checks for duplicates now, in the background, even after the check was stopped. |
 | `keevoro picture CODE --to FILE` | Saves a small picture of one file; `--large` for a screen-sized one. |
 | `keevoro picture --file PATH --to FILE` | The same for any photo or video, by its path, found or not. Only Keevoro's cache is written. |
 
@@ -358,8 +361,8 @@ A collection is named by its whole name, such as "Holidays / Cornwall", or by it
 | --- | --- |
 | `keevoro status [JOB]` | What is running: the step, counts, how long it has run and has left, who started it. |
 | `keevoro follow [JOB]` | Each thing a running job says, as it says it, until it ends. |
-| `keevoro pause` | Makes the work in hand wait after the file it is on. |
-| `keevoro carry-on` | Lets paused work go on from where it was. |
+| `keevoro pause [JOB]` | Makes the work in hand wait after the file it is on; with the number of a check for duplicates, only that check. |
+| `keevoro carry-on [JOB]` | Lets paused work go on from where it was; with a job's number, only a check for duplicates paused on its own. |
 | `keevoro stop [JOB]` | Stops a job after the file in hand. Nothing is lost. |
 
 Without `-b`, `status`, `follow` and `stop` cover every backup; with it, only that one.

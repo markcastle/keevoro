@@ -469,6 +469,29 @@ impl Catalog {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    /// How many files are still known only by a quick fingerprint: what
+    /// the background check for duplicates has left to read. Quick, from
+    /// the index kept for it.
+    pub fn unhashed_count(&self) -> Result<usize> {
+        let n: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM items WHERE hashed = 0 AND blake3 IS NOT NULL",
+            [],
+            |r| r.get(0),
+        )?;
+        Ok(usize::try_from(n).unwrap_or(0))
+    }
+
+    /// The quick fingerprints of files since read in full. A file still
+    /// known only by one of these may be a true copy of a file already
+    /// checked, so it is read in full before a backup sends it.
+    pub fn checked_quick_fingerprints(&self) -> Result<std::collections::HashSet<String>> {
+        let mut q = self
+            .conn
+            .prepare("SELECT DISTINCT quick FROM items WHERE hashed = 1 AND quick IS NOT NULL")?;
+        let rows = q.query_map([], |r| r.get::<_, String>(0))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     /// Records the whole-file fingerprint of a file that had only a quick
     /// one. A keep choice made while only the quick one was known follows
     /// the file to its real fingerprint, so nothing the user decided is

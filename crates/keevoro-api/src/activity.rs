@@ -205,6 +205,22 @@ pub struct ActivityView {
     pub memory_bytes: u64,
     /// How many processor cores this computer has.
     pub cores: usize,
+    /// The background check for duplicates, when one is running here.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub check: Option<CheckNow>,
+}
+
+/// The background check for duplicates running now: how far it has got,
+/// whether it is paused on its own, and that in a line.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckNow {
+    /// Its job, to pause or stop it alone.
+    pub job: crate::jobs::JobId,
+    pub done: usize,
+    pub total: usize,
+    pub paused_alone: bool,
+    pub said: String,
 }
 
 /// What is being done now. `backup_step` is what a running backup last
@@ -229,6 +245,7 @@ pub fn now(backup_step: Option<&str>) -> ActivityView {
         samples,
         memory_bytes,
         cores: std::thread::available_parallelism().map_or(1, std::num::NonZero::get),
+        check: None,
     }
 }
 

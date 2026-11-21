@@ -66,6 +66,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
+pub use duplicates::DuplicatesLeft;
 pub use said::{CheckEvent, HintView, Outcome, Said, ScanEvent, SendEvent, SurveyEvent, SurveyView, TopView};
 
 /// How often a running job says how it is getting on. Often enough to feel
@@ -170,11 +171,10 @@ impl JobKind {
 
     /// True for the jobs that wait while Keevoro is paused, and so must be
     /// woken to see that they have been asked to stop.
+    /// The check for duplicates stops waiting by itself when asked to stop,
+    /// so stopping it never lifts the pause for everything else.
     fn waits_while_paused(self) -> bool {
-        matches!(
-            self,
-            JobKind::Look | JobKind::LookAgain | JobKind::BackUp | JobKind::Duplicates
-        )
+        matches!(self, JobKind::Look | JobKind::LookAgain | JobKind::BackUp)
     }
 
     /// What asking it to stop writes in the log, if anything.
@@ -302,8 +302,12 @@ pub struct JobStatus {
     pub over_network: bool,
     /// True once it has been asked to stop and is finishing what is in hand.
     pub stopping: bool,
-    /// True while Keevoro is paused.
+    /// True while Keevoro is paused, or this job is paused on its own.
     pub paused: bool,
+    /// True when this job alone is paused (only the check for duplicates
+    /// can be), while the rest of Keevoro carries on.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub paused_alone: bool,
     /// The last thing it said, in the app's own words.
     pub last: Option<Said>,
     /// True when another program runs it, and this is what that program
@@ -387,6 +391,12 @@ pub(crate) struct Job {
     /// still registered until it has, so nobody waiting for it hears that
     /// it ended while other programs still see the backup as busy.
     gone: AtomicBool,
+    /// True while it is paused on its own (only the check for duplicates
+    /// can be), whether or not the rest of Keevoro is.
+    held: AtomicBool,
+    /// True once a person, or another program for one, asked it to stop:
+    /// not when it gives way, or its program closes.
+    asked_to_stop: AtomicBool,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -409,6 +419,16 @@ impl Job {
 
     pub(crate) fn stopped(&self) -> bool {
         self.stop.load(Ordering::SeqCst)
+    }
+
+    /// True while it is paused on its own.
+    pub(crate) fn held(&self) -> bool {
+        self.held.load(Ordering::SeqCst)
+    }
+
+    /// True once a person asked it to stop.
+    pub(crate) fn asked_to_stop(&self) -> bool {
+        self.asked_to_stop.load(Ordering::SeqCst)
     }
 
     pub(crate) fn note_line(&self, line: &str) {
@@ -618,6 +638,8 @@ impl Jobs {
             now: Mutex::default(),
             told: AtomicU64::new(0),
             gone: AtomicBool::new(false),
+            held: AtomicBool::new(false),
+            asked_to_stop: AtomicBool::new(false),
         });
         lock(&self.registry).running.push(job.clone());
         self.changed.notify_all();
@@ -691,6 +713,7 @@ impl Jobs {
                 ended: true,
                 stopping: false,
                 paused: false,
+                paused_alone: false,
                 estimate: None,
                 last: last.clone(),
                 ..Self::status_of(job)
@@ -785,6 +808,31 @@ impl Jobs {
         self.across().is_some_and(|across| across.elsewhere(backup).is_some())
     }
 
+    /// The background check for duplicates running in this program, as the
+    /// activity page shows it, if one is.
+    pub(crate) fn check_now(&self) -> Option<crate::activity::CheckNow> {
+        let job = self
+            .running()
+            .into_iter()
+            .find(|job| job.kind() == JobKind::Duplicates && !job.finishing.load(Ordering::SeqCst))?;
+        let (done, total) = match &lock(&job.now).last {
+            Some(Said::Check(e)) => (e.done, e.total),
+            _ => (0, 0),
+        };
+        let alone = job.held();
+        Some(crate::activity::CheckNow {
+            job: job.id(),
+            done,
+            total,
+            paused_alone: alone,
+            said: if alone {
+                crate::words::checking_paused(done, total)
+            } else {
+                crate::words::checking(done, total)
+            },
+        })
+    }
+
     /// What a running backup or check last said, or empty.
     pub(crate) fn backup_step(&self) -> String {
         self.running()
@@ -832,7 +880,8 @@ impl Jobs {
             estimate,
             over_network: sending && samples.iter().rev().take(10).any(|s| s.network > 0.0),
             stopping: job.stopped(),
-            paused: keevoro_core::pause::is_paused(),
+            paused: keevoro_core::pause::is_paused() || job.held(),
+            paused_alone: job.held(),
             last: now.last.clone(),
             elsewhere: false,
             ended: false,
@@ -913,6 +962,38 @@ impl Jobs {
             }
         }
         ids
+    }
+
+    /// Pauses one job on its own, or lets it carry on, leaving the rest of
+    /// Keevoro as it is. Only the background check for duplicates can be:
+    /// every other job is part of something the person is waiting for.
+    fn hold(&self, id: JobId, held: bool, log: &Log) -> Result<()> {
+        let job = self
+            .matching(Which::Job(id))
+            .pop()
+            .ok_or_else(|| Error::no_such_job(id))?;
+        if job.kind() != JobKind::Duplicates {
+            return Err(Error::refused(
+                "Only the check for duplicates can be paused on its own. To pause everything, leave out the job.",
+            ));
+        }
+        if job.held.swap(held, Ordering::SeqCst) != held {
+            log.say(if held {
+                "Paused the check for duplicates; everything else carries on"
+            } else {
+                "Carrying on checking for duplicates"
+            });
+        }
+        self.touched(&job);
+        Ok(())
+    }
+
+    /// Notes that the person asked these jobs to stop, so a check for
+    /// duplicates they stopped is not started again by itself.
+    fn asked_to_stop(&self, which: Which<'_>) {
+        for job in self.matching(which) {
+            job.asked_to_stop.store(true, Ordering::SeqCst);
+        }
     }
 
     /// Asks every other program working on a backup to pause, or to carry on.
@@ -1110,6 +1191,7 @@ impl Work for Jobs {
         match request.ask {
             Ask::Stop => {
                 for id in &request.jobs {
+                    self.asked_to_stop(Which::Job(*id));
                     self.stop(Which::Job(*id), log);
                 }
             }
@@ -1355,8 +1437,38 @@ impl Keevoro {
     /// Carries on, in the background, reading in full the files a quick
     /// search only sampled. Nothing is started if a check is running
     /// already. Keevoro starts this itself after a search and a backup.
+    ///
+    /// A check the person stopped is not started again this way: only by the
+    /// next search or backup on that backup, or by asking
+    /// ([`Keevoro::check_for_duplicates_now`]).
     pub fn keep_checking(&self, backup: &Named) -> Option<JobHandle> {
-        duplicates::start(&self.context(), backup, None)
+        duplicates::start(&self.context(), backup, None, duplicates::Why::CarryingOn)
+    }
+
+    /// `duplicates.check`: checks for duplicates now, in the background,
+    /// even if the person stopped the last check. Refused while one is
+    /// running already, or another program is working on the backup.
+    pub fn check_for_duplicates_now(&self, backup: &Named) -> Result<JobHandle> {
+        if let Some(why) = self
+            .jobs
+            .working_on(backup)
+            .filter(|_| self.jobs.held_elsewhere(&backup.id))
+        {
+            return Err(Error::busy(why));
+        }
+        duplicates::start(&self.context(), backup, None, duplicates::Why::Asked)
+            .ok_or_else(|| Error::busy("Keevoro is checking for duplicates already."))
+    }
+
+    /// `jobs.pause` of one job: pauses the background check for duplicates
+    /// on its own, while everything else carries on.
+    pub fn pause_job(&self, job: JobId) -> Result<()> {
+        self.jobs.hold(job, true, self.log())
+    }
+
+    /// `jobs.carry_on` of one job paused on its own.
+    pub fn carry_on_job(&self, job: JobId) -> Result<()> {
+        self.jobs.hold(job, false, self.log())
     }
 
     /// `jobs.status`: every job running on the backup with this id, or on
@@ -1378,6 +1490,7 @@ impl Keevoro {
     /// nothing of its own, and a stopped backup keeps what it sent. Answers
     /// the jobs asked.
     pub fn stop(&self, which: Which<'_>) -> Vec<JobId> {
+        self.jobs.asked_to_stop(which);
         self.jobs.stop(which, self.log())
     }
 

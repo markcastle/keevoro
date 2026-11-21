@@ -240,8 +240,12 @@ pub fn check_and_place(
     // A quick search only sampled the large files, so two of them can look
     // alike without being the same. Those must be told apart before
     // anything moves, since a true copy is left out and a lookalike is not.
-    // Every other file is fingerprinted as it is sent, in the same pass
-    // over it, so nothing is read twice.
+    // A file looks like another when it shares its quick fingerprint with
+    // another still unchecked, or with one read in full since (by the
+    // background check, say, before it was stopped or gave way): it may be
+    // a true copy of that one. Every other file is fingerprinted as it is
+    // sent, in the same pass over it, so nothing is read twice.
+    let checked = catalog.checked_quick_fingerprints()?;
     let mut looks_like = std::collections::HashMap::<&str, usize>::new();
     for item in reports.iter().flat_map(|r| &r.items) {
         if let (false, Some(quick)) = (item.hashed, &item.blake3) {
@@ -251,7 +255,7 @@ pub fn check_and_place(
     let mut to_check = std::collections::HashSet::new();
     for item in reports.iter().flat_map(|r| &r.items) {
         if let (false, Some(quick)) = (item.hashed, &item.blake3) {
-            let alike = looks_like.get(quick.as_str()).copied().unwrap_or(0) > 1;
+            let alike = looks_like.get(quick.as_str()).copied().unwrap_or(0) > 1 || checked.contains(quick);
             if alike && wanted(catalog, item)? {
                 to_check.insert(quick.clone());
             }
@@ -290,7 +294,7 @@ pub fn check_and_place(
             && item
                 .blake3
                 .as_deref()
-                .is_some_and(|quick| looks_like.get(quick).copied().unwrap_or(0) > 1)
+                .is_some_and(|quick| looks_like.get(quick).copied().unwrap_or(0) > 1 || checked.contains(quick))
     };
     let mut waiting = 0;
     for item in reports.iter().flat_map(|r| &r.items) {

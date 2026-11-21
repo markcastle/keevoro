@@ -211,6 +211,9 @@ fn everything_a_person_set_and_keevoro_recorded_in_0_37_1_is_there_after_updatin
         "{found}"
     );
     assert_eq!(found["waiting"], 4, "four kept, none yet at both places: {found}");
+    // Nobody could stop the check for duplicates on its own then, so a
+    // catalog from 0.37.1 never reads as stopped, and it carries on.
+    assert_eq!(found.get("checkStopped"), None, "{found}");
 
     // Where it goes, and what had reached each place.
     let destinations = ask(&keevoro, Op::DestinationsList, family, Value::Null);

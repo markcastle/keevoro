@@ -60,13 +60,80 @@ impl<'a> GiveWayWhen<'a> {
     }
 }
 
-/// Starts the check on this backup, unless one is running already. With
-/// `within`, the folders an AI agent may look in, only files inside them
-/// are read.
-pub(crate) fn start(ctx: &Context, backup: &Named, within: Option<AgentAccess>) -> Option<JobHandle> {
+/// Why the check is being started, which decides whether one the person
+/// stopped may start again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Why {
+    /// A search or a backup on the backup has just ended: new work the
+    /// person asked for, so a check they stopped before starts again.
+    AfterWork,
+    /// Keevoro opened, or the backup was opened: it carries on with what is
+    /// left, unless the person stopped it.
+    CarryingOn,
+    /// The person asked: "Check for duplicates now".
+    Asked,
+}
+
+/// The catalog setting that says a person stopped the check, and when.
+const STOPPED: &str = "duplicates_stopped";
+
+/// True when a person stopped the check on this backup and nothing has
+/// started it again since.
+pub(crate) fn stopped_by_person(catalog: &Catalog) -> bool {
+    catalog.setting(STOPPED).ok().flatten().is_some_and(|v| !v.is_empty())
+}
+
+/// How the check on a backup stands when none is running: how many files
+/// are still to check, whether a person stopped it, and that in words.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DuplicatesLeft {
+    pub left: usize,
+    pub stopped: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub said: Vec<String>,
+}
+
+impl DuplicatesLeft {
+    pub(crate) fn of(catalog: &Catalog) -> Self {
+        let left = catalog.unhashed_count().unwrap_or(0);
+        let stopped = stopped_by_person(catalog);
+        Self {
+            left,
+            stopped,
+            said: if stopped && left > 0 {
+                crate::words::check_stopped(left)
+            } else {
+                Vec::new()
+            },
+        }
+    }
+}
+
+/// Starts the check on this backup, unless one is running already, or the
+/// person stopped it and this is only Keevoro carrying on. With `within`,
+/// the folders an AI agent may look in, only files inside them are read.
+pub(crate) fn start(ctx: &Context, backup: &Named, within: Option<AgentAccess>, why: Why) -> Option<JobHandle> {
+    let home = backup.home.clone();
+    match why {
+        Why::CarryingOn => {
+            let stopped = Catalog::open_in_library(&home)
+                .map(|c| stopped_by_person(&c))
+                .unwrap_or(false);
+            if stopped {
+                return None;
+            }
+        }
+        Why::AfterWork | Why::Asked => {
+            if let Ok(catalog) = Catalog::open_in_library(&home) {
+                if stopped_by_person(&catalog) {
+                    let _ = catalog.set_setting(STOPPED, "");
+                }
+            }
+        }
+    }
     let job = ctx.jobs.begin_only_one(JobKind::Duplicates, backup)?;
     let handle = job.handle.clone();
-    let home = backup.home.clone();
     let backup_id = backup.id.clone();
     job.note_line("Checking for duplicates");
     spawn(ctx, &job, move |ctx, job, ending| {
@@ -75,6 +142,15 @@ pub(crate) fn start(ctx: &Context, backup: &Named, within: Option<AgentAccess>) 
         let mut every = Every::now(ctx.jobs.progress_every());
         let mut total = 0;
         let give_way = GiveWayWhen::new(ctx, &backup_id);
+        // Paused on its own, it waits here between one file and the next,
+        // as it would for Keevoro's own Pause, until it is let go on or
+        // asked to stop.
+        let keep_going = || {
+            while job.held() && !job.stopped() {
+                std::thread::sleep(Duration::from_millis(150));
+            }
+            !job.stopped() && !give_way.now()
+        };
         let result = Catalog::open_in_library(&home)
             .map_err(anyhow::Error::from)
             .and_then(|catalog| {
@@ -97,27 +173,38 @@ pub(crate) fn start(ctx: &Context, backup: &Named, within: Option<AgentAccess>) 
                             ));
                         }
                         let tell = every.due();
+                        if tell {
+                            job.note_line(&crate::words::checking(p.done, p.total));
+                        }
                         ctx.jobs.heard(
                             job,
                             Said::Check(CheckEvent {
                                 done: p.done,
                                 total: p.total,
                                 finished: false,
+                                stopped: false,
+                                left: 0,
+                                said: Vec::new(),
                             }),
                             tell,
                         );
                     },
-                    &|| !job.stopped() && !give_way.now(),
+                    &keep_going,
                 )
             });
         // Another check may start from here, while this one says how it went.
         ctx.jobs.release(job);
+        let by_person = job.asked_to_stop();
         let done = match &result {
             Ok(report) => {
                 if report.checked > 0 || !report.failed.is_empty() || report.stopped {
                     log.say(&format!(
                         "Background checking {} after {} seconds: {} checked, {} could not be read",
-                        if report.stopped { "paused" } else { "finished" },
+                        match (report.stopped, by_person) {
+                            (true, true) => "stopped",
+                            (true, false) => "paused",
+                            (false, _) => "finished",
+                        },
                         started.elapsed().as_secs(),
                         report.checked,
                         report.failed.len()
@@ -133,10 +220,27 @@ pub(crate) fn start(ctx: &Context, backup: &Named, within: Option<AgentAccess>) 
                 0
             }
         };
+        // Stopped by a person, it is noted with the backup, so it does not
+        // start again by itself until the next search or backup, and what
+        // that means is said.
+        let mut left = 0;
+        if by_person {
+            if let Ok(catalog) = Catalog::open_in_library(&home) {
+                let _ = catalog.set_setting(STOPPED, &super::seconds_now().to_string());
+                left = catalog.unhashed_count().unwrap_or(0);
+            }
+        }
         let last = Said::Check(CheckEvent {
             done,
             total,
             finished: true,
+            stopped: by_person,
+            left,
+            said: if by_person {
+                crate::words::check_stopped(left)
+            } else {
+                Vec::new()
+            },
         });
         ctx.jobs.heard(job, last.clone(), true);
         ending.with(Some(last));

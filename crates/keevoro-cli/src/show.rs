@@ -269,6 +269,16 @@ pub fn found(io: &mut Io<'_>, _: &ArgMatches, found: &Value) -> Said_ {
             bytes(b(found, "waitingBytes"))
         )?,
     }
+    // A check for duplicates a person stopped, and what that means.
+    let stopped: Vec<&str> = each(found.get("checkStopped").unwrap_or(&Value::Null))
+        .filter_map(Value::as_str)
+        .collect();
+    for line in &stopped {
+        writeln!(io.out, "{line}")?;
+    }
+    if !stopped.is_empty() {
+        writeln!(io.out, "To check now: keevoro check-duplicates")?;
+    }
     Ok(Code::Worked)
 }
 
@@ -881,8 +891,16 @@ pub fn status(io: &mut Io<'_>, _: &ArgMatches, list: &Value) -> Said_ {
     Ok(Code::Worked)
 }
 
-pub fn paused(io: &mut Io<'_>, _: &ArgMatches, answer: &Value) -> Said_ {
-    if yes(answer, "paused") {
+pub fn paused(io: &mut Io<'_>, m: &ArgMatches, answer: &Value) -> Said_ {
+    let one = m.try_get_one::<String>("job").ok().flatten().is_some();
+    if one && yes(answer, "paused") {
+        writeln!(
+            io.out,
+            "Paused the check for duplicates once the file in hand is done. Everything else carries on."
+        )?;
+    } else if one {
+        writeln!(io.out, "Carrying on checking for duplicates from where it was.")?;
+    } else if yes(answer, "paused") {
         writeln!(
             io.out,
             "Paused: whatever Keevoro is working on waits once the file in hand is done. Nothing is lost."
@@ -1203,6 +1221,11 @@ pub fn last_word(io: &mut Io<'_>, last: Option<&Said>) -> std::io::Result<()> {
             }
             if found.stopped {
                 writeln!(io.out, "Stopped early, so there may be more.")?;
+            }
+        }
+        Some(Said::Check(e)) if e.stopped => {
+            for line in &e.said {
+                writeln!(io.out, "{line}")?;
             }
         }
         Some(Said::Check(e)) => {

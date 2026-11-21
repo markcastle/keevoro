@@ -397,6 +397,7 @@ Before building
 - [x] Clear the unfinished copies a stopped backup leaves in a backup folder, at the start and end of each backup, when a folder is taken off a backup, and on request (`keevoro tidy`)
 - [x] Abort uploads in parts at cloud storage for files a backup no longer sends
 - [x] Keep the pictures cache within 1 GB, and clear settings files half-written by a program that stopped
+- [x] The background check for duplicates said as what it is doing, with a Pause and a Stop of its own wherever it shows, an offer to stop it too when a search is stopped, and, once stopped, what that means and "Check for duplicates now"; it starts again by itself only after the next search or backup. Asked for by the first outside tester
 - [ ] When cloud storage is taken off a backup, abort the unfinished uploads in parts this backup started there. Not done yet: taking it off forgets its keys at once, so the storage cannot be asked; doing it needs the removal to open the storage first, which may be offline. Until then they are aborted only while the destination is still part of the backup
 - [ ] List and clear uploads in parts at cloud storage that this backup started but its record no longer knows (ListMultipartUploads under its own keys). Its record saves each upload before any part is sent, so this only matters for a record that was lost or reset
 

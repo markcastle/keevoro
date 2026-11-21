@@ -710,12 +710,15 @@ fn smaller_things_a_backup_can_be_asked() {
         (vec!["log", "--lines", "3"], "20"),
         (vec!["pause"], "Paused"),
         (vec!["carry-on"], "Carrying on"),
+        (vec!["check-duplicates"], "for duplicates."),
         (vec!["follow"], "Nothing is running."),
     ] {
         let ran = at.keevoro(&typed);
         assert_eq!(ran.code, Code::Worked, "{typed:?}: {}", ran.err);
         assert!(ran.out.contains(says), "{typed:?}: {}", ran.out);
     }
+    let ran = at.keevoro(&["pause", "1"]);
+    assert_eq!(ran.code, Code::NotFound, "no such job: {}", ran.err);
     let ran = at.keevoro(&["backups", "forget", "Card photos", "--dry-run"]);
     assert!(ran.out.contains("Nothing was changed."), "{}", ran.out);
     assert!(ran.out.contains("Nothing on its sources ("), "{}", ran.out);

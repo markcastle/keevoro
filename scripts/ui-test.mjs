@@ -181,8 +181,14 @@ try {
   const bar = await page.locator('.next').boundingBox()
   const view = page.viewportSize()
   assert.ok(Math.abs(bar.y + bar.height - view.height) <= 1, 'the bar sits on the bottom edge of the window')
-  // The careful checking carries on behind, and says so quietly.
-  assert.match(await text('.foot .checking'), /Checking for duplicates in the background: [\d,]+ of [\d,]+/)
+  // The careful checking carries on behind, and says so quietly, as what
+  // it is doing and never as an instruction, with its own Pause and Stop.
+  assert.match(
+    await text('.foot .checking'),
+    /^Checking for duplicates in the background \([\d,]+ of [\d,]+\)\. You can keep using Keevoro while it finishes\./,
+  )
+  assert.doesNotMatch(await text('.foot'), /You can carry on/)
+  await page.locator('.foot .checking').getByRole('button', { name: 'Stop checking for duplicates' }).waitFor()
   await page.locator('.foot .checking').waitFor({ state: 'detached' })
   await shot('3-found')
   await page.getByRole('button', { name: 'See what was found' }).click()
@@ -842,6 +848,40 @@ try {
   assert.equal(await page.locator('.kept li.source').count(), 0, 'the source was not added')
   assert.ok(await page.locator('.steps button').nth(1).isDisabled(), 'and there is nothing to choose from')
   await shot('9j-search-stopped')
+
+  // --- The check for duplicates that follows a stopped search says what it
+  // is doing, has its own Pause and Stop, and offers to be stopped too.
+  await page.goto(`${base}/?slow&slowcheck`)
+  await page.getByRole('button', { name: /^Find your photos/ }).click()
+  await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
+  await page.getByRole('button', { name: /KINGSTON/ }).click()
+  await page.getByRole('button', { name: 'Stop looking' }).click()
+  await page.getByRole('heading', { name: 'Stopped looking through KINGSTON (E:)' }).waitFor()
+  await page.getByText('Still checking what was found before for duplicates.').waitFor()
+  assert.match(
+    await text('.foot .checking'),
+    /^Checking for duplicates in the background \([\d,]+ of [\d,]+\)\. You can keep using Keevoro while it finishes\./,
+  )
+  await shot('9j2-search-stopped-still-checking')
+  await page.getByRole('button', { name: 'Pause checking for duplicates' }).click()
+  await page.locator('.foot .checking').getByText(/^Checking for duplicates is paused/).waitFor()
+  assert.equal(await page.locator('.foot .paused').count(), 0, 'only the check is paused, not Keevoro')
+  await shot('9j3-check-paused-alone')
+  await page.getByRole('button', { name: 'Carry on checking for duplicates' }).click()
+  await page.getByRole('button', { name: 'Stop that too' }).click()
+  await page.locator('.foot .check-stopped').waitFor()
+  assert.match(await text('.foot .check-stopped'), /^Stopped checking for duplicates, with [\d,]+ files not checked yet\./)
+  assert.equal(await page.getByText('Still checking what was found before for duplicates.').count(), 0)
+  await shot('9j4-check-stopped')
+  // What that means, and when it starts again, on the activity page.
+  await page.getByRole('button', { name: /^What Keevoro is doing/ }).click()
+  await page.locator('.check-here .check-stopped').waitFor()
+  assert.match(await text('.check-here'), /nothing is backed up twice or left out by mistake/)
+  assert.match(await text('.check-here'), /Checking starts again by itself after your next search or backup/)
+  await shot('9j5-check-stopped-activity')
+  await fitsNarrow('The check stopped, on the activity page')
+  await page.locator('.check-here').getByRole('button', { name: 'Check for duplicates now' }).click()
+  await page.locator('.check-here .checking').waitFor()
 
   // --- Coming back to a backup that is already running shows it running,
   // never an offer to start another.

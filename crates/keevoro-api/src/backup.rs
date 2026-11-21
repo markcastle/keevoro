@@ -50,6 +50,12 @@ pub struct Found {
     pub waiting: usize,
     /// The room those waiting files need, in bytes.
     pub waiting_bytes: u64,
+    /// Files the background check for duplicates has still to read in full.
+    #[serde(default, skip_serializing_if = "is_none_of_them")]
+    pub not_checked: usize,
+    /// When a person stopped that check: what that means, a sentence each.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub check_stopped: Vec<String>,
 }
 
 /// One kind of file found on a source, for the "File types" list.
@@ -110,6 +116,7 @@ impl Backup {
     /// `found.summary`
     pub fn found(&self) -> Result<Found> {
         let d = self.discover()?;
+        let left = crate::jobs::DuplicatesLeft::of(&self.catalog);
         Ok(Found {
             photos: d.photos,
             videos: d.videos,
@@ -120,6 +127,8 @@ impl Backup {
             set_aside: d.junk,
             waiting: d.waiting_to_gather,
             waiting_bytes: d.waiting_bytes,
+            not_checked: left.left,
+            check_stopped: left.said,
         })
     }
 

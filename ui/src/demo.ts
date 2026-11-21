@@ -28,6 +28,7 @@ import type {
   SurveyProgress,
   Backup,
   BackupListing,
+  DuplicatesLeft,
   Removal,
   RemovedBackup,
   BackupEstimate,
@@ -720,6 +721,9 @@ export function demoBackend(): Backend {
               // Stopped: nothing from this search is kept.
               added.forEach((c) => collections.splice(collections.indexOf(c), 1))
               scanListeners.forEach((l) => l({ name, photos, videos, finished: true, stopped: true }))
+              // As in the real app, the check for duplicates of what was
+              // found before still follows.
+              if (collections.length > 0) void checkInBackground(collections.length * 8)
               return
             }
             scanListeners.forEach((l) =>
@@ -750,14 +754,48 @@ export function demoBackend(): Backend {
         else sources.push(entry)
         scanListeners.forEach((l) => l({ name, photos, videos, finished: true, ...online }))
         // Then, as the real app does, the careful checking carries on behind.
-        const total = Math.max(1, Math.round((photos + videos) / 6))
-        for (let done = 0; done < total; done += Math.ceil(total / 5)) {
-          checkListeners.forEach((l) => l({ done, total, finished: false }))
-          // Long enough to be seen, however fast the rest is asked to go.
-          await later(300)
-        }
-        checkListeners.forEach((l) => l({ done: total, total, finished: true }))
+        await checkInBackground(Math.max(1, Math.round((photos + videos) / 6)))
       })()
+  }
+
+  // The background check for duplicates: its own pause and stop, and once
+  // stopped by the person it waits to be asked, or for the next search.
+  let checkHeld = false
+  let checkStopAsked = false
+  let checkRunning = false
+  let checkLeftOver: DuplicatesLeft | null = null
+  let checkAt = { done: 0, total: 0 }
+  const checkStoppedSaid = (left: number) => [
+    `Stopped checking for duplicates, with ${left.toLocaleString('en-GB')} files not checked yet.`,
+    'Until they are, the counts of copies may be a little out, but nothing is backed up twice or left out by mistake: before sending, a backup reads in full any file that looks like another.',
+    'Checking starts again by itself after your next search or backup, or now if you ask.',
+  ]
+  const checkInBackground = async (total: number) => {
+    if (checkRunning) return
+    checkRunning = true
+    checkStopAsked = false
+    checkLeftOver = null
+    // `?slowcheck` keeps it going long enough to pause and stop it.
+    const step = new URLSearchParams(window.location.search).has('slowcheck') ? 600 : 300
+    let done = 0
+    while (done < total) {
+      while (checkHeld && !checkStopAsked) await later(100)
+      if (checkStopAsked) break
+      checkAt = { done, total }
+      checkListeners.forEach((l) => l({ done, total, finished: false }))
+      // Long enough to be seen, however fast the rest is asked to go.
+      await later(step)
+      done = Math.min(total, done + Math.ceil(total / 5))
+    }
+    checkRunning = false
+    checkHeld = false
+    if (checkStopAsked) {
+      const left = total - done
+      checkLeftOver = { left, stopped: true, said: checkStoppedSaid(left) }
+      checkListeners.forEach((l) => l({ done, total, finished: true, stopped: true, left, said: checkStoppedSaid(left) }))
+    } else {
+      checkListeners.forEach((l) => l({ done: total, total, finished: true }))
+    }
   }
 
   return {
@@ -896,6 +934,16 @@ export function demoBackend(): Backend {
       })
       if (usage.length > 120) usage.shift()
       return {
+        ...(checkRunning
+          ? {
+              check: {
+                job: 1,
+                ...checkAt,
+                pausedAlone: checkHeld,
+                said: checkHeld ? 'Checking for duplicates is paused.' : 'Checking for duplicates in the background.',
+              },
+            }
+          : {}),
         paused: pausedNow,
         doing: 'Checking for duplicates and making thumbnails',
         backupStep: new URLSearchParams(window.location.search).has('sending') ? 'Working out where each file goes: 2,500 of 11,245' : null,
@@ -1462,7 +1510,16 @@ export function demoBackend(): Backend {
       scanListeners.add(listener)
       return () => scanListeners.delete(listener)
     },
-    keepChecking: async () => {},
+    keepChecking: async () => checkLeftOver,
+    pauseChecking: async (paused) => {
+      checkHeld = paused && checkRunning
+    },
+    stopChecking: async () => {
+      if (checkRunning) checkStopAsked = true
+    },
+    checkDuplicatesNow: async () => {
+      void checkInBackground(Math.max(1, checkLeftOver?.left ?? 40))
+    },
     onCheck(listener) {
       checkListeners.add(listener)
       return () => checkListeners.delete(listener)

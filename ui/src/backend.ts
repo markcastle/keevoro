@@ -340,7 +340,23 @@ export type ScanEvent = {
 }
 
 /** Sent while files a quick search only sampled are read in the background. */
-export type CheckEvent = { done: number; total: number; finished: boolean }
+export type CheckEvent = {
+  done: number
+  total: number
+  finished: boolean
+  /** On the last event: a person stopped it, so it does not start again by itself until the next search or backup. */
+  stopped?: boolean
+  /** On the last event: how many files are still to be checked. */
+  left?: number
+  /** On the last event of one a person stopped: what that means, a sentence each. */
+  said?: string[]
+}
+
+/** How the check for duplicates stands when none is running. */
+export type DuplicatesLeft = { left: number; stopped: boolean; said?: string[] }
+
+/** The check for duplicates running now, as the activity page shows it. */
+export type CheckNow = { job: number; done: number; total: number; pausedAlone: boolean; said: string }
 
 /** Sent while a backup or a check runs, and once more when it is done. */
 export type SendEvent = {
@@ -526,6 +542,8 @@ export type Activity = {
   samples: Sample[]
   memoryBytes: number
   cores: number
+  /** The background check for duplicates, when one is running. */
+  check?: CheckNow
 }
 
 /**
@@ -924,8 +942,14 @@ export interface Backend {
   checkArrived(): Promise<void>
   onSend(listener: (event: SendEvent) => void): () => void
   onScan(listener: (event: ScanEvent) => void): () => void
-  /** Carries on with any background checking left over from last time. */
-  keepChecking(): Promise<void>
+  /** Carries on with any background checking left over from last time, unless it was stopped; says how it stands. */
+  keepChecking(): Promise<DuplicatesLeft | null>
+  /** Pauses the background check for duplicates on its own, or lets it go on. */
+  pauseChecking(paused: boolean): Promise<void>
+  /** Stops the background check for duplicates until the next search or backup, or until asked. */
+  stopChecking(): Promise<void>
+  /** Checks for duplicates now, even after the check was stopped. */
+  checkDuplicatesNow(): Promise<void>
   onCheck(listener: (event: CheckEvent) => void): () => void
 }
 
@@ -1037,6 +1061,9 @@ async function tauriBackend(): Promise<Backend> {
     onSend: (listener) => subscribe('send', listener),
     onScan: (listener) => subscribe('scan', listener),
     keepChecking: () => invoke('keep_checking'),
+    pauseChecking: (paused) => invoke('pause_checking', { paused }),
+    stopChecking: () => invoke('stop_checking'),
+    checkDuplicatesNow: () => invoke('check_duplicates_now'),
     onCheck: (listener) => subscribe('check', listener),
   }
 }

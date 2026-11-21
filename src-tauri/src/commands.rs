@@ -391,10 +391,56 @@ fn check_in_background(shared: &Shared) {
 }
 
 /// Asked by the screens when they open: carry on with any checking left
-/// over from last time.
+/// over from last time, unless the person stopped it, and say how it
+/// stands, so a check stopped before is said with its way to start again.
 #[tauri::command]
-pub fn keep_checking(shared: State<'_, Shared>) {
-    check_in_background(&shared);
+pub fn keep_checking(shared: State<'_, Shared>) -> Option<keevoro_api::jobs::DuplicatesLeft> {
+    let open = open_backup(&shared).ok()?;
+    shared.keevoro.keep_checking(&open);
+    Some(shared.keevoro.duplicates_left(&open))
+}
+
+/// The background check for duplicates on the open backup, running in
+/// this app.
+fn running_check(shared: &Shared) -> Option<keevoro_api::JobId> {
+    let open = open_backup(shared).ok()?;
+    shared
+        .keevoro
+        .jobs(Some(&open.id))
+        .into_iter()
+        .find(|job| !job.elsewhere && job.handle.job == JobKind::Duplicates)
+        .map(|job| job.handle.id)
+}
+
+/// Pauses the background check for duplicates on its own, or lets it go
+/// on. Everything else carries on either way.
+#[tauri::command]
+pub fn pause_checking(shared: State<'_, Shared>, paused: bool) -> Said<()> {
+    let Some(job) = running_check(&shared) else {
+        return Ok(());
+    };
+    if paused {
+        shared.keevoro.pause_job(job).map_err(say)
+    } else {
+        shared.keevoro.carry_on_job(job).map_err(say)
+    }
+}
+
+/// Stops the background check for duplicates. It does not start again by
+/// itself until the next search or backup, or until asked.
+#[tauri::command]
+pub fn stop_checking(shared: State<'_, Shared>) {
+    if let Ok(open) = open_backup(&shared) {
+        shared.keevoro.stop(Which::KindsOn(&[JobKind::Duplicates], &open.id));
+    }
+}
+
+/// "Check for duplicates now": starts the check, even after it was stopped.
+#[tauri::command]
+pub fn check_duplicates_now(shared: State<'_, Shared>) -> Said<()> {
+    let open = open_backup(&shared)?;
+    shared.keevoro.check_for_duplicates_now(&open).map_err(say)?;
+    Ok(())
 }
 
 /// Whether Keevoro is using the computer's own codecs, and what that means

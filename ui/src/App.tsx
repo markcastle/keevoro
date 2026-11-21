@@ -47,6 +47,7 @@ import type {
   PhotoChoice,
   Place,
   CheckEvent,
+  DuplicatesLeft,
   Room,
   ScanEvent,
   SendProgress,
@@ -75,6 +76,7 @@ import { BackupWants, SourceWants } from './wants'
 import { OtherFilesScreen, OtherFilesSection } from './otherFiles'
 import { ThereNow, WhatWasFound } from './whatIsThere'
 import { ManageBackups } from './manageBackups'
+import { CheckLine, CheckStopped } from './checking'
 import { certain, outOfReachLine } from './thereWords'
 import type { Theme } from './theme'
 
@@ -102,6 +104,12 @@ export function App() {
   const [justFound, setJustFound] = useState<ScanEvent | null>(null)
   // Background checking of files a quick search only sampled.
   const [check, setCheck] = useState<CheckEvent | null>(null)
+  // True while that check is paused on its own, the rest carrying on.
+  const [checkAlone, setCheckAlone] = useState(false)
+  // A check the person stopped, with files still to read: said, with a
+  // way to start it again.
+  const [checkLeft, setCheckLeft] = useState<DuplicatesLeft | null>(null)
+  const stoppedLeft = (left: DuplicatesLeft | null) => (left && left.stopped && left.left > 0 ? left : null)
   // True while the person has paused Keevoro's heavy work.
   const [paused, setPaused] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
@@ -128,6 +136,7 @@ export function App() {
         .then((a) => {
           if (!open) return
           setDoing(a.doing)
+          setCheckAlone(a.check?.pausedAlone ?? false)
           // Paused here or by another Keevoro program, it is said on
           // every screen, with Carry on, for as long as it lasts.
           setPaused(a.paused)
@@ -178,6 +187,8 @@ export function App() {
       })
       stopCheck = b.onCheck((event) => {
         setCheck(event.finished ? null : event)
+        if (event.finished) setCheckAlone(false)
+        setCheckLeft(event.finished && event.stopped ? stoppedLeft({ left: event.left ?? 0, stopped: true, said: event.said }) : null)
         // Duplicates may have been confirmed or ruled out, so count again.
         if (event.finished && event.done > 0) void refresh(b)
       })
@@ -196,7 +207,10 @@ export function App() {
           setSendingTo(where)
           // Open on whichever step still needs doing.
           setStep(nextToDo(d, where))
-          void b.keepChecking().catch(() => {})
+          void b
+            .keepChecking()
+            .then((left) => setCheckLeft(stoppedLeft(left)))
+            .catch(() => {})
         }
       } catch (error) {
         report(error)
@@ -224,6 +238,7 @@ export function App() {
         const where = await api.destination()
         setSendingTo(where)
         setStep(nextToDo(d, where))
+        setCheckLeft(stoppedLeft(await api.keepChecking()))
       })
       .catch(report)
 
@@ -301,10 +316,10 @@ export function App() {
         </ol>
         <div className="foot">
           {check && !paused && (
-            <span className="checking" role="status">
-              <Spinner /> Checking for duplicates in the background: {thousands(check.done)} of {thousands(check.total)}.
-              You can carry on.
-            </span>
+            <CheckLine api={api} check={check} pausedAlone={checkAlone} onPausedAlone={setCheckAlone} onProblem={report} />
+          )}
+          {!check && checkLeft && (
+            <CheckStopped api={api} left={checkLeft} brief onStarted={() => setCheckLeft(null)} onProblem={report} />
           )}
           {paused && (
             <span className="paused" role="status">
@@ -415,7 +430,19 @@ export function App() {
             onProblem={report}
           />
         ) : overlay === 'activity' ? (
-          <ActivityScreen api={api} onPaused={setPaused} onBack={() => setOverlay(null)} onProblem={report} />
+          <ActivityScreen
+            api={api}
+            check={
+              check ? (
+                <CheckLine api={api} check={check} pausedAlone={checkAlone} onPausedAlone={setCheckAlone} onProblem={report} />
+              ) : checkLeft ? (
+                <CheckStopped api={api} left={checkLeft} onStarted={() => setCheckLeft(null)} onProblem={report} />
+              ) : null
+            }
+            onPaused={setPaused}
+            onBack={() => setOverlay(null)}
+            onProblem={report}
+          />
         ) : overlay === 'about' ? (
           <AboutScreen api={api} version={state.version} onBack={() => setOverlay(null)} onProblem={report} />
         ) : overlay === 'settings' ? (
@@ -476,6 +503,7 @@ export function App() {
             found={found}
             scan={scan}
             justFound={justFound}
+            checking={check !== null}
             onProblem={report}
             onStarted={() => setJustFound(null)}
             onChanged={() => {
@@ -710,6 +738,8 @@ function FindScreen(props: {
   found: Discover | null
   scan: ScanEvent | null
   justFound: ScanEvent | null
+  /** True while the background check for duplicates runs, as it may after a search is stopped. */
+  checking: boolean
   onProblem: (error: unknown) => void
   onStarted: () => void
   onChanged: () => void
@@ -1054,6 +1084,14 @@ function FindScreen(props: {
                     Nothing from it was added, because only part of it had been looked at. Choose it again whenever
                     you like, or choose a folder inside it to look through less.
                   </p>
+                  {props.checking && (
+                    <p className="still-checking">
+                      Still checking what was found before for duplicates.{' '}
+                      <button className="button small" onClick={() => api.stopChecking().catch(onProblem)}>
+                        Stop that too
+                      </button>
+                    </p>
+                  )}
                 </>
               ) : (
                 <>
@@ -1320,6 +1358,8 @@ function FolderLink(props: { api: Backend; path: string; onProblem: (error: unkn
  */
 function ActivityScreen(props: {
   api: Backend
+  /** The check for duplicates, in a line of its own with its own buttons, when it is running or was stopped. */
+  check: ReactNode
   onPaused: (paused: boolean) => void
   onBack: () => void
   onProblem: (error: unknown) => void
@@ -1398,6 +1438,7 @@ function ActivityScreen(props: {
             it checks for duplicates. Then it stops.
           </p>
         )}
+        {props.check && <div className="check-here">{props.check}</div>}
         <p className="choices">
           {now.paused ? (
             <button className="primary" onClick={() => pause(false)}>

@@ -611,14 +611,24 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
             answer(heard)
         }
         Op::JobsPause => {
-            read::<Nothing>(request)?;
-            keevoro.pause();
+            let r: JobRequest = read(request)?;
+            match r.job {
+                Some(job) => keevoro.pause_job(job)?,
+                None => keevoro.pause(),
+            }
             answer(Paused { paused: true })
         }
         Op::JobsCarryOn => {
-            read::<Nothing>(request)?;
-            keevoro.carry_on();
+            let r: JobRequest = read(request)?;
+            match r.job {
+                Some(job) => keevoro.carry_on_job(job)?,
+                None => keevoro.carry_on(),
+            }
             answer(Paused { paused: false })
+        }
+        Op::DuplicatesCheck => {
+            read::<Nothing>(request)?;
+            answer(keevoro.check_for_duplicates_now(&named()?)?)
         }
         Op::JobsStop => {
             let r: JobRequest = read(request)?;
