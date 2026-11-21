@@ -60,21 +60,34 @@ Small, known, and better closed while the work is fresh.
 - [x] Third-party licence acknowledgements in the app, now including the MCP library
 - [ ] Progress notifications to an agent as a job runs, so it need not ask. Left for now: a job answers at once, and the protocol ties progress to a request still waiting, so they could only come during a `job_status` wait
 
-### 3. Other kinds of file, carried along
+### 3. What the first outside tester found
+
+Someone other than the owner has now used Keevoro (0.37.1, Windows 11 Home). They found it easy and fast, and found one fault that breaks a promise. Their points, in the order to do them. The detail is under "From the first tester". From here on, nothing a person set or backed up may be lost by an update.
+
+- [ ] A backup deleted at its destination is reported as still there: confirm a file is really at the destination before it counts as "already there"
+- [ ] Carry settings over on update, starting with the "photos only" choice that 0.39.0 reset
+- [ ] Remove and rename a backup in the app
+- [ ] Stopping the background check for duplicates, and saying plainly what it is doing
+- [ ] Drives appear and leave on their own, with a Refresh button
+- [ ] Keep my folders as they are: a choice asked the first time a backup is set up
+- [ ] The map: calmer colours, a summary ring, small folders merged
+- [ ] Cloud drives as sources: synced cloud folders done properly, then a bucket as a source
+
+### 4. Other kinds of file, carried along
 
 Keevoro stays a photo and video tool, but can take your other files with it: music, documents, project files. Asked for by the owner. It comes after the map, which is where a person sees what else a folder holds. See "Other kinds of file".
 
 - [x] A third kind in the kinds list, "other": found, backed up exactly and listed by folder, with no previews and no clever grouping
 
-### 4. Scheduled and repeat backups
+### 5. Scheduled and repeat backups
 
 The next thing a person would notice, and the reason the jobs work came first: a scheduled run is just another program asking the API to run a backup, taking its turn with the app. Start with the single command a system scheduler can call, then the schedule in the app, then running with the window closed. See "Scheduled and repeat backups".
 
-### 5. The catalog travels with the backup
+### 6. The catalog travels with the backup
 
 A copy of Keevoro's record inside each destination, so a backup can be opened on a new computer or after the record here is lost. This matters more once backups run unattended. See "The catalog".
 
-### 6. Cloud storage as sure as a folder
+### 7. Cloud storage as sure as a folder
 
 A folder backup is fingerprinted as it is sent and read back afterwards. Cloud storage is not yet held to the same standard.
 
@@ -90,7 +103,8 @@ A folder backup is fingerprinted as it is sent and read back afterwards. Cloud s
 - [ ] Music done properly: artist and album from the file's tags, cover art as the picture, lengths (see "Other kinds of file"). Only if carrying music along as "other" proves to be used
 - [ ] Agents on other machines: reaching Keevoro over a network, with sign-in and encryption
 - [ ] The website: what Keevoro is, how to get it, that it is in beta, and where to send feedback (the spec is written; the domain and 16 questions are open)
-- [ ] Windows code signing and Apple notarisation, when certificates exist
+- [ ] Windows code signing and Apple notarisation, when certificates exist (the tester saw Microsoft's download warning; the owner has a guide to doing it cheaply and will decide when)
+- [ ] Signing in to a cloud service directly as a source (Dropbox, Google Drive, OneDrive without their apps installed): each needs its own sign-in and the provider's approval, and it changes what Keevoro is. Only on evidence that people want it
 - [ ] Watch someone non-technical use the app without help
 
 ### Done since 0.31
@@ -475,6 +489,77 @@ Step 2: music done properly (later, and only if step 1 is used for music)
 - [ ] Cover art from inside the file as the picture, and the length on the tile
 - [ ] The same exact-copy rule as everything else: two files are duplicates only when they match byte for byte, never because their tags agree
 - [ ] Decide what Keevoro is before building this: a full music mode starts to change it from a tool for keeping photos and videos into a tool for backing up anything
+
+### From the first tester
+
+Feedback on 0.37.1 from the first person other than the owner to use Keevoro. What they said is quoted or paraphrased; what to do about it follows.
+
+A backup that was deleted is reported as still there
+
+"If I deleted the backup from the destination and tried to repeat the steps I see '40 files already there'. It has recreated the index folder and the What Is In This Backup file again, but not the photos." Keevoro trusted its own record of what it had sent and did not look at the destination. Of everything here, this is the one that could cost someone their photos.
+
+- [ ] Before a file counts as "already there", confirm it is at the destination: a listing of names and sizes for a folder, one paged listing for cloud storage, never a request per file
+- [ ] One rule, used by the backup, the rehearsal, the counts on screen, the map's "Backed up" figures and the index
+- [ ] A destination that cannot be reached is never treated as an empty one
+- [ ] A destination that looks emptied or swapped is said plainly before sending, and what is missing is sent again in the same run
+- [ ] Reading every file back byte for byte stays with "Check they all arrived"
+
+Nothing a person set is lost on update
+
+- [ ] Carry over a backup's and a source's "photos only" or "videos only" choice from before 0.39.0
+- [ ] A catalog and a settings file as 0.37.1 wrote them, opened by the current code in a standing test
+- [ ] Review every change to stored data since 0.29.3 for the same fault
+
+Old backups cannot be removed
+
+- [ ] "Manage backups…" in the switcher: each backup with its sources, destinations, size and last run, with Rename and Remove
+- [ ] Remove says exactly what it does first: Keevoro's record goes; the photos already backed up stay where they are; nothing on a source is touched
+- [ ] A running backup cannot be removed, and a removed one leaves no working folder behind
+
+"This process kept running after I had stopped a scan"
+
+- [ ] The background check for duplicates has its own Pause and Stop wherever it shows
+- [ ] Stopping a search says what remains, and offers to stop that too
+- [ ] "You can carry on" reworded so it is not read as an instruction
+- [ ] If the check is stopped, say what that means and offer "Check for duplicates now"
+
+A drive plugged in or removed does not show until refreshed
+
+- [ ] Update the first screen when the system says a drive arrived or left, on Windows, a Mac and Linux, with a slow check as a fallback
+- [ ] A visible Refresh button; nobody should need a right-click
+- [ ] A drive that leaves while being looked through or backed up from is reported plainly and the work stops safely
+
+Keep my folders as they are
+
+Their source was Pictures / Scans / Family Scans; the backup put the files under By date / 2021 / 2021-01. For scans the file's date is the day of scanning, which means nothing, and they had already arranged them by family.
+
+- [ ] Asked the first time a backup is set up, in one plain sentence: "Arrange by date" or "Keep my folders as they are" (decided by the owner: ask on first use)
+- [ ] "Keep my folders" writes originals / source name / their folders / file, the same arrangement other files use
+- [ ] Per source as well, so a camera card can go by date while a folder of scans keeps its folders
+- [ ] Changing it later affects only what is sent from then on; nothing already backed up is moved or removed
+- [ ] A suggestion with its reason when a source's files nearly all share one date or sit in folders with real names
+- [ ] Backups made before the choice existed stay "by date"; the guide note says which was used
+
+The map
+
+"A useful view, but could it use more neutral colour tones? Or even a choice of views, like a pie chart? Possibly everything under 10% of the backup merged into Others." They liked the list beside it a lot.
+
+- [ ] Calmer colours: softer tints for photos and videos, the strong colour kept for the chosen box and what needs attention
+- [ ] A summary ring above the map: photos, videos, other files chosen, everything else, with figures
+- [ ] A choice of view, remembered: the map, or a plain bar per folder
+- [ ] Small folders drawn as one "Smaller folders" box and row, opening on a click, the share adjusting with the window
+
+Cloud drives as sources
+
+"Could the software be used to scan and backup cloud drives… merging up several old cloud backups into one cloud or local drive. Moving to a cheaper cloud." Decided by the owner: the first two steps, with signing in to a service directly left for later.
+
+- [ ] Recognise the synced folders of OneDrive, Dropbox, Google Drive and iCloud Drive and offer them by name on the first screen
+- [ ] For files that are online only, offer "Fetch these and back them up", a few at a time, freeing each afterwards so the disk does not fill
+- [ ] A bucket as a source: read from Amazon S3, Cloudflare R2 and compatible storage, so a backup can be moved to a cheaper cloud or two merged
+
+Already answered
+
+- [x] "Could the same software be used for more than just photos/videos? Music files, document file backups? Manual selection of file extension to search for?" Yes, from 0.39.0: Settings, Advanced, kinds of file, "Other files"
 
 ### Scheduled and repeat backups
 
