@@ -444,6 +444,68 @@ fn the_screens_commands_start_the_apis_jobs_and_their_events_reach_the_window() 
     let said = invoke(&window, "last_backup_said", json!({})).unwrap();
     assert_eq!(said["summary"], done["summary"]);
 
+    // What Keevoro found when it last looked at the folder reaches the
+    // backup screen in the shape it reads.
+    let discover = invoke(&window, "discover", json!({})).unwrap();
+    let place = &discover["destinations"][0];
+    fits(place, "Destination");
+    fits(&place["looked"], "Looked");
+    assert_eq!(
+        (place["looked"]["fresh"].as_bool(), place["there"].as_u64()),
+        (Some(true), Some(1))
+    );
+    // The backup is deleted from the folder, and the screen is opened
+    // after the last look has grown old: the room it asks for looks first,
+    // and what was found is what the screen then reads.
+    for entry in fs::read_dir(&usb).unwrap().map(Result::unwrap) {
+        if !entry.file_name().to_string_lossy().starts_with('.') {
+            let path = entry.path();
+            if path.is_dir() {
+                fs::remove_dir_all(path).unwrap();
+            } else {
+                fs::remove_file(path).unwrap();
+            }
+        }
+    }
+    let home = app.state::<Shared>().keevoro.backups().current().unwrap().home;
+    {
+        let catalog = keevoro_catalog::Catalog::open_in_library(&home).unwrap();
+        let target = keevoro_engine::connect::destinations(&catalog).unwrap()[0]
+            .target
+            .clone()
+            .unwrap();
+        let mut last = keevoro_engine::confirm::last_look(&catalog, &target).unwrap().unwrap();
+        last.at -= 3_600;
+        catalog
+            .set_setting(&format!("looked:{target}"), &serde_json::to_string(&last).unwrap())
+            .unwrap();
+    }
+    let room = invoke(&window, "room", json!({})).unwrap();
+    fits(&room, "Room");
+    let discover = invoke(&window, "discover", json!({})).unwrap();
+    let place = &discover["destinations"][0];
+    assert_eq!(
+        (place["there"].as_u64(), discover["waitingToGather"].as_u64()),
+        (Some(0), Some(1))
+    );
+    let gone = place["looked"]["said"][0].as_str().unwrap_or_default();
+    assert!(
+        gone.ends_with(
+            "looks emptied or replaced: it no longer holds the file Keevoro backed up there. It will be sent again."
+        ),
+        "{place}"
+    );
+    // Backing up again sends it, and says so.
+    invoke(&window, "send", json!({})).unwrap();
+    let again = heard.wait_for_nth("send", 2, |e| e["finished"] == true);
+    keevoro();
+    let summary = again["summary"].to_string();
+    assert!(
+        summary.contains("Restored 1 file that had gone from there."),
+        "{summary}"
+    );
+    assert!(arrived(&usb), "the photo is back in the destination folder");
+
     // Every event the window was sent has the shape its screen expects.
     for (name, payload) in heard.all() {
         let ty = EVENTS.iter().find(|(n, _)| *n == name).unwrap().1;

@@ -586,10 +586,19 @@ pub fn set_previews_wanted(shared: State<'_, Shared>, wanted: bool) -> Said<()> 
     Ok(())
 }
 
-/// Weighs what is waiting to be sent against where it is going.
+/// Weighs what is waiting to be sent against where it is going, first
+/// looking at what is really at each destination unless that was done a
+/// moment ago, which across a network can take a moment, so it is done off
+/// the window's thread.
 #[tauri::command]
-pub fn room(shared: State<'_, Shared>) -> Said<keevoro_api::RoomAtAGlance> {
-    Ok(backup(&shared)?.room().map_err(say)?.at_a_glance)
+pub async fn room<R: Runtime>(app: AppHandle<R>) -> Said<keevoro_api::RoomAtAGlance> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let shared = app.state::<Shared>();
+        let backup = backup(&shared)?;
+        shared.keevoro.room(&backup).map(|room| room.at_a_glance).map_err(say)
+    })
+    .await
+    .map_err(say)?
 }
 
 /// Forgets every remembered survey, and so every map of where the space

@@ -221,9 +221,28 @@ export type Destination = {
   name: string
   kind: string
   folder: string | null
+  /** Kept files there, as the last look found; never counted from memory alone. */
   there: number
   waiting: number
   waitingBytes: number
+  /** What Keevoro found when it last looked there. Absent before it has looked. */
+  looked?: Looked
+}
+
+/** What the last look at a destination found, as keevoro_engine::confirm::LookedView says it. */
+export type Looked = {
+  /** When Keevoro last looked, in seconds since 1970. */
+  at: number
+  /** When it last reached it; null when it never has. */
+  lastReached: number | null
+  /** Looked at and reached a moment ago: only then is what is there certain. */
+  fresh: boolean
+  reached: boolean
+  /** Originals sent there that were missing, and those another size, when it looked. */
+  gone: number
+  notAsSent: number
+  /** What to say about it, a sentence each, in Keevoro's own words. */
+  said: string[]
 }
 
 /**
