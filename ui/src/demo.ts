@@ -338,7 +338,7 @@ export function demoBackend(): Backend {
         stages: [
           { kind: 'tellingApart', unit: 'files', done: 214, seconds: 480, finished: true, perSecond: 214 / 480, slowest: 0.31, fastest: 0.62 },
           { kind: 'placing', unit: 'files', done: 11_245, seconds: 40, finished: true, perSecond: 11_245 / 40, slowest: null, fastest: null },
-          { kind: 'sendingOriginals', to: nas, unit: 'bytes', done: 716.8 * GB, seconds: 75_600, finished: true, perSecond: (716.8 * GB) / 75_600, slowest: 3.2 * MB, fastest: 14.6 * MB },
+          { kind: 'sendingOriginals', to: nas, unit: 'bytes', done: 716.8 * GB, seconds: 75_600, finished: true, perSecond: (716.8 * GB) / 75_600, slowest: 3.2 * MB, fastest: 14.6 * MB, problem: 'Couldn’t back up 2 files' },
           { kind: 'makingPreviews', unit: 'files', done: 10_896, seconds: 21_600, finished: true, perSecond: 10_896 / 21_600, slowest: 0.21, fastest: 1.9 },
           { kind: 'makingVideoPreviews', unit: 'files', done: 349, seconds: 2_400, finished: true, perSecond: 349 / 2_400, slowest: 0.09, fastest: 0.2 },
           { kind: 'sendingPreviews', to: nas, unit: 'bytes', done: 3.8 * GB, seconds: 4_800, finished: true, perSecond: (3.8 * GB) / 4_800, slowest: 0.6 * MB, fastest: 1.1 * MB },

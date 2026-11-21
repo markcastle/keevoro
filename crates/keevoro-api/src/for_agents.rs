@@ -44,7 +44,7 @@ const HOW_TO_ALLOW: &str = "The person can allow folders in the Keevoro app, und
 /// what happened to the log.
 pub fn call_for_agent(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> Result<Value> {
     let keys = keys_in(&request);
-    let outcome = allowed(keevoro, op, backup, &request).and_then(|()| crate::call(keevoro, op, backup, request));
+    let outcome = allowed(keevoro, op, backup, request).and_then(|checked| crate::call(keevoro, op, backup, checked));
     let outcome = outcome.map_err(|mut e| {
         e.message = without(&e.message, &keys);
         e
@@ -74,63 +74,70 @@ pub fn read_for_agent(keevoro: &Keevoro, op: Op) -> Result<Value> {
     read
 }
 
-/// Would the person's rules allow this call? Says why not, if not.
-fn allowed(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: &Value) -> Result<()> {
+/// Would the person's rules allow this call? Says why not, if not, and
+/// otherwise gives the request to do: the one asked, with every folder in
+/// it that was checked replaced by where it really leads, the path that was
+/// checked. So a link swapped in between the check and the work is never
+/// followed: the work is given a path with no link left in it.
+fn allowed(keevoro: &Keevoro, op: Op, backup: Option<&str>, mut request: Value) -> Result<Value> {
     let Some(tool) = op.tool() else {
         return Err(Error::refused(
             "Only the person can do that, in the Keevoro app or with the keevoro command. It isn't offered to AI agents.",
         ));
     };
-    if op.entry().agents == Agents::LookOnly && asks_for_anything(request) {
+    if op.entry().agents == Agents::LookOnly && asks_for_anything(&request) {
         return Err(Error::refused(format!(
             "{} only reads for an AI agent. Changing this is for the person, in the Keevoro app or with the keevoro command.",
             tool.name
         )));
     }
     let access = keevoro.agent_access();
-    if op.changes_with(request) && !access.may_change {
+    if op.changes_with(&request) && !access.may_change {
         return Err(Error::refused(LOOK_ONLY));
     }
     match op {
         Op::PlacesSurvey | Op::SourcesLook | Op::PlacesFolders | Op::PlacesFiles => {
-            may_look_in(&access, place(request)?)
+            look_in(&access, &mut request, "place")?;
         }
         // Both where the trail starts and the folder shown, so a remembered
         // survey of a whole drive says nothing outside the folders allowed.
         Op::PlacesMap => {
-            may_look_in(&access, place(request)?)?;
-            match text(request, "folder") {
-                "" => Ok(()),
-                folder => may_look_in(&access, folder),
+            look_in(&access, &mut request, "place")?;
+            if !text(&request, "folder").is_empty() {
+                look_in(&access, &mut request, "folder")?;
             }
         }
+        // The sources and destinations are the backup's own, read from its
+        // record by the work itself, so they are checked and not passed on.
         Op::SourcesLookAgain => {
             let one = request.get("source").and_then(Value::as_i64);
             let sources = keevoro.backups().open(backup)?.sources()?;
             for source in sources.iter().filter(|s| one.is_none_or(|id| s.id == id)) {
                 may_look_in(&access, &source.root)?;
             }
-            Ok(())
         }
-        Op::PhotosPicture if !text(request, "file").is_empty() => may_look_in(&access, text(request, "file")),
-        Op::SourcesLeaveOut => match text(request, "folder") {
-            "" => Err(Error::not_understood("it names no folder (give one as folder)")),
-            folder => may_look_in(&access, folder),
+        Op::PhotosPicture if !text(&request, "file").is_empty() => look_in(&access, &mut request, "file")?,
+        Op::SourcesLeaveOut => match text(&request, "folder") {
+            "" => return Err(Error::not_understood("it names no folder (give one as folder)")),
+            _ => look_in(&access, &mut request, "folder")?,
         },
         Op::PhotosPicture => {
-            let photo = text(request, "photo");
+            let photo = text(&request, "photo");
             let found = keevoro.backups().open(backup)?.catalog().find_item(photo)?;
-            match found {
-                Some((file, _, _)) => may_look_in(&access, &file.display().to_string()),
-                // Not known: the operation says so in its own words.
-                None => Ok(()),
+            // Not known: the operation says so in its own words.
+            if let Some((file, _, _)) = found {
+                may_look_in(&access, &file.display().to_string())?;
             }
         }
-        Op::DestinationsAdd => match text(request, "kind") {
-            "r2" | "s3" | "endpoint" => Ok(()),
+        Op::DestinationsAdd => match text(&request, "kind") {
+            "r2" | "s3" | "endpoint" => {}
             // A folder, or a kind not understood, which the operation will
             // refuse: either way the place is judged as a folder first.
-            _ => may_back_up_to(&access, place(request)?),
+            _ => {
+                place(&request)?;
+                let real = checked(&request, "place", |p| access.real_place_to_back_up_to(p), "back up to")?;
+                put(&mut request, "place", real);
+            }
         },
         Op::BackupRun | Op::BackupCheck => {
             for destination in keevoro.backups().open(backup)?.destinations()? {
@@ -138,9 +145,50 @@ fn allowed(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: &Value) -> 
                     may_back_up_to(&access, folder)?;
                 }
             }
-            Ok(())
         }
-        _ => Ok(()),
+        _ => {}
+    }
+    Ok(request)
+}
+
+/// Checks that an agent may look in the folder `field` names, and puts
+/// where it really leads in its place.
+fn look_in(access: &AgentAccess, request: &mut Value, field: &str) -> Result<()> {
+    if field == "place" {
+        place(request)?;
+    }
+    let real = checked(request, field, |p| access.real_place_to_look_in(p), "look in")?;
+    put(request, field, real);
+    Ok(())
+}
+
+/// Puts `real` in the place of `field`. Only a request that named the
+/// field, so one that is an object, ever gets here.
+fn put(request: &mut Value, field: &str, real: String) {
+    if let Some(fields) = request.as_object_mut() {
+        fields.insert(field.to_string(), Value::String(real));
+    }
+}
+
+/// Where the folder `field` names really leads, as a person would write it,
+/// if `allows` lets it in.
+///
+/// On Windows the operating system gives a real path in its long form
+/// (`\\?\C:\Photos`). That form is never passed on, because it would
+/// show in what a person reads (a destination's name, a source), so the
+/// plain form is: a real path has no `.`, `..` or link in it, and a name
+/// ending in a dot or a space is refused before this, so both forms name
+/// the same place.
+fn checked(
+    request: &Value,
+    field: &str,
+    allows: impl Fn(&Path) -> Option<std::path::PathBuf>,
+    to: &str,
+) -> Result<String> {
+    let asked = text(request, field);
+    match allows(Path::new(asked)) {
+        Some(real) => Ok(keevoro_engine::friendly_path(&real)),
+        None => Err(not_allowed(asked, to)),
     }
 }
 
@@ -167,21 +215,23 @@ fn asks_for_anything(request: &Value) -> bool {
 }
 
 fn may_look_in(access: &AgentAccess, place: &str) -> Result<()> {
-    if access.may_look_in(Path::new(place)) {
-        return Ok(());
+    match access.may_look_in(Path::new(place)) {
+        true => Ok(()),
+        false => Err(not_allowed(place, "look in")),
     }
-    Err(Error::refused(format!(
-        "Keevoro won't let an AI agent look in \"{place}\": the person hasn't allowed that folder. {HOW_TO_ALLOW}"
-    )))
 }
 
 fn may_back_up_to(access: &AgentAccess, place: &str) -> Result<()> {
-    if access.may_back_up_to(Path::new(place)) {
-        return Ok(());
+    match access.may_back_up_to(Path::new(place)) {
+        true => Ok(()),
+        false => Err(not_allowed(place, "back up to")),
     }
-    Err(Error::refused(format!(
-        "Keevoro won't let an AI agent back up to \"{place}\": the person hasn't allowed that folder. {HOW_TO_ALLOW}"
-    )))
+}
+
+fn not_allowed(place: &str, to: &str) -> Error {
+    Error::refused(format!(
+        "Keevoro won't let an AI agent {to} \"{place}\": the person hasn't allowed that folder. {HOW_TO_ALLOW}"
+    ))
 }
 
 /// The storage keys a request carries, so that they can be taken out of
@@ -467,6 +517,110 @@ mod tests {
             None,
             json!({ "kind": "folder", "place": card.join("way out").join("new").display().to_string() }),
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_folder_checked_is_the_folder_used_so_a_link_swapped_in_afterwards_is_not_followed() {
+        use std::os::unix::fs::symlink;
+        let (dir, card, keevoro) = for_an_agent();
+        let secret = dir.path().join("Secret");
+        std::fs::create_dir_all(&secret).unwrap();
+        let cornwall = std::fs::canonicalize(card.join("Holidays").join("Cornwall")).unwrap();
+        let shortcut = card.join("shortcut");
+        symlink(&cornwall, &shortcut).unwrap();
+        allow(&keevoro, &[&card], &[&card], true);
+        let at = |path: &Path| path.display().to_string();
+
+        for (op, field, request) in [
+            (Op::PlacesSurvey, "place", json!({ "place": at(&shortcut) })),
+            (Op::SourcesLook, "place", json!({ "place": at(&shortcut) })),
+            (Op::PlacesFolders, "place", json!({ "place": at(&shortcut) })),
+            (Op::PlacesFiles, "place", json!({ "place": at(&shortcut) })),
+            (Op::PlacesMap, "place", json!({ "place": at(&shortcut) })),
+            (
+                Op::PlacesMap,
+                "folder",
+                // The place is checked and passed on too, so it is given as
+                // it really is (on a Mac a temporary folder is behind a link).
+                json!({ "place": at(&std::fs::canonicalize(&card).unwrap()), "folder": at(&shortcut) }),
+            ),
+            (
+                Op::SourcesLeaveOut,
+                "folder",
+                json!({ "folder": at(&shortcut), "leftOut": true }),
+            ),
+            (
+                Op::PhotosPicture,
+                "file",
+                json!({ "file": at(&shortcut.join("IMG_20080812_101500.jpg")) }),
+            ),
+        ] {
+            let checked = allowed(&keevoro, op, None, request.clone()).unwrap();
+            let used = checked[field].as_str().unwrap();
+            assert!(used.starts_with(&at(&cornwall)), "{}: {used}", op.name());
+            assert!(!used.contains("shortcut"), "{}: {used}", op.name());
+            for (name, value) in request.as_object().unwrap() {
+                if name != field {
+                    assert_eq!(&checked[name], value, "{}: only the folder checked changes", op.name());
+                }
+            }
+        }
+        // A folder to back up to that is not made yet keeps its new part.
+        let checked = allowed(
+            &keevoro,
+            Op::DestinationsAdd,
+            None,
+            json!({ "kind": "folder", "place": at(&shortcut.join("Backup")) }),
+        )
+        .unwrap();
+        assert_eq!(checked["place"], at(&cornwall.join("Backup")));
+
+        // The link is swapped to lead out after the check: what was checked
+        // still leads where it did, and the work is given that.
+        let checked = allowed(&keevoro, Op::PlacesFiles, None, json!({ "place": at(&shortcut) })).unwrap();
+        std::fs::remove_file(&shortcut).unwrap();
+        symlink(&secret, &shortcut).unwrap();
+        let used = Path::new(checked["place"].as_str().unwrap());
+        assert_eq!(std::fs::canonicalize(used).unwrap(), cornwall);
+        assert!(!keevoro.agent_access().may_look_in(&shortcut));
+    }
+
+    #[test]
+    fn the_real_path_passed_on_is_written_as_a_person_would_write_it() {
+        let request = json!({ "place": "anything" });
+        for (real, shown) in [
+            (r"\\?\C:\Users\Mark\Pictures", r"C:\Users\Mark\Pictures"),
+            (r"\\?\UNC\nas\photos\2004", r"\\nas\photos\2004"),
+            ("/Volumes/Photos/2004", "/Volumes/Photos/2004"),
+        ] {
+            let passed = checked(&request, "place", |_| Some(PathBuf::from(real)), "look in").unwrap();
+            assert_eq!(passed, shown);
+        }
+        let e = checked(&request, "place", |_| None, "back up to").unwrap_err();
+        assert!(e.message.contains("back up to \"anything\""), "{e}");
+    }
+
+    /// On Windows the operating system's real path is in its long form;
+    /// what is passed on is the plain one, naming the same folder.
+    #[cfg(windows)]
+    #[test]
+    fn on_windows_the_long_form_is_never_passed_on() {
+        let (_dir, card, keevoro) = for_an_agent();
+        allow(&keevoro, &[&card], &[], true);
+        let checked = allowed(
+            &keevoro,
+            Op::PlacesFiles,
+            None,
+            json!({ "place": card.join("DCIM").display().to_string() }),
+        )
+        .unwrap();
+        let used = checked["place"].as_str().unwrap();
+        assert!(!used.starts_with(r"\\?\"), "{used}");
+        assert_eq!(
+            std::fs::canonicalize(used).unwrap(),
+            std::fs::canonicalize(card.join("DCIM")).unwrap()
+        );
     }
 
     #[test]

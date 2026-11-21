@@ -355,7 +355,7 @@ Without `-b`, `status`, `follow` and `stop` cover every backup; with it, only th
 | `keevoro log [--lines N]` | The record of what Keevoro did. |
 | `keevoro settings` | Keevoro's settings. |
 | `keevoro settings set own-codecs off` | Stops using this computer's own picture codecs; `on` to use them again. |
-| `keevoro update` | Puts the newest command line in place of this one, checked against its release; `--check` only says whether there is a newer Keevoro. |
+| `keevoro update` | Puts the newest command line in place of this one, checked against its release; `--check` only says whether there is a newer one for this computer, the same question `keevoro update` asks before it installs. |
 | `keevoro reset` | Puts Keevoro back as it was when first installed. Asks first, or give `--yes`. Nothing on a source or at a destination is touched. |
 | `keevoro agents` | Which folders an AI agent may look through and back up to, and whether it may make changes. |
 | `keevoro agents allow --look FOLDER --back-up-to FOLDER` | Says which folders an agent may use. Give either more than once for several; `--none` for none. |

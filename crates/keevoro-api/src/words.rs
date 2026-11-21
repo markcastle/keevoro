@@ -141,6 +141,9 @@ pub fn stage_line(stage: &StageRecord) -> String {
     if !stage.finished {
         line.push_str(", not finished");
     }
+    if let Some(problem) = &stage.problem {
+        line.push_str(&format!(". Went wrong: {problem}"));
+    }
     line
 }
 
@@ -371,6 +374,7 @@ mod a_run_in_full {
             per_second: Some(done as f64 / seconds as f64),
             slowest: None,
             fastest: None,
+            problem: None,
         }
     }
 
@@ -381,6 +385,7 @@ mod a_run_in_full {
         let mut sending = stage(Kind::SendingOriginals, Some(to), 7168 * GB / 10, 80_000);
         sending.slowest = Some(2.0 * 1024.0 * 1024.0);
         sending.fastest = Some(11.0 * 1024.0 * 1024.0);
+        sending.problem = Some("Couldn't back up 2 files".into());
         Sent {
             finished_at: 1_794_751_331,
             seconds: 82_200,
@@ -442,7 +447,7 @@ mod a_run_in_full {
             "Started from the app at",
             "with Keevoro 0.33.0. It finished. It was paused for about 12 minutes.",
             "  Working out where each file goes: under a minute, 11,245 files, 281 files a second on average",
-            "716.8 GB, 9.2 MB a second on average (slowest 2.0 MB a second, fastest 11.0 MB a second, each held a minute or more)",
+            "716.8 GB, 9.2 MB a second on average (slowest 2.0 MB a second, fastest 11.0 MB a second, each held a minute or more). Went wrong: Couldn't back up 2 files",
             "11,243 files sent (716.8 GB), 2 could not be sent.",
             "    originals/2019/IMG_0001.jpg: The source couldn't be read.",
             "    and 1 more.",

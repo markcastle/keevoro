@@ -338,6 +338,8 @@ export type StageRecord = {
   /** Held for a minute or more; null for a shorter stage. */
   slowest: number | null
   fastest: number | null
+  /** What went wrong, in words, for a stage that ended with a problem. */
+  problem?: string
 }
 
 export type DestinationRecord = {
@@ -385,15 +387,17 @@ export type BackupStage = {
   kind: 'tellingApart' | 'placing' | 'sendingOriginals' | 'makingPreviews' | 'makingVideoPreviews' | 'sendingPreviews' | 'writingIndex'
   /** Which destination, for work done once per destination. */
   to: string | null
-  /** Done, what it is doing now, under way alongside in the background, or still to come. */
-  state: 'done' | 'now' | 'alongside' | 'next'
+  /** Done, gone wrong, what it is doing now, under way alongside in the background, or still to come. */
+  state: 'done' | 'problem' | 'now' | 'alongside' | 'next'
   unit: 'bytes' | 'files'
   done: number
   work: number
   /** Per second, while it runs and once measured. */
   perSecond: number | null
-  /** As shown: "Backing up your files: 708.4 GB of 716.8 GB at 7.5 MB/s". */
+  /** As shown: "Backing up your files: 708.4 GB of 716.8 GB at 7.5 MB/s". What went wrong is in it too. */
   line: string
+  /** What went wrong, in words, when it did: "Couldn't back up 3 files". */
+  problem?: string
 }
 
 /** How long until a whole backup is done, as the one estimator in `keevoro_core::estimate` says. */

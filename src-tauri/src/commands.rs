@@ -724,10 +724,14 @@ pub fn check_arrived(shared: State<'_, Shared>) -> Said<()> {
 }
 
 /// The drives plugged into this computer, for the "Where are your photos?"
-/// screen to offer as buttons.
+/// screen to offer as buttons. Off the window's own thread: asking the
+/// drive letters for network drives can take a moment, and a command that
+/// is not `async` runs on the thread that draws the window, freezing it.
 #[tauri::command]
-pub fn places() -> Vec<keevoro_api::places::Place> {
-    keevoro_api::places::plugged_in()
+pub async fn places() -> Said<Vec<keevoro_api::places::Place>> {
+    tauri::async_runtime::spawn_blocking(keevoro_api::places::plugged_in)
+        .await
+        .map_err(say)
 }
 
 /// Is this one of Keevoro's own pages: the project's home, or something

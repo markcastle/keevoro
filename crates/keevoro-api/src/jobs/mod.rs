@@ -526,7 +526,7 @@ impl Jobs {
         self.across.get()
     }
 
-    fn by(&self) -> FrontEnd {
+    pub(crate) fn by(&self) -> FrontEnd {
         *lock(&self.by)
     }
 
@@ -629,6 +629,14 @@ impl Jobs {
     /// another program is working on that backup.
     fn begin_only_one(self: &Arc<Self>, kind: JobKind, backup: &Named) -> Option<Arc<Job>> {
         self.begin_unless(kind, Some(backup), None, true).ok()
+    }
+
+    /// Writes what this program's jobs on `job`'s backup are doing for
+    /// other programs at once, if this program holds that backup.
+    fn share_now(self: &Arc<Self>, job: &Job) {
+        if let (Some(across), Some(backup)) = (self.across(), job.backup_id()) {
+            across.share_now(backup, &**self);
+        }
     }
 
     /// Something about a job has changed that another program would want
@@ -1178,6 +1186,10 @@ pub(crate) fn spawn(
 ) -> Result<()> {
     let ctx = ctx.clone();
     let job = job.clone();
+    // Shared with other programs now, with the first words its starter
+    // gave it, not at the next tick: another program asked what is running
+    // the moment this began would otherwise hear "nothing".
+    ctx.jobs.share_now(&job);
     let ending = Ending::new(&ctx.jobs, &job);
     std::thread::Builder::new()
         .name(format!("keevoro job {}", job.id().0))
@@ -1254,8 +1266,7 @@ impl Keevoro {
             backup,
             vec![place.to_path_buf()],
             JobKind::Look,
-            self.kinds_to_look_for(),
-            self.skip_rules_for(Some(backup)),
+            self.how_to_look(backup),
             listener,
         )
     }
@@ -1269,10 +1280,20 @@ impl Keevoro {
             backup,
             places,
             JobKind::LookAgain,
-            self.kinds_to_look_for(),
-            self.skip_rules_for(Some(backup)),
+            self.how_to_look(backup),
             listener,
         )
+    }
+
+    /// How a search of `backup` looks, as this program asks for it now. An
+    /// AI agent's search keeps the check that follows to the folders the
+    /// agent may look in when it asks.
+    fn how_to_look(&self, backup: &Named) -> looking::HowToLook {
+        looking::HowToLook {
+            kinds: self.kinds_to_look_for(),
+            skip: self.skip_rules_for(Some(backup)),
+            for_agent: (self.jobs.by() == FrontEnd::Agent).then(|| self.agent_access()),
+        }
     }
 
     /// `backup.run`: backs up to every destination, originals first, and
@@ -1290,7 +1311,7 @@ impl Keevoro {
     /// search only sampled. Nothing is started if a check is running
     /// already. Keevoro starts this itself after a search and a backup.
     pub fn keep_checking(&self, backup: &Named) -> Option<JobHandle> {
-        duplicates::start(&self.context(), backup)
+        duplicates::start(&self.context(), backup, None)
     }
 
     /// `jobs.status`: every job running on the backup with this id, or on

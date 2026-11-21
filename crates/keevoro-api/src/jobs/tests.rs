@@ -683,6 +683,51 @@ fn looking_again_goes_through_every_source_for_what_is_new() {
 }
 
 #[test]
+fn the_check_after_an_agents_search_reads_only_the_folders_that_agent_may_look_in() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let agent = keevoro(dir.path()).as_front_end(FrontEnd::Agent);
+    let named = agent.start_backup("Card photos").unwrap();
+    let card = card_in(dir.path());
+    std::fs::write(card.join("DCIM/IMG_20200101_120000.jpg"), large_photo(200)).unwrap();
+    // A source the person added, with a large photo only sampled so far.
+    let phone = dir.path().join("Phone");
+    std::fs::create_dir_all(&phone).unwrap();
+    std::fs::write(phone.join("IMG_20190101_120000.jpg"), large_photo(30)).unwrap();
+    let mut catalog = Catalog::open_in_library(&named.home).unwrap();
+    let quick = keevoro_scan::ScanOptions {
+        quick: true,
+        ..Default::default()
+    };
+    keevoro_engine::scan_into_with(&mut catalog, &phone, Some("Phone"), &quick, &mut |_| {}, &mut || {}).unwrap();
+    drop(catalog);
+    agent
+        .set_agent_access(crate::agents::AgentsAccessRequest {
+            look_in: Some(vec![card.display().to_string()]),
+            back_up_to: None,
+            may_change: Some(true),
+        })
+        .unwrap();
+    let unchecked = || {
+        let left = Catalog::open_in_library(&named.home).unwrap().unhashed().unwrap();
+        left.into_iter().map(|f| f.path).collect::<Vec<_>>()
+    };
+
+    let job = agent.look(&named, &card, None).unwrap();
+    agent.wait(job.id);
+    agent.wait_for_jobs();
+    let left = unchecked();
+    assert_eq!(left.len(), 1, "{left:?}");
+    assert!(left[0].starts_with(std::fs::canonicalize(&phone).unwrap()), "{left:?}");
+
+    // A check started any other way reads what was left.
+    let person = keevoro(dir.path());
+    person.keep_checking(&named).unwrap();
+    person.wait_for_jobs();
+    assert!(unchecked().is_empty());
+}
+
+#[test]
 fn a_survey_finds_the_folders_with_photos_and_can_be_stopped() {
     let _turn = one_at_a_time();
     let dir = tempfile::tempdir().unwrap();
@@ -898,6 +943,28 @@ fn eventually<T>(what: &str, found: impl Fn() -> Option<T>) -> T {
 /// `tests/across_programs.rs`.)
 fn command_line(dir: &Path) -> Keevoro {
     keevoro(dir).as_front_end(FrontEnd::CommandLine)
+}
+
+#[test]
+fn a_job_another_program_has_just_started_is_seen_at_once() {
+    let _turn = one_at_a_time();
+    let _after = CarryOnAfter;
+    let dir = tempfile::tempdir().unwrap();
+    let app = keevoro(dir.path());
+    let named = app.start_backup("Card photos").unwrap();
+    let card = card_in(dir.path());
+    let command_line = command_line(dir.path());
+
+    app.pause();
+    let job = app.look(&named, &card, None).unwrap();
+    // Asked straight away, not after the other program's next tick.
+    let seen = command_line.jobs(None);
+    assert_eq!(seen.len(), 1, "{seen:?}");
+    assert_eq!(seen[0].handle, job);
+    assert!(seen[0].elsewhere);
+    app.stop(Which::All);
+    app.carry_on();
+    app.wait_for_jobs();
 }
 
 #[test]

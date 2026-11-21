@@ -36,6 +36,9 @@ jobs:
       - run: npm run lint
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      # The open source licences the app shows are made from the lockfiles,
+      # and must be made again when a dependency changes.
+      - run: cargo xtask licences --check
       # The installers are not Rust, so they get their own checks: the
       # shell one is linted and the PowerShell one must at least parse.
       - run: shellcheck install.sh

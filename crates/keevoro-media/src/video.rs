@@ -1,37 +1,20 @@
-//! Posters for videos, and converting old videos to MP4.
+//! Posters for videos, and what ffprobe can say about one.
 //!
-//! Old camcorder and phone videos (AVI, WMV, MPG, 3GP) often will not play
-//! on a modern phone or in a browser. Keevoro can make an MP4 copy that
-//! plays everywhere, and for every video it makes a poster: one still frame
-//! for the gallery to show.
+//! For every video Keevoro makes a poster: one still frame for the gallery
+//! to show. The computer's own decoder is asked first (`keevoro-frame`);
+//! ffmpeg, if it happens to be on the computer, is a second try, and its
+//! companion ffprobe gives a video's length and size. Keevoro does not
+//! contain ffmpeg, so a computer without it still finds and backs up videos
+//! perfectly well.
 //!
-//! The work is done by ffmpeg, run as a separate program. Keevoro does not
-//! contain ffmpeg; it uses the copy found on the computer. That keeps the
-//! door open on licensing (ffmpeg's best encoder is GPL) and means a
-//! computer without ffmpeg still finds and backs up videos perfectly
-//! well, just without posters or conversion.
-//!
-//! What matters here:
-//!
-//! - **The original is never touched or replaced.** The MP4 is an extra
-//!   copy under `renditions/video/`.
-//! - **Repackage before re-encoding.** Many camcorder files already hold
-//!   H.264 video and AAC sound inside an old wrapper. Those are moved into
-//!   an MP4 wrapper untouched, which is lossless and takes seconds.
-//! - **Every conversion is checked.** The result must be the same length
-//!   as the original to within half a second and must play through without
-//!   errors, or it is thrown away.
-//! - **Deciding what to do is separate from doing it.** [`plan`] is a pure
-//!   function over what [`probe`] found, so the rules are tested without
-//!   needing ffmpeg at all.
+//! Making MP4 copies of old videos was here once, for the library model
+//! that was removed in 0.30. Git history has it, should it come back as a
+//! feature (TASKS.md, "Old video conversion prompt").
 
 use crate::{shrink, to_webp, MediaError, DISPLAY_EDGE};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-
-/// A converted video may differ from its original by this much and no more.
-pub const DURATION_TOLERANCE_SECS: f64 = 0.5;
 
 /// Starts building a command for one of the video tools, set up so that it
 /// never shows a window of its own.
@@ -121,40 +104,6 @@ pub struct VideoInfo {
     /// The wrapper, as ffmpeg names it: `mov,mp4,m4a,3gp,3g2,mj2`, `avi`,
     /// `mpegts`, `asf`, ...
     pub container: String,
-}
-
-/// What to do with a video when conversion is on.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Conversion {
-    /// It already plays everywhere.
-    Leave,
-    /// Move the existing video and sound into an MP4 wrapper, untouched.
-    Remux,
-    /// Re-encode to H.264 and AAC.
-    Reencode { deinterlace: bool },
-}
-
-/// Decides what a video needs. `extension` is the file's own, without the
-/// dot; it tells a real `.mp4` from a `.mov`, which ffmpeg reports as the
-/// same family of container.
-pub fn plan(info: &VideoInfo, extension: &str) -> Conversion {
-    let video = info.video_codec.as_str();
-    let sound_is_fine = matches!(info.audio_codec.as_deref(), None | Some("aac"));
-    let is_mp4_file = matches!(extension.to_ascii_lowercase().as_str(), "mp4" | "m4v");
-    // A modern MP4 is left alone even with HEVC video: phones made it and
-    // phones play it, and re-encoding would only lose quality.
-    if is_mp4_file && matches!(video, "h264" | "hevc") {
-        return Conversion::Leave;
-    }
-    // Interlaced footage (camcorders, DVDs) shows comb-like stripes on
-    // modern screens unless it is deinterlaced, which means re-encoding.
-    if info.interlaced {
-        return Conversion::Reencode { deinterlace: true };
-    }
-    if video == "h264" && sound_is_fine {
-        return Conversion::Remux;
-    }
-    Conversion::Reencode { deinterlace: false }
 }
 
 /// Reads ffprobe's JSON output. Separate from running ffprobe so it can be
@@ -330,109 +279,4 @@ fn still_from_frame(frame: keevoro_frame::Frame) -> Result<Still, MediaError> {
         width,
         height,
     })
-}
-
-/// The ffmpeg arguments, between input and output, for a conversion.
-/// `None` when there is nothing to do.
-pub fn conversion_args(action: Conversion) -> Option<Vec<&'static str>> {
-    // Video first, the first sound track if there is one, and the original's
-    // own tags (which carry the recording date). `faststart` puts the index
-    // at the front so playback begins before the whole file has arrived.
-    let common = [
-        "-map",
-        "0:v:0",
-        "-map",
-        "0:a:0?",
-        "-map_metadata",
-        "0",
-        "-movflags",
-        "+faststart",
-    ];
-    let mut args: Vec<&'static str> = common.to_vec();
-    match action {
-        Conversion::Leave => return None,
-        Conversion::Remux => args.extend(["-c", "copy"]),
-        Conversion::Reencode { deinterlace } => {
-            // H.264 needs even dimensions; some old formats have odd ones.
-            args.extend([
-                "-vf",
-                if deinterlace {
-                    "yadif,scale=trunc(iw/2)*2:trunc(ih/2)*2"
-                } else {
-                    "scale=trunc(iw/2)*2:trunc(ih/2)*2"
-                },
-            ]);
-            // yuv420p is the one pixel format every player accepts. CRF 20
-            // is visually clean for home video without huge files.
-            args.extend([
-                "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p",
-            ]);
-            args.extend(["-c:a", "aac", "-b:a", "160k"]);
-        }
-    }
-    Some(args)
-}
-
-/// Converts `video` to an MP4 at `dest` and proves the result is good.
-/// On any failure nothing is left at `dest`. `info` is the original's
-/// [`probe`] result.
-pub fn convert(
-    tools: &VideoTools,
-    video: &Path,
-    info: &VideoInfo,
-    action: Conversion,
-    dest: &Path,
-) -> Result<(), MediaError> {
-    let Some(args) = conversion_args(action) else {
-        return Ok(());
-    };
-    let dir = dest.parent().unwrap_or(Path::new("."));
-    std::fs::create_dir_all(dir)?;
-    let name = dest.file_name().unwrap_or(OsStr::new("video.mp4")).to_string_lossy();
-    // Hidden while it is being written, and still ending in .mp4 so ffmpeg
-    // knows what to make.
-    let temp = dir.join(format!(".keevoro-part-{name}"));
-    let _ = std::fs::remove_file(&temp);
-
-    let made = quiet(&tools.ffmpeg)
-        .args(["-v", "error", "-nostdin", "-y", "-i"])
-        .arg(video)
-        .args(&args)
-        .args(["-f", "mp4"])
-        .arg(&temp)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-    let checked = match made {
-        Ok(status) if status.success() => check_conversion(tools, info, &temp),
-        Ok(_) => Err(MediaError::Damaged),
-        Err(e) => Err(MediaError::Io(e)),
-    };
-    let placed = checked.and_then(|()| std::fs::rename(&temp, dest).map_err(MediaError::Io));
-    if placed.is_err() {
-        let _ = std::fs::remove_file(&temp);
-    }
-    placed
-}
-
-/// The converted file must be as long as the original and must play
-/// through to the end without a single decoding error.
-fn check_conversion(tools: &VideoTools, original: &VideoInfo, converted: &Path) -> Result<(), MediaError> {
-    let result = probe(tools, converted)?;
-    if (result.duration_secs - original.duration_secs).abs() > DURATION_TOLERANCE_SECS {
-        return Err(MediaError::Damaged);
-    }
-    let played = quiet(&tools.ffmpeg)
-        .args(["-v", "error", "-nostdin", "-i"])
-        .arg(converted)
-        .args(["-f", "null", "-"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .output()?;
-    if played.status.success() && played.stderr.is_empty() {
-        Ok(())
-    } else {
-        Err(MediaError::Damaged)
-    }
 }

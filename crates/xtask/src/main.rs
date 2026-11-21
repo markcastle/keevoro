@@ -8,6 +8,8 @@
 //! cargo xtask changelog next 0.2.0        print what should follow 0.2.0
 //! cargo xtask changelog release 0.3.0     turn Unreleased into 0.3.0, dated today
 //! cargo xtask changelog note "text"       add a line under Unreleased's Changed
+//! cargo xtask licences             write the list of open source licences the app shows
+//! cargo xtask licences --check     fail if that list is out of date
 //! ```
 //!
 //! It is Rust rather than a shell script so that it runs the same on
@@ -19,6 +21,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 mod changelog;
+mod licences;
 
 use anyhow::{bail, Context, Result};
 use std::path::Path;
@@ -34,7 +37,8 @@ const USAGE: &str = "Usage:
   cargo xtask changelog section <version>
   cargo xtask changelog next <current version>
   cargo xtask changelog release <version>
-  cargo xtask changelog note \"what changed\"";
+  cargo xtask changelog note \"what changed\"
+  cargo xtask licences [--check]";
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -72,6 +76,22 @@ fn run(args: &[&str], root: &Path) -> Result<()> {
         ["changelog", "note", line] if !line.trim().is_empty() => {
             write(CHANGELOG, changelog::note(&read(CHANGELOG)?, line.trim())?)?;
             eprintln!("CHANGELOG.md: noted under Unreleased.");
+        }
+        ["licences"] => {
+            write(licences::DATA, licences::generate(root)?)?;
+            eprintln!(
+                "{}: the open source licences, as the build uses them now.",
+                licences::DATA
+            );
+        }
+        ["licences", "--check"] => {
+            if !licences::is_up_to_date(root)? {
+                bail!(
+                    "{} is out of date with Cargo.lock or package-lock.json. Run `cargo xtask licences` and commit it.",
+                    licences::DATA
+                );
+            }
+            eprintln!("{} is up to date.", licences::DATA);
         }
         ["release"] => cut_release(root, None)?,
         ["release", version] => cut_release(root, Some(version))?,

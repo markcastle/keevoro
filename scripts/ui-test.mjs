@@ -334,7 +334,9 @@ try {
   const panel = page.locator('.run-detail')
   assert.match(await panel.innerText(), /720\.6 GB to the folder \\\\NAS\\Photos in about 22 hours 50 minutes, at an average of 9\.0 MB a second\./)
   assert.match(await panel.innerText(), /from the app, with Keevoro 0\.32\.0\. It finished\. It was paused for about 10 minutes/)
-  assert.match(await panel.locator('table.stages').innerText(), /Backing up your files\s+about 21 hours\s+716\.8 GB\s+9\.7 MB a second\s+slowest 3\.2 MB a second, fastest 14\.6 MB a second/)
+  assert.match(await panel.locator('table.stages').innerText(), /Backing up your files\s+Went wrong: Couldn’t back up 2 files\s+about 21 hours\s+716\.8 GB\s+9\.7 MB a second\s+slowest 3\.2 MB a second, fastest 14\.6 MB a second/)
+  // A stage that went wrong says so in words beside its mark, not by colour alone.
+  assert.equal(await panel.locator('table.stages .went-wrong').count(), 1)
   assert.match(await panel.innerText(), /11,243 files sent \(716\.8 GB\), 2 could not be sent\./)
   assert.match(await panel.innerText(), /1,406 duplicates left out, saving 38\.2 GB\./)
   assert.match(await panel.innerText(), /21,792 preview files sent \(3\.8 GB\)/)
@@ -544,7 +546,21 @@ try {
   }
   assert.equal(await page.getByText('Your sources are only ever read.', { exact: true }).count(), 0, 'no longer a stray line in the side bar')
   await shot('9r-about')
-  await page.getByRole('button', { name: '‹ Back' }).click()
+
+  // --- From About, every piece of open source work in the app, with its licence.
+  await page.getByRole('button', { name: 'Open source licences' }).click()
+  await page.getByRole('heading', { name: 'Open source licences', level: 1 }).waitFor()
+  assert.match(await text('.licences'), /The app and the keevoro command \(\d{3,}\)/)
+  assert.match(await text('.licences'), /The app’s screens \(\d+\)/)
+  assert.match(await page.locator('.licensed li', { hasText: 'react-dom' }).innerText(), /react-dom\s+[\d.]+\s+MIT/)
+  await fitsNarrow('The open source licences')
+  await page.getByLabel('Find by name').fill('serde_json')
+  assert.match(await text('.licences'), /The app and the keevoro command \(1 of \d+\)/)
+  assert.match(await text('.licences'), /None by that name\./)
+  await shot('9r2-licences')
+  await page.getByRole('button', { name: '‹ Back to About' }).click()
+  await page.getByRole('heading', { name: 'About Keevoro', level: 1 }).waitFor()
+  await page.getByRole('button', { name: '‹ Back', exact: true }).click()
 
   // --- Settings holds everything in one place, including the log.
   await page.getByRole('button', { name: 'Settings' }).click()
