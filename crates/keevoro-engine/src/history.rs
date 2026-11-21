@@ -221,21 +221,33 @@ pub fn duration(seconds: u64) -> String {
 }
 
 /// Adds one backup to its record, keeping the most recent [`KEPT`].
+/// Entries this version cannot read (written by a newer one, say) are
+/// kept as they were, in their place, never dropped for being unreadable.
 pub fn record(catalog: &Catalog, sent: &Sent) -> Result<()> {
-    let mut all = recent(catalog)?;
-    all.insert(0, sent.clone());
+    let mut all = entries(catalog)?;
+    all.insert(0, serde_json::to_value(sent)?);
     all.truncate(KEPT);
     catalog.set_setting(SETTING, &serde_json::to_string(&all)?)?;
     Ok(())
 }
 
-/// The backup's sends, newest first. A record that cannot be read is
-/// treated as empty: it is a convenience, never a reason to fail.
-pub fn recent(catalog: &Catalog) -> Result<Vec<Sent>> {
+/// Every entry as it is written, readable here or not.
+fn entries(catalog: &Catalog) -> Result<Vec<serde_json::Value>> {
     Ok(catalog
         .setting(SETTING)?
         .and_then(|text| serde_json::from_str(&text).ok())
         .unwrap_or_default())
+}
+
+/// The backup's sends, newest first. Each entry is read on its own, so
+/// one that cannot be read is left out and the rest are still shown; a
+/// record that cannot be read at all is treated as empty. It is a
+/// convenience, never a reason to fail.
+pub fn recent(catalog: &Catalog) -> Result<Vec<Sent>> {
+    Ok(entries(catalog)?
+        .into_iter()
+        .filter_map(|entry| serde_json::from_value(entry).ok())
+        .collect())
 }
 
 #[cfg(test)]
@@ -306,6 +318,28 @@ mod tests {
         let kept = recent(&catalog).unwrap();
         assert_eq!(kept.len(), 20);
         assert_eq!((kept[0].bytes, kept[19].bytes), (24, 5));
+    }
+
+    #[test]
+    fn an_entry_that_cannot_be_read_costs_that_entry_alone_and_is_kept_as_it_was() {
+        let catalog = Catalog::in_memory().unwrap();
+        // One as 0.29 wrote it, and one from a newer Keevoro this cannot read.
+        catalog
+            .set_setting(
+                SETTING,
+                r#"[{"finishedAt":5,"seconds":60,"bytes":1000,"to":"the folder F:\\Backup","stopped":false},{"finishedAt":"tomorrow"}]"#,
+            )
+            .unwrap();
+        let read = recent(&catalog).unwrap();
+        assert_eq!(read.len(), 1);
+        assert_eq!(
+            (read[0].finished_at, read[0].bytes, read[0].detail.is_none()),
+            (5, 1000, true)
+        );
+        record(&catalog, &sent(7, 1)).unwrap();
+        assert_eq!(recent(&catalog).unwrap().len(), 2);
+        let text = catalog.setting(SETTING).unwrap().unwrap();
+        assert!(text.contains(r#"{"finishedAt":"tomorrow"}"#), "kept as it was: {text}");
     }
 
     #[test]

@@ -59,6 +59,20 @@ pub struct Settings {
     pub file_kinds: keevoro_core::FileKinds,
 }
 
+/// Keeps a settings file that could not all be understood, beside it, the
+/// first time, before anything is written over it: whatever a person set
+/// there can then still be found. Only the first is kept, so asking again
+/// and again makes no more copies.
+fn keep_aside(dir: &Path, text: &str) {
+    let aside = dir.join(KEPT_ASIDE);
+    if !aside.exists() {
+        let _ = std::fs::write(aside, text);
+    }
+}
+
+/// Where a settings file that could not all be understood is kept.
+pub(crate) const KEPT_ASIDE: &str = "settings that could not be read.json";
+
 /// One backup, as the settings file lists it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Named {
@@ -89,10 +103,64 @@ impl Settings {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(e) => return Err(e),
         };
-        Ok(serde_json::from_str::<Self>(&text).ok().map(|mut settings| {
-            settings.fall_back_to_the_first();
-            settings
-        }))
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
+            keep_aside(dir, &text);
+            return Ok(None);
+        };
+        let (mut settings, whole) = Self::from_value(&value);
+        if !whole {
+            keep_aside(dir, &text);
+        }
+        settings.fall_back_to_the_first();
+        Ok(Some(settings))
+    }
+
+    /// The settings in a file's JSON, each part read on its own, so a part
+    /// that cannot be understood (written by a newer Keevoro, or damaged)
+    /// costs that part alone, never the list of backups. Also answers
+    /// whether every part was understood.
+    fn from_value(value: &serde_json::Value) -> (Self, bool) {
+        let part = |name: &str| value.get(name).filter(|v| !v.is_null()).cloned();
+        let mut whole = true;
+        let mut settings = Self::default();
+        match part("backups").or_else(|| part("sessions")) {
+            Some(serde_json::Value::Array(each)) => {
+                for one in each {
+                    match serde_json::from_value::<Named>(one) {
+                        Ok(named) => settings.backups.push(named),
+                        Err(_) => whole = false,
+                    }
+                }
+            }
+            Some(_) => whole = false,
+            None => {}
+        }
+        // From before there were backups: the one library folder, which
+        // 0.29 and earlier made the first backup as they read it, without
+        // always writing that down. Read the same way still.
+        if settings.backups.is_empty() {
+            if let Some(library) = part("library").and_then(|l| l.as_str().map(PathBuf::from)) {
+                settings.backups.push(Named {
+                    id: "first".to_string(),
+                    name: "My photos".to_string(),
+                    home: library,
+                });
+            }
+        }
+        fn one<T: serde::de::DeserializeOwned + Default>(found: Option<serde_json::Value>, whole: &mut bool) -> T {
+            match found {
+                Some(v) => serde_json::from_value(v).unwrap_or_else(|_| {
+                    *whole = false;
+                    T::default()
+                }),
+                None => T::default(),
+            }
+        }
+        settings.current = one(part("current"), &mut whole);
+        settings.plain_decoding = one(part("plain_decoding"), &mut whole);
+        settings.agents = one(part("agents"), &mut whole);
+        settings.file_kinds = one(part("file_kinds"), &mut whole);
+        (settings, whole)
     }
 
     /// Writes the settings to `dir`, beside the real file under a name of
@@ -435,6 +503,55 @@ mod tests {
         // A file from a future version with extra fields still loads.
         std::fs::write(dir.path().join(FILE), r#"{"plain_decoding":true,"theme":"dark"}"#).unwrap();
         assert!(Settings::load(dir.path()).plain_decoding);
+    }
+
+    #[test]
+    fn a_part_of_the_settings_that_cannot_be_understood_costs_that_part_alone_and_the_file_is_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        // A newer Keevoro's idea of agents, and one backup listed oddly.
+        let text = r#"{"backups":[{"id":"backup-1","name":"Family","home":"/data/backups/backup-1"},{"id":7}],"current":"backup-1","plain_decoding":true,"agents":{"lookIn":"everywhere"},"file_kinds":[{"ending":"xyz","kind":"video"}]}"#;
+        std::fs::write(dir.path().join(FILE), text).unwrap();
+        let settings = Settings::load(dir.path());
+        assert_eq!(settings.backups.len(), 1);
+        assert_eq!(settings.open_backup().unwrap().name, "Family");
+        assert!(settings.plain_decoding);
+        assert_eq!(settings.agents, AgentAccess::default());
+        assert!(
+            !settings.file_kinds.is_built_in(),
+            "the kinds a person changed are kept"
+        );
+        // What could not be understood is kept, once, before anything is
+        // written over it.
+        assert_eq!(std::fs::read_to_string(dir.path().join(KEPT_ASIDE)).unwrap(), text);
+        settings.save(dir.path()).unwrap();
+        Settings::load(dir.path());
+        assert_eq!(std::fs::read_to_string(dir.path().join(KEPT_ASIDE)).unwrap(), text);
+        // A file that is not JSON at all is kept too.
+        let other = tempfile::tempdir().unwrap();
+        std::fs::write(other.path().join(FILE), "{ not json").unwrap();
+        assert_eq!(Settings::load(other.path()), Settings::default());
+        assert_eq!(
+            std::fs::read_to_string(other.path().join(KEPT_ASIDE)).unwrap(),
+            "{ not json"
+        );
+        // And one that is understood whole makes no copy.
+        let fine = tempfile::tempdir().unwrap();
+        Settings::default().save(fine.path()).unwrap();
+        Settings::load(fine.path());
+        assert!(!fine.path().join(KEPT_ASIDE).exists());
+    }
+
+    #[test]
+    fn a_settings_file_from_before_backups_still_opens_its_library_as_the_first_backup() {
+        // As 0.29 and earlier could leave it, if nothing was changed since.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(FILE), r#"{"library":"/data/Keevoro Library"}"#).unwrap();
+        let settings = Settings::load(dir.path());
+        let open = settings.open_backup().unwrap();
+        assert_eq!(
+            (open.id.as_str(), open.name.as_str(), open.home.as_path()),
+            ("first", "My photos", Path::new("/data/Keevoro Library"))
+        );
     }
 
     #[test]
