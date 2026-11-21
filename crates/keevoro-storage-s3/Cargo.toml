@@ -9,11 +9,12 @@ license.workspace = true
 [dependencies]
 async-trait.workspace = true
 aws-sdk-s3.workspace = true
+blake3.workspace = true
 keevoro-storage.workspace = true
+tokio.workspace = true
 
 [dev-dependencies]
 keevoro-storage = { workspace = true, features = ["conformance"] }
-tokio.workspace = true
 
 [lints]
 workspace = true

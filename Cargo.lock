@@ -3098,6 +3098,8 @@ name = "keevoro-storage"
 version = "0.40.0"
 dependencies = [
  "async-trait",
+ "blake3",
+ "tempfile",
  "thiserror 2.0.21",
  "tokio",
 ]
@@ -3119,6 +3121,7 @@ version = "0.40.0"
 dependencies = [
  "async-trait",
  "aws-sdk-s3",
+ "blake3",
  "keevoro-storage",
  "tokio",
 ]

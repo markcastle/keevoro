@@ -30,6 +30,9 @@ pub async fn run_all(store: &dyn MultipartStore) {
     put_from_file(store, &prefix).await;
     metadata_roundtrip_when_supported(store, &prefix).await;
     list_by_prefix_in_key_order(store, &prefix).await;
+    listing_says_when_each_object_was_written(store, &prefix).await;
+    download_to_writes_a_new_file_and_fingerprints_it(store, &prefix).await;
+    reading_can_be_checked_without_writing(store, &prefix).await;
     delete_removes(store, &prefix).await;
     if store.capabilities().multipart.is_some() {
         multipart_roundtrip_and_resume(store, &prefix).await;
@@ -208,6 +211,69 @@ async fn list_by_prefix_in_key_order(store: &dyn MultipartStore, p: &str) {
             .is_empty(),
         "a prefix with nothing under it lists nothing"
     );
+}
+
+async fn listing_says_when_each_object_was_written(store: &dyn MultipartStore, p: &str) {
+    let k = key(p, "dated/IMG_0001.jpg");
+    store
+        .put(&k, ByteSource::Bytes(b"dated".to_vec()), &PutOptions::default())
+        .await
+        .expect("put");
+    let now = i64::try_from(
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
+    )
+    .unwrap_or(0);
+    let listed = store.list_all(&format!("{p}/dated/")).await.expect("list_all");
+    assert_eq!(listed.len(), 1);
+    let when = listed[0].modified.expect("the listing says when it was written");
+    // Within a day either way: a server's clock may be a little out.
+    assert!((when - now).abs() < 86_400, "written {when}, now {now}");
+    let page = store.list_page(&format!("{p}/dated/"), None).await.expect("list_page");
+    assert_eq!(page.objects[0].modified.map(|m| (m - when).abs() < 2), Some(true));
+}
+
+async fn download_to_writes_a_new_file_and_fingerprints_it(store: &dyn MultipartStore, p: &str) {
+    let body: Vec<u8> = (0..=255u8).cycle().take(300_000).collect();
+    let k = key(p, "download/clip.mov");
+    store
+        .put(&k, ByteSource::Bytes(body.clone()), &PutOptions::default())
+        .await
+        .expect("put");
+    let dir = std::env::temp_dir().join(format!(
+        "keevoro-conformance-download-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
+    std::fs::create_dir_all(&dir).expect("temp folder");
+    let file = dir.join("clip.mov");
+    let got = store.download_to(&k, &file).await.expect("download_to");
+    assert_eq!(got.bytes, body.len() as u64);
+    assert_eq!(got.blake3, blake3::hash(&body).to_hex().to_string());
+    assert_eq!(std::fs::read(&file).expect("read the download"), body);
+    // A file already there is never written over.
+    assert!(store.download_to(&k, &file).await.is_err());
+    assert_eq!(std::fs::read(&file).expect("still there"), body);
+    // Something not there is not found, and leaves nothing behind.
+    let missing = dir.join("missing.mov");
+    assert!(matches!(
+        store.download_to(&key(p, "download/missing.mov"), &missing).await,
+        Err(StorageError::NotFound(_))
+    ));
+    assert!(!missing.exists(), "nothing is left behind");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+async fn reading_can_be_checked_without_writing(store: &dyn MultipartStore, p: &str) {
+    let before = store.list_all(&format!("{p}/")).await.expect("list_all").len();
+    store.check_reading(&format!("{p}/")).await.expect("check_reading");
+    let after = store.list_all(&format!("{p}/")).await.expect("list_all").len();
+    assert_eq!(before, after, "checking that keys can read writes nothing");
 }
 
 async fn delete_removes(store: &dyn MultipartStore, p: &str) {

@@ -26,7 +26,7 @@ pub use key::ObjectKey;
 
 use async_trait::async_trait;
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// What a provider can do. The engine adapts to these instead of assuming.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,6 +88,40 @@ pub struct ObjectInfo {
     pub key: ObjectKey,
     pub bytes: u64,
     pub metadata: BTreeMap<String, String>,
+    /// When it was last written, in seconds since 1970, where the listing
+    /// says: cloud storage's `LastModified`, a folder's file time.
+    pub modified: Option<i64>,
+    /// The tag cloud storage gives what it holds under a key. It changes
+    /// when the object does, so with the size it says "unchanged since the
+    /// last look". It is never a fingerprint of the contents: for an object
+    /// sent in parts it is not a hash of them at all.
+    pub etag: Option<String>,
+    /// The storage class, where the listing gives one (`STANDARD`,
+    /// `GLACIER`, `DEEP_ARCHIVE`). Some classes cannot be read until the
+    /// object is restored.
+    pub class: Option<String>,
+}
+
+impl ObjectInfo {
+    /// What is known of an object from its key and size alone.
+    pub fn new(key: ObjectKey, bytes: u64) -> Self {
+        Self {
+            key,
+            bytes,
+            metadata: BTreeMap::new(),
+            modified: None,
+            etag: None,
+            class: None,
+        }
+    }
+}
+
+/// What [`ObjectStore::download_to`] wrote.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Downloaded {
+    pub bytes: u64,
+    /// The BLAKE3 fingerprint of everything written, as lower-case hex.
+    pub blake3: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -176,6 +210,86 @@ pub trait ObjectStore: Send + Sync {
     }
 
     async fn delete(&self, key: &ObjectKey) -> Result<(), StorageError>;
+
+    /// Writes the object under `key` into a new file at `file`,
+    /// fingerprinting it as it is written, and never holding it whole in
+    /// memory where the store can help it. The file must not exist yet: an
+    /// existing one is never written over. On any problem the part written
+    /// is removed, so nothing is left behind. The default reads the object
+    /// whole with [`ObjectStore::get`]; the stores here stream it.
+    async fn download_to(&self, key: &ObjectKey, file: &Path) -> Result<Downloaded, StorageError> {
+        use std::io::Write;
+        let body = self.get(key).await?;
+        // Never over a file already there; only what this made is removed.
+        let mut out = std::fs::OpenOptions::new().write(true).create_new(true).open(file)?;
+        if let Err(e) = out.write_all(&body).and_then(|()| out.sync_all()) {
+            drop(out);
+            let _ = std::fs::remove_file(file);
+            return Err(e.into());
+        }
+        Ok(Downloaded {
+            bytes: body.len() as u64,
+            blake3: blake3::hash(&body).to_hex().to_string(),
+        })
+    }
+
+    /// Can these keys read what is under `prefix`? Asked by listing one
+    /// page, so nothing is written: the way to test keys for storage that
+    /// is only ever read, a source.
+    async fn check_reading(&self, prefix: &str) -> Result<(), StorageError> {
+        self.list_page(prefix, None).await.map(|_| ())
+    }
+}
+
+/// Cloud storage that is a source, so is only ever read. It holds the
+/// store privately and offers only listing and reading: nothing given one
+/// of these can put, replace or delete anything in it, and a change that
+/// tried would not compile.
+///
+/// ```compile_fail
+/// # async fn try_to_write(source: keevoro_storage::ReadOnly, key: keevoro_storage::ObjectKey) {
+/// let _ = source.put(&key, keevoro_storage::ByteSource::Bytes(Vec::new()), &Default::default()).await;
+/// # }
+/// ```
+///
+/// ```compile_fail
+/// # async fn try_to_delete(source: keevoro_storage::ReadOnly, key: keevoro_storage::ObjectKey) {
+/// let _ = source.delete(&key).await;
+/// # }
+/// ```
+#[derive(Clone)]
+pub struct ReadOnly(std::sync::Arc<dyn ObjectStore>);
+
+impl ReadOnly {
+    pub fn new(store: std::sync::Arc<dyn ObjectStore>) -> Self {
+        Self(store)
+    }
+
+    /// See [`ObjectStore::check_reading`].
+    pub async fn check_reading(&self, prefix: &str) -> Result<(), StorageError> {
+        self.0.check_reading(prefix).await
+    }
+
+    /// See [`ObjectStore::list_all`].
+    pub async fn list_all(&self, prefix: &str) -> Result<Vec<ObjectInfo>, StorageError> {
+        self.0.list_all(prefix).await
+    }
+
+    /// See [`ObjectStore::head`].
+    pub async fn head(&self, key: &ObjectKey) -> Result<Option<ObjectInfo>, StorageError> {
+        self.0.head(key).await
+    }
+
+    /// See [`ObjectStore::download_to`].
+    pub async fn download_to(&self, key: &ObjectKey, file: &Path) -> Result<Downloaded, StorageError> {
+        self.0.download_to(key, file).await
+    }
+}
+
+impl std::fmt::Debug for ReadOnly {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ReadOnly")
+    }
 }
 
 #[async_trait]
