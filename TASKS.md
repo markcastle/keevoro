@@ -4,18 +4,47 @@ Work top to bottom. Each task is done when its tests pass, clippy is clean and c
 
 ## What is next
 
-Version 0.31.0 finished the big piece of plumbing: one API, a command line that does everything the app does, and an MCP server for AI agents. This section is the order of work from here. The detail of each item is further down, under its own heading.
+As of 0.37.1. Version 0.31.0 finished the big piece of plumbing: one API, a command line that does everything the app does, and an MCP server for AI agents. The releases after it, up to 0.37.1, added the look inside a folder, the map of where the space goes, the kinds of file, photos or videos only, folders left out, the backup history in full, clearing unfinished copies, and one estimate for the whole backup. This section is the order of work from here. The detail of each item is further down, under its own heading.
 
-### 1. Prove 0.31.0 on real computers
+### 1. Prove it on real computers
 
-Everything below was built and tested by machine. None of it has been tried by a person yet, and it should be before more is built on top.
+Everything here was built and tested by machine. Some of it has now been tried by the owner on a real Windows computer; the rest should be, before more is built on top.
 
-- [ ] Windows: install 0.31.0 and run a real search and a real backup. It is the first version where the app's buttons go through the new API
+Tried by a person, on Windows:
+
+- [x] The app's buttons work through the new API: a check of an 11,245-file backup on 0.31.0, and a 15.9 GB backup on 0.36
+- [x] One estimate of the time left for the whole backup, with its stages listed
+- [x] Previews made in the background while the originals are sent
+
+Not tried by a person yet. The command line and AI agents:
+
+- [ ] The command line: a search, a backup, `keevoro status`, `follow` and `history` on a real backup the app also uses
 - [ ] Connect Claude Code to `keevoro mcp` and ask it to do a small backup
 - [ ] Connect Claude Desktop the same way, and correct the snippet in docs/mcp.md if the app wants something different (it was not checked against the official page)
-- [ ] Mac: open the app once. The Mac build has never been run by a person
-- [ ] Confirm on the mapped network drive that "Find where the photos are" marks a folder that is already a source
-- [ ] Watch a long backup for the progress bar: it should keep one length and never step back
+
+The Mac:
+
+- [ ] Open the app once. The Mac build has never been run by a person
+- [ ] Files kept only in iCloud are passed over and said, not downloaded
+
+What was added since 0.31, on Windows:
+
+- [ ] The backup history in full: open a row under "How earlier backups went"
+- [ ] The kinds of file Keevoro looks for: add one, switch one off, put the built-in list back
+- [ ] A backup, and a source, for photos only or videos only
+- [ ] Clearing unfinished copies from a folder, from the backup screen and from Settings
+- [ ] Keevoro's own folders (a backup, an old library) left out of a search and a survey, and said
+- [ ] The look inside a folder, on a big real folder
+- [ ] Where the space goes, on a whole real drive, and the map growing as it surveys
+- [ ] A step of a backup that goes wrong marked so, with the reason: an unplugged destination, say
+
+On a real Windows computer, what only a real one has:
+
+- [ ] Mapped network drives in the list on "Where are your photos?", and "Find where the photos are" marking a folder on one that is already a source
+- [ ] OneDrive-only files on a real OneDrive folder: counted and said, and nothing downloaded
+- [ ] Idle and battery: previews made during a backup wait on battery and slow down while the computer is in use
+- [ ] Long paths, over 260 characters, found and backed up
+- [ ] A long backup's progress bar keeps one length and never steps back
 
 ### 2. Loose ends from the API and MCP work
 
@@ -23,36 +52,29 @@ Small, known, and better closed while the work is fresh.
 
 - [x] Close the gap between checking a folder for an agent and opening it: pass the checked path on, so a link swapped in between cannot be followed
 - [x] After an agent looks through a folder, keep the automatic duplicate check to folders that agent may read
-- [ ] Decide what a key given in a request means when a key is also set in the environment (today the environment wins)
-- [ ] Pause and carry on should reach a survey or a duplicate check running alone in another program
+- [ ] Decide what a key given in a request means when a key is also set in the environment. Today the environment wins, and is what is tested and saved, silently. Needs the owner's decision
+- [ ] Pause and carry on should reach a survey or a duplicate check running alone in another program. They hold no lock, so no other program can see them; reaching them needs a way for a program to be seen without holding a backup, best built with showing other programs' jobs in the app
 - [x] `keevoro status` straight after another program starts a job can say "Nothing is running" for a moment
 - [x] `keevoro update --check` on Linux always says there is nothing newer
 - [x] Remove the unused MP4 conversion code, or bring it back as a proper feature (see "Old video conversion prompt"): removed; git history has it
 - [x] Third-party licence acknowledgements in the app, now including the MCP library
-- [ ] Progress notifications to an agent as a job runs, so it need not ask
+- [ ] Progress notifications to an agent as a job runs, so it need not ask. Left for now: a job answers at once, and the protocol ties progress to a request still waiting, so they could only come during a `job_status` wait
 
-### 3. See inside a source before choosing it
-
-Two views for the step where you decide what to look through, asked for by the owner after pointing Keevoro at a Pictures folder that also held texture packs, zip files and screen recordings. Both only read the source. See "Seeing inside a source".
-
-- [ ] A look inside a folder: a grid of thumbnails of the photos and video stills in it, before it is added
-- [x] A map of where the space goes: boxes sized by how much each folder and file takes, coloured by kind, in the style of WinDirStat, with what is a source and what is backed up, growing as it surveys, and remembered honestly (see "Seeing inside a source")
-
-### 4. Other kinds of file, carried along
+### 3. Other kinds of file, carried along
 
 Keevoro stays a photo and video tool, but can take your other files with it: music, documents, project files. Asked for by the owner. It comes after the map, which is where a person sees what else a folder holds. See "Other kinds of file".
 
 - [ ] A third kind in the kinds list, "other": found, backed up exactly and listed by folder, with no previews and no clever grouping
 
-### 5. Scheduled and repeat backups
+### 4. Scheduled and repeat backups
 
 The next thing a person would notice, and the reason the jobs work came first: a scheduled run is just another program asking the API to run a backup, taking its turn with the app. Start with the single command a system scheduler can call, then the schedule in the app, then running with the window closed. See "Scheduled and repeat backups".
 
-### 6. The catalog travels with the backup
+### 5. The catalog travels with the backup
 
 A copy of Keevoro's record inside each destination, so a backup can be opened on a new computer or after the record here is lost. This matters more once backups run unattended. See "The catalog".
 
-### 7. Cloud storage as sure as a folder
+### 6. Cloud storage as sure as a folder
 
 A folder backup is fingerprinted as it is sent and read back afterwards. Cloud storage is not yet held to the same standard.
 
@@ -63,11 +85,17 @@ A folder backup is fingerprinted as it is sent and read back afterwards. Cloud s
 
 ### Later
 
+- [ ] Prove, as a job the person starts, whether every photo in an old library is already in a backup, so it can be removed knowing nothing is lost (see "Keevoro's own folders are never a source")
+- [ ] Show other programs' jobs in the app, and let Pause reach a survey or a check for duplicates running alone in another program
 - [ ] Music done properly: artist and album from the file's tags, cover art as the picture, lengths (see "Other kinds of file"). Only if carrying music along as "other" proves to be used
 - [ ] Agents on other machines: reaching Keevoro over a network, with sign-in and encryption
 - [ ] The website: what Keevoro is, how to get it, that it is in beta, and where to send feedback (the spec is written; the domain and 16 questions are open)
 - [ ] Windows code signing and Apple notarisation, when certificates exist
 - [ ] Watch someone non-technical use the app without help
+
+### Done since 0.31
+
+- [x] See inside a source before choosing it: a look inside a folder (a grid of its photos and video stills, before it is added) and a map of where the space goes, with what is a source and what is backed up, growing as it surveys, and remembered honestly. Asked for by the owner after pointing Keevoro at a Pictures folder that also held texture packs, zip files and screen recordings. See "Seeing inside a source"
 
 ## Phase 1: Engine and CLI
 
@@ -99,7 +127,7 @@ Done when `keevoro scan` on a real old drive produces a believable summary and c
 
 - [ ] Fixture drives in `tests/fixtures/`: generated by a script, covering DCIM trees, Picasa `.picasa.ini`, FAT timestamps, broken JPEGs, duplicates across "drives", AppleDouble files
 - [ ] Read timeouts and a retry list for slow or failing drives
-- [ ] `keevoro-catalog`: persistent job queue (add it with the first job that needs it, the copy step in phase 2)
+- [x] `keevoro-catalog`: persistent job queue. Not needed after all: jobs are shared between programs through small files in Keevoro's data folder instead (0.31, see "Jobs across programs" in docs/developing.md)
 - [ ] Remember sources by volume serial (Windows) or volume UUID (macOS), so a drive is recognised under a new letter (today a source is recognised by its full path)
 - [ ] Video dates for AVI, MTS and WMV, which do not use the MP4 container
 - [ ] Near-duplicate grouping by perceptual hash ("Keep the best copy")
@@ -108,35 +136,37 @@ Done when `keevoro scan` on a real old drive produces a believable summary and c
 
 Done when the CLI can publish the current gallery's photos to R2 and the existing site still works.
 
+This phase built the library model: photos were gathered into a library folder of Keevoro's own, then published from it. In 0.30 that model was removed. Photos now go straight from a source to each destination, and the command line works on the app's named backups. The lines below marked "removed in 0.30" are kept as the history of what was built and why it went.
+
 - [x] `keevoro-collect`: copy to temp, re-read and hash, link into place without overwriting; never touch the source
 - [x] Library layout that mirrors the user's folders, `By date/` for unnamed files, `Undated/`
 - [x] Space check before copying
-- [x] `keevoro gather`: resumable, reports failures file by file, refuses a library inside a source
-- [x] Ticking single photos (`keevoro photos`, `keep --photo`, `skip --photo`) and keeping junk the user wants (`photos --junk`)
-- [ ] Merge same-named albums from different parents only when the user confirms in the preview tree
+- [x] `keevoro gather`: resumable, reports failures file by file, refuses a library inside a source (removed in 0.30)
+- [x] Ticking single photos and keeping junk the user wants (now `keevoro photos`, `keep`, `skip` and `set-aside` on a named backup)
+- [ ] Merge same-named albums from different parents only when the person confirms (the preview tree this was planned for went with the library; it would be on the Choose screen now)
 - [x] `keevoro-media`: thumbnails (400 px) and display copies (2048 px) as WebP, named by item id, with blurhash and upright rotation
-- [x] `keevoro gather` makes previews from the library's own copies and remembers which files cannot be previewed
+- [x] Previews made from the library's own copies, remembering which files cannot be previewed (now made from the source during a backup)
 - [x] Strip GPS and camera serials from published renditions (they are built from pixels only; a test checks no EXIF survives)
 - [x] `keevoro-media`: previews for RAW files from the largest embedded JPEG, turned upright
-- [x] `keevoro gather --retry-previews` for files that had no preview before
-- [ ] `keevoro-media`: previews for HEIC (needs libheif, or a newer ffmpeg)
-- [x] `keevoro-media`: video posters and opt-in MP4 conversion (remux when already H.264 and AAC; deinterlace; verify duration and a clean decode), using the ffmpeg found on the computer
-- [x] `keevoro gather --convert-videos`; videos carry duration, size, poster and MP4 in the index
-- [ ] Ship ffmpeg beside Keevoro, or use the OS encoders, so video features need no separate install (see the open question on licensing)
-- [ ] Hardware encoders (NVENC, Quick Sync, VideoToolbox) and an honest time estimate for conversion
-- [ ] "Keep only the MP4" option, with a clear warning
+- [x] `keevoro gather --retry-previews` for files that had no preview before (removed in 0.30)
+- [ ] `keevoro-media`: previews for HEIC on a Mac and Linux (on Windows the computer's own codecs open HEIC when its extension is installed; elsewhere it needs libheif, a newer ffmpeg, or ImageIO on a Mac)
+- [x] `keevoro-media`: video posters and opt-in MP4 conversion (remux when already H.264 and AAC; deinterlace; verify duration and a clean decode), using the ffmpeg found on the computer. The conversion went with `--convert-videos` in 0.30 and its unused code was removed after 0.37.1; posters stay
+- [x] `keevoro gather --convert-videos`; videos carry duration, size, poster and MP4 in the index (the conversion was removed in 0.30; duration, size and poster stay)
+- [x] Ship ffmpeg beside Keevoro, or use the OS decoders, so video features need no separate install: stills come from the computer's own decoder ("Video without extra software"). Shipping ffmpeg is only worth revisiting if MP4 conversion comes back (see the open question on licensing)
+- [ ] Hardware encoders (NVENC, Quick Sync, VideoToolbox) and an honest time estimate for conversion. Only if MP4 conversion comes back
+- [ ] "Keep only the MP4" option, with a clear warning. Only if MP4 conversion comes back
 - [x] `keevoro-storage-s3`: S3-compatible adapter on `aws-sdk-s3`, with presets for R2 and AWS S3; checksums only when required for compatibility
 - [x] Run the conformance suite against MinIO in Docker in CI
 - [ ] Run the conformance suite against real R2 and S3 buckets on demand (needs a throwaway bucket and a scoped key)
 - [x] Upload engine (`keevoro-publish`): resumable multipart, retry policy, `create_only` for originals, BLAKE3 in object metadata
-- [x] `keevoro publish --to-folder`: backs up to an external drive or NAS and writes the index last
-- [x] `keevoro publish --to-r2 / --to-s3 / --to-endpoint`, keys from the environment, connection checked before anything is sent
+- [x] `keevoro publish --to-folder`: backs up to an external drive or NAS and writes the index last (now `keevoro destinations add --folder` and `keevoro run`)
+- [x] `keevoro publish --to-r2 / --to-s3 / --to-endpoint`, keys from the environment, connection checked before anything is sent (now `keevoro destinations add`)
 - [x] Bucket listing check with a plain warning
 - [x] `keevoro-index`: v2 index with JSON Schema; unguessable name (`index/<random>.kvx`); v1 `gallery.json` export
-- [x] "Check my backup": `keevoro check` re-reads the library; `--backup` confirms every original is stored; `--read-back` downloads and compares
+- [x] "Check my backup": `keevoro check` re-reads the library; `--backup` confirms every original is stored; `--read-back` downloads and compares (now `keevoro check` on a named backup, at every destination)
 - [ ] Split the index into per-album files above about 5,000 items
-- [x] "Change my private link": `keevoro publish --new-link` writes the index under a new name and removes the old one
-- [x] Secrets in the OS keychain via `keyring`: `keevoro connect` and `keevoro disconnect`; the destination is remembered in the library
+- [x] "Change my private link": `keevoro publish --new-link` writes the index under a new name and removes the old one (removed in 0.30 with `publish`; not offered since)
+- [x] Secrets in the OS keychain via `keyring`: `keevoro connect` and `keevoro disconnect`; the destination is remembered in the library (now `keevoro destinations add` and `remove`, remembered in the backup)
 
 ## Releases and installing
 
@@ -158,15 +188,15 @@ Modelled on Task Rail's. See [docs/developing.md](docs/developing.md#cutting-a-r
 
 Done when a non-technical tester gets from a drive to a backup without help.
 
-- [x] `keevoro-engine`: the logic the command line and the app share (summary, discover view, gather, previews)
+- [x] `keevoro-engine`: the logic the command line and the app share (summary, discover view, gather, previews; gather removed in 0.30)
 - [x] Tauri 2 shell and app icon; screens in React, testable in a browser against a stand-in backend
 - [x] Welcome screen: one question, where the library lives
 - [x] Guided flow: a four-step journey always in view, one "next thing to do" on Discover, and a first-run explanation
-- [x] One question per screen: Find, Choose, Gather, Back up are the only navigation; each screen asks one thing and has one main button; plugged-in drives are offered by name; no library question up front
+- [x] One question per screen: Find, Choose, Gather, Back up are the only navigation; each screen asks one thing and has one main button; plugged-in drives are offered by name; no library question up front (Gather went with the library: three steps now)
 - [ ] Watch someone non-technical use the app without help and note where they hesitate (the plan's test for this phase)
 - [x] Discover screen as in the mockup: live search, hero collection, "Keep collection", more discoveries
 - [x] Sources sidebar with friendly names and live status
-- [x] Archive screen: what is kept, gathering with progress in human terms
+- [x] Archive screen: what is kept, gathering with progress in human terms (now the backup screen)
 - [x] Installers: the Release workflow builds a Windows installer (NSIS, per-user) and a universal macOS disk image; CI builds them on main as downloadable artefacts
 - [x] In-app updates: the app offers a newer release and installs it in one click, using the same checksum check as `keevoro update` (no signing key needed)
 - [ ] Signed updates (Tauri updater signature, as Task Rail does) on top of the checksum check; needs an updater signing key in repository secrets
@@ -190,14 +220,14 @@ Done when a non-technical tester gets from a drive to a backup without help.
 - [ ] Near-duplicates: the same photo resized or re-saved (shown for review, never left out automatically)
 - [x] Survey a drive in seconds, opening no file, and suggest the folders that hold photos and videos
 - [x] Look through several ticked folders one after another
-- [ ] Offer the survey for any folder, not only a whole drive
-- [ ] Remember a survey so the suggestions are there next time without asking again
+- [ ] Offer the survey for any folder, not only a whole drive. Partly there: any folder is surveyed for the look inside and the map, and `keevoro survey FOLDER` works, but "Find the folders with photos" is offered only for a whole drive
+- [ ] Remember a survey so the suggestions are there next time without asking again. Surveys are remembered for the look inside and the map ("Seeing inside a source"); the suggestions screen does not yet read them
 - [ ] Windows: read the NTFS file table directly for a survey of a whole disk in about a second (needs administrator rights)
 - [ ] Survey every drive at once from the first screen
 - [x] Hold down on a picture to see it screen-sized without changing its tick
 - [x] Shimmering placeholders for thumbnails still on their way
-- [ ] Play a video in the closer look (today it shows a still)
-- [ ] Only fetch thumbnails for the tiles on screen, so a collection of a thousand does not ask for them all at once
+- [ ] Play a video in the closer look (today it shows a still and its length). Decided against for now
+- [x] Only fetch thumbnails for the tiles on screen, so a collection of a thousand does not ask for them all at once (the collection uses the look inside's grid, `VirtualTiles` and `PictureQueue`)
 - [x] One button to look through every source again for new photos
 - [ ] Say how many are new after looking again ("12 new photos"), not only the total
 - [ ] A changed or deleted file on a source: say so (today an edited photo is backed up as a new file and nothing is ever removed from a backup)
@@ -212,9 +242,9 @@ Done when a non-technical tester gets from a drive to a backup without help.
 - [x] Make previews during a backup at low priority, with fewer workers than the foreground and one reader per source, so they give way to everything else
 - [ ] Run the background check for duplicates at low priority, and with fewer readers, so it gives way to everything else
 - [ ] Notice when a drive is plugged in and offer to look through it
-- [ ] Time left ("About 20 minutes"), and cancel for a search or a gather
+- [ ] Time left ("About 20 minutes") for a search. Stopping a search is built; gather went in 0.30
 - [ ] "Show folders" view with tick boxes, for people who want control
-- [ ] Old video conversion prompt
+- [ ] Old video conversion prompt. Not asked for since the library went; the code was removed after 0.37.1 and git history has it
 
 ### Speed
 
@@ -229,7 +259,7 @@ Done when a non-technical tester gets from a drive to a backup without help.
 - [x] Several destinations for one backup, sent one after another, each counted on its own
 - [ ] Several destinations sent at the same time, each file read from the source once
 - [ ] Previews on or off per destination (today it is per backup)
-- [x] Command line: `connect` and `publish` know one destination; the app's list is not yet reachable from it
+- [x] Command line: every destination of a backup, the same list as the app's (`keevoro destinations`, since 0.30)
 - [x] Files are fingerprinted as they are sent, not read once beforehand; only lookalikes are read first
 - [ ] Cloud storage: label an object with its fingerprint when that is only learnt during the upload
 - [x] Six files at once to cloud storage
@@ -283,7 +313,7 @@ Separate, remembered jobs ("Drone footage to R2", "Family photos to a folder"), 
 - [ ] Show how much room a cloud bucket has, where the provider will say
 - [x] More than one destination per backup
 - [x] Reset to factory settings from Settings (only ever removes Keevoro's own data)
-- [ ] Rename and remove a backup
+- [ ] Rename and remove a backup in the app. The API and the command line have it (`keevoro backups rename` and `forget`); the app does not yet
 - [x] A backup that only looks for videos, or only photos, and one source that differs from its backup
 - [x] Verify a folder destination by reading it back automatically after sending
 - [x] Backups on the command line
@@ -412,6 +442,10 @@ A map of where the space goes
 - [x] Usable without a mouse and by a screen reader: the list carries everything the map does
 - [x] Remember a survey, so the map is there next time without waiting
 
+Not built
+
+- [ ] Proving that every photo in an old library is already backed up, so it can be removed: a job of its own, under "Keevoro's own folders are never a source"
+
 Decided
 
 - [x] Whether the map shows everything on the drive or only folders that hold photos and videos (the first is more useful for finding things; the second is closer to what Keevoro is for): everything, with what is not a photo or video muted
@@ -473,7 +507,8 @@ The catalog is one SQLite file per backup, `.keevoro/catalog.sqlite`. Losing it 
 
 - [ ] `keevoro-platform` for macOS: DiskArbitration, volume UUIDs, Keychain
 - [ ] Apple Photos and iPhoto library import with album names
-- [ ] Developer ID signing and notarisation; CI builds on macOS
+- [x] CI builds and tests on macOS (by hand, with all platforms ticked) and releases have a universal Mac build
+- [ ] Developer ID signing and notarisation
 
 ## Phase 5: Polish
 
@@ -482,4 +517,4 @@ The catalog is one SQLite file per backup, `.keevoro/catalog.sqlite`. Losing it 
 - [ ] Password-protected 7z export (AES-256, encrypted names)
 - [ ] Private-link and sign-in sharing
 - [ ] Smarter collection titles and cover choice, on-device only
-- [ ] RAW previews, more storage presets (B2, Wasabi, MinIO), auto-update
+- [ ] More storage presets (B2, Wasabi, MinIO). RAW previews (phase 2) and updates (phase 3) are done
