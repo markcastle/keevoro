@@ -27,7 +27,7 @@ Small, known, and better closed while the work is fresh.
 - [ ] Pause and carry on should reach a survey or a duplicate check running alone in another program
 - [x] `keevoro status` straight after another program starts a job can say "Nothing is running" for a moment
 - [x] `keevoro update --check` on Linux always says there is nothing newer
-- [ ] Remove the unused MP4 conversion code, or bring it back as a proper feature (see "Old video conversion prompt")
+- [x] Remove the unused MP4 conversion code, or bring it back as a proper feature (see "Old video conversion prompt"): removed; git history has it
 - [ ] Third-party licence acknowledgements in the app, now including the MCP library
 - [ ] Progress notifications to an agent as a job runs, so it need not ask
 

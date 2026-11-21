@@ -31,7 +31,7 @@ pub mod raw;
 pub mod video;
 
 pub use decode::{Decoder, Decoders};
-pub use video::{Conversion, Still, VideoInfo, VideoTools};
+pub use video::{Still, VideoInfo, VideoTools};
 
 use image::imageops::FilterType;
 use image::DynamicImage;
