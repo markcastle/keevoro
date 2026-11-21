@@ -136,6 +136,10 @@ const OTHER_FOLDERS: { folder: string[]; files: [string, number][] }[] = [
 const onlineOnlySaid = (n: number) =>
   `${count(n, 'file')} here ${n === 1 ? 'is' : 'are'} in OneDrive only, not on this computer, so Keevoro did not open ${n === 1 ? 'it' : 'them'}. To include ${n === 1 ? 'it' : 'them'}, make ${n === 1 ? 'it' : 'them'} available offline in OneDrive first, then look again.`
 
+/** As a search says it, knowing how big they are from each file's listing. */
+const onlineOnlySized = (n: number, size: string) =>
+  `${count(n, 'file')}, ${size}, ${n === 1 ? 'is' : 'are'} in OneDrive only, not on this computer, so Keevoro did not open ${n === 1 ? 'it' : 'them'}. To include ${n === 1 ? 'it' : 'them'}, make ${n === 1 ? 'it' : 'them'} available offline in OneDrive first, then look again.`
+
 /**
  * The owner's own case, made up: a Pictures folder that holds a camera roll
  * big enough to need a grid that only draws what is on screen, screen
@@ -722,6 +726,14 @@ export function demoBackend(): Backend {
     return [
       { path: 'E:\\', name: 'KINGSTON (E:)', detail: 'USB or external drive \u00b7 32 GB', removable: true, askFirst: false },
       ...card,
+      {
+        path: 'C:\\Users\\You\\OneDrive',
+        name: 'OneDrive',
+        detail: 'Synced with Microsoft\u2019s cloud \u00b7 C:\\Users\\You\\OneDrive',
+        removable: false,
+        askFirst: false,
+        synced: 'oneDrive',
+      },
       { path: 'C:\\', name: 'Windows (C:)', detail: 'This computer\u2019s disk \u00b7 512 GB', removable: false, askFirst: true },
     ]
   }
@@ -870,7 +882,9 @@ export function demoBackend(): Backend {
         // Looking through a source again replaces what was known about it.
         const known = sources.findIndex((s) => s.root === root)
         // The owner's Pictures folder is kept in OneDrive, part of it online only.
-        const online = root.endsWith('\\Pictures') ? { onlineOnly: 412, onlineOnlySaid: onlineOnlySaid(412) } : {}
+        const online = root.endsWith('\\Pictures')
+          ? { onlineOnly: 412, onlineOnlySaid: onlineOnlySized(412, '18.4 GB'), onlineOnlyBytes: 19_756_849_561 }
+          : {}
         const entry = { id: known >= 0 ? sources[known].id : Date.now(), name: known >= 0 ? sources[known].name : name, root, items: photos + videos, bytes: (photos * 3.2 + videos * 48) * 1024 * 1024, ...online }
         if (known >= 0) sources[known] = entry
         else sources.push(entry)

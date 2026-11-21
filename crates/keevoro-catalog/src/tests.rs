@@ -51,6 +51,7 @@ fn report(root: &str) -> ScanReport {
         }],
         other_files: 41,
         online_only: Vec::new(),
+        online_only_bytes: Vec::new(),
         stopped: false,
         gone: false,
     }
@@ -807,7 +808,9 @@ fn raw_files_wrongly_set_aside_by_an_earlier_version_are_put_back() {
         c.save_scan("Card", &report, 1).unwrap();
         // Rewind to before the fix, so opening again applies it, taking
         // away what later steps add so that they can add it again.
-        c.conn.execute_batch("ALTER TABLE uploaded DROP COLUMN gone").unwrap();
+        c.conn
+            .execute_batch("ALTER TABLE uploaded DROP COLUMN gone; DROP TABLE online_only;")
+            .unwrap();
         c.conn.pragma_update(None, "user_version", 6).unwrap();
     }
     let c = Catalog::open(&file).unwrap();
@@ -927,6 +930,38 @@ fn how_many_files_were_only_online_is_kept_with_the_source_until_it_is_looked_th
             [],
             |r| r.get(0),
         )
+        .unwrap();
+    assert_eq!(left, 0, "nothing is kept about a source forgotten");
+}
+
+#[test]
+fn each_file_only_online_is_remembered_with_its_size_until_the_source_is_looked_through_again_or_forgotten() {
+    let mut c = Catalog::in_memory().unwrap();
+    let mut first = report("/media/onedrive");
+    first.online_only = vec![
+        PathBuf::from("/media/onedrive/a.jpg"),
+        PathBuf::from("/media/onedrive/b.mov"),
+    ];
+    first.online_only_bytes = vec![3_000_000, 900_000_000];
+    let id = c.save_scan("OneDrive", &first, 100).unwrap();
+    let source = &c.sources().unwrap()[0];
+    assert_eq!((source.online_only, source.online_only_bytes), (2, Some(903_000_000)));
+    assert_eq!(
+        c.online_only_files(id).unwrap(),
+        [
+            (PathBuf::from("/media/onedrive/a.jpg"), 3_000_000),
+            (PathBuf::from("/media/onedrive/b.mov"), 900_000_000)
+        ]
+    );
+    // Made available on this computer, then looked through again.
+    let id = c.save_scan("OneDrive", &report("/media/onedrive"), 200).unwrap();
+    assert_eq!(c.sources().unwrap()[0].online_only_bytes, None);
+    assert!(c.online_only_files(id).unwrap().is_empty());
+    let id = c.save_scan("OneDrive", &first, 300).unwrap();
+    assert!(c.forget_source(id).unwrap());
+    let left: i64 = c
+        .conn
+        .query_row("SELECT COUNT(*) FROM online_only", [], |r| r.get(0))
         .unwrap();
     assert_eq!(left, 0, "nothing is kept about a source forgotten");
 }

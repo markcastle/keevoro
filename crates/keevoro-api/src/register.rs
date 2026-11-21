@@ -121,7 +121,7 @@ register! {
 
     // Finding
     PlacesList = "places.list",
-        "Drives plugged into this computer",
+        "Drives plugged into this computer, and folders a cloud service keeps on it, such as OneDrive",
         changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     PlacesSurvey = "places.survey",
         "Finds the folders in a place that hold photos and videos, reading listings only",
@@ -490,7 +490,8 @@ impl Op {
             Op::PlacesList => (
                 "list_places",
                 "Lists the drives plugged into this computer that could be looked through for photos, with their \
-                 names and sizes. Changes nothing.",
+                 names and sizes, and the folders OneDrive, Dropbox, Google Drive and iCloud Drive keep on it, by \
+                 name. Changes nothing.",
             ),
             Op::PlacesSurvey => (
                 "survey_place",

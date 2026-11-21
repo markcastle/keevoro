@@ -136,6 +136,11 @@ pub struct ScanReport {
     /// (OneDrive's "files on demand", say), not on this computer. They are
     /// passed over unopened, as opening one downloads it.
     pub online_only: Vec<PathBuf>,
+    /// The size of each of those, in the same order, as the folder listing
+    /// gives it: the file is never opened to learn it. Empty in a report
+    /// put together before sizes were kept.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub online_only_bytes: Vec<u64>,
     /// True when the search was stopped before it had looked everywhere,
     /// so this is only part of what is there.
     #[serde(skip)]
@@ -172,8 +177,8 @@ const WORTH_ANNOUNCING: u64 = 64 * 1024 * 1024;
 enum Looked {
     Media(Box<FoundItem>),
     Other,
-    /// Only in online storage: not opened.
-    OnlineOnly,
+    /// Only in online storage: not opened. Its size, from the listing.
+    OnlineOnly(u64),
     Unreadable(String),
     Skipped(SkipReason),
     /// A reader is about to start on a large file of this many bytes.
@@ -207,7 +212,7 @@ pub fn scan(root: &Path, opts: &ScanOptions, on_progress: &mut dyn FnMut(&ScanPr
     let mut found: Vec<(u64, FoundItem)> = Vec::new();
     let mut skipped: Vec<(u64, SkippedFolder)> = Vec::new();
     let mut unreadable: Vec<(u64, Unreadable)> = Vec::new();
-    let mut online: Vec<(u64, PathBuf)> = Vec::new();
+    let mut online: Vec<(u64, PathBuf, u64)> = Vec::new();
     // Set when the place itself is found to have gone: everything from then
     // on fails, and is not worth reading or reporting one by one.
     let gone = AtomicBool::new(false);
@@ -290,7 +295,7 @@ pub fn scan(root: &Path, opts: &ScanOptions, on_progress: &mut dyn FnMut(&ScanPr
                     },
                 )),
                 Looked::Other => report.other_files += 1,
-                Looked::OnlineOnly => online.push((order, path.clone())),
+                Looked::OnlineOnly(bytes) => online.push((order, path.clone(), bytes)),
                 Looked::Media(item) => {
                     match item.kind {
                         MediaKind::Photo => progress.photos += 1,
@@ -318,8 +323,9 @@ pub fn scan(root: &Path, opts: &ScanOptions, on_progress: &mut dyn FnMut(&ScanPr
     report.items = found.into_iter().map(|(_, item)| item).collect();
     report.skipped = skipped.into_iter().map(|(_, s)| s).collect();
     report.unreadable = unreadable.into_iter().map(|(_, u)| u).collect();
-    online.sort_by_key(|(order, _)| *order);
-    report.online_only = online.into_iter().map(|(_, p)| p).collect();
+    online.sort_by_key(|(order, _, _)| *order);
+    report.online_only_bytes = online.iter().map(|(_, _, bytes)| *bytes).collect();
+    report.online_only = online.into_iter().map(|(_, p, _)| p).collect();
     report.stopped = opts.stopped();
     report.gone = has_gone();
     if report.gone {
@@ -398,17 +404,22 @@ fn walk(
         });
         // Only in online storage: opening it would download it. Asked of
         // what the listing says, and only of files that could be photos.
-        let online = !passed_over
-            && entry
+        let online = if passed_over {
+            None
+        } else {
+            entry
                 .metadata()
-                .is_ok_and(|listing| opts.online.online_only(entry.path(), &listing));
+                .ok()
+                .filter(|listing| opts.online.online_only(entry.path(), listing))
+                .map(|listing| listing.len())
+        };
         let path = entry.into_path();
         let sent = if passed_over {
             // Programs, documents and music, and kinds the person switched
             // off, are not opened at all.
             done.send((order, path, Looked::Other)).is_ok()
-        } else if online {
-            done.send((order, path, Looked::OnlineOnly)).is_ok()
+        } else if let Some(bytes) = online {
+            done.send((order, path, Looked::OnlineOnly(bytes))).is_ok()
         } else {
             to_read.send((order, path)).is_ok()
         };

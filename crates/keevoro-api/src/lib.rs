@@ -47,6 +47,7 @@ pub mod register;
 pub mod removing;
 pub mod reset;
 pub mod space;
+pub mod synced;
 pub mod wants;
 pub mod words;
 

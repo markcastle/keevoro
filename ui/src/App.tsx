@@ -81,6 +81,7 @@ import { ThereNow, WhatWasFound } from './whatIsThere'
 import { ManageBackups } from './manageBackups'
 import { CheckLine, CheckStopped } from './checking'
 import { certain, outOfReachLine } from './thereWords'
+import { SyncedCard } from './synced'
 import type { Theme } from './theme'
 
 type Step = 'find' | 'choose' | 'send'
@@ -978,7 +979,8 @@ function FindScreen(props: {
   const removable = (places?.filter((p) => p.removable) ?? []).sort(
     (a, b) => Number(arrived.has(b.path)) - Number(arrived.has(a.path)),
   )
-  const fixed = places?.filter((p) => !p.removable) ?? []
+  const fixed = places?.filter((p) => !p.removable && !p.synced) ?? []
+  const synced = places?.filter((p) => p.synced) ?? []
   const scroller = () => scrollerOf(document.querySelector('main'))
 
   if (inside) {
@@ -1217,6 +1219,9 @@ function FindScreen(props: {
                 arrived={arrived.has(place.path)}
                 onClick={() => choose(place)}
               />
+            ))}
+            {synced.map((place) => (
+              <SyncedCard key={place.path} place={place} added={done.has(place.path.replace(/[\\/]+$/, ''))} onClick={() => choose(place)} />
             ))}
             <button className="place" onClick={pick}>
               <FolderIcon large />

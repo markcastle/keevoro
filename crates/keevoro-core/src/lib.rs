@@ -22,6 +22,7 @@ pub mod meter;
 pub mod pause;
 pub mod places;
 pub mod skip;
+pub mod synced;
 pub mod wants;
 pub mod words;
 

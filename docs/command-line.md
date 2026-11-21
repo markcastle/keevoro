@@ -25,7 +25,7 @@ Most commands work on one backup. Name it with `-b`. Leave `-b` out and the back
 
 A **source** is anywhere Keevoro looks for photos: a drive, a USB stick, a memory card, a folder. Your sources are only ever read. Nothing on them is changed, moved or deleted.
 
-`keevoro places` lists the drives plugged in. On a big disk, a survey finds the folders that hold photos in seconds. It reads folder listings only and never opens a file:
+`keevoro places` lists the drives plugged in, and the folders OneDrive, Dropbox, Google Drive and iCloud Drive keep on this computer, by name. On a big disk, a survey finds the folders that hold photos in seconds. It reads folder listings only and never opens a file:
 
 ```sh
 keevoro survey "D:\"
@@ -274,7 +274,7 @@ The words each command shows in `keevoro --help` come from the same list the app
 
 | Command | What it does |
 | --- | --- |
-| `keevoro places` | The drives plugged into this computer. |
+| `keevoro places` | The drives plugged into this computer, and the folders OneDrive, Dropbox, Google Drive and iCloud Drive keep on it. |
 | `keevoro survey PLACE` | Finds the folders in a drive or folder that hold photos and videos, reading listings only. |
 | `keevoro folders PLACE` | The folders inside a surveyed place that hold photos or videos, with how many each holds. |
 | `keevoro files FOLDER [--from N] [--count N] [--sort name\|newest\|oldest] [--photos\|--videos\|--others]` | The photos and videos (and other files carried along) directly in one folder, a page at a time, by name or by the file's date, with each video's length. Nothing is added. |

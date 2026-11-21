@@ -143,6 +143,8 @@ export type Place = {
   removable: boolean
   /** A whole disk big enough to ask before looking through all of it. */
   askFirst: boolean
+  /** The cloud service that keeps this folder in step, for a synced folder rather than a drive. */
+  synced?: 'oneDrive' | 'dropbox' | 'googleDrive' | 'iCloud'
 }
 
 /**
@@ -191,6 +193,8 @@ export type Source = {
    */
   onlineOnly?: number
   onlineOnlySaid?: string
+  /** How big those files are together, from each one's listing; left out when not known. */
+  onlineOnlyBytes?: number
   /** Folders left out of this backup that are in it, or that it is in. */
   leftOut?: string[]
   /** Its own way of arranging its photos and videos; left out when it follows the backup. */

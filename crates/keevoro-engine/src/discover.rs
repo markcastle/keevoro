@@ -42,6 +42,10 @@ pub struct SourceView {
     /// The same in words, with how to include them.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub online_only_said: Option<String>,
+    /// How big those files are together, as their listings said; left out
+    /// when not known (looked through by an older version).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub online_only_bytes: Option<u64>,
     /// Folders left out of this backup that are in it, or that it is in,
     /// as a person would write them, each with Put back beside it.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -482,7 +486,12 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
             items: s.items,
             bytes: s.bytes,
             online_only: s.online_only,
-            online_only_said: crate::summary::online_only(usize::try_from(s.online_only).unwrap_or(usize::MAX)),
+            online_only_said: crate::summary::online_only(
+                usize::try_from(s.online_only).unwrap_or(usize::MAX),
+                s.online_only_bytes,
+                &s.root,
+            ),
+            online_only_bytes: s.online_only_bytes,
         })
         .collect();
     Ok(Discover {
@@ -724,6 +733,49 @@ pub(crate) mod tests {
         }
         // Asking twice is harmless.
         assert!(!forget_source(&mut catalog, id).unwrap());
+    }
+
+    /// Says a file is only online when its name says so, as Windows'
+    /// attributes or a Mac's flags would.
+    #[derive(Debug)]
+    struct NamedOnline;
+
+    impl keevoro_scan::OnlineCheck for NamedOnline {
+        fn online_only(&self, file: &Path, _: &std::fs::Metadata) -> bool {
+            file.to_string_lossy().contains("(online)")
+        }
+    }
+
+    #[test]
+    fn a_source_in_onedrive_says_how_many_files_and_how_much_are_only_online_and_how_to_include_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let onedrive = dir.path().join("OneDrive");
+        fs::create_dir_all(onedrive.join("Pictures")).unwrap();
+        fs::write(onedrive.join("Pictures/here.jpg"), real_jpeg(5)).unwrap();
+        fs::write(onedrive.join("Pictures/away (online).jpg"), vec![0u8; 3_000]).unwrap();
+        fs::write(onedrive.join("Pictures/clip (online).mp4"), vec![0u8; 7_000]).unwrap();
+        let library = dir.path().join("Keevoro Library");
+        let mut catalog = Catalog::open_in_library(&library).unwrap();
+        let options = keevoro_scan::ScanOptions {
+            online: std::sync::Arc::new(NamedOnline),
+            ..Default::default()
+        };
+        crate::scan_into_with(&mut catalog, &onedrive, None, &options, &mut |_| {}, &mut || {}).unwrap();
+        let source = &discover(&library, &catalog).unwrap().sources[0];
+        assert_eq!(
+            (source.items, source.online_only, source.online_only_bytes),
+            (1, 2, Some(10_000))
+        );
+        assert_eq!(
+            source.online_only_said.as_deref(),
+            Some(
+                "2 files, 9.8 KB, are in OneDrive only, not on this computer, so Keevoro did not open them. To \
+                 include them, make them available offline in OneDrive first, then look again."
+            )
+        );
+        // Kept for a later step that fetches them: each, with its size.
+        let files = catalog.online_only_files(source.id).unwrap();
+        assert_eq!(files.iter().map(|(_, b)| b).sum::<u64>(), 10_000);
     }
 
     #[test]

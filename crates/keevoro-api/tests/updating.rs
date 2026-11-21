@@ -171,6 +171,14 @@ fn everything_a_person_set_and_keevoro_recorded_in_0_37_1_is_there_after_updatin
         "{sources}"
     );
     assert_eq!(sources[0]["onlineOnly"], 3);
+    // 0.37.1 only counted them, so their size is not known (catalog step
+    // 13 keeps it from the next look) and they are said as before.
+    assert_eq!(sources[0].get("onlineOnlyBytes"), None, "{sources}");
+    let said = sources[0]["onlineOnlySaid"].as_str().unwrap();
+    assert!(
+        said.starts_with("3 files here are in ") && said.ends_with("first, then look again."),
+        "{said}"
+    );
 
     // What the backup and each source are for: photos only for the backup,
     // videos only for the drone, which 0.39.0 lost.

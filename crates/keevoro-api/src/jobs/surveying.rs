@@ -112,7 +112,7 @@ pub(super) fn start(
                         bytes: h.bytes,
                         likely_photos: h.likely == keevoro_scan::survey::Likely::Photos,
                         online_only: h.online_only,
-                        online_only_said: keevoro_engine::summary::online_only(h.online_only),
+                        online_only_said: keevoro_engine::summary::online_only(h.online_only, None, &h.folder),
                     }
                 })
                 .collect(),
@@ -123,7 +123,7 @@ pub(super) fn start(
             stopped: found.stopped,
             left_out: super::own::left_out(&found.left_out, &[]),
             online_only: found.online_only,
-            online_only_said: keevoro_engine::summary::online_only(found.online_only),
+            online_only_said: keevoro_engine::summary::online_only(found.online_only, None, &root),
         };
         if let Some(said) = &view.online_only_said {
             ctx.log.say(&format!("In {}: {said}", root.display()));

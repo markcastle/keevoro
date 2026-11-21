@@ -555,8 +555,10 @@ Cloud drives as sources
 
 "Could the software be used to scan and backup cloud drives… merging up several old cloud backups into one cloud or local drive. Moving to a cheaper cloud." Decided by the owner: the first two steps, with signing in to a service directly left for later.
 
-- [ ] Recognise the synced folders of OneDrive, Dropbox, Google Drive and iCloud Drive and offer them by name on the first screen
-- [ ] For files that are online only, offer "Fetch these and back them up", a few at a time, freeing each afterwards so the disk does not fill
+- [x] Recognise the synced folders of OneDrive, Dropbox, Google Drive and iCloud Drive and offer them by name on the first screen
+- [x] Remember each file that is online only, with its size from the listing, and say how much: "412 files, 18.4 GB, are in OneDrive only, not on this computer"
+- [ ] For files that are online only, offer "Fetch these and back them up", a few at a time, freeing each afterwards so the disk does not fill. Waiting on the owner: freeing a fetched file sets a small attribute on a file in the person's cloud folder, an exception to "sources are never edited". What is kept for it is ready (`Catalog::online_only_files`); until then the screen says to make them available offline first
+- [ ] Prove on real computers which synced folders are found: OneDrive personal and work, Dropbox personal and business, Google Drive streamed (its own drive) and mirrored, iCloud for Windows; on a Mac, each service under ~/Library/CloudStorage and iCloud Drive
 - [ ] A bucket as a source: read from Amazon S3, Cloudflare R2 and compatible storage, so a backup can be moved to a cheaper cloud or two merged
 
 Already answered

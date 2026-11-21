@@ -134,11 +134,22 @@ try {
   await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
   assert.match(await currentStep(), /Find your photos/)
   const places = page.locator('.places .place')
-  assert.equal(await places.count(), 3, 'the USB drive, a folder, and this computer’s disk')
+  assert.equal(await places.count(), 4, 'the USB drive, OneDrive, a folder, and this computer’s disk')
   assert.match(await places.first().innerText(), /^KINGSTON \(E:\)\s+USB or external drive · 32 GB$/)
+  // A folder OneDrive keeps in step is offered by its name, after the
+  // drives plugged in, and never looks chosen.
+  const oneDrive = page.locator('.place.synced')
+  assert.match(await oneDrive.innerText(), /^OneDrive\s+Synced with Microsoft’s cloud · C:\\Users\\You\\OneDrive$/)
+  assert.equal(await places.nth(1).innerText(), await oneDrive.innerText(), 'after the USB drive')
+  assert.equal(
+    await oneDrive.evaluate((el) => getComputedStyle(el).backgroundColor),
+    await places.first().evaluate((el) => getComputedStyle(el).backgroundColor),
+    'shaded like any other card',
+  )
   assert.ok(await page.locator('.steps button').nth(1).isDisabled(), 'later steps wait their turn')
   assert.equal(await page.locator('.next').count(), 0, 'nothing to move on to until something is found')
   await shot('2-find')
+  await fitsNarrow('The first screen with a synced folder')
 
   await places.first().click()
   // While it looks, it says what it is doing for anyone who wonders.
@@ -528,14 +539,16 @@ try {
   await page.locator('.kept li.source').nth(1).waitFor()
   assert.equal(await page.locator('.kept li.source').count(), 2, 'each ticked folder became a source')
   assert.equal(await page.locator('.survey').count(), 0)
-  // After the search, on screen, not only in the log; and kept with the source.
-  await page.locator('.found-it .online-only').getByText(onlineSaid).waitFor()
-  assert.match(await page.locator('.kept li.source').nth(1).locator('.online-only').innerText(), onlineSaid)
+  // After the search, on screen, not only in the log; and kept with the
+  // source, with how much they come to, from each file's listing.
+  const onlineSized = /^412 files, 18\.4 GB, are in OneDrive only, not on this computer, so Keevoro did not open them\. To include them, make them available offline in OneDrive first, then look again\.$/
+  await page.locator('.found-it .online-only').getByText(onlineSized).waitFor()
+  assert.match(await page.locator('.kept li.source').nth(1).locator('.online-only').innerText(), onlineSized)
   await page.locator('.kept li.source').nth(1).scrollIntoViewIfNeeded()
   await shot('9q2-online-only')
   await page.locator('.steps button').nth(1).click()
   await page.locator('.steps button').nth(0).click()
-  assert.match(await page.locator('.kept li.source').nth(1).locator('.online-only').innerText(), onlineSaid, 'still said after going elsewhere')
+  assert.match(await page.locator('.kept li.source').nth(1).locator('.online-only').innerText(), onlineSized, 'still said after going elsewhere')
 
   // One button looks through every source again for anything new.
   await page.getByRole('button', { name: 'Look through all 2 again for new photos' }).click()

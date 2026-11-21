@@ -259,7 +259,7 @@ fn look_through(
                 report.skipped.len(),
                 report.unreadable.len()
             ));
-            if let Some(said) = keevoro_engine::summary::online_only(report.online_only.len()) {
+            if let Some(said) = online_only_said(report) {
                 log.say(&format!("In {}: {said}", friendly_path(source)));
             }
             for left in &left_out_of(report, &found_before) {
@@ -298,13 +298,17 @@ fn look_through(
         // What could not be looked at without downloading it is said on
         // the screen too, so no photo is left out silently.
         online_only: result.as_ref().map_or(0, |r| r.online_only.len()),
-        online_only_said: result
-            .as_ref()
-            .ok()
-            .and_then(|r| keevoro_engine::summary::online_only(r.online_only.len())),
+        online_only_said: result.as_ref().ok().and_then(online_only_said),
         problem: result.err().map(|e| format!("{e:#}")),
         unplugged,
     }
+}
+
+/// What a look through said of the files it found only in online storage.
+fn online_only_said(report: &keevoro_scan::ScanReport) -> Option<String> {
+    let bytes =
+        (report.online_only_bytes.len() == report.online_only.len()).then(|| report.online_only_bytes.iter().sum());
+    keevoro_engine::summary::online_only(report.online_only.len(), bytes, &report.root)
 }
 
 /// The folders Keevoro made that a look through left out, said.

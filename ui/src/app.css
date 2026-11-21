@@ -997,6 +997,10 @@ progress::-webkit-progress-value {
   transition: border-color 0.15s, transform 0.15s;
 }
 
+.place.synced span {
+  overflow-wrap: anywhere;
+}
+
 .place:hover {
   border-color: var(--primary);
   transform: translateY(-1px);

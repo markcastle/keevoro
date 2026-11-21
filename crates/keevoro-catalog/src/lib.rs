@@ -170,6 +170,19 @@ const MIGRATIONS: &[&str] = &[
      SELECT 'arrange', '\"byDate\"'
      WHERE EXISTS (SELECT 1 FROM sources) OR EXISTS (SELECT 1 FROM collected)
         OR EXISTS (SELECT 1 FROM settings);",
+    // 13: the files a look through a source passed over as only in online
+    // storage (OneDrive's "files on demand", say) were only counted, in the
+    // setting `online_only:<root>`. Each is now remembered with its size,
+    // as the folder listing gave it, so the screen can say how much is not
+    // on this computer. The count is still written, for older versions. A
+    // source looked through before has no rows until it is looked through
+    // again, and says its count as it did.
+    "CREATE TABLE online_only (
+         source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+         path      TEXT NOT NULL,
+         bytes     INTEGER NOT NULL
+     );
+     CREATE INDEX online_only_by_source ON online_only(source_id);",
 ];
 
 /// What a look at a destination found of a file Keevoro sent there.
@@ -254,6 +267,10 @@ pub struct Source {
     /// Files there that could be photos or videos but were only in online
     /// storage the last time it was looked through, so were passed over.
     pub online_only: u64,
+    /// How big those are together, as their listings said. `None` when it
+    /// is not known: a source last looked through by a version that only
+    /// counted them.
+    pub online_only_bytes: Option<u64>,
 }
 
 /// One kind of file found on a source, by the ending of its name.
@@ -453,6 +470,13 @@ impl Catalog {
             for u in &report.unreadable {
                 unreadable.execute(params![source, path_text(&u.path), u.error])?;
             }
+            // Sizes are kept only when each file has one.
+            if report.online_only_bytes.len() == report.online_only.len() {
+                let mut online = tx.prepare("INSERT INTO online_only (source_id, path, bytes) VALUES (?1, ?2, ?3)")?;
+                for (path, bytes) in report.online_only.iter().zip(&report.online_only_bytes) {
+                    online.execute(params![source, path_text(path), to_i64(*bytes)])?;
+                }
+            }
         }
         tx.commit()?;
         Ok(source)
@@ -464,7 +488,8 @@ impl Catalog {
             "SELECT s.id, s.name, s.root, s.scanned_at,
                     (SELECT COUNT(*) FROM items i WHERE i.source_id = s.id),
                     (SELECT COALESCE(SUM(i.bytes), 0) FROM items i WHERE i.source_id = s.id),
-                    (SELECT CAST(value AS INTEGER) FROM settings WHERE key = 'online_only:' || s.root)
+                    (SELECT CAST(value AS INTEGER) FROM settings WHERE key = 'online_only:' || s.root),
+                    (SELECT SUM(o.bytes) FROM online_only o WHERE o.source_id = s.id)
              FROM sources s ORDER BY s.id",
         )?;
         let rows = q.query_map([], |r| {
@@ -479,7 +504,26 @@ impl Catalog {
                     .get::<_, Option<i64>>(6)?
                     .and_then(|n| u64::try_from(n).ok())
                     .unwrap_or(0),
+                online_only_bytes: r.get::<_, Option<i64>>(7)?.and_then(|n| u64::try_from(n).ok()),
             })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// The files the last look through `source` passed over as only in
+    /// online storage, each with its size as its listing gave it, in the
+    /// order they were found. Empty for a source last looked through before
+    /// these were kept. What a later step that fetches them would start
+    /// from.
+    pub fn online_only_files(&self, source: i64) -> Result<Vec<(PathBuf, u64)>> {
+        let mut q = self
+            .conn
+            .prepare("SELECT path, bytes FROM online_only WHERE source_id = ?1 ORDER BY rowid")?;
+        let rows = q.query_map([source], |r| {
+            Ok((
+                PathBuf::from(r.get::<_, String>(0)?),
+                u64::try_from(r.get::<_, i64>(1)?).unwrap_or(0),
+            ))
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
@@ -951,6 +995,7 @@ impl Catalog {
                     other_files: u64::try_from(other).unwrap_or(0),
                     // Known only while a search runs.
                     online_only: Vec::new(),
+                    online_only_bytes: Vec::new(),
                     stopped: false,
                     gone: false,
                 })
