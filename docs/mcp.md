@@ -33,7 +33,7 @@ Whatever you allow, an agent can never:
 - set, skip or pause a backup's schedule, or start a backup by itself. A schedule runs long after the conversation has ended, with nobody watching, so only you make that promise. An agent can read when a backup runs by itself, when next and how its last few runs went (`backup_schedule`);
 - change what it is allowed to do. It can ask what it may do, and nothing more.
 
-Everything an agent does is written to Keevoro's log, in plain words: which tool it used, on which backup, and how it went. Settings, "What Keevoro has been doing", shows it.
+Everything an agent does is written to Keevoro's log, in plain words: which tool it used, on which backup, and how it went. Settings, Help, "What Keevoro has been doing", shows it.
 
 The keys an agent gives are the ones checked and saved. If it gives none and `KEEVORO_ACCESS_KEY_ID` and `KEEVORO_SECRET_ACCESS_KEY` are set where `keevoro mcp` runs, those are used instead, and the answer says so in words, naming the variables and never the keys.
 
@@ -53,7 +53,7 @@ Note where it is, because the AI app needs the whole path. On Windows it is usua
 
 ### 2. Say what an agent may use
 
-In the Keevoro app, open Settings and find **AI agents**. Add the folders an agent may look through (the drive or folder with your photos) and the folders it may back up to (your USB drive, say). Switch on **Let AI agents make changes** when you want it to do more than look.
+In the Keevoro app, open Settings, then Advanced, then **AI agents**. Add the folders an agent may look through (the drive or folder with your photos) and the folders it may back up to (your USB drive, say). Switch on **Let AI agents make changes** when you want it to do more than look.
 
 Or at the command line:
 
@@ -145,7 +145,7 @@ Here is how a first backup might go, once you have allowed `E:\` to be looked th
 >
 > **Agent:** (calls `run_backup`, then `job_status` every so often) It's under way: about 20 minutes left. ... (calls `last_summary`) All done: 4,203 files are safely backed up, each one checked. Nothing on Mum's drive was changed.
 
-If you had not allowed changes, the agent would have stopped at the first step with Keevoro's own words: "Keevoro lets AI agents only look for now, not make changes. The person can allow changes in the Keevoro app, under Settings, AI agents, or by typing: keevoro agents allow-changes on". It is written for you, so the agent can pass it on as it is.
+If you had not allowed changes, the agent would have stopped at the first step with Keevoro's own words: "Keevoro lets AI agents only look for now, not make changes. The person can allow changes in the Keevoro app, under Settings, Advanced, AI agents, or by typing: keevoro agents allow-changes on". It is written for you, so the agent can pass it on as it is.
 
 ## How it behaves
 
@@ -160,12 +160,12 @@ Every tool an agent sees, with what it does, is the same list as the command lin
 
 **The AI app does not show Keevoro's tools.** Check the path in the app's settings is the whole path to `keevoro` (or `keevoro.exe`), and that `args` is `["mcp"]`. Run that same command in a terminal: it should sit waiting, saying nothing. Press Ctrl-C to stop it. Then quit the AI app completely and start it again; Claude Desktop reads its settings only when it starts. Claude Desktop keeps its own record of each server in its logs folder (on a Mac, `~/Library/Logs/Claude/`).
 
-**"Keevoro lets AI agents only look for now".** That is the default. Switch on Let AI agents make changes in Settings, AI agents, or type `keevoro agents allow-changes on`.
+**"Keevoro lets AI agents only look for now".** That is the default. Switch on Let AI agents make changes in Settings, Advanced, AI agents, or type `keevoro agents allow-changes on`.
 
-**"Keevoro won't let an AI agent look in ...".** That folder is not one you allowed, or it is reached through a shortcut that leads outside one. Add the folder in Settings, AI agents. `keevoro agents` shows the folders allowed now, exactly as Keevoro reads them.
+**"Keevoro won't let an AI agent look in ...".** That folder is not one you allowed, or it is reached through a shortcut that leads outside one. Add the folder in Settings, Advanced, AI agents. `keevoro agents` shows the folders allowed now, exactly as Keevoro reads them.
 
 **"Keevoro is already working on your backup ... in the Keevoro app".** Another Keevoro program is backing up or looking through that backup. Let it finish, or stop it from the app or with `keevoro stop`.
 
-**Something went wrong and the agent cannot say what.** Keevoro's log has every step, including each thing the agent did. It is in Settings, What Keevoro has been doing, or `keevoro log`.
+**Something went wrong and the agent cannot say what.** Keevoro's log has every step, including each thing the agent did. It is in Settings, Help, What Keevoro has been doing, or `keevoro log`.
 
-**You want to take everything back.** `keevoro agents allow --none` and `keevoro agents allow-changes off`, or the same in Settings. To stop the agent using Keevoro at all, remove the `keevoro` entry from the AI app's settings.
+**You want to take everything back.** `keevoro agents allow --none` and `keevoro agents allow-changes off`, or the same in Settings, Advanced, AI agents. To stop the agent using Keevoro at all, remove the `keevoro` entry from the AI app's settings.

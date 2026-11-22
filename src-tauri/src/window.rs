@@ -33,7 +33,8 @@ pub const ASKED: &str = "window_ask";
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Ask {
-    /// The page to open: `settings`.
+    /// The page to open: `settings`, or a place in it the window knows,
+    /// such as `settings/byItself` (`ui/src/settings/places.ts`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub page: Option<String>,
     /// Say first, once, that closing keeps Keevoro running, and where its

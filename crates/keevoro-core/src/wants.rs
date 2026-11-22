@@ -183,7 +183,9 @@ impl LeftOutBy {
         match self {
             LeftOutBy::MadeByKeevoro => "Keevoro made this folder, so it is not a source".into(),
             LeftOutBy::Folder => "you left this folder out of this backup".into(),
-            LeftOutBy::Kinds => "Keevoro doesn\u{2019}t look for this kind of file (Settings, Advanced)".into(),
+            LeftOutBy::Kinds => {
+                "Keevoro doesn\u{2019}t look for this kind of file (Settings, Advanced, Kinds of file)".into()
+            }
             LeftOutBy::Backup(wants) => format!("this backup is for {}", wants.words(others_listed)),
             LeftOutBy::Source(wants) => format!("this source is set to {}", wants.words(others_listed)),
             LeftOutBy::Ending => "files with this ending are left out of this source".into(),
@@ -460,7 +462,9 @@ mod tests {
         assert_eq!(choices.offered(&file), Err(LeftOutBy::Kinds));
         file.looked_for = true;
         assert_eq!(choices.offered(&file), Err(LeftOutBy::Backup(Wants::only(Video))));
-        assert!(LeftOutBy::Kinds.why(false).contains("Settings, Advanced"));
+        assert!(LeftOutBy::Kinds
+            .why(false)
+            .contains("Settings, Advanced, Kinds of file"));
     }
 
     #[test]
