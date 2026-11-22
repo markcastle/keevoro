@@ -585,13 +585,13 @@ Hints on where to buy cloud storage
 
 Someone choosing where to back up to often does not have anywhere yet. Stratus, by Adam Sparshott, compares what cloud storage costs for a given size, cheapest first, with how to set each one up. He has agreed to Keevoro showing it. Decided by the owner: it is used live, never copied, because a price copied into Keevoro goes stale between releases and a wrong price is worse than none.
 
-- [ ] On "Where should they go?", a quiet hint: "Not sure where to back up to? Compare what cloud storage costs."
-- [ ] Stratus shown inside Keevoro through its own embed mode, already set to the size of this backup and the person's currency
+- [x] On "Where should they go?", a quiet hint: "Not sure where to buy cloud storage? Compare providers"
+- [x] Stratus shown inside Keevoro through its own embed mode, already set to the size of this backup and the person's currency
 - [ ] Keevoro's own short note beside it on which choices it connects to directly (Cloudflare R2, Amazon S3, Backblaze B2, Wasabi, Scaleway, OVHcloud, DigitalOcean Spaces, Google Cloud Storage) and which it reaches as a folder (Hetzner Storage Box, and synced services such as OneDrive and Dropbox)
-- [ ] Choosing one Keevoro connects to directly goes straight to the right form, with its address filled in
-- [ ] With no connection, a plain link and a sentence saying prices need one; never stale figures
-- [ ] Credit to Stratus and its author where it is shown
-- [ ] The page is another site shown inside Keevoro: it must not be able to reach Keevoro's own commands, and nothing about the person's backup is sent to it beyond the size and currency
+- [x] Choosing one Keevoro connects to directly goes straight to the right form, with its address filled in when Stratus gives one (it does not yet, so another S3-compatible service opens with the address to fill in)
+- [x] With no connection, a plain link and a sentence saying prices need one; never stale figures
+- [x] Credit to Stratus and its author where it is shown
+- [x] The page is another site shown inside Keevoro: it must not be able to reach Keevoro's own commands, and nothing about the person's backup is sent to it beyond the size and currency
 
 Google Cloud Storage
 

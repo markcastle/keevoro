@@ -1075,6 +1075,34 @@ pub fn open_release_page<R: Runtime>(app: AppHandle<R>, page: String) -> Said<()
     app.opener().open_url(page, None::<&str>).map_err(say)
 }
 
+/// Is this a plain web page, safe to hand to the person's browser: `https`,
+/// a host name and nothing odd? It is how Stratus, the comparison of cloud
+/// storage the person opened, and a provider's page it named are opened.
+/// Nobody's name or password, no other kind of address (a file, a
+/// program), no spaces or control characters, and nothing absurdly long.
+fn is_a_web_page(page: &str) -> bool {
+    let Some(rest) = page.strip_prefix("https://") else {
+        return false;
+    };
+    let host = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    page.len() <= 2000
+        && !page.chars().any(|c| c.is_whitespace() || c.is_control() || c == '\\')
+        && host.contains('.')
+        && host.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
+}
+
+/// Opens a page about cloud storage in the person's browser: Stratus, or a
+/// provider's page it named. Only plain `https` pages; the screen is not
+/// trusted to have checked.
+#[tauri::command]
+pub fn open_web_page<R: Runtime>(app: AppHandle<R>, page: String) -> Said<()> {
+    use tauri_plugin_opener::OpenerExt;
+    if !is_a_web_page(&page) {
+        return Err("Keevoro only opens secure (https) web pages.".to_string());
+    }
+    app.opener().open_url(page, None::<&str>).map_err(say)
+}
+
 /// The last few hundred lines of the log, for showing in Settings.
 #[tauri::command]
 pub fn log_tail(shared: State<'_, Shared>) -> String {
@@ -1222,5 +1250,30 @@ mod tests {
             "https://example.com/https://github.com/markcastle/keevoro/"
         ));
         assert!(!is_a_keevoro_page("file:///C:/Windows"));
+    }
+
+    #[test]
+    fn only_plain_secure_web_pages_are_opened_for_cloud_storage() {
+        for page in [
+            "https://stratus.adam-sparshott.workers.dev/",
+            "https://www.backblaze.com/cloud-storage/pricing",
+            "https://cloud.google.com/storage/pricing?hl=en-GB#prices",
+        ] {
+            assert!(is_a_web_page(page), "{page}");
+        }
+        for page in [
+            "http://stratus.adam-sparshott.workers.dev/",
+            "file:///C:/Windows/System32/calc.exe",
+            "javascript:alert(1)",
+            "https://user:secret@example.com/",
+            "https://localhost/",
+            "https://example.com/a page",
+            "https://example.com\\..\\x",
+            "https://",
+            "",
+        ] {
+            assert!(!is_a_web_page(page), "{page}");
+        }
+        assert!(!is_a_web_page(&format!("https://example.com/{}", "a".repeat(2000))));
     }
 }

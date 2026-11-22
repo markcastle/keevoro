@@ -31,6 +31,31 @@ const base = `http://127.0.0.1:${server.address().port}`
 
 const browser = await chromium.launch()
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } })
+// Stratus, the comparison of cloud storage, is never reached for real: a
+// stand-in answers at its address. Like the real page in its embed mode,
+// it says it is ready, shows what it was told, and says what was picked.
+// Set `stratusOffline` to have the address not answer at all.
+const STRATUS = /^https:\/\/stratus\.adam-sparshott\.workers\.dev(\/|$)/
+const stratusAsked = []
+let stratusOffline = false
+const fakeStratus = `<!doctype html><meta charset="utf-8"><title>Stratus stand-in</title>
+<p id="told">Not told anything yet</p>
+<button id="r2">Pick R2 Standard</button> <button id="icloud">Pick iCloud+ 2TB</button>
+<script>
+  const pick = (option) => parent.postMessage({ stratus: 'select', option }, '*')
+  addEventListener('message', (e) => {
+    if (e.data && e.data.stratus === 'set') document.getElementById('told').textContent =
+      'keys=' + Object.keys(e.data).sort().join(',') + ' need=' + e.data.need + ' currency=' + e.data.currency + ' kind=' + e.data.kind + ' from=' + e.origin
+  })
+  document.getElementById('r2').onclick = () => pick({ id: 'r2-standard', provider: 'cloudflare-r2', providerName: 'Cloudflare R2', name: 'R2 Standard', kind: 'object', monthly: 1.5, url: 'https://developers.cloudflare.com/r2/pricing/' })
+  document.getElementById('icloud').onclick = () => pick({ id: 'icloud-2tb', provider: 'apple', providerName: 'Apple iCloud+', name: 'iCloud+ 2TB', kind: 'consumer', monthly: 8.99, url: 'https://support.apple.com/en-us/108047' })
+  parent.postMessage({ stratus: 'ready', version: 'stand-in' }, '*')
+</script>`
+await page.route(STRATUS, (route) => {
+  stratusAsked.push(route.request().url())
+  if (stratusOffline) return route.abort('internetdisconnected')
+  return route.fulfill({ status: 200, contentType: 'text/html', body: fakeStratus })
+})
 const problems = []
 page.on('pageerror', (error) => problems.push(String(error)))
 page.on('console', (message) => message.type() === 'error' && problems.push(message.text()))
@@ -358,6 +383,56 @@ try {
   // It says how much room the files will need before a place is chosen.
   assert.match(await text('.send .needs'), /^You are backing up [\d,]+ files, about [\d.]+ (MB|GB)\. Wherever you choose needs at least that much free\.$/)
   await shot('7-where-should-they-go')
+  // Not sure where to buy cloud storage? One quiet line, and nothing is
+  // loaded from the internet until it is chosen.
+  assert.equal(await text('.compare-line'), 'Not sure where to buy cloud storage? Compare providers')
+  assert.deepEqual(stratusAsked, [], 'nothing is asked of Stratus before the person opens it')
+  await page.getByRole('button', { name: 'Compare providers' }).click()
+  const compare = page.getByRole('dialog', { name: 'Compare cloud storage' })
+  await compare.waitFor()
+  assert.match(await compare.innerText(), /This loads a comparison page from the internet\. Keevoro tells it only the size of this backup, about [\d,]+ GB, and your currency\. The prices are Stratus’s, not Keevoro’s/)
+  assert.match(await compare.innerText(), /Comparison by Stratus, made by Adam Sparshott\./)
+  const frame = compare.locator('iframe')
+  assert.equal(await frame.getAttribute('sandbox'), 'allow-scripts allow-same-origin', 'no popups, no moving the app away, no forms')
+  assert.equal(await frame.getAttribute('referrerpolicy'), 'no-referrer')
+  // Told the size of this backup and a currency, and nothing else.
+  const told = page.frameLocator('.compare-sheet iframe').locator('#told')
+  await told.filter({ hasText: /^keys=/ }).waitFor()
+  assert.match(await told.innerText(), /^keys=currency,kind,need,stratus need=\d+ currency=(GBP|USD|EUR) kind=object from=http:\/\/127\.0\.0\.1:\d+$/)
+  assert.ok(stratusAsked.length > 0 && stratusAsked.every((url) => STRATUS.test(url)))
+  await shot('7b-compare-storage')
+  await fitsNarrow('Comparing cloud storage')
+  await narrowShots('7b-compare-storage', compare)
+  // Picking something Keevoro backs up to offers its form, ready to fill in.
+  await page.frameLocator('.compare-sheet iframe').getByRole('button', { name: 'Pick R2 Standard' }).click()
+  const setUp = compare.getByRole('button', { name: 'Set up Cloudflare R2 in Keevoro' })
+  await setUp.waitFor()
+  assert.match(await compare.locator('.compare-choice').innerText(), /You chose R2 Standard\. Once you have a bucket and its keys, Keevoro can back up there\./)
+  await shot('7c-compare-storage-chosen')
+  await setUp.click()
+  await compare.waitFor({ state: 'detached' })
+  assert.equal(await page.locator('form.connect').getByLabel('Storage').inputValue(), 'r2')
+  await page.locator('form.connect').getByLabel('Cloudflare account ID').waitFor()
+  await page.locator('form.connect').getByRole('button', { name: 'Cancel' }).click()
+  // Something Keevoro can't back up to directly is named, with its page.
+  await page.getByRole('button', { name: 'Compare providers' }).click()
+  await page.frameLocator('.compare-sheet iframe').getByRole('button', { name: 'Pick iCloud+ 2TB' }).click()
+  await compare.getByText('Keevoro can’t back up to Apple iCloud+ directly', { exact: false }).waitFor()
+  assert.equal(await compare.getByRole('button', { name: /^Set up / }).count(), 0)
+  await compare.getByRole('button', { name: 'Open Apple iCloud+’s page' }).click()
+  await page.waitForFunction(() => (window.keevoroOpenedPages ?? []).includes('https://support.apple.com/en-us/108047'))
+  await compare.getByRole('button', { name: 'Close' }).click()
+  await compare.waitFor({ state: 'detached' })
+  // With no connection, it says so after a short wait, and offers the browser.
+  stratusOffline = true
+  await page.getByRole('button', { name: 'Compare providers' }).click()
+  await compare.getByText('Couldn’t load the comparison just now.', { exact: false }).waitFor({ timeout: 30_000 })
+  await shot('7d-compare-storage-offline')
+  await compare.locator('.compare-failed').getByRole('button', { name: 'Open Stratus in your browser' }).click()
+  await page.waitForFunction(() => (window.keevoroOpenedPages ?? []).includes('https://stratus.adam-sparshott.workers.dev/'))
+  await page.keyboard.press('Escape')
+  await compare.waitFor({ state: 'detached' })
+  stratusOffline = false
   // Cloud storage asks only what it needs, and hides the secret.
   await page.getByRole('button', { name: /Cloudflare R2/ }).click()
   await page.getByLabel('Cloudflare account ID').fill('0123456789abcdef0123456789abcdef')

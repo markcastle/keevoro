@@ -1681,6 +1681,11 @@ export function demoBackend(): Backend {
       return {}
     },
     openReleasePage: async () => {},
+    // Remembered, so a test can see which page would have opened in the browser.
+    openWebPage: async (page) => {
+      const opened = window as unknown as { keevoroOpenedPages?: string[] }
+      opened.keevoroOpenedPages = [...(opened.keevoroOpenedPages ?? []), page]
+    },
     async keepCollection(key, keep) {
       otherRowsIn(key).forEach((row) => (row.kept = keep))
       const found = collections.find((c) => c.key === key)

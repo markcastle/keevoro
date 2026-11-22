@@ -82,6 +82,7 @@ import { WindowAsks } from './tray'
 import { certain, mainButtonWords, outOfReachLine } from './thereWords'
 import { SyncedCard } from './synced'
 import { GoogleClassNote, StorageFields } from './storageForm'
+import { CompareStorage } from './compare'
 import { AddBucketSource, CloudCost, CloudSourceIcon } from './bucketSource'
 import { Explained } from './explained'
 import { SettingsScreen } from './settings/shell'
@@ -1873,7 +1874,9 @@ function AboutScreen(props: { api: Backend; version: string; onBack: () => void;
           <dd>
             There is no Keevoro account and no Keevoro server. Your files go from your source to the destination you
             chose and nowhere else. Storage keys are kept in this computer’s own keychain. The only thing Keevoro
-            contacts by itself is GitHub, to see whether there is a newer version. A report of a problem or an idea
+            contacts by itself is GitHub, to see whether there is a newer version. If you choose Compare providers
+            while choosing where to back up to, it shows Stratus, a comparison of cloud storage prices on the
+            internet, and tells it only the size of the backup and your currency. A report of a problem or an idea
             goes to Keevoro’s maker only when you send one, and you see exactly what it holds first. On this computer
             it keeps only its working notes: a list of what it found, small previews, and a log of what it did.
           </dd>
@@ -2235,6 +2238,7 @@ function SendScreen(props: {
         onWhere={props.onSendingTo}
         onSent={props.onSent}
         onSettings={props.onSettings}
+        keptBytes={props.found?.bytes ?? 0}
       />
       {props.next}
     </section>
@@ -2261,6 +2265,8 @@ function SendPanel(props: {
   onSent: () => void
   /** Opens Settings at a row. */
   onSettings: (row: string) => void
+  /** What is being kept, in bytes, for comparing what cloud storage of that size costs. */
+  keptBytes: number
 }) {
   const { api, onProblem, onWhere, onSent } = props
   const [where, setWhere] = useState<string | null | undefined>(undefined)
@@ -2519,6 +2525,17 @@ function SendPanel(props: {
                 <span>Anything that works like S3</span>
               </button>
             </div>
+          )}
+          {!form && (
+            <CompareStorage
+              api={api}
+              keptBytes={props.keptBytes}
+              onSetUp={(setUp) => {
+                setRefused(null)
+                setForm({ kind: setUp.kind, place: setUp.place, bucket: '' })
+              }}
+              onProblem={onProblem}
+            />
           )}
           {form && (
             <form

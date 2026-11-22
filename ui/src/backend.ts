@@ -1193,6 +1193,8 @@ export interface Backend {
   installUpdate(stopFirst?: boolean): Promise<UpdateStarted>
   /** Opens a release's "What's new" page in the browser. */
   openReleasePage(page: string): Promise<void>
+  /** Opens a page about cloud storage (Stratus, or a provider it named) in the person's browser. Only https pages. */
+  openWebPage(page: string): Promise<void>
   keepCollection(key: string, keep: boolean): Promise<void>
   /** Every file in a collection, in date order. */
   collectionPhotos(key: string): Promise<PhotoChoice[]>
@@ -1374,6 +1376,7 @@ async function tauriBackend(): Promise<Backend> {
     checkUpdate: () => invoke('check_update'),
     installUpdate: (stopFirst) => invoke('install_update', { stopFirst }),
     openReleasePage: (page) => invoke('open_release_page', { page }),
+    openWebPage: (page) => invoke('open_web_page', { page }),
     pickPlace: () => pickFolder('Choose a source: a drive or folder to look through'),
     keepCollection: (key, keep) => invoke('keep_collection', { key, keep }),
     collectionPhotos: (key) => invoke('collection_photos', { key }),
