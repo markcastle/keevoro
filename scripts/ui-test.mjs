@@ -586,6 +586,9 @@ try {
   ])
   assert.match(await text('.about'), /voro, an old Swedish word meaning “were”/)
   assert.match(await text('.about'), /Copyright 2026 Mark Castle\..*Functional Source License \(FSL-1\.1-MIT\)/s)
+  // Who makes it, and who helped.
+  assert.match(await text('.thanks'), /Keevoro is made by Mark Castle\./)
+  assert.match(await text('.thanks'), /A special thank you to Adam Sparshott, for all his help in testing Keevoro and for his excellent ideas\./)
   for (const name of ['Read the licence', 'The name and logo', 'See the source']) {
     await page.getByRole('button', { name }).waitFor()
   }
