@@ -68,6 +68,8 @@ export function SettingsScreen(props: {
   const { api, state, place, onPlace, onProblem } = props
   const section: SectionId = place.section ?? 'backup'
   const detail = place.detail
+  // In a narrow window: a section's page, rather than the list.
+  const atPage = place.section !== null && !place.list
   const [typed, setTyped] = useState('')
   const [kindsChanged, setKindsChanged] = useState(0)
   const heading = useRef<HTMLHeadingElement>(null)
@@ -83,7 +85,7 @@ export function SettingsScreen(props: {
   const openDetail = (id: DetailId) => go({ section: DETAILS[id].section, detail: id }, 'heading')
   const back = () => {
     if (detail) go({ section }, { row: detail })
-    else go({ section: null }, 'list')
+    else go({ section, list: true }, 'list')
   }
 
   useEffect(() => {
@@ -100,7 +102,7 @@ export function SettingsScreen(props: {
       if (e.key !== 'Escape' || e.defaultPrevented) return
       const there = e.target as HTMLElement | null
       if (there?.closest('input, textarea, select, [role="dialog"], [role="alertdialog"]')) return
-      if (detail || (narrow() && place.section)) {
+      if (detail || (narrow() && atPage)) {
         e.preventDefault()
         back()
       }
@@ -210,7 +212,7 @@ export function SettingsScreen(props: {
 
   return (
     <main className="settings-main">
-      <div className="kv-settings" data-at={place.section === null ? 'list' : 'page'}>
+      <div className="kv-settings" data-at={atPage ? 'page' : 'list'}>
         <div className="kv-side">
           <button type="button" className="link kv-leave" onClick={props.onBack}>
             ‹ Back

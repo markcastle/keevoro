@@ -2092,7 +2092,7 @@ try {
   await settingsList.waitFor()
   assert.equal(await page.locator('#settings-page-title').isVisible(), false, 'the list alone')
   assert.deepEqual(await spills(), [], 'the list of sections at 400 pixels spills sideways')
-  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-current')), 'page', 'back on the section it came from')
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-current') && document.activeElement.textContent), 'Help', 'back on the section it came from, marked as the one open')
   await shot('12-settings-list-400')
   await settingsList.getByRole('button', { name: 'Updates' }).click()
   await page.getByRole('heading', { name: 'Updates', level: 2 }).waitFor()

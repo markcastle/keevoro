@@ -82,8 +82,13 @@ export function sectionTitle(id: SectionId): string {
   return SECTIONS.find((s) => s.id === id)?.title ?? ''
 }
 
-/** Where Settings is open: a section (none yet, in a narrow window, is the list itself), a page in it, and a row to bring into view. */
-export type SettingsPlace = { section: SectionId | null; detail?: DetailId; row?: string }
+/**
+ * Where Settings is open: a section (none chosen yet is the first), a page
+ * in it, and a row to bring into view. In a narrow window, where the list
+ * of sections is a page of its own, `list` (or no section chosen yet)
+ * shows the list, the section kept so it is the one marked there.
+ */
+export type SettingsPlace = { section: SectionId | null; detail?: DetailId; row?: string; list?: boolean }
 
 /** The place a row is in, with the row to bring into view. */
 export function placeOfRow(id: string): SettingsPlace {
