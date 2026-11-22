@@ -398,7 +398,8 @@ fn the_screens_commands_start_the_apis_jobs_and_their_events_reach_the_window() 
     for hint in hints {
         fits(hint, "Hint");
     }
-    assert_eq!(heard.wait_for("survey", |_| true)["files"], 1);
+    // A first word may come before any file is counted, on a busy machine.
+    assert_eq!(heard.wait_for("survey", |p| p["files"] == 1)["files"], 1);
 
     // A search stopped before it gets going ends at once, saying so. It is
     // held before its first file by pausing, which stopping lifts.

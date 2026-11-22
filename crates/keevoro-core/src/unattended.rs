@@ -12,6 +12,20 @@ use serde::{Deserialize, Serialize};
 /// back, in pounds: about £1 or more waits for the person's say.
 pub const UNATTENDED_COST_LIMIT: f64 = 1.0;
 
+/// How long a backup by itself trusts looking through a source quickly
+/// (taking a file whose size and modified time have not changed as it was
+/// found, unopened) before it reads every file again, so a file changed
+/// without its size or time changing is still found.
+pub const FULL_LOOK_EVERY: i64 = 30 * 86_400;
+
+/// Whether a backup by itself may look through a source quickly at `now`,
+/// given when every file on it was last read (seconds since 1970). Never
+/// read, or read at a time more than a day ahead (the clock was wrong),
+/// means read every file now.
+pub fn look_quickly(last_full_look: Option<i64>, now: i64) -> bool {
+    last_full_look.is_some_and(|at| at <= now + 86_400 && now - at < FULL_LOOK_EVERY)
+}
+
 /// Why a backup ran by itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -160,6 +174,23 @@ fn counted(n: usize, one: &str, many: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_source_is_looked_through_quickly_until_a_month_after_every_file_was_last_read() {
+        let now = 1_763_700_000;
+        assert!(!look_quickly(None, now), "never read in full: read now");
+        assert!(look_quickly(Some(now - 86_400), now));
+        assert!(look_quickly(Some(now - FULL_LOOK_EVERY + 1), now));
+        assert!(!look_quickly(Some(now - FULL_LOOK_EVERY), now));
+        assert!(
+            look_quickly(Some(now + 3_600), now),
+            "a little ahead is the clock's wobble"
+        );
+        assert!(
+            !look_quickly(Some(now + 2 * 86_400), now),
+            "far ahead: the clock was wrong"
+        );
+    }
 
     fn family() -> Facts {
         Facts {

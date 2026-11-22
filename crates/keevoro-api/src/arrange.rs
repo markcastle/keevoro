@@ -492,6 +492,7 @@ mod tests {
             width: None,
             height: None,
             junk: None,
+            modified: None,
         };
         let items: Vec<FoundItem> = (0..420).map(one).collect();
         let s = suggestion_for(&root, "Family", &items).unwrap();

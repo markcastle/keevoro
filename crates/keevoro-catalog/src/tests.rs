@@ -21,6 +21,7 @@ fn photo(path: &str, hash: &str) -> FoundItem {
         width: Some(3264),
         height: Some(2448),
         junk: None,
+        modified: None,
     }
 }
 
@@ -54,6 +55,7 @@ fn report(root: &str) -> ScanReport {
         online_only_bytes: Vec::new(),
         stopped: false,
         gone: false,
+        unchanged: 0,
     }
 }
 
@@ -880,7 +882,7 @@ fn raw_files_wrongly_set_aside_by_an_earlier_version_are_put_back() {
             .execute_batch(
                 "ALTER TABLE uploaded DROP COLUMN gone; DROP TABLE online_only;
                  ALTER TABLE sources DROP COLUMN kind; ALTER TABLE sources DROP COLUMN place;
-                 ALTER TABLE uploaded DROP COLUMN proved_at;",
+                 ALTER TABLE uploaded DROP COLUMN proved_at; ALTER TABLE items DROP COLUMN modified;",
             )
             .unwrap();
         c.conn.pragma_update(None, "user_version", 6).unwrap();
@@ -1296,4 +1298,38 @@ fn a_copy_proved_by_reading_it_back_is_written_down_and_sending_it_again_forgets
     // A copy sent again has not been proved by this.
     c.mark_uploaded("t", "originals/a.jpg", 10).unwrap();
     assert!(c.proved_since("t", 0).unwrap().is_empty());
+}
+
+#[test]
+fn when_each_file_last_changed_is_kept_for_looking_again_quickly_and_none_before_it_was() {
+    let mut c = Catalog::in_memory().unwrap();
+    let mut r = quick_report();
+    r.items[0].modified = Some(1_700_000_000_123_456_789);
+    c.save_scan("USB", &r, 1).unwrap();
+    let found = c.found_at(Path::new("/mnt/usb")).unwrap();
+    assert_eq!(found[0].modified, Some(1_700_000_000_123_456_789));
+    assert_eq!(found[1].modified, None, "not known");
+    assert!(c.found_at(Path::new("/mnt/elsewhere")).unwrap().is_empty());
+
+    // The whole fingerprint worked out since, then a quick look again that
+    // takes the file as it was: the quick one it was known by stays beside
+    // it, so a later search that samples it still recognises it.
+    let quick = "1".repeat(64);
+    c.set_whole_hash(Path::new("/mnt/usb/a.jpg"), &quick, &"a".repeat(64))
+        .unwrap();
+    let mut again = r.clone();
+    again.items = c.found_at(Path::new("/mnt/usb")).unwrap();
+    c.save_scan("USB", &again, 2).unwrap();
+    let later = c.found_at(Path::new("/mnt/usb")).unwrap();
+    assert_eq!(
+        (later[0].hashed, later[0].modified),
+        (true, Some(1_700_000_000_123_456_789))
+    );
+    c.save_scan("USB", &r, 3).unwrap();
+    let sampled = c.found_at(Path::new("/mnt/usb")).unwrap();
+    assert_eq!(
+        (sampled[0].blake3.as_deref(), sampled[0].hashed),
+        (Some("a".repeat(64).as_str()), true),
+        "recognised by its quick fingerprint"
+    );
 }

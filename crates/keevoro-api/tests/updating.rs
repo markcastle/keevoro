@@ -594,3 +594,45 @@ fn keevoro_0_37_1_left_has_no_reports_and_sending_one_leaves_the_settings_file_a
     let backups = ask(&keevoro, Op::BackupsList, None, Value::Null);
     assert_eq!(names(&backups), ["Family photos", "Holiday videos"]);
 }
+
+/// Looking again quickly (0.49) keeps when each file last changed, in a
+/// new column of the catalog. What 0.37.1 found has none, so each of
+/// those files is read as ever by the next look, which fills it in.
+#[test]
+fn files_0_37_1_found_have_no_time_kept_and_the_next_look_keeps_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let (keevoro, places) = as_0_37_1_left_it(dir.path());
+    let home = places.folders.data.join("backups").join("backup-1");
+    let found = || {
+        let catalog = keevoro_catalog::Catalog::open_in_library(&home).unwrap();
+        let root = catalog
+            .sources()
+            .unwrap()
+            .into_iter()
+            .find(|s| s.root.ends_with("Card"))
+            .unwrap()
+            .root;
+        catalog.found_at(&root).unwrap()
+    };
+    let before = found();
+    assert!(!before.is_empty());
+    assert!(before.iter().all(|i| i.modified.is_none()), "0.37.1 kept none");
+
+    std::fs::create_dir_all(places.card.join("DCIM")).unwrap();
+    std::fs::write(
+        places.card.join("DCIM/IMG_0048.jpg"),
+        b"\xFF\xD8\xFF\xE0 a made-up photo",
+    )
+    .unwrap();
+    let job = ask(
+        &keevoro,
+        Op::SourcesLookAgain,
+        Some("Family photos"),
+        json!({ "source": 1 }),
+    );
+    keevoro.wait(serde_json::from_value(job["id"].clone()).unwrap());
+    keevoro.wait_for_jobs();
+    let after = found();
+    assert_eq!(after.len(), 1, "{after:?}");
+    assert!(after[0].modified.is_some());
+}

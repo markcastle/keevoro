@@ -2962,3 +2962,80 @@ fn what_check_they_all_arrived_finds_wrong_one_press_puts_right_and_the_screen_a
     // An agent may not do it.
     assert!(crate::call_for_agent(&keevoro, Op::BackupPutRight, None, json!({})).is_err());
 }
+
+/// A clock a test moves by hand.
+#[derive(Clone)]
+struct HandClock(Arc<Mutex<jiff::Timestamp>>);
+
+impl crate::schedule::Clock for HandClock {
+    fn now(&self) -> jiff::Timestamp {
+        *lock(&self.0)
+    }
+    fn zone(&self) -> jiff::tz::TimeZone {
+        jiff::tz::TimeZone::UTC
+    }
+}
+
+#[test]
+fn a_backup_by_itself_looks_again_quickly_and_reads_every_file_again_once_a_month() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let clock = HandClock(Arc::new(Mutex::new(
+        jiff::Timestamp::from_second(1_780_000_000).unwrap(),
+    )));
+    let keevoro = keevoro(dir.path())
+        .with_signals(plugged_in_and_quiet())
+        .with_clock(clock.clone());
+    let (named, card, _usb) = card_going_to_usb(dir.path(), &keevoro);
+    Catalog::open_in_library(&named.home)
+        .unwrap()
+        .set_arrange(keevoro_core::Arrange::ByDate)
+        .unwrap();
+    let photo = card.join("DCIM/100CANON/IMG_20120304_153012.jpg");
+    let hash_now = || {
+        Catalog::open_in_library(&named.home)
+            .unwrap()
+            .load_reports_as_found()
+            .unwrap()
+            .into_iter()
+            .flat_map(|r| r.items)
+            .find(|i| i.path.ends_with("IMG_20120304_153012.jpg"))
+            .unwrap()
+            .blake3
+    };
+    // Other bytes, the same length and the same modified time: only a
+    // look that opens the file can tell.
+    let change_inside_only = || {
+        let when = std::fs::metadata(&photo).unwrap().modified().unwrap();
+        let mut bytes = std::fs::read(&photo).unwrap();
+        let middle = bytes.len() / 2;
+        bytes[middle] = bytes[middle].wrapping_add(1);
+        std::fs::write(&photo, bytes).unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&photo)
+            .unwrap()
+            .set_modified(when)
+            .unwrap();
+    };
+
+    // Never read in full by a backup by itself: every file is read.
+    change_inside_only();
+    let before = hash_now();
+    by_itself(&keevoro, &named);
+    let first = hash_now();
+    assert_ne!(first, before, "read in full");
+
+    // A week later: the quick look takes it as it was found, unopened.
+    change_inside_only();
+    *lock(&clock.0) = jiff::Timestamp::from_second(1_780_000_000 + 7 * 86_400).unwrap();
+    by_itself(&keevoro, &named);
+    assert_eq!(hash_now(), first, "taken as found");
+    let log = keevoro.log().tail(400);
+    assert!(log.contains("quickly: 5 files were the same size"), "{log}");
+
+    // A month after every file was read: every file is read again.
+    *lock(&clock.0) = jiff::Timestamp::from_second(1_780_000_000 + 31 * 86_400).unwrap();
+    by_itself(&keevoro, &named);
+    assert_ne!(hash_now(), first, "read again in full");
+}

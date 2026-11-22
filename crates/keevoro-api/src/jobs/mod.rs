@@ -1335,6 +1335,8 @@ pub(crate) struct Context {
     /// What the computer says about itself, for work done by itself to be
     /// a good guest.
     pub(crate) signals: Arc<dyn Signals>,
+    /// The time, the computer's own or a test's.
+    pub(crate) clock: Arc<dyn crate::schedule::Clock>,
 }
 
 /// Ends a job however its thread ends, even by a panic, so its slot is
@@ -1404,6 +1406,7 @@ impl Keevoro {
             rates: self.rates_file(),
             cache: self.cache_folder(),
             signals: self.signals.clone(),
+            clock: self.clock.clone(),
         }
     }
 

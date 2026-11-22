@@ -383,7 +383,10 @@ impl Run {
                 }
             }
             let place = looking::place_of(step);
-            let said = looking::look_through(ctx, job, home, place, &self.how.kinds, &self.how.skip);
+            // Quickly, reading only what is new or changed, except every so
+            // often, when every file is read again.
+            let quickly = looking::may_look_quickly(home, place, self.clock.now().as_second());
+            let said = looking::look_through(ctx, job, home, place, &self.how.kinds, &self.how.skip, quickly);
             let real = std::fs::canonicalize(place).unwrap_or_else(|_| place.to_path_buf());
             keevoro_engine::surveys::mark_out_of_date(&ctx.cache, &real);
             if said.stopped || job.stopped() {

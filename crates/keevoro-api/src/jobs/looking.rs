@@ -350,7 +350,7 @@ pub(super) fn start(
                     passed_over.extend(said);
                     let (Step::Look(place) | Step::SetAsideAndLook { place, .. } | Step::BringBack { place, .. }) =
                         step;
-                    let said = look_through(ctx, job, &backup.home, place, &kinds, &skip);
+                    let said = look_through(ctx, job, &backup.home, place, &kinds, &skip, false);
                     // A remembered map of anywhere this search covers may
                     // now be out of date, so it is surveyed again the next
                     // time it opens.
@@ -400,7 +400,27 @@ fn name_of(source: &Path) -> String {
         .map_or_else(|| source.display().to_string(), |n| n.to_string_lossy().to_string())
 }
 
+/// The catalog setting holding when every file on the source at `root` was
+/// last read, in seconds since 1970: a look that was not quick, and was
+/// neither stopped nor cut short.
+pub(super) fn full_look_key(root: &Path) -> String {
+    format!("full_look:{}", root.display())
+}
+
+/// Whether a backup by itself may look through the source at `place`
+/// quickly now (see `keevoro_core::unattended::look_quickly`).
+pub(super) fn may_look_quickly(home: &Path, place: &Path, now: i64) -> bool {
+    let root = std::fs::canonicalize(place).unwrap_or_else(|_| place.to_path_buf());
+    let last = Catalog::open_in_library(home)
+        .ok()
+        .and_then(|c| c.setting(&full_look_key(&root)).ok().flatten())
+        .and_then(|text| text.trim().parse().ok());
+    keevoro_core::unattended::look_quickly(last, now)
+}
+
 /// Looks through one place, saying how it goes, and gives the last event.
+/// `quickly`, a file whose size and modified time are what the last look
+/// found is taken as it was found, without being opened.
 pub(super) fn look_through(
     ctx: &Context,
     job: &Arc<Job>,
@@ -408,6 +428,7 @@ pub(super) fn look_through(
     source: &Path,
     kinds: &Kinds,
     skip: &keevoro_core::SkipRules,
+    quickly: bool,
 ) -> ScanEvent {
     if keevoro_core::bucket::is_bucket_path(source) {
         return look_through_bucket(ctx, job, home, source, kinds, skip);
@@ -449,6 +470,12 @@ pub(super) fn look_through(
                 .collect()
         })
         .unwrap_or_default();
+    let known = quickly
+        .then(|| Catalog::open_in_library(home).and_then(|c| c.found_at(&root)).ok())
+        .flatten()
+        .map(|items| Arc::new(keevoro_scan::Known::from_items(items)))
+        .filter(|known| !known.is_empty());
+    let looked_quickly = known.is_some();
     let result = Catalog::open_in_library(home)
         .map_err(anyhow::Error::from)
         .and_then(|mut catalog| {
@@ -462,6 +489,7 @@ pub(super) fn look_through(
                     stop: Some(job.stop_switch()),
                     kinds: kinds.clone(),
                     skip: skip.clone(),
+                    known: known.clone(),
                     ..Default::default()
                 },
                 &mut |p| {
@@ -519,6 +547,18 @@ pub(super) fn look_through(
             // never taken for it. Not after a look cut short by the drive
             // going, which may have left another in its place.
             if !report.gone {
+                // Every file read: a quick look may be trusted for a while.
+                if !looked_quickly {
+                    let read = Catalog::open_in_library(home).and_then(|c| {
+                        c.set_setting(&full_look_key(&report.root), &ctx.clock.now().as_second().to_string())
+                    });
+                    if let Err(e) = read {
+                        log.say(&format!(
+                            "Couldn't note that every file in {} was read: {e}",
+                            friendly_path(source)
+                        ));
+                    }
+                }
                 let mark = Mark {
                     volume: keevoro_engine::reach::volume_of(&report.root),
                     drive: drive.clone(),
@@ -557,6 +597,13 @@ pub(super) fn look_through(
             ));
             if let Some(said) = online_only_said(report) {
                 log.say(&format!("In {}: {said}", friendly_path(source)));
+            }
+            if looked_quickly {
+                log.say(&format!(
+                    "Looked through {} quickly: {} files were the same size and had the same modified time as at the last look, so were not opened again",
+                    friendly_path(source),
+                    report.unchanged
+                ));
             }
             for left in &left_out_of(report, &found_before) {
                 log.say(&left.said);

@@ -621,7 +621,7 @@ The owner's words: "At work we now have an icon that allows users to report bugs
 Today a backup runs when someone presses "Back up now". These make it run by itself, which is what turns a one-off rescue into something that keeps photos safe as new ones are taken.
 
 - [x] Repeat a backup on a schedule: every day, every week, or every month, at a time the person chooses (0.42, while the app is open)
-- [x] Each run looks through the sources again first, then sends only what is new (0.42; a full look each time until quick looking-again, below)
+- [x] Each run looks through the sources again first, then sends only what is new (0.42; quickly since 0.49, reading only what is new or changed)
 - [ ] Run when a known source is plugged in (a camera card, a drone's drive), with a choice of "ask me" or "just do it". The first half is built: Keevoro notices a drive arriving (`keevoro_api::places::if_changed` gives the drives that `arrived`, and on Windows `watch_for_drives` hears the system's notice); what is left is matching an arrival against each backup's sources and asking
 - [ ] Run when a destination comes back (a backup drive plugged in, the network returns) if a run was missed
 - [x] Carry on in the background with the window closed: an icon by the clock, and a way to start with the computer (0.45: closing hides to the icon where one shows; Pause, Back up now and Settings from its menu)
@@ -635,7 +635,7 @@ Today a backup runs when someone presses "Back up now". These make it run by its
 
 What is left of backing up by itself, in the order of the plan (the owner's decisions are in the plan's section 9):
 
-- [ ] Quick looking-again: a file whose path, size and modified time match the last look is not opened (catalog step 15, `items.modified`), with a full look every 30 days and "Look through every file again" under Advanced
+- [x] Quick looking-again: a file whose path, size and modified time match the last look is not opened (catalog step 16, `items.modified`, `keevoro_scan::Known`), with every file read again 30 days after the last full look (`full_look:<root>`, `keevoro_core::unattended::look_quickly`). Only a backup by itself looks quickly: Look again, pressed by a person, still reads every file, so no "Look through every file again" button is needed
 - [x] Running with the window closed (0.45): the icon by the clock and its menu (`tray.rs`, from `keevoro_api::glance`), hiding to it on closing and, if asked, on minimising (`closing.rs`), one instance, starting with the computer (`--in-background`, never without the person's say), the first-close dialog, quitting while work is in hand asking first, `window.json` (new file), Settings "When you close Keevoro", off by default on Linux, and a Mac coming back on the new version after an update
 - [ ] Left from running with the window closed: a Mac test of the Launch Agent and menu-bar icon; a timed pause shown in "What Keevoro is doing" as well as the foot; "Update when this backup finishes" waiting with the window closed (today the update waits only while the window is open); on battery and metered choices in Settings; `keevoro background` for the command line
 - [ ] Catching up when a destination returns (`owed`, `Saved::reachable_now`, backoff), louder notices when one has not been reached for `NOT_REACHED_FOR`, and "While you were away" (`schedule.away`, `keevoro away`); "Also when a backup drive comes back" ticked by default

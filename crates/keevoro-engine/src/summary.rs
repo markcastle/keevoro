@@ -446,6 +446,7 @@ mod tests {
             width: None,
             height: None,
             junk: None,
+            modified: None,
         }
     }
 
