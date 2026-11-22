@@ -76,6 +76,9 @@ export function ScheduleCard(props: {
     [api, read],
   )
   if (!view) return null
+  // While a backup is running the screen is about that backup: an offer to
+  // set a schedule can wait until it is done. A schedule already set stays.
+  if (props.running && !view.every) return null
   const change = (request: SetSchedule) => {
     api
       .setSchedule(request)
