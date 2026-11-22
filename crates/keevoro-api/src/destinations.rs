@@ -193,6 +193,25 @@ pub struct Room {
 /// destination is brought up to date with what is really there.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct PutRightPlan {
+    /// What it would do at each destination.
+    pub places: Vec<keevoro_engine::put_right::Plan>,
+    /// Files a look or a check already found missing or another size, over
+    /// every destination: when there are any, the backup screen offers
+    /// "Put this backup right".
+    pub known: usize,
+    /// About how long, over every destination: what is known, and
+    /// everything.
+    pub quick_seconds: u64,
+    pub thorough_seconds: u64,
+    /// The same as a person would read it.
+    pub quick_said: String,
+    pub thorough_said: String,
+}
+
+/// What backing up now would do.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Rehearsal {
     /// What would go to each destination.
     pub to: Vec<WaitingAt>,
@@ -387,6 +406,27 @@ impl Backup {
             ..at_a_glance
         };
         Ok(Room { places, at_a_glance })
+    }
+
+    /// `backup.put_right_plan`: what putting this backup right would do at
+    /// each destination, and about how long it would take. Asks no
+    /// destination anything and changes nothing.
+    pub fn put_right_plan(&self) -> Result<PutRightPlan> {
+        let mut places = Vec::new();
+        for saved in keevoro_engine::connect::destinations(self.catalog())? {
+            places.push(keevoro_engine::put_right::plan(self.catalog(), &saved)?);
+        }
+        let known = places.iter().map(|p| p.known).sum();
+        let quick_seconds = places.iter().map(|p| p.quick_seconds).sum();
+        let thorough_seconds = places.iter().map(|p| p.thorough_seconds).sum();
+        Ok(PutRightPlan {
+            places,
+            known,
+            quick_seconds,
+            thorough_seconds,
+            quick_said: keevoro_engine::put_right::about(quick_seconds),
+            thorough_said: keevoro_engine::put_right::about(thorough_seconds),
+        })
     }
 
     /// `backup.rehearse`: what backing up now would send, and to where.

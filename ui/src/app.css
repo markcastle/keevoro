@@ -2099,6 +2099,22 @@ h2 .folder {
   margin-top: var(--space-2);
 }
 
+/* "Put this backup right", under what the look found. */
+.put-right {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  margin: var(--space-3) 0;
+}
+
+.put-right p {
+  margin: 0 0 var(--space-2);
+}
+
+.put-right .choices {
+  margin: var(--space-3) 0 0;
+}
+
 .running .link {
   margin-left: var(--space-4);
 }

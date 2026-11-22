@@ -35,11 +35,11 @@ use std::sync::atomic::Ordering;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// A kept file, its place, and the previews made of it.
-struct Kept<'a> {
-    item: &'a FoundItem,
-    hash: &'a str,
+pub(crate) struct Kept<'a> {
+    pub(crate) item: &'a FoundItem,
+    pub(crate) hash: &'a str,
     /// The original's place in a backup, which is also its storage key.
-    path: String,
+    pub(crate) path: String,
     preview: Option<RenditionState>,
     video: Option<VideoState>,
 }
@@ -333,17 +333,29 @@ fn originals_first(
     )?;
     if !keep_going() {
         files_sent(out, &files)?;
+        for line in said(&files).lines().filter(|l| l.contains(summary::ACCOUNT_MARK)) {
+            writeln!(out, "{line}")?;
+        }
         return stopped(out).map(|_| failed + not_told_apart);
     }
 
-    // Anything that could not be sent is said once, with its reason.
+    // Anything that could not be sent is said once, with its reason, and
+    // then where every file stands.
     let files_failed = |out: &mut dyn Write| -> Result<()> {
         for line in said(&files).lines() {
-            if line.starts_with("Couldn't back up")
+            if summary::is_failure_line(line)
                 || line.starts_with("  ")
                 || line.starts_with("Back up again")
                 || line.contains(summary::UNPLUGGED_PART_WAY)
+                || line.contains(" had not come back by the end")
+                || line.starts_with("The index was not written")
+                || line.contains(summary::CHECK_ADVISED_MARK)
             {
+                writeln!(out, "{line}")?;
+            }
+        }
+        for line in said(&files).lines() {
+            if line.contains(summary::ACCOUNT_MARK) {
                 writeln!(out, "{line}")?;
             }
         }
@@ -460,6 +472,24 @@ pub struct HowToSend {
     pub unattended: bool,
 }
 
+/// What a backup nobody is watching says of copies at a destination that
+/// are not the size they were sent at.
+pub fn put_right_waits_words(name: &str, copies: usize) -> String {
+    format!(
+        "{} has {} not the size {} sent at. Moving {} aside to send {} again waits for your say: open Keevoro and \
+         choose \"Put this backup right\".",
+        crate::confirm::capitalised(name),
+        if copies == 1 {
+            "1 copy".to_string()
+        } else {
+            format!("{} copies", summary::thousands(copies))
+        },
+        if copies == 1 { "it was" } else { "they were" },
+        if copies == 1 { "it" } else { "them" },
+        if copies == 1 { "it" } else { "them" },
+    )
+}
+
 /// What is said of a destination an unattended backup did not send to.
 pub const NOT_SENT_THERE: &str = "Keevoro has not sent anything there. Open Keevoro to decide.";
 
@@ -564,6 +594,20 @@ pub(crate) fn everywhere_reading(
     tracker.plan(plan(catalog, home, &all, tracker)?);
     let several = all.len() > 1;
     let mut went = Went::default();
+    // Copies there at another size are only ever moved aside when a person
+    // asks: a backup nobody is watching lists them for the person's say.
+    if how.unattended {
+        for (to, seen) in &looked {
+            if !seen.reached {
+                continue;
+            }
+            if let Some(view) = crate::confirm::as_it_stands(catalog, to, now)? {
+                if view.not_as_sent > 0 {
+                    went.held.push(put_right_waits_words(&to.describe(), view.not_as_sent));
+                }
+            }
+        }
+    }
     let mut previews = None;
     for (to, seen) in &looked {
         // Stopped before this one's turn, even before the first: said the
@@ -830,7 +874,7 @@ pub type Stop = std::sync::Arc<std::sync::atomic::AtomicBool>;
 
 /// Everything being kept that has a place agreed for it, as the catalog
 /// stands at this moment.
-fn kept_now<'a>(catalog: &Catalog, reports: &'a [keevoro_scan::ScanReport]) -> Result<Vec<Kept<'a>>> {
+pub(crate) fn kept_now<'a>(catalog: &Catalog, reports: &'a [keevoro_scan::ScanReport]) -> Result<Vec<Kept<'a>>> {
     let (unique, _) = summary::unique_items(reports);
     let mut kept = Vec::new();
     for item in unique {
@@ -926,16 +970,27 @@ fn run_until(
         Destination::Folder(_) => (false, 1),
     };
     record.over_network = over_network;
-    let (store, target, default_url) = open(out, &runtime, destination)?;
+    let (store, target, default_url) = open(out, &runtime, destination.clone())?;
     let store = store.as_ref();
     let base_url = base_url.map_or(default_url, str::to_string);
 
     let uploads = uploads_for(home, &kept, pass.sending, buckets)?;
     let n = summary::thousands;
+    // Asked only once files start failing one after another: is the
+    // folder still there? Cloud storage is not asked; its failures are
+    // tried once more at the end.
+    let reachable = match &destination {
+        Destination::Folder(folder) => {
+            let folder = folder.clone();
+            Some(keevoro_publish::Reachable(std::sync::Arc::new(move || folder.is_dir())))
+        }
+        Destination::Bucket { .. } => None,
+    };
     let opts = PublishOptions {
         stop: stop.cloned(),
         over_network,
         at_once,
+        reachable,
         ..PublishOptions::default()
     };
     // What this pass has to send, now that it is known exactly.
@@ -965,15 +1020,44 @@ fn run_until(
     // Files that could not be read because their source went part-way (a
     // drive unplugged) are said once for that source, not one by one.
     let (unplugged, failed_here) = from_sources_gone(catalog, &uploads, &report.failed)?;
+    // What failed last time too is said as such, so the person knows these
+    // are the same files; and what failed now is remembered for next time.
+    let originals = pass.sending == Kind::SendingOriginals;
+    let remembered = format!("not_sent:{target}");
+    let last_time: std::collections::HashSet<String> = if originals {
+        catalog
+            .setting(&remembered)?
+            .and_then(|json| serde_json::from_str(&json).ok())
+            .unwrap_or_default()
+    } else {
+        std::collections::HashSet::new()
+    };
+    if originals {
+        let now: Vec<&str> = report
+            .failed
+            .iter()
+            .map(|f| f.key.as_str())
+            .chain(report.waiting_for_place.iter().map(String::as_str))
+            .take(NOT_SENT_REMEMBERED)
+            .collect();
+        catalog.set_setting(&remembered, &serde_json::to_string(&now)?)?;
+    }
+    let groups = summary::failure_groups(&failed_here, pass.to, over_network, &last_time);
     // Files that could not be sent mark the stage as gone wrong, saying
-    // how many, so it is never shown as done when it was not.
-    match (report.failed.len(), unplugged.first()) {
-        (0, _) => tracker.finish(pass.sending, Some(pass.to)),
-        (_, Some((name, _))) => tracker.went_wrong(pass.sending, Some(pass.to), &format!("{name} was unplugged")),
-        (failed, None) => tracker.went_wrong(
+    // how many and why, in the same words, so it is never shown as done
+    // when it was not.
+    match (
+        report.failed.len() + report.waiting_for_place.len(),
+        unplugged.first(),
+        groups.first(),
+    ) {
+        (0, _, _) => tracker.finish(pass.sending, Some(pass.to)),
+        (_, Some((name, _)), _) => tracker.went_wrong(pass.sending, Some(pass.to), &format!("{name} was unplugged")),
+        (_, None, Some((_, short))) => tracker.went_wrong(pass.sending, Some(pass.to), short),
+        (waiting, None, None) => tracker.went_wrong(
             pass.sending,
             Some(pass.to),
-            &format!("Couldn't back up {}", summary::count(failed, "file")),
+            &format!("Couldn't back up {}", summary::count(waiting, "file")),
         ),
     }
 
@@ -1046,19 +1130,28 @@ fn run_until(
             "text/plain; charset=utf-8",
         ),
     ];
-    if pass.last {
-        tracker.progress(Kind::WritingIndex, Some(pass.to), 0);
-    }
-    for (name, body, kind) in documents {
-        runtime
-            .block_on(put_document(store, &ObjectKey::new(name)?, body, kind, &opts))
-            .map_err(|e| anyhow::anyhow!("Couldn't write the index. {}.", keevoro_publish::plain_reason(&e)))?;
-    }
-
-    catalog.set_setting(&setting, &key)?;
-    if pass.last {
-        tracker.progress(Kind::WritingIndex, Some(pass.to), 1);
-        tracker.finish(Kind::WritingIndex, Some(pass.to));
+    // A folder that went away part-way is not written to again in this
+    // pass: what was sent and what was not is still said, and the index is
+    // written by the next backup.
+    let gone_now = matches!(&destination, Destination::Folder(folder) if !folder.is_dir());
+    if gone_now {
+        if pass.last {
+            tracker.went_wrong(Kind::WritingIndex, Some(pass.to), INDEX_NEXT_TIME);
+        }
+    } else {
+        if pass.last {
+            tracker.progress(Kind::WritingIndex, Some(pass.to), 0);
+        }
+        for (name, body, kind) in documents {
+            runtime
+                .block_on(put_document(store, &ObjectKey::new(name)?, body, kind, &opts))
+                .map_err(|e| anyhow::anyhow!("Couldn't write the index. {}.", keevoro_publish::plain_reason(&e)))?;
+        }
+        catalog.set_setting(&setting, &key)?;
+        if pass.last {
+            tracker.progress(Kind::WritingIndex, Some(pass.to), 1);
+            tracker.finish(Kind::WritingIndex, Some(pass.to));
+        }
     }
 
     abandon_unfinished(&runtime, store, catalog, &target, &uploads, pass.sending)?;
@@ -1074,14 +1167,23 @@ fn run_until(
     sending.restored += report.restored;
     for f in &report.failed {
         if sending.not_sent.len() < crate::history::NOT_SENT_KEPT {
+            // Why in plain words, with the system's own text kept after it.
+            let why = keevoro_core::trouble::cause_words(
+                f.cause,
+                f.side.unwrap_or(keevoro_core::trouble::Side::Destination),
+                pass.to,
+                over_network,
+                true,
+            );
             sending.not_sent.push(crate::history::NotSent {
                 file: f.key.to_string(),
-                reason: f.reason.to_string(),
+                reason: format!("{} ({})", crate::confirm::capitalised(&why), f.reason),
             });
         } else {
             sending.not_sent_more += 1;
         }
     }
+    sending.not_sent_more += report.waiting_for_place.len();
     record.indexed = Some(index.items.len());
 
     if report.uploaded > 0 {
@@ -1118,12 +1220,38 @@ fn run_until(
     for (name, files) in &unplugged {
         writeln!(out, "{}", summary::source_unplugged(name, *files))?;
     }
-    if !failed_here.is_empty() {
-        writeln!(out, "Couldn't back up {}:", summary::count(failed_here.len(), "file"))?;
-        for f in &failed_here {
-            writeln!(out, "  {}: {}.", f.key, f.reason)?;
-        }
+    // Grouped by side and cause, a sentence each, never a line a file:
+    // every file is named in the backup's history.
+    for (sentence, _) in &groups {
+        writeln!(out, "{sentence}")?;
+    }
+    if !report.waiting_for_place.is_empty() {
+        writeln!(
+            out,
+            "{}",
+            summary::place_went_away_words(pass.to, report.waiting_for_place.len(), over_network)
+        )?;
+    } else if !groups.is_empty() {
         writeln!(out, "Back up again to try them once more.")?;
+    }
+    // A place whose connection was lost during the backup: a check from a
+    // fresh connection is the way to be certain.
+    let lost = report.failed.iter().any(|f| {
+        f.cause == keevoro_core::trouble::Cause::ConnectionLost && f.side != Some(keevoro_core::trouble::Side::Source)
+    }) || !report.waiting_for_place.is_empty();
+    if originals && lost && report.uploaded > 0 {
+        writeln!(out, "{}", summary::check_advised_words(pass.to, over_network))?;
+    }
+    // The originals close with one account of where every file being kept
+    // stands, from the same report the lines above came from.
+    if pass.sending == Kind::SendingOriginals {
+        let account = report.account(uploads.len());
+        debug_assert!(account.adds_up(), "{account:?}");
+        writeln!(out, "{}", summary::account_words(pass.to, &account))?;
+    }
+    if gone_now {
+        writeln!(out, "{INDEX_NEXT_TIME}.")?;
+        return Ok(report.failed.len() + report.waiting_for_place.len());
     }
     writeln!(
         out,
@@ -1138,8 +1266,15 @@ fn run_until(
     } else {
         writeln!(out, "Your private index: {}{key}", index.base_url)?;
     }
-    Ok(report.failed.len())
+    Ok(report.failed.len() + report.waiting_for_place.len())
 }
+
+/// Said when a folder went away before the index could be written.
+const INDEX_NEXT_TIME: &str = "The index was not written, as the folder had gone; the next backup writes it";
+
+/// The most files that could not be sent that a destination remembers, to
+/// say "could not be backed up again" next time.
+const NOT_SENT_REMEMBERED: usize = 10_000;
 
 /// What a backup says of the files it sent again because a look had found
 /// them gone from where they were backed up.
@@ -1233,7 +1368,12 @@ pub fn check(
 
 /// What one pass sends: the originals, or the previews. They are never
 /// sent together, so no preview can hold up an original.
-fn uploads_for(home: &Path, kept: &[Kept<'_>], sending: Kind, buckets: &crate::bucket::Buckets) -> Result<Vec<Upload>> {
+pub(crate) fn uploads_for(
+    home: &Path,
+    kept: &[Kept<'_>],
+    sending: Kind,
+    buckets: &crate::bucket::Buckets,
+) -> Result<Vec<Upload>> {
     let local = |relative: &str| relative.split('/').fold(home.to_path_buf(), |p, s| p.join(s));
     let mut uploads = Vec::new();
     if sending == Kind::SendingPreviews {
@@ -1978,11 +2118,12 @@ mod tests {
         let end = tracker.estimate();
         let originals = end.stages.iter().find(|s| s.kind == Kind::SendingOriginals).unwrap();
         assert_eq!(originals.state, State::Problem);
-        assert_eq!(originals.problem.as_deref(), Some("Couldn't back up 1 file"));
-        assert_eq!(originals.line, "Backing up your files: Couldn't back up 1 file");
+        let said = "Couldn't back up 1 file: it was no longer where it was found";
+        assert_eq!(originals.problem.as_deref(), Some(said));
+        assert_eq!(originals.line, format!("Backing up your files: {said}"));
         let recorded = tracker.record();
         let originals = recorded.iter().find(|r| r.kind == Kind::SendingOriginals).unwrap();
-        assert_eq!(originals.problem.as_deref(), Some("Couldn't back up 1 file"));
+        assert_eq!(originals.problem.as_deref(), Some(said));
     }
 
     /// The card is pulled out by moving its folder away part-way. Windows

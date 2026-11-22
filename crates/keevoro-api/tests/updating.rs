@@ -460,3 +460,51 @@ fn a_backup_0_37_1_kept_has_no_schedule_and_nothing_runs_by_itself() {
     let shown = ask(&keevoro, Op::ScheduleShow, Some("Family photos"), Value::Null);
     assert_eq!(shown["every"], "Every day at 02:30");
 }
+
+/// Putting a backup right (0.43) writes down when each copy was proved by
+/// reading it back in full (catalog step 15, `proved_at`). A backup 0.37.1
+/// kept has none: nothing counts as proved, every record still counts as
+/// there as it did, and the plan of putting it right reads it as it is.
+#[test]
+fn a_backup_0_37_1_kept_has_nothing_proved_and_its_records_count_as_they_did() {
+    let dir = tempfile::tempdir().unwrap();
+    let (keevoro, places) = as_0_37_1_left_it(dir.path());
+    let home = places.folders.data.join("backups").join("backup-1");
+    let catalog = keevoro_catalog::Catalog::open_in_library(&home).unwrap();
+    let target = format!("folder:{}", places.usb.display());
+    let records = catalog.sent_to(&target).unwrap();
+    assert_eq!(records.len(), 2, "{records:?}");
+    assert!(records.iter().all(|r| r.seen == keevoro_catalog::Seen::There));
+    assert!(
+        catalog.proved_since(&target, 0).unwrap().is_empty(),
+        "nothing was proved this way"
+    );
+    for r in &records {
+        assert!(catalog.is_uploaded(&target, &r.key).unwrap());
+    }
+    // Proving one changes nothing else about it.
+    catalog
+        .set_proved(&target, &[records[0].key.clone()], 1_795_000_000)
+        .unwrap();
+    assert_eq!(catalog.proved_since(&target, 1).unwrap().len(), 1);
+    assert_eq!(catalog.sent_to(&target).unwrap(), records);
+    // The plan reads it, and asks nothing of the destination.
+    let plan = ask(&keevoro, Op::BackupPutRightPlan, Some("Family photos"), Value::Null);
+    assert_eq!(plan["known"], 0, "{plan}");
+}
+
+/// What a backup could not send is remembered for each destination from
+/// 0.43 (the catalog setting `not_sent:<target>`), so the next backup can
+/// say "These 12 files could not be backed up again". A backup 0.37.1 kept
+/// has none: nothing is said as failing again, and backing up works as
+/// before.
+#[test]
+fn a_backup_0_37_1_kept_remembers_nothing_as_failing_last_time() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_keevoro, places) = as_0_37_1_left_it(dir.path());
+    let home = places.folders.data.join("backups").join("backup-1");
+    let catalog = keevoro_catalog::Catalog::open_in_library(&home).unwrap();
+    let target = format!("folder:{}", places.usb.display());
+    assert_eq!(catalog.setting(&format!("not_sent:{target}")).unwrap(), None);
+    assert_eq!(catalog.setting(&format!("putting_right:{target}")).unwrap(), None);
+}

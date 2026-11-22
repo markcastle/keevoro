@@ -216,6 +216,15 @@ pub struct SendEvent {
     /// now, why: "Waiting while this computer is on battery".
     #[serde(rename = "notNow", default, skip_serializing_if = "Option::is_none")]
     pub not_now: Option<String>,
+    /// On the last event of a backup: how many files it could not back up,
+    /// so the next press can say what it will do ("Back up the 176 files
+    /// that were missed").
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub missed: usize,
+    /// On the last event of a backup during which a destination's
+    /// connection was lost: "Check they all arrived" is offered first.
+    #[serde(rename = "checkAdvised", default, skip_serializing_if = "std::ops::Not::not")]
+    pub check_advised: bool,
 }
 
 /// How a backup or a check ended, in a word, for a program to act on. The
@@ -247,6 +256,8 @@ impl SendEvent {
             outcome: None,
             held_back: Vec::new(),
             not_now: None,
+            missed: 0,
+            check_advised: false,
         }
     }
 
@@ -266,6 +277,8 @@ impl SendEvent {
             outcome: Some(outcome),
             held_back: Vec::new(),
             not_now: None,
+            missed: 0,
+            check_advised: false,
         }
     }
 }

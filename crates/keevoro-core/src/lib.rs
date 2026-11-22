@@ -27,6 +27,7 @@ pub mod recognise;
 pub mod schedule;
 pub mod skip;
 pub mod synced;
+pub mod trouble;
 pub mod unattended;
 pub mod wants;
 pub mod words;
@@ -40,5 +41,8 @@ pub use kinds::{plain_ending, FileKind, FileKinds, KindChange, KindRefusal, Kind
 pub use layout::{fit_place, library_folder, numbered_name, safe_name, OTHER_FILES};
 pub use libraries::{holds_originals, library_album_segments, photo_library, PhotoLibrary};
 pub use media::{is_raw_extension, kind_from_mime, never_media_extension, MediaKind};
-pub use skip::{folder_made_by_keevoro, made_by_keevoro, SkipReason, SkipRules, BACKUP_GUIDE, RECORD};
+pub use skip::{
+    folder_made_by_keevoro, made_by_keevoro, SkipReason, SkipRules, BACKUP_GUIDE, RECORD, SET_ASIDE_FOLDER,
+    SET_ASIDE_NOTE,
+};
 pub use wants::{Choices, FileFacts, LeftOutBy, SourceChoices, Wants};

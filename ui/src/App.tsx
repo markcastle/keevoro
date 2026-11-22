@@ -81,9 +81,10 @@ import { BackupWants, SourceWants } from './wants'
 import { ArrangeQuestion, BackupArrange, KeptFoldersSection, SourceArrange, arrangedLine, keptSaid } from './arrange'
 import { OtherFilesScreen, OtherFilesSection } from './otherFiles'
 import { ThereNow, WhatWasFound } from './whatIsThere'
+import { PutRight } from './putRight'
 import { ManageBackups } from './manageBackups'
 import { CheckLine, CheckStopped } from './checking'
-import { certain, outOfReachLine } from './thereWords'
+import { certain, mainButtonWords, outOfReachLine } from './thereWords'
 import { SyncedCard } from './synced'
 import { StorageFields } from './storageForm'
 import { AddBucketSource, CloudCost, CloudSourceIcon } from './bucketSource'
@@ -1729,8 +1730,8 @@ function AboutScreen(props: { api: Backend; version: string; onBack: () => void;
           <dt>A copy only counts when it is proved exact</dt>
           <dd>
             Every file is fingerprinted from its whole contents. An original written to a folder or a drive is read
-            back and compared with that fingerprint before Keevoro calls it safe, and one that does not match is
-            thrown away and said so. If a file of the same name is already there, it is fingerprinted too, and
+            back from its place in the backup and compared with that fingerprint before Keevoro calls it safe, and
+            one that does not match is never counted, and is said so. If a file of the same name is already there, it is fingerprinted too, and
             counted only if it is the same file. An original sent to Cloudflare R2 or Amazon S3 travels over an
             encrypted, error-checked connection, and “Check they all arrived” confirms each one is there and the
             right size.
@@ -1739,7 +1740,8 @@ function AboutScreen(props: { api: Backend; version: string; onBack: () => void;
           <dd>
             An original, once backed up, is never overwritten. Two different photos with the same name are both kept.
             Deleting a photo from a source does not delete it from your backup. Only what Keevoro makes itself, the
-            previews and the list of contents, is ever rewritten.
+            previews and the list of contents, is ever rewritten. A copy found damaged is never deleted either: when
+            you ask Keevoro to put the backup right, it is moved aside into a folder of its own there, with a note.
           </dd>
           <dt>Duplicates are exact, never guesses</dt>
           <dd>
@@ -3106,6 +3108,7 @@ function SendPanel(props: {
               counts are from before it began and would only mislead. */}
           {!sending && <WhatWasFound destinations={destinations} api={api} onChanged={onSent} onProblem={onProblem} />}
           {!sending && <ThereNow destinations={destinations} waiting={props.waiting} safe={props.safe} />}
+          {!sending && !running && <PutRight destinations={destinations} api={api} start={start} onProblem={onProblem} />}
           {!sending && room && room.needed > 0 && (
             <p className={room.enough ? 'needs' : 'needs short'} role={room.enough ? undefined : 'alert'}>
               {room.free === null ? (
@@ -3213,14 +3216,14 @@ function SendPanel(props: {
             <CloudCost said={room?.cost ?? []} />
             <div className="choices">
               <button
-                className="primary"
+                className={said?.checkAdvised && props.waiting === 0 ? 'button' : 'primary'}
                 onClick={() => start('Starting…', api.send)}
                 disabled={props.waiting + props.safe === 0 || (room !== null && !room.enough)}
               >
-                {props.waiting > 0 ? 'Back up now' : 'Back up again'}
+                {mainButtonWords(props.waiting, said?.missed ?? 0)}
               </button>
               <button
-                className="button"
+                className={said?.checkAdvised && props.waiting === 0 ? 'primary' : 'button'}
                 onClick={() => start('Checking…', api.checkArrived)}
                 disabled={props.safe === 0 && !destinations.some((d) => d.there > 0)}
               >

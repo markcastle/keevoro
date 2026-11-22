@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { ago } from './format.ts'
 import type { Looked } from './backend.ts'
-import { certain, lookedSaid, outOfReachLine, thereNow } from './thereWords.ts'
+import { certain, lookedSaid, mainButtonWords, outOfReachLine, thereNow } from './thereWords.ts'
 
 const NOW = 1_800_000_000
 const at = (secondsAgo: number) => NOW - secondsAgo
@@ -57,4 +57,26 @@ test('a place in a list says when it cannot be reached, and what each look said 
     'The folder F:\\Backup looks emptied or replaced.',
     outOfReach.said[0],
   ])
+})
+
+test('the owner\u2019s second screen: never "everything is there" beside files that are not', () => {
+  const found = { ...fresh, gone: 15, notAsSent: 64 }
+  assert.equal(
+    thereNow(79, 71_945, [{ there: 71_945, waiting: 79, looked: found }], said),
+    '71,945 of your 72,024 files are safely there. 79 need attention.',
+  )
+  assert.equal(
+    thereNow(80, 71_944, [{ there: 71_944, waiting: 80, looked: { ...fresh, gone: 1, notAsSent: 0 } }], said),
+    '71,944 of your 72,024 files are safely there. 1 needs attention. 79 more are waiting to be backed up.',
+  )
+  // A look that could not reach the place says nothing of what it did not see.
+  assert.equal(thereNow(0, 40, [{ there: 40, waiting: 0, looked: { ...outOfReach, gone: 3 } }], said).startsWith('Everything'), true)
+})
+
+test('after a backup that missed files, the main button says what it will do', () => {
+  assert.equal(mainButtonWords(176, 176), 'Back up the 176 files that were missed')
+  assert.equal(mainButtonWords(1, 1), 'Back up the 1 file that was missed')
+  assert.equal(mainButtonWords(200, 176), 'Back up now', 'new files too: not only the missed ones')
+  assert.equal(mainButtonWords(4, 0), 'Back up now')
+  assert.equal(mainButtonWords(0, 0), 'Back up again')
 })

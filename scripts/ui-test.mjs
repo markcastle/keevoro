@@ -854,7 +854,7 @@ try {
   await found
     .getByText(/^The folder F:\\Family Backup looks emptied or replaced: it no longer holds any of the [\d,]+ files Keevoro backed up there\. They will be sent again\.$/)
     .waitFor()
-  await page.getByText(/^[\d,]+ files are waiting to be backed up\.$/).waitFor()
+  await page.getByText(/^0 of your [\d,]+ files are safely there\. [\d,]+ need attention\.$/).waitFor()
   assert.equal(await page.getByText(/\d already there/).count(), 0, 'nothing gone is said to be there')
   await shot('9x-backup-folder-emptied')
   await page.getByRole('button', { name: 'Back up now' }).click()
@@ -870,6 +870,60 @@ try {
     .waitFor()
   await page.getByText(/^Everything you are keeping was there when Keevoro last looked, 2 days ago: [\d,]+ files\.$/).waitFor()
   await shot('9y-backup-folder-unplugged')
+
+  // --- A share that drops out during a backup: one grouped sentence, said
+  // as the destination's, an account that adds up, and the main button
+  // saying what it will do next.
+  await page.goto(`${base}/?fast`)
+  await page.getByRole('button', { name: 'Choose where they go' }).click()
+  await page.evaluate(() => window.keevoroDropTheShareNextBackup())
+  await page.getByRole('button', { name: /^A folder/ }).click()
+  await page.getByRole('button', { name: 'Back up now' }).click()
+  await page.getByText(/^Couldn't back up 5 files, because the connection to the folder F:\\Family Backup was lost for a while: IMG_1001\.jpg, IMG_1002\.jpg, IMG_1003\.jpg and 2 more\.$/).waitFor()
+  await page.getByText(/^[\d,]+ of the [\d,]+ files you are keeping are safely at the folder F:\\Family Backup\. 5 still need attention: 5 couldn't be sent\.$/).waitFor()
+  assert.equal(await page.getByText(/from its source/).count(), 0, 'a destination\u2019s trouble is never said as the source\u2019s')
+  await page.getByRole('button', { name: 'Back up the 5 files that were missed' }).waitFor()
+  await shot('9w-backup-share-dropped-out')
+  await page.getByRole('button', { name: 'Back up the 5 files that were missed' }).click()
+  await page.getByText(/^All [\d,]+ files you are keeping are safely at the folder F:\\Family Backup\.$/).waitFor()
+
+  // --- The owner's network share as 0.42.0 left it: some files gone, some
+  // cut short. The screen says how many are safely there and how many need
+  // attention, never "everything", and one button puts it right.
+  await page.goto(`${base}/?fast`)
+  await page.getByRole('button', { name: 'Choose where they go' }).click()
+  await page.getByRole('button', { name: /^A folder/ }).click()
+  await page.getByRole('button', { name: 'Back up now' }).click()
+  await page.getByText(/^All [\d,]+ files you are keeping are safely at the folder F:\\Family Backup\.$/).waitFor()
+  await page.getByText(/^Everything you are keeping is there: [\d,]+ files\.$/).waitFor()
+  await page.getByRole('button', { name: 'Back up again' }).click()
+  await page.getByText(/^[\d,]+ files already there\.$/).waitFor()
+  await page.getByText(/^All [\d,]+ files you are keeping are safely at the folder F:\\Family Backup\.$/).waitFor()
+  await shot('9z0-second-backup-adds-up')
+  await page.evaluate(() => window.keevoroDamageTheShare())
+  await page.locator('.steps button').nth(1).click()
+  await page.getByRole('button', { name: 'Next' }).click()
+  const damaged = page.getByRole('status', { name: 'What Keevoro found where this backup goes' })
+  await damaged.getByText(/^The folder F:\\Family Backup no longer holds 2 of the [\d,]+ files Keevoro backed up there\. They will be sent again\.$/).waitFor()
+  await damaged.getByText(/under the names Keevoro gave them, but not the sizes they were backed up at/).waitFor()
+  await page.getByText(/^[\d,]+ of your [\d,]+ files are safely there\. 5 need attention\.$/).waitFor()
+  assert.equal(await page.getByText(/^Everything you are keeping is there/).count(), 0, 'never everything beside files that are not')
+  await shot('9z1-backup-needs-putting-right')
+  await page.getByRole('button', { name: 'Put this backup right…' }).click()
+  await page.getByText(/^First, Keevoro puts right the 5 files it already knows are wrong/).waitFor()
+  await page.getByText(/into a folder called "Set aside by Keevoro"/).waitFor()
+  await shot('9z2-put-this-backup-right-plan')
+  await page.getByRole('button', { name: /^Put it right and check every file/ }).click()
+  await page.getByText(/^Moved 3 damaged copies aside into "Set aside by Keevoro\/2026-11-22"/).waitFor()
+  await page.getByText(/^Your backup at the folder F:\\Family Backup is right: all [\d,]+ files you are keeping are there/).waitFor()
+  await page.getByText(/^Everything you are keeping is there: [\d,]+ files\.$/).waitFor()
+  assert.equal(await page.getByRole('button', { name: 'Put this backup right…' }).count(), 0, 'offered only when something needs it')
+  await shot('9z3-backup-put-right')
+  // With nothing known to be wrong, the full proof is still a quiet press away.
+  await page.getByRole('button', { name: 'Prove every copy…' }).click()
+  await page.getByText(/^Keevoro reads back in full each of the [\d,]+ files you are keeping at the folder F:\\Family Backup/).waitFor()
+  await shot('9z4-prove-every-copy')
+  await page.getByRole('button', { name: 'Not now' }).click()
 
   // --- On a Mac or Linux an unplugged drive can leave the folder it was
   // mounted on behind, empty, on the computer's own disk. That is never
@@ -1449,6 +1503,9 @@ try {
   await page.getByRole('button', { name: 'See where the space goes' }).click()
   await page.getByRole('heading', { name: 'Where the space goes on Windows (C:)', level: 1 }).waitFor()
   const spaceRows = () => page.locator('.space-list tbody tr .name > :first-child').allInnerTexts()
+  // The list is filled once the map has been asked for: wait for its rows,
+  // not for a moment to pass.
+  await page.locator('.space-list tbody tr .name').first().waitFor()
   assert.deepEqual((await spaceRows()).slice(0, 3), ['Users', 'Games', 'Windows'], 'the biggest first')
   const windowsRow = page.locator('.space-list tbody tr', { hasText: 'Windows' }).first()
   assert.match(await windowsRow.innerText(), /System folder: Keevoro never looks through it/)

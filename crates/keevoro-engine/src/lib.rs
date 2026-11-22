@@ -25,6 +25,7 @@ pub mod history;
 pub mod layout;
 pub mod look;
 pub mod preview;
+pub mod put_right;
 pub mod reach;
 pub mod room;
 pub mod send;
@@ -426,6 +427,8 @@ fn now() -> i64 {
 
 #[cfg(test)]
 mod arranging_tests;
+#[cfg(test)]
+mod dropout_tests;
 
 #[cfg(test)]
 mod tests {

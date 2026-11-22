@@ -174,6 +174,17 @@ pub struct KeepPhotoRequest {
     pub keep: bool,
 }
 
+/// `backup.put_right`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PutRightRequest {
+    /// False to put right only what a look or a check already found wrong,
+    /// which takes minutes; left out or true, every file is also read back
+    /// in full, which over a network can take hours.
+    #[serde(default)]
+    pub thorough: Option<bool>,
+}
+
 /// `backup.previews`: without `wanted` it only reads.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -643,6 +654,14 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
         Op::BackupCheck => {
             read::<Nothing>(request)?;
             answer(keevoro.check_backup(&named()?, None)?)
+        }
+        Op::BackupPutRight => {
+            let r: PutRightRequest = read(request)?;
+            answer(keevoro.put_right(&named()?, r.thorough.unwrap_or(true), None)?)
+        }
+        Op::BackupPutRightPlan => {
+            read::<Nothing>(request)?;
+            answer(open()?.put_right_plan()?)
         }
         Op::JobsStatus => {
             let r: StatusRequest = read(request)?;

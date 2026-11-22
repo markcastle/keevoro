@@ -1139,6 +1139,20 @@ pub fn kind_removed(io: &mut Io<'_>, _: &ArgMatches, kind: &Value) -> Said_ {
     Ok(Code::Worked)
 }
 
+pub fn put_right_plan(io: &mut Io<'_>, _: &ArgMatches, plan: &Value) -> Said_ {
+    // The engine's own sentences, so the app says exactly the same.
+    for place in each(plan.get("places").unwrap_or(&Value::Null)) {
+        for line in each(place.get("said").unwrap_or(&Value::Null)).filter_map(Value::as_str) {
+            writeln!(io.out, "{line}")?;
+        }
+    }
+    writeln!(
+        io.out,
+        "To start: keevoro repair (or keevoro repair --quick for only what is known to be wrong)"
+    )?;
+    Ok(Code::Worked)
+}
+
 pub fn tidied(io: &mut Io<'_>, _: &ArgMatches, tidied: &Value) -> Said_ {
     // The API's own sentences, so the app says exactly the same.
     for line in each(tidied.get("said").unwrap_or(&Value::Null)).filter_map(Value::as_str) {

@@ -10,6 +10,16 @@ use std::path::{Path, PathBuf};
 /// The note Keevoro writes into every backup, explaining its folders.
 pub const BACKUP_GUIDE: &str = "What is in this backup.txt";
 
+/// The folder at a backup's destination that damaged copies are moved
+/// into when a person asks Keevoro to put the backup right. Nothing in it
+/// is ever counted as backed up, listed in the index, or looked through as
+/// a source.
+pub const SET_ASIDE_FOLDER: &str = "Set aside by Keevoro";
+
+/// The note in that folder, and in each dated folder inside it, saying
+/// what the copies are. It marks the folder as Keevoro's own.
+pub const SET_ASIDE_NOTE: &str = "About these files, from Keevoro.txt";
+
 /// Where Keevoro keeps its record of a backup, inside the backup's own
 /// folder; also where the library of versions before 0.30 kept its record.
 pub const RECORD: &str = ".keevoro/catalog.sqlite";
@@ -88,6 +98,8 @@ impl SkipReason {
 /// - The note every backup has (`What is in this backup.txt`) beside an
 ///   `index` folder: a backup, wherever it was sent. Both together are
 ///   very unlikely by chance.
+/// - The note Keevoro leaves with damaged copies it moved aside
+///   ([`SET_ASIDE_NOTE`]).
 ///
 /// `has_file` and `has_folder` answer for names inside the folder.
 pub fn made_by_keevoro(has_file: &dyn Fn(&str) -> bool, has_folder: &dyn Fn(&str) -> bool) -> Option<SkipReason> {
@@ -97,6 +109,9 @@ pub fn made_by_keevoro(has_file: &dyn Fn(&str) -> bool, has_folder: &dyn Fn(&str
         Some(SkipReason::KeevoroOwn)
     } else if has_file(BACKUP_GUIDE) && has_folder("index") {
         Some(SkipReason::KeevoroBackup)
+    } else if has_file(SET_ASIDE_NOTE) {
+        // Damaged copies Keevoro moved aside in a backup: never a source.
+        Some(SkipReason::KeevoroOwn)
     } else {
         None
     }
@@ -345,6 +360,11 @@ mod tests {
             with(&[], &["index", "originals", "renditions"]),
             None,
             "ordinary names alone are not enough"
+        );
+        assert_eq!(
+            with(&[SET_ASIDE_NOTE], &["originals"]),
+            Some(SkipReason::KeevoroOwn),
+            "damaged copies Keevoro moved aside are never a source"
         );
     }
 

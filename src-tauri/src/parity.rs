@@ -123,6 +123,8 @@ const BACKED: &[(&str, &[Op])] = &[
     ("send", &[Op::BackupRun]),
     ("stop_sending", &[Op::JobsStop]),
     ("check_arrived", &[Op::BackupCheck]),
+    ("put_right", &[Op::BackupPutRight]),
+    ("put_right_plan", &[Op::BackupPutRightPlan]),
     ("send_progress", &[Op::JobsStatus]),
     ("pause_work", &[Op::JobsPause, Op::JobsCarryOn]),
 ];

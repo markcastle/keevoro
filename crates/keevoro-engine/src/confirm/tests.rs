@@ -81,30 +81,42 @@ fn what_has_gone_is_said_plainly_with_what_will_happen() {
         not_as_sent,
     };
     assert_eq!(
-        gone_words(usb, gone(0, 40, 0), true),
+        gone_words(usb, gone(0, 40, 0), true, true),
         ["The folder /media/USB looks emptied or replaced: it no longer holds any of the 40 files Keevoro backed up \
           there. They will be sent again."]
     );
     assert_eq!(
-        gone_words(usb, gone(1_199, 1, 0), false),
+        gone_words(usb, gone(1_199, 1, 0), false, true),
         ["The folder /media/USB no longer holds 1 of the 1,200 files Keevoro backed up there. It will be sent again."]
     );
     assert_eq!(
-        gone_words(usb, gone(0, 1, 0), true),
+        gone_words(usb, gone(0, 1, 0), true, true),
         [
             "The folder /media/USB looks emptied or replaced: it no longer holds the file Keevoro backed up there. It \
           will be sent again."
         ]
     );
-    let shortened = gone_words("the Cloudflare R2 bucket family", gone(3, 0, 1), false);
+    let shortened = gone_words("the Cloudflare R2 bucket family", gone(3, 0, 1), false, false);
     assert_eq!(
         shortened,
         ["The Cloudflare R2 bucket family has 1 file under the name Keevoro gave it, but not the size it was backed \
-          up at, so it may be damaged and is not counted as safe. Keevoro never replaces a file in a backup, so it \
-          can be sent again only once that copy is moved or removed."]
+          up at, so it is not counted as safe. Keevoro never replaces or deletes a file in a backup. To put it right, \
+          delete that copy in your storage's own website and back up again."]
     );
-    assert!(gone_words(usb, gone(4, 0, 0), false).is_empty());
-    for line in gone_words(usb, gone(0, 2, 2), true) {
+    // The owner's words, read aloud: "gave they" is gone.
+    assert_eq!(
+        gone_words("the folder Y:\\personal", gone(71_769, 15, 64), false, true),
+        [
+            "The folder Y:\\personal no longer holds 15 of the 71,848 files Keevoro backed up there. They will be sent \
+             again.",
+            "The folder Y:\\personal has 64 files under the names Keevoro gave them, but not the sizes they were \
+             backed up at, so they are not counted as safe. Keevoro never replaces a file in a backup: \"Put this \
+             backup right\" moves those copies aside there, into a folder of their own, then sends them again and \
+             proves each one."
+        ]
+    );
+    assert!(gone_words(usb, gone(4, 0, 0), false, true).is_empty());
+    for line in gone_words(usb, gone(0, 2, 2), true, true) {
         assert!(!line.contains('\u{2014}'), "{line}");
     }
 }
@@ -534,6 +546,11 @@ struct Meddling {
     /// folder, the name of the records, the file), as a backup finishing a
     /// file at that moment would.
     finishes: Option<(PathBuf, String, PathBuf)>,
+    /// What the listing gets wrong, as a share that dropped out and came
+    /// back once did: a file left out (`None`), or listed at another size.
+    stale: Vec<(String, Option<u64>)>,
+    /// Asking about one file by itself fails, as when the connection drops.
+    head_fails: bool,
 }
 
 #[async_trait]
@@ -545,6 +562,11 @@ impl ObjectStore for Meddling {
         self.inner.check_connection().await
     }
     async fn head(&self, key: &ObjectKey) -> Result<Option<ObjectInfo>, StorageError> {
+        if self.head_fails {
+            return Err(StorageError::Io(std::io::Error::other(
+                "The specified network name is no longer available. (os error 64)",
+            )));
+        }
         self.inner.head(key).await
     }
     async fn get(&self, key: &ObjectKey) -> Result<Vec<u8>, StorageError> {
@@ -560,7 +582,13 @@ impl ObjectStore for Meddling {
         if self.fails_at == Some(prefix) {
             return Err(StorageError::Network("connection reset".into()));
         }
-        let listed = self.inner.list_all(prefix).await?;
+        let mut listed = self.inner.list_all(prefix).await?;
+        listed.retain(|o| !self.stale.iter().any(|(k, b)| *k == o.key.as_str() && b.is_none()));
+        for o in &mut listed {
+            if let Some((_, Some(bytes))) = self.stale.iter().find(|(k, _)| *k == o.key.as_str()) {
+                o.bytes = *bytes;
+            }
+        }
         if let (Some((home, target, file)), "originals/") = (&self.finishes, prefix) {
             std::fs::write(file, b"finished just now").unwrap();
             Catalog::open_in_library(home)
@@ -582,7 +610,58 @@ fn meddling(usb: &Path) -> Meddling {
         inner,
         fails_at: None,
         finishes: None,
+        stale: Vec::new(),
+        head_fails: false,
     }
+}
+
+/// The keys of the originals at the USB folder, as Keevoro names them.
+fn keys_of(t: &Tester) -> Vec<String> {
+    let mut keys: Vec<String> = t
+        .records()
+        .into_iter()
+        .filter(|r| r.key.starts_with("originals/"))
+        .map(|r| r.key)
+        .collect();
+    keys.sort();
+    keys
+}
+
+#[test]
+fn a_listing_that_leaves_files_out_or_gives_stale_sizes_is_checked_file_by_file_before_anything_is_believed() {
+    // The owner's second run: the listing of a share that had dropped out
+    // said 15 files had gone and 64 were another size. Each was in fact
+    // there and exact, as the backup that followed proved by reading them.
+    let t = Tester::new();
+    t.run();
+    let keys = keys_of(&t);
+    let mut store = meddling(&t.usb());
+    store.stale = vec![(keys[0].clone(), None), (keys[1].clone(), Some(3))];
+    let looked = look_with(&t.catalog, &t.target(), Ok(&store)).unwrap();
+    assert!(looked.reached);
+    assert!(t.records().iter().all(|r| r.seen == Seen::There), "{:?}", t.records());
+    assert!(t.view().said.is_empty(), "nothing to say: {:?}", t.view().said);
+    assert_eq!(t.waiting(), 0);
+
+    // When a file really has gone, asking about it by itself agrees.
+    std::fs::remove_file(t.usb().join(&keys[2])).unwrap();
+    look_with(&t.catalog, &t.target(), Ok(&store)).unwrap();
+    assert_eq!((t.view().gone, t.view().not_as_sent), (1, 0));
+}
+
+#[test]
+fn a_look_that_cannot_ask_about_a_file_by_itself_changes_no_record() {
+    let t = Tester::new();
+    t.run();
+    let before = t.records();
+    let keys = keys_of(&t);
+    let mut store = meddling(&t.usb());
+    store.stale = vec![(keys[0].clone(), None)];
+    store.head_fails = true;
+    let looked = look_with(&t.catalog, &t.target(), Ok(&store)).unwrap();
+    assert!(!looked.reached, "could not look is never gone");
+    assert_eq!(t.records(), before);
+    assert_eq!(t.waiting(), 0);
 }
 
 #[test]
@@ -962,4 +1041,112 @@ fn a_folder_saved_before_its_disk_was_kept_goes_on_as_before_and_is_known_from_t
     let (said, _) = t.run();
     assert!(said.contains("looks emptied or replaced"), "as before: {said}");
     assert!(t.saved().volume.is_some(), "and its disk is kept once reached");
+}
+
+/// The four photos' places on the card, in order.
+fn card_photos(t: &Tester) -> Vec<PathBuf> {
+    let mut photos = walk(&t.dir.path().join("CARD"));
+    photos.sort();
+    photos
+}
+
+#[test]
+fn the_owners_second_screen_now_tells_one_truth() {
+    // The first run: one file can't be read and is missed. (The owner's
+    // 176 were missed at the share, which the history now says; here the
+    // card is simplest.)
+    let t = Tester::new();
+    let photo = card_photos(&t)[3].clone();
+    let aside = photo.with_extension("away");
+    std::fs::rename(&photo, &aside).unwrap();
+    let (first, went) = t.run();
+    assert_eq!(went.failed_files, 1);
+    assert!(
+        first.contains("Couldn't back up 1 file, because it was no longer where it was found: IMG_"),
+        "{first}"
+    );
+    assert!(
+        first.contains(&format!(
+            "3 of the 4 files you are keeping are safely at the folder {}. 1 still needs attention: 1 couldn't be \
+             sent.",
+            t.usb().display()
+        )),
+        "{first}"
+    );
+    std::fs::rename(&aside, &photo).unwrap();
+
+    // What 0.42.0's look left behind on the owner's computer: records of
+    // files that are there and exact, written down as gone and as another
+    // size, because the share's listing said so.
+    let keys = keys_of(&t);
+    t.catalog
+        .set_seen(
+            &t.target(),
+            &[(keys[0].clone(), Seen::Missing), (keys[1].clone(), Seen::NotAsSent)],
+        )
+        .unwrap();
+
+    // "Back up again": the look asks each of those files by itself, finds
+    // them there, and says nothing it would have to take back.
+    let (second, went) = t.run();
+    assert_eq!(went.failed_files, 0);
+    assert!(!second.contains("no longer holds"), "{second}");
+    assert!(!second.contains("not the size"), "{second}");
+    assert!(second.contains("Safely backed up 1 file"), "{second}");
+    assert!(second.contains("3 files already there."), "{second}");
+    assert!(
+        second.contains(&format!(
+            "All 4 files you are keeping are safely at the folder {}.",
+            t.usb().display()
+        )),
+        "{second}"
+    );
+    assert!(t.records().iter().all(|r| r.seen == Seen::There));
+    assert_eq!(t.waiting(), 0);
+    assert!(t.view().said.is_empty());
+}
+
+#[test]
+fn a_file_really_gone_is_sent_again_in_the_same_run_that_says_so() {
+    let t = Tester::new();
+    t.run();
+    let keys = keys_of(&t);
+    std::fs::remove_file(t.usb().join(&keys[2])).unwrap();
+    let (said, _) = t.run();
+    assert!(said.contains("It will be sent again."), "{said}");
+    assert!(said.contains("Restored 1 file that had gone from there."), "{said}");
+    assert!(t.usb().join(&keys[2]).is_file(), "sent again, in this run");
+    assert!(said.contains("All 4 files you are keeping are safely at"), "{said}");
+}
+
+#[test]
+fn a_backup_nobody_is_watching_never_puts_damaged_copies_right_by_itself_and_lists_them() {
+    let t = Tester::new();
+    t.run();
+    let short = t.originals()[0].clone();
+    std::fs::write(&short, b"cut short").unwrap();
+    let mut said = Vec::new();
+    let went = crate::send::everywhere_as(
+        &crate::send::HowToSend { unattended: true },
+        &mut said,
+        &t.catalog,
+        &t.home,
+        &t.world(),
+        None,
+        &Stop::default(),
+        &Tracker::new(Remembered::default()),
+        &mut |_| {},
+        &mut |_| {},
+    )
+    .unwrap();
+    assert_eq!(
+        went.held,
+        [format!(
+            "The folder {} has 1 copy not the size it was sent at. Moving it aside to send it again waits for your \
+             say: open Keevoro and choose \"Put this backup right\".",
+            t.usb().display()
+        )]
+    );
+    assert_eq!(std::fs::read(&short).unwrap(), b"cut short", "left exactly as it was");
+    assert!(!t.usb().join(keevoro_core::SET_ASIDE_FOLDER).exists());
 }

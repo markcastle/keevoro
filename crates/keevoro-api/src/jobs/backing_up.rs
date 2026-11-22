@@ -160,6 +160,13 @@ pub(super) fn send_and_record(
         Some(e) => ctx.log.say(&format!("Backup job failed: {e}")),
     }
     let mut last = SendEvent::finished(&said, problem, outcome);
+    if let (true, Ok(went)) = (record, &result) {
+        last.missed = went.failed_files;
+        last.check_advised = last
+            .summary
+            .iter()
+            .any(|l| l.contains(keevoro_engine::summary::CHECK_ADVISED_MARK));
+    }
     let mut by_itself = by_itself;
     if let Some(so_far) = by_itself.as_mut() {
         last.held_back = so_far.waiting.clone();

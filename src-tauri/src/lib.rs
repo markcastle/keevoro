@@ -206,5 +206,7 @@ fn app<R: Runtime>(
             commands::disconnect_destination,
             commands::send,
             commands::check_arrived,
+            commands::put_right,
+            commands::put_right_plan,
         ])
 }
