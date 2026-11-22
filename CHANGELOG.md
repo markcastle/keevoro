@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.49.0] - 2026-11-22
+
 ### Added
 
 - **Backing up by itself waits for a good moment, says why, and can be told to go anyway.** Settings, Backing up by itself, has a new group, "Waiting for a good moment": "Wait while on battery" (on: a backup by itself waits while the computer is on battery and less than half charged; it used to wait on battery however full), "Wait on a metered connection" (on: a backup to or from cloud storage waits while the connection is metered, such as a phone's hotspot; on Windows, which can tell, and elsewhere Settings says plainly that the computer can't tell, so nothing waits for it), and "Only between these hours" (off; on, a run that comes round by itself starts only, say, between 22:00 and 07:00, and a run missed in the day waits for the evening). While a run due is waiting, the backup screen says why, such as "Waiting while this computer is on battery. The run due will start by itself once it can.", with "Back up now anyway" beside it, and the icon by the clock says the same: "Family photos: waiting while this computer is on battery". A backup you start yourself never waits. At the command line: `keevoro background --wait-on-battery off`, `--wait-on-metered on`, `--between 22:00 07:00` or `--any-hour`, and `keevoro run --unattended --anyway`.
@@ -801,7 +805,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.48.0...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.49.0...HEAD
+[0.49.0]: https://github.com/markcastle/keevoro/compare/v0.48.0...v0.49.0
 [0.48.0]: https://github.com/markcastle/keevoro/compare/v0.47.0...v0.48.0
 [0.47.0]: https://github.com/markcastle/keevoro/compare/v0.46.1...v0.47.0
 [0.46.1]: https://github.com/markcastle/keevoro/compare/v0.46.0...v0.46.1
