@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.43.0] - 2026-11-22
+
 ### Added
 
 - **Back up by itself, for your computer's own scheduler.** `keevoro run --unattended` backs up the way a schedule will: it waits while the computer is on battery or busy (for up to `--wait MINUTES`), looks through your sources again, sends what is new, and holds back anything that needs your say rather than deciding for you. A card not plugged in is passed over and said. A backup drive that looks emptied or swapped for another is never filled again without you: "Keevoro has not sent anything there. Open Keevoro to decide." A backup never asked how to arrange its files sends nothing until you have answered, and neither does one whose reading from cloud storage would cost about £1 or more. New pictures set aside as probably not photos are listed, and not sent, as always. Only one backup runs by itself at a time, at low priority. Its exit code says what happened (6 when something waits for your say, 7 when it did not run now), and the backup's history says it was started by itself, what it looked through, what it passed over and what is waiting. Keevoro never writes anything into your computer's scheduler itself; [the guide](docs/command-line.md#for-a-system-scheduler) shows how to set one up.
@@ -701,7 +705,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.42.0...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.43.0...HEAD
+[0.43.0]: https://github.com/markcastle/keevoro/compare/v0.42.0...v0.43.0
 [0.42.0]: https://github.com/markcastle/keevoro/compare/v0.41.0...v0.42.0
 [0.41.0]: https://github.com/markcastle/keevoro/compare/v0.40.0...v0.41.0
 [0.40.0]: https://github.com/markcastle/keevoro/compare/v0.39.1...v0.40.0
