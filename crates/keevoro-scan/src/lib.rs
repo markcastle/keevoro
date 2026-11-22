@@ -527,11 +527,14 @@ fn examine(root: &Path, path: &Path, opts: &ScanOptions) -> std::io::Result<Opti
     // is taken at its word when the inside says nothing, or says
     // something Keevoro does not count as a photo.
     let inside = infer::get(&head).map(|t| t.mime_type());
-    let (kind, mime) = match (inside.and_then(kind_from_mime), opts.kinds.by_name(&ext)) {
-        (Some(k), _) => (k, inside.unwrap_or_default().to_string()),
+    let (kind, mime, readable) = match (inside.and_then(kind_from_mime), opts.kinds.by_name(&ext)) {
+        (Some(k), _) => (k, inside.unwrap_or_default().to_string(), true),
         (None, Some(k)) => (
             k,
             inside.map_or_else(|| format!("application/x-{}", ext.to_lowercase()), str::to_string),
+            // A kind Keevoro has no way to read is not tried: no more is
+            // read of it than the little already read to judge it.
+            opts.kinds.read_inside(&ext),
         ),
         (None, None) => return Ok(None),
     };
@@ -565,6 +568,7 @@ fn examine(root: &Path, path: &Path, opts: &ScanOptions) -> std::io::Result<Opti
     let mut guesses = Vec::new();
     let mut size = None;
     match kind {
+        _ if !readable => {}
         MediaKind::Photo => {
             if let Some(d) = exif_date(path) {
                 guesses.push(DateGuess {

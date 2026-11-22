@@ -7,7 +7,9 @@
 //!
 //! Some files cannot be previewed yet (HEIC, camera RAW, damaged pictures).
 //! That is remembered with its reason, so the same file is not attempted on
-//! every run, and the original is backed up regardless.
+//! every run, and the original is backed up regardless. A kind no decoder
+//! here can read at all (a Photoshop file, a film scan) is not opened to
+//! try: it is simply remembered as having no preview.
 
 use crate::{in_library, Failed};
 use keevoro_catalog::{Catalog, CatalogError, RenditionState};
@@ -91,6 +93,15 @@ fn todo_list<'a>(
         let display = in_library(library, &rendition_path(Rendition::Display, id));
         match catalog.rendition(hash)? {
             Some(RenditionState::Made { .. }) if thumb.is_file() && display.is_file() => report.already_there += 1,
+            // A kind Keevoro has no way to read is not opened to try.
+            None if cannot_be_previewed(item) => {
+                let reason = MediaError::Unsupported.to_string();
+                catalog.set_rendition(hash, &RenditionState::NoPreview { reason: reason.clone() })?;
+                report.no_preview.push(Failed {
+                    path: item.path.clone(),
+                    reason,
+                });
+            }
             Some(RenditionState::NoPreview { reason }) => report.no_preview.push(Failed {
                 path: item.path.clone(),
                 reason,
@@ -99,6 +110,17 @@ fn todo_list<'a>(
         }
     }
     Ok(todo)
+}
+
+/// A photo found by its name alone, of a kind no decoder Keevoro has can
+/// read (a Photoshop file, a film scan). One whose inside turned out to be
+/// a picture Keevoro knows, whatever its name, is tried as ever.
+fn cannot_be_previewed(item: &FoundItem) -> bool {
+    !item.mime.starts_with("image/")
+        && item
+            .path
+            .extension()
+            .is_some_and(|ending| keevoro_core::kinds::never_previewed(&ending.to_string_lossy()))
 }
 
 /// How many photos in `items` still need previews made.

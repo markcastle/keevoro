@@ -1283,3 +1283,91 @@ mod looking_again_quickly {
         assert!(quick.items.is_empty());
     }
 }
+
+/// A Photoshop file's header, which says how big the picture is.
+fn psd_header(width: u32, height: u32) -> Vec<u8> {
+    let mut v = b"8BPS".to_vec();
+    v.extend_from_slice(&1u16.to_be_bytes());
+    v.extend_from_slice(&[0; 6]);
+    v.extend_from_slice(&3u16.to_be_bytes());
+    v.extend_from_slice(&height.to_be_bytes());
+    v.extend_from_slice(&width.to_be_bytes());
+    v.extend_from_slice(&8u16.to_be_bytes());
+    v.extend_from_slice(&3u16.to_be_bytes());
+    v.extend(std::iter::repeat_n(0u8, 200));
+    v
+}
+
+/// A movie with a header saying when it was recorded, behind a first box
+/// nothing recognises, so only its name says it is a video.
+fn movie_known_only_by_name() -> Vec<u8> {
+    let movie = video::tests::mp4_recorded_at(1_247_605_802, 0, false);
+    // The ftyp box is the first 24 bytes; an empty box of the same size
+    // takes its place.
+    let mut free = 24u32.to_be_bytes().to_vec();
+    free.extend_from_slice(b"free");
+    free.extend_from_slice(&[0; 16]);
+    [free, movie[24..].to_vec()].concat()
+}
+
+#[test]
+fn a_kind_keevoro_cannot_read_is_found_and_backed_up_without_being_read_for_a_date_or_size() {
+    let t = Tree::new();
+    t.add("Edits/layers.psd", &psd_header(4000, 3000));
+    t.add("Edits/IMG_0048.TGA", &[0u8, 0, 2, 0, 0, 0, 0, 0, 0, 0]);
+    t.add("Film/A001.mxf", &movie_known_only_by_name());
+    t.add("Film/00001.MTS", &movie_known_only_by_name());
+    t.add("Film/script.ts", b"export const take = 1\n");
+    let r = t.scan();
+    assert_eq!(r.items.len(), 4, "{:?}", r.items);
+    let psd = item(&r, "layers.psd");
+    assert_eq!(
+        (psd.kind, psd.mime.as_str()),
+        (MediaKind::Photo, "image/vnd.adobe.photoshop")
+    );
+    assert_eq!(
+        (psd.width, psd.height),
+        (None, None),
+        "its header is not read for a size"
+    );
+    assert!(psd.blake3.is_some(), "fingerprinted, to be backed up exactly");
+    let tga = item(&r, "IMG_0048.TGA");
+    assert_eq!((tga.kind, tga.mime.as_str()), (MediaKind::Photo, "application/x-tga"));
+    assert_eq!(tga.junk, None);
+    // The same movie, read for its date as a camcorder's is, and not as a
+    // kind Keevoro cannot read.
+    let mts = item(&r, "00001.MTS").date.unwrap();
+    assert_eq!(mts.source, DateSource::Video);
+    let mxf = item(&r, "A001.mxf");
+    assert_eq!(mxf.kind, MediaKind::Video);
+    assert_ne!(mxf.date.unwrap().source, DateSource::Video, "not read for a date");
+    // A person's own kind is read, as their kinds always were.
+    let mut kinds = keevoro_core::FileKinds::default();
+    kinds.add("pss", MediaKind::Photo).unwrap();
+    t.add("Edits/copy.pss", &psd_header(4000, 3000));
+    let r = scan_with(&t, &kinds);
+    assert_eq!(item(&r, "copy.pss").width, Some(4000));
+}
+
+#[test]
+fn an_unsure_ending_left_off_is_still_kept_when_a_photo_is_inside_and_found_by_name_once_on() {
+    let t = Tree::new();
+    t.add("Old/renamed.dat", &plain_jpeg(4));
+    t.add("Old/disc.dat", &[9u8; 300]);
+    let r = t.scan();
+    assert_eq!(r.items.len(), 1, "{:?}", r.items);
+    assert_eq!(item(&r, "renamed.dat").kind, MediaKind::Photo);
+    let mut kinds = keevoro_core::FileKinds::default();
+    let on = keevoro_core::KindChange {
+        on: Some(true),
+        ..Default::default()
+    };
+    kinds.change("dat", &on).unwrap();
+    let r = scan_with(&t, &kinds);
+    assert_eq!(
+        item(&r, "renamed.dat").kind,
+        MediaKind::Photo,
+        "what is inside still decides"
+    );
+    assert_eq!(item(&r, "disc.dat").kind, MediaKind::Video);
+}

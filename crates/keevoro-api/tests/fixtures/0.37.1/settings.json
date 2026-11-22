@@ -32,6 +32,16 @@
       "ending": "png",
       "kind": "photo",
       "on": false
+    },
+    {
+      "ending": "psd",
+      "kind": "other",
+      "on": true
+    },
+    {
+      "ending": "tga",
+      "kind": "video",
+      "on": false
     }
   ]
 }

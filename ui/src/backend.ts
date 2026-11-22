@@ -882,6 +882,10 @@ export type FileKind = {
   on: boolean
   /** Comes with Keevoro: it can be switched off, not removed or renamed. */
   builtIn: boolean
+  /** Listed without asking for the less common kinds: a usual built-in kind, or one of your own. */
+  usual: boolean
+  /** An ending that is often not a photo or video at all, such as .dat: off as Keevoro comes. */
+  unsure: boolean
 }
 
 /** A change to one kind of file. Anything left out stays as it is. */

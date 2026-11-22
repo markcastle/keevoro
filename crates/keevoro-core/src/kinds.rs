@@ -16,7 +16,8 @@
 //! added, and the built-in ones they changed. So the list always starts as
 //! the built-in one, and a built-in kind added in a later version simply
 //! appears. A search or a survey turns the list into a [`Kinds`] once, at
-//! the start, and asks it about each file; nothing here is read from disk.
+//! the start, and asks it about each file, a single look in a table
+//! whatever the length of the list; nothing here is read from disk.
 //!
 //! What the list means for a search:
 //!
@@ -28,6 +29,18 @@
 //!   camcorder files, and every kind a person adds) the ending is enough:
 //!   the file is found as the photo or video the list says, even when
 //!   Keevoro has no way to open it.
+//! - For a kind Keevoro has no way to read at all (a Photoshop file, a
+//!   film scan, a cinema camera's raw video) nothing more is read than for
+//!   any file it opens: it is not read for a date or a size, and has "No
+//!   preview". It is backed up exactly all the same.
+//! - An ending that is as often something else (`.dat`, `.bin`, `.ts`) is
+//!   on the list switched off. While it is off it is as if it were not on
+//!   the list at all: such a file is opened and kept only if it is a
+//!   photo or video inside. Switched on, the ending is enough.
+//!
+//! The built-in kinds are in two tiers, for the list a person sees: the
+//! usual ones, and the less common ones, listed only when asked for. The
+//! tier changes nothing about what is looked for.
 //! - A kind on the list as an other file is found by its ending alone. It
 //!   is read only to be fingerprinted, never to be judged or shown.
 //! - Any other file that is not plainly a program, a document or music is
@@ -39,28 +52,63 @@ use crate::wants::Wants;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
+use std::sync::OnceLock;
 
-/// One built-in kind: its ending, whether it is a photo or a video, and
-/// whether Keevoro can recognise it from what is inside.
+/// What Keevoro does with what is inside a file of a built-in kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Inside {
+    /// Recognised from inside (a JPEG, an MP4): a file with this ending
+    /// that is something else inside is not taken for one. Read for its
+    /// date and size, and previewed.
+    Recognised,
+    /// Known by its name (most camera raw and camcorder files), and read
+    /// for a date as a photo or video is.
+    ByName,
+    /// Known by its name, and never read inside: Keevoro has no way to read
+    /// these, so it does not try. Dated by the file and its folder, as any
+    /// file Keevoro cannot read, and shown with "No preview". Unless what
+    /// is inside turns out to be a kind Keevoro does read, such as a JPEG
+    /// given another name: then it is read as that.
+    NotRead,
+}
+
+/// One built-in kind.
 struct BuiltIn {
     ending: &'static str,
     kind: MediaKind,
-    known_inside: bool,
+    inside: Inside,
+    /// A camera's raw format (see [`crate::is_raw_extension`]).
+    raw: bool,
+    /// One most people meet. The rest are listed only when asked for,
+    /// though every one is looked for just the same.
+    usual: bool,
+    /// An ending that is often something else entirely (`.dat`, `.bin`):
+    /// on the list, but switched off until a person switches it on.
+    unsure: bool,
+}
+
+impl BuiltIn {
+    /// Whether it is looked for as Keevoro comes.
+    fn on_at_first(&self) -> bool {
+        !self.unsure
+    }
 }
 
 const fn photo(ending: &'static str) -> BuiltIn {
     BuiltIn {
         ending,
         kind: MediaKind::Photo,
-        known_inside: true,
+        inside: Inside::Recognised,
+        raw: false,
+        usual: false,
+        unsure: false,
     }
 }
 
 const fn video(ending: &'static str) -> BuiltIn {
     BuiltIn {
-        ending,
         kind: MediaKind::Video,
-        known_inside: true,
+        ..photo(ending)
     }
 }
 
@@ -68,78 +116,252 @@ const fn video(ending: &'static str) -> BuiltIn {
 /// Keevoro what it is.
 const fn by_name(built_in: BuiltIn) -> BuiltIn {
     BuiltIn {
-        known_inside: false,
+        inside: Inside::ByName,
         ..built_in
     }
 }
 
-/// The kinds Keevoro knows, in the order they are listed.
+/// A kind known only by its name, that Keevoro cannot read.
+const fn not_read(built_in: BuiltIn) -> BuiltIn {
+    BuiltIn {
+        inside: Inside::NotRead,
+        ..built_in
+    }
+}
+
+const fn raw(built_in: BuiltIn) -> BuiltIn {
+    BuiltIn { raw: true, ..built_in }
+}
+
+const fn usual(built_in: BuiltIn) -> BuiltIn {
+    BuiltIn {
+        usual: true,
+        ..built_in
+    }
+}
+
+/// An ending that is often not a photo or video at all: listed, off, and
+/// never read inside once switched on.
+const fn unsure(built_in: BuiltIn) -> BuiltIn {
+    BuiltIn {
+        unsure: true,
+        inside: Inside::NotRead,
+        ..built_in
+    }
+}
+
+/// The kinds Keevoro knows, in the order they are listed: the usual ones
+/// of each sort first.
 const BUILT_IN: &[BuiltIn] = &[
     // Photos
-    photo("jpg"),
-    photo("jpeg"),
-    photo("jpe"),
-    photo("png"),
-    photo("heic"),
-    photo("heif"),
-    photo("tif"),
-    photo("tiff"),
-    photo("webp"),
-    photo("bmp"),
-    photo("avif"),
-    photo("jxl"),
+    usual(photo("jpg")),
+    usual(photo("jpeg")),
+    usual(photo("png")),
+    usual(photo("heic")),
+    usual(photo("heif")),
+    usual(photo("tif")),
+    usual(photo("tiff")),
+    usual(photo("webp")),
+    usual(photo("bmp")),
+    usual(photo("avif")),
+    usual(photo("gif")),
     // Camera raw
-    by_name(photo("dng")),
-    by_name(photo("cr2")),
-    by_name(photo("cr3")),
-    by_name(photo("crw")),
-    by_name(photo("nef")),
-    by_name(photo("nrw")),
-    by_name(photo("arw")),
-    by_name(photo("srf")),
-    by_name(photo("sr2")),
-    by_name(photo("orf")),
-    by_name(photo("rw2")),
-    by_name(photo("raf")),
-    by_name(photo("pef")),
-    by_name(photo("srw")),
-    by_name(photo("x3f")),
-    by_name(photo("3fr")),
-    by_name(photo("erf")),
-    by_name(photo("kdc")),
-    by_name(photo("mrw")),
-    by_name(photo("raw")),
-    by_name(photo("iiq")),
-    by_name(photo("dcr")),
-    by_name(photo("mef")),
-    by_name(photo("mos")),
-    by_name(photo("rwl")),
+    usual(raw(by_name(photo("dng")))),
+    usual(raw(by_name(photo("cr2")))),
+    usual(raw(by_name(photo("cr3")))),
+    usual(raw(by_name(photo("nef")))),
+    usual(raw(by_name(photo("arw")))),
+    usual(raw(by_name(photo("orf")))),
+    usual(raw(by_name(photo("rw2")))),
+    usual(raw(by_name(photo("raf")))),
+    usual(raw(by_name(photo("pef")))),
+    usual(raw(by_name(photo("srw")))),
     // Videos
-    video("mp4"),
-    video("mov"),
-    video("m4v"),
-    video("avi"),
-    video("mkv"),
-    video("wmv"),
-    video("mpg"),
-    video("mpeg"),
-    video("webm"),
+    usual(video("mp4")),
+    usual(video("mov")),
+    usual(video("m4v")),
+    usual(video("avi")),
+    usual(video("mkv")),
+    usual(video("wmv")),
+    usual(video("mpg")),
+    usual(video("mpeg")),
+    usual(video("webm")),
+    // Camcorder and phone video
+    usual(by_name(video("mts"))),
+    usual(by_name(video("m2ts"))),
+    usual(by_name(video("3gp"))),
+    //
+    // Less common photos: JPEG and its relations under other names, and
+    // newer kinds, all recognised from inside.
+    photo("jpe"),
+    photo("jfif"),
+    photo("jfi"),
+    photo("jif"),
+    photo("jps"),
+    photo("mpo"),
+    photo("insp"),
+    photo("jxl"),
+    photo("jp2"),
+    photo("jpf"),
+    photo("jpx"),
+    photo("jxr"),
+    photo("wdp"),
+    photo("hdp"),
+    photo("hif"),
+    photo("dib"),
+    photo("apng"),
+    photo("ora"),
+    // Less common photos Keevoro backs up but cannot read: from editing
+    // programs, film and older computers.
+    not_read(photo("psd")),
+    not_read(photo("psb")),
+    not_read(photo("xcf")),
+    not_read(photo("kra")),
+    not_read(photo("j2k")),
+    not_read(photo("j2c")),
+    not_read(photo("exr")),
+    not_read(photo("dpx")),
+    not_read(photo("cin")),
+    not_read(photo("tga")),
+    not_read(photo("pcx")),
+    not_read(photo("pict")),
+    not_read(photo("pct")),
+    not_read(photo("ilbm")),
+    not_read(photo("lbm")),
+    not_read(photo("sgi")),
+    not_read(photo("ras")),
+    not_read(photo("ppm")),
+    not_read(photo("pgm")),
+    not_read(photo("pbm")),
+    not_read(photo("pnm")),
+    not_read(photo("mng")),
+    not_read(photo("jng")),
+    not_read(photo("qoi")),
+    // Less common camera raw
+    raw(by_name(photo("crw"))),
+    raw(by_name(photo("nrw"))),
+    raw(by_name(photo("srf"))),
+    raw(by_name(photo("sr2"))),
+    raw(by_name(photo("x3f"))),
+    raw(by_name(photo("3fr"))),
+    raw(by_name(photo("erf"))),
+    raw(by_name(photo("kdc"))),
+    raw(by_name(photo("mrw"))),
+    raw(by_name(photo("raw"))),
+    raw(by_name(photo("iiq"))),
+    raw(by_name(photo("dcr"))),
+    raw(by_name(photo("mef"))),
+    raw(by_name(photo("mos"))),
+    raw(by_name(photo("rwl"))),
+    raw(by_name(photo("gpr"))),
+    raw(not_read(photo("fff"))),
+    raw(not_read(photo("ari"))),
+    raw(not_read(photo("bay"))),
+    raw(not_read(photo("k25"))),
+    raw(not_read(photo("mdc"))),
+    raw(not_read(photo("ptx"))),
+    raw(not_read(photo("eip"))),
+    // Less common videos, recognised from inside
+    video("qt"),
     video("insv"),
+    video("lrv"),
     video("asf"),
     video("flv"),
-    // Camcorder and old phone video
-    by_name(video("mts")),
-    by_name(video("m2ts")),
-    by_name(video("3gp")),
+    video("f4v"),
+    video("divx"),
+    video("mk3d"),
+    video("mpe"),
+    video("m2v"),
+    video("mp2v"),
+    video("vro"),
+    // Less common camcorder and disc video
     by_name(video("3g2")),
     by_name(video("mod")),
     by_name(video("tod")),
     by_name(video("vob")),
     by_name(video("dv")),
+    // Less common videos Keevoro backs up but cannot read
+    not_read(video("m2t")),
+    not_read(video("dif")),
+    not_read(video("mxf")),
+    not_read(video("r3d")),
+    not_read(video("braw")),
+    not_read(video("crm")),
+    not_read(video("ogv")),
+    not_read(video("ogm")),
+    not_read(video("rm")),
+    not_read(video("rmvb")),
+    not_read(video("wtv")),
+    not_read(video("nut")),
+    not_read(video("y4m")),
+    // Endings that are as often something else: off until switched on.
+    unsure(video("ts")),
+    unsure(video("dat")),
+    unsure(video("bin")),
+    unsure(video("seq")),
+    unsure(video("001")),
+    unsure(photo("img")),
+    unsure(photo("pic")),
+    unsure(photo("iff")),
+    unsure(raw(photo("cap"))),
 ];
 
+/// The built-in endings before the list was widened (Keevoro 0.51 and
+/// earlier). A choice kept about one of these is always a change to a
+/// built-in kind; a choice kept about any other ending, without the mark
+/// that says it is a change to one, is an ending the person added.
+const EARLIER: &[&str] = &[
+    "jpg", "jpeg", "jpe", "png", "heic", "heif", "tif", "tiff", "webp", "bmp", "avif", "jxl", "dng", "cr2", "cr3",
+    "crw", "nef", "nrw", "arw", "srf", "sr2", "orf", "rw2", "raf", "pef", "srw", "x3f", "3fr", "erf", "kdc", "mrw",
+    "raw", "iiq", "dcr", "mef", "mos", "rwl", "mp4", "mov", "m4v", "avi", "mkv", "wmv", "mpg", "mpeg", "webm", "insv",
+    "asf", "flv", "mts", "m2ts", "3gp", "3g2", "mod", "tod", "vob", "dv",
+];
+
+/// The built-in list by ending, made the first time it is asked for and
+/// kept for as long as Keevoro runs.
+fn built_ins() -> &'static HashMap<&'static str, &'static BuiltIn> {
+    static BY_ENDING: OnceLock<HashMap<&'static str, &'static BuiltIn>> = OnceLock::new();
+    BY_ENDING.get_or_init(|| BUILT_IN.iter().map(|b| (b.ending, b)).collect())
+}
+
 fn built_in(ending: &str) -> Option<&'static BuiltIn> {
-    BUILT_IN.iter().find(|b| b.ending == ending)
+    built_ins().get(ending).copied()
+}
+
+/// The ending in lower case. ASCII endings, which nearly every file has,
+/// are lowered into `buffer` with nothing allocated; `None` for one too
+/// long for any list, or with other letters (lowered by the caller, which
+/// is rare).
+pub(crate) fn ascii_lower<'a, const N: usize>(ending: &str, buffer: &'a mut [u8; N]) -> Option<&'a str> {
+    let bytes = ending.as_bytes();
+    if bytes.len() > N || !ending.is_ascii() {
+        return None;
+    }
+    let lowered = &mut buffer[..bytes.len()];
+    lowered.copy_from_slice(bytes);
+    lowered.make_ascii_lowercase();
+    std::str::from_utf8(lowered).ok()
+}
+
+/// Is this ending, as it comes from a file name with any case, a camera's
+/// raw format on the built-in list?
+pub(crate) fn raw_ending(ending: &str) -> bool {
+    let ending = ending.strip_prefix('.').unwrap_or(ending);
+    let mut buffer = [0u8; LONGEST_ENDING];
+    match ascii_lower(ending, &mut buffer) {
+        Some(lower) => built_in(lower).is_some_and(|b| b.raw),
+        None => false,
+    }
+}
+
+/// Is a photo with this ending one Keevoro has no way to make a preview
+/// of? Such a photo is shown with "No preview" without being opened.
+pub fn never_previewed(ending: &str) -> bool {
+    let ending = ending.strip_prefix('.').unwrap_or(ending);
+    let mut buffer = [0u8; LONGEST_ENDING];
+    ascii_lower(ending, &mut buffer)
+        .and_then(built_in)
+        .is_some_and(|b| b.inside == Inside::NotRead)
 }
 
 /// The longest ending accepted. Real ones are three or four letters.
@@ -156,10 +378,23 @@ pub struct KindChoice {
     pub kind: MediaKind,
     #[serde(default = "on")]
     pub on: bool,
+    /// A change to a built-in kind added to the list after Keevoro 0.51.
+    /// Without it, a choice about such an ending is one the person added
+    /// before Keevoro came with it, and stays theirs. (A change to one of
+    /// the kinds Keevoro came with before needs no mark: see [`EARLIER`].)
+    #[serde(default, rename = "builtIn", skip_serializing_if = "std::ops::Not::not")]
+    pub built_in: bool,
 }
 
 fn on() -> bool {
     true
+}
+
+impl KindChoice {
+    /// A change to a built-in kind, rather than an ending the person added.
+    fn changes_built_in(&self) -> bool {
+        (self.built_in || EARLIER.contains(&self.ending.as_str())) && built_in(&self.ending).is_some()
+    }
 }
 
 /// The person's changes to the built-in list, in the order made. Empty
@@ -180,6 +415,14 @@ pub struct FileKind {
     /// Part of the built-in list: it can be switched off and changed
     /// between photo, video and other file, but not renamed or removed.
     pub built_in: bool,
+    /// Listed without asking for the less common kinds: a usual built-in
+    /// kind, or one of the person's own. The rest are looked for just the
+    /// same, but listed only when asked for, or searched for.
+    pub usual: bool,
+    /// An ending that is often not a photo or video at all, such as .dat:
+    /// switched off as Keevoro comes. While it is off, a file with it is
+    /// still kept when what is inside is a photo or video Keevoro knows.
+    pub unsure: bool,
 }
 
 /// Why a change to the list was refused, in words for the person.
@@ -261,30 +504,37 @@ impl FileKinds {
 
     /// The whole list: the built-in kinds as the person has them, then
     /// the ones they added, in the order added.
+    ///
+    /// An ending the person added that Keevoro has since come to know is
+    /// listed once, as theirs, as they set it.
     pub fn list(&self) -> Vec<FileKind> {
         let mine = |ending: &str| self.0.iter().find(|c| c.ending == ending);
         let built: Vec<FileKind> = BUILT_IN
             .iter()
-            .map(|b| {
-                let (kind, on) = mine(b.ending).map_or((b.kind, true), |c| (c.kind, c.on));
-                FileKind {
+            .filter_map(|b| {
+                let (kind, on) = match mine(b.ending) {
+                    Some(c) if !c.changes_built_in() => return None,
+                    Some(c) => (c.kind, c.on),
+                    None => (b.kind, b.on_at_first()),
+                };
+                Some(FileKind {
                     ending: b.ending.to_string(),
                     kind,
                     on,
                     built_in: true,
-                }
+                    usual: b.usual,
+                    unsure: b.unsure,
+                })
             })
             .collect();
-        let added = self
-            .0
-            .iter()
-            .filter(|c| built_in(&c.ending).is_none())
-            .map(|c| FileKind {
-                ending: c.ending.clone(),
-                kind: c.kind,
-                on: c.on,
-                built_in: false,
-            });
+        let added = self.0.iter().filter(|c| !c.changes_built_in()).map(|c| FileKind {
+            ending: c.ending.clone(),
+            kind: c.kind,
+            on: c.on,
+            built_in: false,
+            usual: true,
+            unsure: false,
+        });
         built.into_iter().chain(added).collect()
     }
 
@@ -300,10 +550,21 @@ impl FileKinds {
 
     /// Adds an ending as a photo, a video or an other file, switched on.
     /// An ending that is plainly not a photo or video (a document, music)
-    /// can only be added as an other file.
+    /// can only be added as an other file. A built-in ending that is off,
+    /// or listed as another kind, is switched on as the kind asked for.
     pub fn add(&mut self, typed: &str, kind: MediaKind) -> Result<FileKind, KindRefusal> {
         let ending = plain_ending(typed)?;
-        if self.line(&ending).is_some() {
+        if let Some(listed) = self.line(&ending) {
+            // A built-in kind switched off, or listed as something else, is
+            // simply made what was asked: .dat added as an other file, say.
+            if listed.built_in && (!listed.on || listed.kind != kind) {
+                let change = KindChange {
+                    kind: Some(kind),
+                    on: Some(true),
+                    ending: None,
+                };
+                return self.change(&ending, &change);
+            }
             return Err(KindRefusal::AlreadyListed(ending));
         }
         refuse_as_media(&ending, kind)?;
@@ -311,12 +572,15 @@ impl FileKinds {
             ending: ending.clone(),
             kind,
             on: true,
+            built_in: false,
         });
         Ok(FileKind {
             ending,
             kind,
             on: true,
             built_in: false,
+            usual: true,
+            unsure: false,
         })
     }
 
@@ -343,9 +607,15 @@ impl FileKinds {
             ending: renamed.unwrap_or_else(|| ending.clone()),
             kind: change.kind.unwrap_or(now.kind),
             on: change.on.unwrap_or(now.on),
+            built_in: now.built_in && !EARLIER.contains(&ending.as_str()),
         };
-        refuse_as_media(&wanted.ending, wanted.kind)?;
-        let same_as_it_came = built_in(&wanted.ending).is_some_and(|b| b.kind == wanted.kind && wanted.on);
+        // A built-in kind is what it is: .ts, a video, is also the ending
+        // of some programs' code, but can be switched on all the same.
+        if !now.built_in {
+            refuse_as_media(&wanted.ending, wanted.kind)?;
+        }
+        let same_as_it_came = now.built_in
+            && built_in(&wanted.ending).is_some_and(|b| b.kind == wanted.kind && wanted.on == b.on_at_first());
         match self.0.iter().position(|c| c.ending == ending) {
             // A built-in kind put back as it came needs no note of it.
             Some(at) if same_as_it_came => {
@@ -360,6 +630,7 @@ impl FileKinds {
             ending: wanted.ending,
             kind: wanted.kind,
             on: wanted.on,
+            ..now
         })
     }
 
@@ -377,10 +648,11 @@ impl FileKinds {
         Ok(line)
     }
 
-    /// Puts every built-in kind back as it came: switched on, as the photo
-    /// or video it is. The person's own kinds stay as they are.
+    /// Puts every built-in kind back as it came: the photo or video it is,
+    /// switched on (or off, for an ending that is often something else).
+    /// The person's own kinds stay as they are.
     pub fn put_back_built_in(&mut self) {
-        self.0.retain(|c| built_in(&c.ending).is_none());
+        self.0.retain(|c| !c.changes_built_in());
     }
 
     /// The list as a quick lookup, made once for a search or a survey.
@@ -388,14 +660,24 @@ impl FileKinds {
         let by_ending = self
             .list()
             .into_iter()
+            // An ending that is often something else, while it is off, is
+            // as if it were not on the list: a file with it is opened and
+            // judged by what is inside, as it always was, never passed over.
+            .filter(|k| !(k.built_in && k.unsure && !k.on))
             .map(|k| {
-                let known_inside = k.built_in && built_in(&k.ending).is_some_and(|b| b.known_inside);
+                let inside = if k.built_in {
+                    built_in(&k.ending).map(|b| b.inside)
+                } else {
+                    None
+                };
                 (
                     k.ending,
                     Looked {
                         kind: k.kind,
                         on: k.on,
-                        known_inside,
+                        known_inside: inside == Some(Inside::Recognised),
+                        // The person's own kinds are read as they always were.
+                        read_inside: inside != Some(Inside::NotRead),
                     },
                 )
             })
@@ -417,6 +699,7 @@ struct Looked {
     kind: MediaKind,
     on: bool,
     known_inside: bool,
+    read_inside: bool,
 }
 
 /// The list of kinds, made into a lookup for a search or a survey. Every
@@ -434,13 +717,22 @@ impl Default for Kinds {
 }
 
 impl Kinds {
+    /// One look in a table made once, whatever the length of the list.
+    /// Nothing is allocated for an ending in plain letters and numbers,
+    /// as nearly every one is, in whatever case (`IMG_0048.JPG`).
     fn get(&self, ending: &str) -> Option<&Looked> {
         let ending = ending.strip_prefix('.').unwrap_or(ending);
-        match self.by_ending.get(ending) {
-            Some(found) => Some(found),
-            // Almost every ending on a disk is lower case already, so the
-            // lower-case copy is only made when it is needed.
-            None if ending.chars().any(char::is_uppercase) => self.by_ending.get(&ending.to_lowercase()),
+        if let Some(found) = self.by_ending.get(ending) {
+            return Some(found);
+        }
+        let mut buffer = [0u8; LONGEST_ENDING];
+        match ascii_lower(ending, &mut buffer) {
+            Some(lower) if lower != ending => self.by_ending.get(lower),
+            Some(_) => None,
+            // Letters beyond plain English ones, which are rare.
+            None if !ending.is_ascii() && ending.chars().any(char::is_uppercase) => {
+                self.by_ending.get(&ending.to_lowercase())
+            }
             None => None,
         }
     }
@@ -496,6 +788,14 @@ impl Kinds {
     pub fn by_name(&self, ending: &str) -> Option<MediaKind> {
         self.get(ending).filter(|l| l.on && !l.known_inside).map(|l| l.kind)
     }
+
+    /// Whether a file with this ending, found by its name alone, is read
+    /// inside for its date and size. False for the kinds Keevoro has no
+    /// way to read, so a search spends nothing trying; true for every
+    /// other ending, on the list or not.
+    pub fn read_inside(&self, ending: &str) -> bool {
+        self.get(ending).is_none_or(|l| l.read_inside)
+    }
 }
 
 #[cfg(test)]
@@ -507,11 +807,11 @@ mod tests {
     }
 
     #[test]
-    fn the_list_starts_as_the_built_in_one_with_everything_on() {
+    fn the_list_starts_as_the_built_in_one_with_everything_on_but_the_unsure_endings() {
         let kinds = FileKinds::default();
         let list = kinds.list();
         assert_eq!(list.len(), BUILT_IN.len());
-        assert!(list.iter().all(|k| k.on && k.built_in));
+        assert!(list.iter().all(|k| k.built_in && k.on == !k.unsure));
         assert_eq!(line(&kinds, "jpg").kind, MediaKind::Photo);
         assert_eq!(line(&kinds, "mts").kind, MediaKind::Video);
         assert!(kinds.is_built_in());
@@ -523,7 +823,10 @@ mod tests {
         for b in BUILT_IN {
             assert!(seen.insert(b.ending), "{} twice", b.ending);
             assert_eq!(plain_ending(b.ending).unwrap(), b.ending);
-            assert!(!never_media_extension(b.ending), "{}", b.ending);
+            // .ts is also the ending of program code, so it waits, off,
+            // for a person who knows theirs are videos.
+            assert!(!never_media_extension(b.ending) || b.unsure, "{}", b.ending);
+            assert!(b.kind.is_media(), "{}", b.ending);
         }
     }
 
@@ -568,7 +871,9 @@ mod tests {
                 ending: "xyz".into(),
                 kind: MediaKind::Video,
                 on: true,
-                built_in: false
+                built_in: false,
+                usual: true,
+                unsure: false,
             }
         );
         assert_eq!(kinds.list().last(), Some(&added), "added at the end");
@@ -580,17 +885,21 @@ mod tests {
             kinds.add("JPG", MediaKind::Photo),
             Err(KindRefusal::AlreadyListed("jpg".into()))
         );
+        // Built in but off, or another kind: made what was asked.
+        let dat = kinds.add(".DAT", MediaKind::Other).unwrap();
+        assert_eq!((dat.kind, dat.on, dat.built_in), (MediaKind::Other, true, true));
+        assert_eq!(kinds.add("tga", MediaKind::Video).unwrap().kind, MediaKind::Video);
         for never in ["exe", "PDF", "mp3", "zip", "lnk"] {
             assert!(
                 matches!(kinds.add(never, MediaKind::Photo), Err(KindRefusal::NeverMedia(_))),
                 "{never}"
             );
         }
+        assert!(kinds.has_other());
         assert_eq!(
             KindRefusal::NeverMedia("exe".into()).to_string(),
             "Files ending .exe are programs, documents, music or archives, never photos or videos. To back them up as they are, add .exe as an other file."
         );
-        assert!(!kinds.has_other());
     }
 
     #[test]
@@ -676,11 +985,11 @@ mod tests {
     #[test]
     fn a_kind_of_your_own_can_be_renamed_changed_and_removed() {
         let mut kinds = FileKinds::default();
-        kinds.add("insp", MediaKind::Video).unwrap();
-        kinds.add("lrv", MediaKind::Video).unwrap();
+        kinds.add("abc", MediaKind::Video).unwrap();
+        kinds.add("xyz", MediaKind::Video).unwrap();
         let changed = kinds
             .change(
-                "insp",
+                "abc",
                 &KindChange {
                     kind: Some(MediaKind::Photo),
                     ending: Some("INSX".into()),
@@ -692,14 +1001,14 @@ mod tests {
             (changed.ending.as_str(), changed.kind, changed.on),
             ("insx", MediaKind::Photo, false)
         );
-        assert!(kinds.list().iter().all(|k| k.ending != "insp"));
+        assert!(kinds.list().iter().all(|k| k.ending != "abc"));
         let clash = KindChange {
-            ending: Some("lrv".into()),
+            ending: Some("xyz".into()),
             ..KindChange::default()
         };
         assert_eq!(
             kinds.change("insx", &clash),
-            Err(KindRefusal::AlreadyListed("lrv".into()))
+            Err(KindRefusal::AlreadyListed("xyz".into()))
         );
         assert_eq!(kinds.remove(".INSX").unwrap().ending, "insx");
         assert_eq!(kinds.remove("insx"), Err(KindRefusal::NotListed("insx".into())));
@@ -709,8 +1018,8 @@ mod tests {
     #[test]
     fn putting_back_the_built_in_list_keeps_your_own_kinds() {
         let mut kinds = FileKinds::default();
-        kinds.add("insp", MediaKind::Photo).unwrap();
-        for ending in ["jpg", "mov"] {
+        kinds.add("xyz", MediaKind::Photo).unwrap();
+        for ending in ["jpg", "mov", "tga"] {
             let off = KindChange {
                 on: Some(false),
                 kind: Some(MediaKind::Video),
@@ -720,9 +1029,11 @@ mod tests {
         }
         kinds.put_back_built_in();
         let list = kinds.list();
-        assert!(list.iter().filter(|k| k.built_in).all(|k| k.on));
+        assert!(list.iter().filter(|k| k.built_in).all(|k| k.on == !k.unsure));
         assert_eq!(line(&kinds, "jpg").kind, MediaKind::Photo);
-        assert_eq!(list.last().unwrap().ending, "insp");
+        assert_eq!(line(&kinds, "tga").kind, MediaKind::Photo);
+        assert_eq!(list.last().unwrap().ending, "xyz");
+        assert!(kinds.list().iter().filter(|k| k.built_in).count() == BUILT_IN.len());
     }
 
     #[test]
@@ -789,5 +1100,252 @@ mod tests {
         assert_eq!(serde_json::from_str::<FileKinds>(&text).unwrap(), kinds);
         let without_on: FileKinds = serde_json::from_str(r#"[{"ending":"xyz","kind":"video"}]"#).unwrap();
         assert!(without_on.list().last().unwrap().on);
+    }
+
+    /// The built-in list as Keevoro 0.51 had it: each ending, what it was,
+    /// and whether it was recognised from inside.
+    const AS_IT_WAS: &[(&str, MediaKind, bool)] = &[
+        ("jpg", MediaKind::Photo, true),
+        ("jpeg", MediaKind::Photo, true),
+        ("jpe", MediaKind::Photo, true),
+        ("png", MediaKind::Photo, true),
+        ("heic", MediaKind::Photo, true),
+        ("heif", MediaKind::Photo, true),
+        ("tif", MediaKind::Photo, true),
+        ("tiff", MediaKind::Photo, true),
+        ("webp", MediaKind::Photo, true),
+        ("bmp", MediaKind::Photo, true),
+        ("avif", MediaKind::Photo, true),
+        ("jxl", MediaKind::Photo, true),
+        ("dng", MediaKind::Photo, false),
+        ("cr2", MediaKind::Photo, false),
+        ("cr3", MediaKind::Photo, false),
+        ("crw", MediaKind::Photo, false),
+        ("nef", MediaKind::Photo, false),
+        ("nrw", MediaKind::Photo, false),
+        ("arw", MediaKind::Photo, false),
+        ("srf", MediaKind::Photo, false),
+        ("sr2", MediaKind::Photo, false),
+        ("orf", MediaKind::Photo, false),
+        ("rw2", MediaKind::Photo, false),
+        ("raf", MediaKind::Photo, false),
+        ("pef", MediaKind::Photo, false),
+        ("srw", MediaKind::Photo, false),
+        ("x3f", MediaKind::Photo, false),
+        ("3fr", MediaKind::Photo, false),
+        ("erf", MediaKind::Photo, false),
+        ("kdc", MediaKind::Photo, false),
+        ("mrw", MediaKind::Photo, false),
+        ("raw", MediaKind::Photo, false),
+        ("iiq", MediaKind::Photo, false),
+        ("dcr", MediaKind::Photo, false),
+        ("mef", MediaKind::Photo, false),
+        ("mos", MediaKind::Photo, false),
+        ("rwl", MediaKind::Photo, false),
+        ("mp4", MediaKind::Video, true),
+        ("mov", MediaKind::Video, true),
+        ("m4v", MediaKind::Video, true),
+        ("avi", MediaKind::Video, true),
+        ("mkv", MediaKind::Video, true),
+        ("wmv", MediaKind::Video, true),
+        ("mpg", MediaKind::Video, true),
+        ("mpeg", MediaKind::Video, true),
+        ("webm", MediaKind::Video, true),
+        ("insv", MediaKind::Video, true),
+        ("asf", MediaKind::Video, true),
+        ("flv", MediaKind::Video, true),
+        ("mts", MediaKind::Video, false),
+        ("m2ts", MediaKind::Video, false),
+        ("3gp", MediaKind::Video, false),
+        ("3g2", MediaKind::Video, false),
+        ("mod", MediaKind::Video, false),
+        ("tod", MediaKind::Video, false),
+        ("vob", MediaKind::Video, false),
+        ("dv", MediaKind::Video, false),
+    ];
+
+    #[test]
+    fn every_kind_keevoro_came_with_before_is_looked_for_exactly_as_it_was() {
+        let was: Vec<&str> = AS_IT_WAS.iter().map(|w| w.0).collect();
+        assert_eq!(was, EARLIER);
+        let kinds = Kinds::default();
+        for &(ending, kind, known_inside) in AS_IT_WAS {
+            assert_eq!(kinds.looked_for(ending), Some(kind), "{ending}");
+            assert_eq!(kinds.by_name(ending).is_none(), known_inside, "{ending}");
+            assert!(kinds.read_inside(ending), "{ending}: read as before");
+            let b = built_in(ending).unwrap();
+            assert!(!b.unsure && b.inside != Inside::NotRead, "{ending}");
+            assert_eq!(
+                b.raw,
+                crate::media::tests_support::WAS_RAW.contains(&ending),
+                "{ending}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_list_is_in_two_tiers_with_every_photo_and_video_on_but_the_unsure_endings() {
+        let list = FileKinds::default().list();
+        let usual = list.iter().filter(|k| k.usual).count();
+        let less_common = list.iter().filter(|k| !k.usual).count();
+        assert!((25..=45).contains(&usual), "the usual kinds stay few: {usual}");
+        assert!(less_common > usual, "{less_common}");
+        for ending in ["jpg", "heic", "png", "gif", "cr2", "nef", "dng", "mp4", "mov", "mts"] {
+            assert!(line(&FileKinds::default(), ending).usual, "{ending}");
+        }
+        for ending in ["tga", "psd", "exr", "mxf", "r3d", "braw", "insp", "lrv", "jfif", "crw"] {
+            let kind = line(&FileKinds::default(), ending);
+            assert!(!kind.usual && kind.on && !kind.unsure, "{ending}");
+        }
+        let unsure: Vec<&str> = list.iter().filter(|k| k.unsure).map(|k| k.ending.as_str()).collect();
+        assert_eq!(unsure, ["ts", "dat", "bin", "seq", "001", "img", "pic", "iff", "cap"]);
+        assert!(list.iter().filter(|k| k.unsure).all(|k| !k.on && !k.usual));
+        for left_out in [
+            "ico", "cur", "svg", "eps", "ai", "pdf", "dcm", "aep", "prproj", "411", "dds", "thm",
+        ] {
+            assert!(built_in(left_out).is_none(), "{left_out}");
+        }
+    }
+
+    #[test]
+    fn an_unsure_ending_left_off_is_judged_by_what_is_inside_as_it_always_was() {
+        let mut kinds = FileKinds::default();
+        let lookup = kinds.lookup();
+        for ending in ["dat", "DAT", "bin", "img", "ts"] {
+            assert_eq!(lookup.listed(ending), None, "{ending}: as if not on the list");
+            assert!(!lookup.switched_off(ending), "{ending}: never passed over unopened");
+            assert_eq!(lookup.by_name(ending), None, "{ending}");
+        }
+        let on = KindChange {
+            on: Some(true),
+            ..KindChange::default()
+        };
+        // .ts is a video here, though it is also the ending of code.
+        assert!(kinds.change("ts", &on).unwrap().on);
+        assert!(kinds.change("DAT", &on).unwrap().on);
+        let lookup = kinds.lookup();
+        assert_eq!(lookup.looked_for("ts"), Some(MediaKind::Video));
+        assert_eq!(
+            lookup.by_name("dat"),
+            Some(MediaKind::Video),
+            "found by its name once on"
+        );
+        assert!(!lookup.read_inside("dat"), "but never read inside");
+        assert_eq!(
+            serde_json::to_string(&kinds).unwrap(),
+            r#"[{"ending":"ts","kind":"video","on":true,"builtIn":true},{"ending":"dat","kind":"video","on":true,"builtIn":true}]"#
+        );
+        // Off again is as it came: nothing kept about it.
+        let off = KindChange {
+            on: Some(false),
+            ..KindChange::default()
+        };
+        kinds.change("dat", &off).unwrap();
+        kinds.put_back_built_in();
+        assert!(kinds.is_built_in());
+        assert!(!line(&kinds, "ts").on);
+    }
+
+    #[test]
+    fn an_ending_a_person_added_that_keevoro_now_knows_stays_theirs_as_they_set_it() {
+        // As Keevoro 0.51 kept them: .tga added as a video, switched off;
+        // .psd added as a photo; .lrv as an other file; .avi switched off.
+        let kept = r#"[{"ending":"tga","kind":"video","on":false},{"ending":"psd","kind":"photo"},{"ending":"lrv","kind":"other"},{"ending":"avi","kind":"video","on":false}]"#;
+        let mut kinds: FileKinds = serde_json::from_str(kept).unwrap();
+        let list = kinds.list();
+        for ending in ["tga", "psd", "lrv", "avi"] {
+            assert_eq!(list.iter().filter(|k| k.ending == ending).count(), 1, "{ending} once");
+        }
+        let tga = line(&kinds, "tga");
+        assert_eq!(
+            (tga.kind, tga.on, tga.built_in, tga.usual),
+            (MediaKind::Video, false, false, true)
+        );
+        assert!(!line(&kinds, "psd").built_in && !line(&kinds, "lrv").built_in);
+        assert!(line(&kinds, "avi").built_in && !line(&kinds, "avi").on);
+        let lookup = kinds.lookup();
+        assert!(lookup.switched_off("tga"));
+        assert!(
+            lookup.is_other("lrv"),
+            "theirs, an other file, wins over the video Keevoro knows"
+        );
+        assert_eq!(lookup.by_name("psd"), Some(MediaKind::Photo));
+        assert!(lookup.read_inside("psd"), "read as their own kinds always were");
+        // Written back as it was read, still theirs.
+        let written = serde_json::to_string(&kinds).unwrap();
+        assert!(!written.contains("builtIn"), "{written}");
+        assert_eq!(serde_json::from_str::<FileKinds>(&written).unwrap(), kinds);
+        // Putting back the built-in list keeps theirs.
+        kinds.put_back_built_in();
+        assert!(!line(&kinds, "tga").built_in && line(&kinds, "avi").on);
+        // Removing theirs leaves the kind Keevoro comes with.
+        kinds.remove("tga").unwrap();
+        let tga = line(&kinds, "tga");
+        assert_eq!((tga.kind, tga.on, tga.built_in), (MediaKind::Photo, true, true));
+        assert_eq!(kinds.remove("tga"), Err(KindRefusal::BuiltIn("tga".into())));
+    }
+
+    #[test]
+    fn a_change_to_a_kind_keevoro_has_just_come_to_know_is_kept_as_a_change() {
+        let mut kinds = FileKinds::default();
+        let off = KindChange {
+            on: Some(false),
+            ..KindChange::default()
+        };
+        kinds.change("tga", &off).unwrap();
+        kinds.change("jpg", &off).unwrap();
+        let text = serde_json::to_string(&kinds).unwrap();
+        assert_eq!(
+            text,
+            r#"[{"ending":"tga","kind":"photo","on":false,"builtIn":true},{"ending":"jpg","kind":"photo","on":false}]"#
+        );
+        let read: FileKinds = serde_json::from_str(&text).unwrap();
+        let tga = line(&read, "tga");
+        assert!(tga.built_in && !tga.on);
+        assert_eq!(read.list().len(), BUILT_IN.len());
+    }
+
+    #[test]
+    fn a_kind_keevoro_cannot_read_is_found_by_name_and_never_read_or_previewed() {
+        let kinds = Kinds::default();
+        for ending in ["tga", "PSD", "exr", "mxf", "r3d", "braw", "fff"] {
+            assert!(kinds.by_name(ending).is_some(), "{ending}");
+            assert!(!kinds.read_inside(ending), "{ending}");
+        }
+        assert!(never_previewed("tga") && never_previewed(".PSD"));
+        for ending in ["jpg", "cr2", "mts", "gif", "jfif", "xyz", ""] {
+            assert!(kinds.read_inside(ending), "{ending}");
+            assert!(!never_previewed(ending), "{ending}");
+        }
+        assert!(crate::is_raw_extension("GPR") && crate::is_raw_extension("fff"));
+        assert!(!crate::is_raw_extension("tga"));
+    }
+
+    #[test]
+    fn the_lookup_is_made_once_and_matches_any_case_without_making_a_copy() {
+        assert!(std::ptr::eq(built_ins(), built_ins()), "made once, then kept");
+        assert_eq!(built_ins().len(), BUILT_IN.len());
+        let mut buffer = [0u8; LONGEST_ENDING];
+        let lower = ascii_lower("JPG", &mut buffer).unwrap();
+        assert_eq!(lower, "jpg");
+        assert!(
+            std::ptr::eq(lower.as_ptr(), buffer.as_ptr()),
+            "lowered in place, nothing allocated"
+        );
+        assert_eq!(ascii_lower("abcdefghijk", &mut buffer), None, "too long for any list");
+        assert_eq!(ascii_lower("ÉCLAIR", &mut buffer), None);
+        let kinds = Kinds::default();
+        for ending in ["jpg", "JPG", "Jpg", ".JPG", "tGa", "M2TS"] {
+            assert!(kinds.looked_for(ending).is_some(), "{ending}");
+        }
+        assert_eq!(kinds.looked_for("JPGX"), None);
+        assert_eq!(kinds.looked_for("ABCDEFGHIJKLMNOP"), None);
+        let mut mine = FileKinds::default();
+        mine.add("ÉCL", MediaKind::Photo).unwrap();
+        assert_eq!(
+            mine.lookup().looked_for("ÉCL"),
+            Some(MediaKind::Photo),
+            "other letters too"
+        );
     }
 }

@@ -696,6 +696,113 @@ fn files_0_37_1_found_have_no_time_kept_and_the_next_look_keeps_one() {
     assert!(after[0].modified.is_some());
 }
 
+/// The built-in list grew (0.52), by many endings 0.37.1 did not know. Two
+/// a person had added themselves before (.psd as other files, .tga as
+/// videos, switched off) stay theirs, exactly as they set them, listed
+/// once. The rest are simply there, all switched on but the few endings
+/// that are often something else.
+#[test]
+fn kinds_a_person_added_before_keevoro_knew_them_stay_theirs_and_the_new_ones_are_simply_there() {
+    let dir = tempfile::tempdir().unwrap();
+    let (keevoro, places) = as_0_37_1_left_it(dir.path());
+    let kinds = ask(&keevoro, Op::FileKindsList, None, Value::Null);
+    let all = kinds.as_array().unwrap();
+    let kind = |ending: &str| {
+        let found: Vec<&Value> = all.iter().filter(|k| k["ending"] == ending).collect();
+        assert_eq!(found.len(), 1, "{ending} listed once: {kinds}");
+        found[0].clone()
+    };
+    let psd = kind("psd");
+    assert_eq!(
+        (&psd["kind"], &psd["on"], &psd["builtIn"]),
+        (&json!("other"), &json!(true), &json!(false))
+    );
+    let tga = kind("tga");
+    assert_eq!(
+        (&tga["kind"], &tga["on"], &tga["builtIn"]),
+        (&json!("video"), &json!(false), &json!(false))
+    );
+    assert_eq!(kind("xyz")["builtIn"], false);
+    assert_eq!(kind("png")["on"], false);
+    let exr = kind("exr");
+    assert_eq!(
+        (&exr["kind"], &exr["on"], &exr["usual"]),
+        (&json!("photo"), &json!(true), &json!(false))
+    );
+    let dat = kind("dat");
+    assert_eq!((&dat["on"], &dat["unsure"]), (&json!(false), &json!(true)));
+    // Reading the list changed nothing in the settings file.
+    let settings = places.folders.config.join("settings.json");
+    let before = std::fs::read_to_string(&settings).unwrap();
+    ask(&keevoro, Op::FileKindsList, None, Value::Null);
+    assert_eq!(std::fs::read_to_string(&settings).unwrap(), before);
+}
+
+/// Files of a kind 0.37.1 did not know are found at the next look, as the
+/// photos they are, with nothing to do; what was found and backed up
+/// before stays as it was, so nothing already there is sent again.
+#[test]
+fn files_of_a_kind_keevoro_has_come_to_know_are_found_at_the_next_look_and_nothing_backed_up_moves() {
+    let dir = tempfile::tempdir().unwrap();
+    let (keevoro, places) = as_0_37_1_left_it(dir.path());
+    let home = places.folders.data.join("backups").join("backup-1");
+    let backed_up = || {
+        let catalog = keevoro_catalog::Catalog::open_in_library(&home).unwrap();
+        [
+            "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+            "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+        ]
+        .map(|hash| catalog.collected_path(hash).unwrap())
+    };
+    let before = backed_up();
+    assert!(before.iter().all(Option::is_some));
+
+    std::fs::create_dir_all(places.card.join("DCIM")).unwrap();
+    std::fs::write(
+        places.card.join("DCIM/IMG_0048.jpg"),
+        b"\xFF\xD8\xFF\xE0 a made-up photo",
+    )
+    .unwrap();
+    // A film scan, which Keevoro 0.37.1 passed by, and two endings that
+    // are a person's own choice: .tga switched off, .psd as other files.
+    std::fs::write(places.card.join("DCIM/IMG_0049.exr"), b"v/1\x01 a made-up film scan").unwrap();
+    std::fs::write(places.card.join("DCIM/IMG_0050.tga"), [0u8, 0, 2, 0, 0, 0, 0, 0]).unwrap();
+    std::fs::write(places.card.join("DCIM/IMG_0051.psd"), b"8BPS a made-up picture").unwrap();
+    let job = ask(
+        &keevoro,
+        Op::SourcesLookAgain,
+        Some("Family photos"),
+        json!({ "source": 1 }),
+    );
+    keevoro.wait(serde_json::from_value(job["id"].clone()).unwrap());
+    keevoro.wait_for_jobs();
+
+    let catalog = keevoro_catalog::Catalog::open_in_library(&home).unwrap();
+    let root = catalog
+        .sources()
+        .unwrap()
+        .into_iter()
+        .find(|s| s.root.ends_with("Card"))
+        .unwrap()
+        .root;
+    let mut found: Vec<(String, keevoro_core::MediaKind)> = catalog
+        .found_at(&root)
+        .unwrap()
+        .into_iter()
+        .map(|i| (i.path.file_name().unwrap().to_string_lossy().to_string(), i.kind))
+        .collect();
+    found.sort();
+    assert_eq!(
+        found,
+        [
+            ("IMG_0048.jpg".to_string(), keevoro_core::MediaKind::Photo),
+            ("IMG_0049.exr".to_string(), keevoro_core::MediaKind::Photo),
+            ("IMG_0051.psd".to_string(), keevoro_core::MediaKind::Other),
+        ]
+    );
+    assert_eq!(backed_up(), before, "what was backed up stays where it is");
+}
+
 /// Backing up a source when it is plugged in (0.49) is a choice kept in
 /// each backup's catalog, `arrival:<root>`. No source 0.37.1 kept has it,
 /// so none is backed up when plugged in until the person asks.
