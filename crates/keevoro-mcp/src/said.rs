@@ -268,11 +268,20 @@ fn file_kinds(answer: &Value) -> String {
     } else {
         String::new()
     };
+    let unsure = |k: &Value| k.get("unsure").and_then(Value::as_bool).unwrap_or_default();
+    let waiting = if each(answer).any(|k| unsure(k) && !on(k)) {
+        format!(
+            " Off until switched on, as they are often not photos or videos: {}.",
+            endings(&|k| unsure(k) && !on(k))
+        )
+    } else {
+        String::new()
+    };
     format!(
-        "Keevoro looks for these photos: {}. And these videos: {}.{others} Switched off: {}.",
+        "Keevoro looks for these photos: {}. And these videos: {}.{others} Switched off: {}.{waiting}",
         endings(&|k| on(k) && s(k, "kind") == "photo"),
         endings(&|k| on(k) && s(k, "kind") == "video"),
-        endings(&|k| !on(k)),
+        endings(&|k| !on(k) && !unsure(k)),
     )
 }
 
@@ -450,6 +459,15 @@ mod tests {
         assert_eq!(
             summary(Op::FileKindsList, &list),
             "Keevoro looks for these photos: .jpg, .heix. And these videos: none. Switched off: .avi."
+        );
+        let with_unsure = json!([
+            { "ending": "jpg", "kind": "photo", "on": true, "builtIn": true, "unsure": false },
+            { "ending": "dat", "kind": "video", "on": false, "builtIn": true, "unsure": true },
+            { "ending": "ts", "kind": "video", "on": true, "builtIn": true, "unsure": true },
+        ]);
+        assert_eq!(
+            summary(Op::FileKindsList, &with_unsure),
+            "Keevoro looks for these photos: .jpg. And these videos: .ts. Switched off: none. Off until switched on, as they are often not photos or videos: .dat."
         );
     }
 

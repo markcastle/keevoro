@@ -344,7 +344,7 @@ register! {
 
     // The kinds of file looked for
     FileKindsList = "file_kinds.list",
-        "The kinds of file Keevoro looks for, by ending: photo, video or other, built in or added, on or off",
+        "The kinds of file Keevoro looks for by ending: photo, video or other, usual or less common",
         changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     FileKindsAdd = "file_kinds.add",
         "Adds an ending for Keevoro to look for, as a photo, a video or an other file",
@@ -356,7 +356,7 @@ register! {
         "Takes an ending you added off the list. Nothing already found is taken away",
         changes: Always, job: false, command_line: true, agents: Agents::No, implemented: true;
     FileKindsReset = "file_kinds.reset",
-        "Puts back the kinds of file Keevoro comes with, all on. Your own stay",
+        "Puts back the kinds of file Keevoro comes with, as they came. Your own stay",
         changes: Always, job: false, command_line: true, agents: Agents::No, implemented: true;
 }
 

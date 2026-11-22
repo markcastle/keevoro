@@ -412,15 +412,18 @@ One list for the whole of Keevoro, the same as Settings, Advanced, Kinds of file
 
 | Command | What it does |
 | --- | --- |
-| `keevoro kinds` | Every kind on the list: its ending, photo, video or other, built in or yours, and whether it is looked for. |
+| `keevoro kinds` | The usual kinds and your own: each ending, photo, video or other, built in or yours, and whether it is looked for. It ends by saying how many less common kinds there are, which are looked for just the same. |
+| `keevoro kinds --all` | Every kind on the list, the less common ones too. |
 | `keevoro kinds add heif --photo` | Adds an ending to look for, as photos; `--video` for videos. |
 | `keevoro kinds add flac --other` | Adds an ending as other files, carried along: music, documents, anything. Keevoro will back these up exactly, but cannot show them or group them by date. |
 | `keevoro kinds off avi` | Stops looking for a kind; `keevoro kinds on avi` looks for it again. |
 | `keevoro kinds change xyz --video` | Makes a kind videos (or `--photo`, or `--other`), or gives one you added a new ending with `--to xyz2`. |
 | `keevoro kinds remove xyz` | Takes an ending you added off the list. A built-in one can only be switched off. |
-| `keevoro kinds reset` | Puts back the kinds Keevoro comes with, all on. Kinds you added stay. |
+| `keevoro kinds reset` | Puts back the kinds Keevoro comes with, as they came: all on but a few endings that are often something else. Kinds you added stay. |
 
 An ending is typed with or without its dot, in any case: `.HEIF` and `heif` are the same. It is letters and numbers only. One for programs, documents, music or archives (such as `exe`, `pdf`, `mp3` or `zip`) is never a photo or a video, so it can only be added with `--other`. A kind you add is found by its ending alone, so Keevoro backs it up exactly even when it cannot open it, with no preview.
+
+Keevoro comes with about 140 kinds. The usual ones (`.jpg`, `.heic`, `.png`, the common camera raw kinds, `.mp4`, `.mov`, `.mts` and the like) are listed first; the less common ones (`.jfif`, `.psd`, `.tga`, `.exr`, `.mxf`, `.r3d` and many more) are listed with `--all`. Both are looked for. A kind Keevoro cannot read (such as `.psd` or `.mxf`) is backed up exactly, dated by the file and its folder, with no preview. A few endings are as often something else (`.ts`, `.dat`, `.bin`, `.img`, `.seq`, `.pic`, `.iff`, `.cap`, `.001`), so they are listed switched off: while off, such a file is still backed up when what is inside is a photo or video Keevoro knows. `keevoro kinds on dat` looks for them by their ending, and `keevoro kinds add dat --other` carries them along as other files. If you had added an ending yourself before Keevoro came to know it, it stays yours, as you set it.
 
 ### Other files, carried along
 

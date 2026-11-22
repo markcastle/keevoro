@@ -82,7 +82,7 @@ These are rules the code is built around and automated tests guard, not hopes.
 
 - 📂 **Sources:** drives, USB sticks, memory cards, folders, network shares, the folders OneDrive, Dropbox, Google Drive and iCloud Drive keep on your computer, offered by name, and cloud storage (Cloudflare R2, Amazon S3, Google Cloud Storage or anything S3-compatible), only ever read, with what reading it out would cost said first. Several per backup, with duplicates across all of them counted once.
 - ⚡ **Quick survey:** find the folders with photos on a whole disk in seconds, opening no file.
-- 🖼️ **Formats:** JPEG, PNG, HEIC, TIFF, WebP, camera raw (DNG, CR2, CR3, NEF, ARW and more), and MP4, MOV, AVI, MTS and other video. Add any other ending your camera uses, or switch one off, in Settings, Advanced, Kinds of file (or `keevoro kinds`); a kind Keevoro cannot open is still backed up exactly.
+- 🖼️ **Formats:** JPEG, PNG, HEIC, TIFF, WebP, GIF, camera raw (DNG, CR2, CR3, NEF, ARW and more), and MP4, MOV, AVI, MTS and other video, with about a hundred less common kinds looked for too (Photoshop, JPEG 2000, OpenEXR, TGA, older and rarer raw, MXF, RED and Blackmagic raw video, and more). Add any other ending your camera uses, or switch one off, in Settings, Advanced, Kinds of file (or `keevoro kinds --all`); a kind Keevoro cannot open is still backed up exactly.
 - 🎵 **Other files, if you want them:** add an ending as "other files" (music, documents, project files) and Keevoro carries them along, backed up and checked exactly like your photos, listed by the folders they came from. It never shows them or groups them by date, and nothing of the sort is taken until you ask.
 - 🧹 **Tidying:** app icons, tiny images and leftovers are set aside with a reason. Per source, you can include or leave out whole kinds of file.
 - 🗂️ **Collections:** named after your own folders, or by date, with dates read from the camera data, the file name or the folder.
@@ -249,7 +249,7 @@ npm run ui:dev
 Changes are welcome. Start with these:
 
 - [docs/developing.md](docs/developing.md): building, testing, how the pieces fit, cutting a release.
-- [docs/research/image-and-video-formats.md](docs/research/image-and-video-formats.md): a survey of photo, raw and video formats, kept as background for deciding which kinds of file Keevoro should know. Not yet checked against real files.
+- [docs/research/image-and-video-formats.md](docs/research/image-and-video-formats.md): a survey of photo, raw and video formats, used as leads for the endings Keevoro now knows. Its signatures are not checked against real files.
 - [PLANNING.md](PLANNING.md): the design and the reasons behind it.
 - [TASKS.md](TASKS.md): what is done and what is next.
 - [AI_AGENT_PROMPT.md](AI_AGENT_PROMPT.md): the rules every change follows, whoever writes it. Tests first, plain words, and a changelog entry for anything a person would notice.
