@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.50.0] - 2026-11-22
+
 ### Added
 
 - **Compare providers from the backup screen.** Once a backup has somewhere to go, "Compare providers" is in its More menu too, so you can see what cloud storage costs without starting to add a destination. A choice Keevoro can back up to opens its form as another destination.
@@ -813,7 +817,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.49.0...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.50.0...HEAD
+[0.50.0]: https://github.com/markcastle/keevoro/compare/v0.49.0...v0.50.0
 [0.49.0]: https://github.com/markcastle/keevoro/compare/v0.48.0...v0.49.0
 [0.48.0]: https://github.com/markcastle/keevoro/compare/v0.47.0...v0.48.0
 [0.47.0]: https://github.com/markcastle/keevoro/compare/v0.46.1...v0.47.0
