@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.45.0] - 2026-11-22
+
 ### Added
 
 - **A thank you on the About page.** It says who makes Keevoro, and gives special thanks to Adam Sparshott for all his help in testing and his excellent ideas.
@@ -726,7 +730,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.44.0...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.45.0...HEAD
+[0.45.0]: https://github.com/markcastle/keevoro/compare/v0.44.0...v0.45.0
 [0.44.0]: https://github.com/markcastle/keevoro/compare/v0.43.0...v0.44.0
 [0.43.0]: https://github.com/markcastle/keevoro/compare/v0.42.0...v0.43.0
 [0.42.0]: https://github.com/markcastle/keevoro/compare/v0.41.0...v0.42.0
