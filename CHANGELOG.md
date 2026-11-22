@@ -6,7 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **A different example name for a new backup.** Where Keevoro suggests a name as you start a backup, in the app and in `keevoro backups start --help`, the example is now "Holiday videos".
 
 ## [0.48.0] - 2026-11-22
 
@@ -14,10 +16,6 @@ Nothing yet.
 
 - **Google Cloud Storage, by name.** "Where should they go?" now offers Google Cloud Storage beside Cloudflare R2 and Amazon S3, and so does "Add cloud storage as a source…". It asks only for the bucket and its two keys: Keevoro fills in Google's address, and says where the keys are made (in the Google Cloud console, Cloud Storage, Settings, Interoperability). The keys are kept in your computer's keychain like the others, and never shown. Keevoro asks Google not to replace any original already there, as it asks the others. Before a backup from Google Cloud Storage, Keevoro says about what reading it out will cost, and files kept in Google's Nearline, Coldline or Archive storage, which cost more to read, are counted and said, and backed up all the same. Backing up to Google, Keevoro suggests keeping the bucket in the Standard class, since the colder ones charge each time a file is read back to check it. At the command line: `keevoro destinations add --gcs --bucket NAME` and `keevoro sources add-bucket --gcs --bucket NAME`.
 - **Not sure where to buy cloud storage? Compare providers.** "Where should they go?" has one quiet new line that opens Stratus, a comparison of what cloud storage costs made by Adam Sparshott, inside Keevoro, already set to the size of your backup and your currency. Nothing is loaded from the internet until you open it, and Stratus is told only that size and currency. The prices are Stratus's, not Keevoro's. Pick one Keevoro can back up to (Cloudflare R2, Amazon S3, Google Cloud Storage, or another service that works like S3) and "Set up … in Keevoro" opens the right form; for anything else Keevoro names it and offers its page. Without a connection it says "Couldn't load the comparison just now" and offers to open Stratus in your browser instead.
-
-### Changed
-
-- **A different example name for a new backup.** Where Keevoro suggests a name as you start a backup, in the app and in `keevoro backups start --help`, the example is now "Holiday videos".
 
 ### Fixed
 
