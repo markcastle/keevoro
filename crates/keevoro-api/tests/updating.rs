@@ -203,7 +203,9 @@ fn everything_a_person_set_and_keevoro_recorded_in_0_37_1_is_there_after_updatin
     );
     let left_out = sources[0]["leftOut"][0].as_str().unwrap_or_default();
     assert!(
-        left_out.starts_with(&places.card.display().to_string()) && left_out.ends_with("Old"),
+        // Keevoro shows a place without the `\\?\` Windows puts before a real path.
+        left_out.starts_with(places.card.display().to_string().trim_start_matches(r"\\?\"))
+            && left_out.ends_with("Old"),
         "{sources}"
     );
     assert_eq!(sources[0]["onlineOnly"], 3);
