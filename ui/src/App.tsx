@@ -23,7 +23,7 @@ import { ScheduleCard, useNoteWindowUse } from './schedule'
 import { AwayPanel } from './away'
 import { OnArrival } from './onArrival'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
+import type { ReactNode, RefObject } from 'react'
 
 import { backend } from './backend'
 import { scrollerOf } from './scroller'
@@ -83,7 +83,7 @@ import { PutRight } from './putRight'
 import { ManageBackups } from './manageBackups'
 import { CheckLine, CheckStopped } from './checking'
 import { WindowAsks } from './tray'
-import { certain, mainButtonWords, outOfReachLine } from './thereWords'
+import { certain, mainButtonWords, needingAttention, outOfReachLine } from './thereWords'
 import { SyncedCard } from './synced'
 import { GoogleClassNote, StorageFields } from './storageForm'
 import { CompareStorage } from './compare'
@@ -744,7 +744,6 @@ export function App() {
                 back={() => go('choose')}
                 say={safe > 0 && waiting === 0 ? 'That’s everything. Have more photos somewhere else?' : undefined}
                 button={safe > 0 && waiting === 0 ? 'Add another source' : undefined}
-                quiet
                 onClick={() => go('find')}
               />
             }
@@ -766,10 +765,14 @@ function nextToDo(found: Discover, sendingTo: string | null): Step {
 /**
  * The bar at the foot of every screen: where you can go back to, one
  * sentence about where things stand, and the one button that moves on.
+ * One filled button per screen: when the screen above already shows one
+ * (Back up again, say, or a question's answer), this one is quiet.
  */
-function Next(props: { back?: () => void; say?: ReactNode; button?: string; onClick?: () => void; quiet?: boolean }) {
+function Next(props: { back?: () => void; say?: ReactNode; button?: string; onClick?: () => void }) {
+  const bar = useRef<HTMLDivElement>(null)
+  const quiet = useFilledAbove(bar)
   return (
-    <div className="next">
+    <div className="next" ref={bar}>
       {props.back && (
         <button className="link" onClick={props.back}>
           ‹ Back
@@ -777,12 +780,32 @@ function Next(props: { back?: () => void; say?: ReactNode; button?: string; onCl
       )}
       <span className="say">{props.say}</span>
       {props.button && (
-        <button className={props.quiet ? 'primary' : 'primary big'} onClick={props.onClick}>
+        <button className={quiet ? 'button big' : 'primary big'} onClick={props.onClick}>
           {props.button}
         </button>
       )}
     </div>
   )
+}
+
+/**
+ * Whether the screen holding `bar` shows a filled button outside it. The
+ * screen changes by itself (a question opens, a backup ends), so it is
+ * watched rather than told.
+ */
+function useFilledAbove(bar: RefObject<HTMLElement | null>): boolean {
+  const [filled, setFilled] = useState(false)
+  useLayoutEffect(() => {
+    const screen = bar.current?.closest('main')
+    if (!screen) return
+    const look = () =>
+      setFilled([...screen.querySelectorAll('.primary')].some((button) => !bar.current?.contains(button)))
+    look()
+    const watch = new MutationObserver(look)
+    watch.observe(screen, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] })
+    return () => watch.disconnect()
+  }, [bar])
+  return filled
 }
 
 function Welcome(props: { onStart: (name: string) => void; problem: string | null }) {
@@ -2462,6 +2485,11 @@ function SendPanel(props: {
     })
   }
 
+  // One filled button on the screen, the thing most people want next:
+  // putting the backup right when it needs it (its own button says so),
+  // else checking when the last backup advised it, else backing up.
+  const filled = needingAttention(destinations) > 0 ? null : said?.checkAdvised && props.waiting === 0 ? 'check' : 'send'
+
   // What the row of buttons keeps behind More: wanted now and then, never
   // after every backup. With several places, each has its own in the list.
   const rarerChoices: MenuChoice[] = [
@@ -2759,14 +2787,14 @@ function SendPanel(props: {
             <CloudCost said={room?.cost ?? []} />
             <div className="choices actions">
               <button
-                className={said?.checkAdvised && props.waiting === 0 ? 'button' : 'primary'}
+                className={filled === 'send' ? 'primary' : 'button'}
                 onClick={() => start('Starting…', api.send)}
                 disabled={props.waiting + props.safe === 0 || (room !== null && !room.enough)}
               >
                 {mainButtonWords(props.waiting, said?.missed ?? 0)}
               </button>
               <button
-                className={said?.checkAdvised && props.waiting === 0 ? 'primary' : 'button'}
+                className={filled === 'check' ? 'primary' : 'button'}
                 onClick={() => start('Checking…', api.checkArrived)}
                 disabled={props.safe === 0 && !destinations.some((d) => d.there > 0)}
               >

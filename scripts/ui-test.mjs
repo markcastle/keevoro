@@ -1101,6 +1101,21 @@ try {
   await page.getByText(/^Everything you are keeping was there when Keevoro last looked, 2 days ago: [\d,]+ files\.$/).waitFor()
   await shot('9y-backup-folder-unplugged')
 
+  // --- One filled button per screen, the thing most people want next: the
+  // foot's button is quiet while the screen above shows a filled one.
+  await page.goto(`${base}/?fast`)
+  await page.locator('.steps button').nth(0).click()
+  await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
+  const footFilled = (words) => page.locator('.next .primary.big', { hasText: words })
+  const footQuiet = (words) => page.locator('.next .button.big', { hasText: words })
+  await footFilled('See what was found').waitFor()
+  await page.getByRole('button', { name: /Windows \(C:\)/ }).click()
+  await page.getByRole('heading', { name: 'Look through all of Windows (C:)?' }).waitFor()
+  await footQuiet('See what was found').waitFor()
+  assert.equal(await page.locator('main .primary').count(), 1, 'only the question’s own answer is filled')
+  await page.getByRole('button', { name: 'Cancel' }).click()
+  await footFilled('See what was found').waitFor()
+
   // --- The backup screen keeps the few buttons used most in its row, Back
   // up again the one filled, and the rest behind More: a menu, used with
   // the keyboard as well as the pointer, never cut off, and each of its
@@ -1116,6 +1131,8 @@ try {
     ['Back up again', 'Check they all arrived', 'Show me the folder', 'More'],
   )
   assert.deepEqual(await actions.locator('.primary').allInnerTexts(), ['Back up again'], 'one filled button')
+  await footQuiet('Add another source').waitFor()
+  assert.equal(await page.locator('main .primary').count(), 1, 'Add another source at the foot is quiet')
   const more = actions.getByRole('button', { name: 'More' })
   const menu = page.getByRole('menu', { name: 'More' })
   const items = menu.getByRole('menuitem')
@@ -1261,6 +1278,11 @@ try {
   await damaged.getByText(/under the names Keevoro gave them, but not the sizes they were backed up at/).waitFor()
   await page.getByText(/^[\d,]+ of your [\d,]+ files are safely there\. 5 need attention\.$/).waitFor()
   assert.equal(await page.getByText(/^Everything you are keeping is there/).count(), 0, 'never everything beside files that are not')
+  assert.deepEqual(
+    await page.locator('main .primary').allInnerTexts(),
+    ['Put this backup right…'],
+    'putting it right is the one filled button; Back up again is quiet beside it',
+  )
   await shot('9z1-backup-needs-putting-right')
   await fitsNarrow('A backup that needs putting right')
   await page.getByRole('button', { name: 'Put this backup right…' }).click()

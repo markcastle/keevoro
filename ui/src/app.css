@@ -1504,7 +1504,8 @@ h3 + .small {
   filter: none;
 }
 
-.primary.big {
+.primary.big,
+.button.big {
   height: 48px;
   padding: 0 var(--space-5);
   font-size: 16px;
@@ -3481,7 +3482,8 @@ fieldset.wants {
     flex: 1 1 12em;
   }
 
-  .next .primary {
+  .next .primary,
+  .next .button {
     max-width: 100%;
   }
 

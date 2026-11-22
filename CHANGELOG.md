@@ -20,6 +20,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 - **A tidier row of buttons on the backup screen.** Once a backup has somewhere to go, "Where should they go?" keeps the buttons used most in its row: Back up again, Check they all arrived and, for a folder, Show me the folder. The ones wanted now and then (Clear unfinished copies…, Add another destination and Back up somewhere else) are behind a new "More" button that opens a small menu, which works with the arrow keys as well as the pointer. The row no longer wraps untidily in a wide window, and in a narrow one its buttons share the rows evenly.
 
+- **One filled button on each screen.** The button filled in colour is the one most people want next, and now there is only ever one on a screen. When a backup is done, "Add another source" at the foot of the screen is a quiet button under the filled "Back up again"; on the first step, "See what was found" turns quiet while a question with its own filled answer is open, such as "Look through all of Windows (C:)?"; and when a backup needs putting right, "Put this backup right…" is the filled one and "Back up again" is quiet beside it.
+
 - **A different example name for a new backup.** Where Keevoro suggests a name as you start a backup, in the app and in `keevoro backups start --help`, the example is now "Holiday videos".
 
 ### Fixed
