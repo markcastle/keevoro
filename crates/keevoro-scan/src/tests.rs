@@ -684,7 +684,26 @@ fn a_search_can_be_stopped_part_way() {
         }
     });
     assert!(r.stopped);
-    assert!(r.items.len() >= 20 && r.items.len() < 1000, "found {}", r.items.len());
+    // The readers work on threads of their own and are only held between
+    // one file and the next, so on a quick computer they can have read
+    // every one of these small files by the time the stop is seen. What
+    // is certain is that it stopped having found at least what it had
+    // reported.
+    assert!(r.items.len() >= 20 && r.items.len() <= 1000, "found {}", r.items.len());
+
+    // Asked to stop before it begins, it finds nothing and says it stopped:
+    // this half does not depend on how quick the computer is.
+    let stopped_first = Arc::new(AtomicBool::new(true));
+    let none = scan(
+        t.root(),
+        &ScanOptions {
+            stop: Some(stopped_first),
+            ..ScanOptions::default()
+        },
+        &mut |_| {},
+    );
+    assert!(none.stopped);
+    assert!(none.items.len() < 1000, "found {}", none.items.len());
 
     // Left alone, the same search finishes and says so.
     let whole = t.scan();

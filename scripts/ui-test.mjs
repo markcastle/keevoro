@@ -1503,6 +1503,9 @@ try {
   await page.getByRole('button', { name: 'See where the space goes' }).click()
   await page.getByRole('heading', { name: 'Where the space goes on Windows (C:)', level: 1 }).waitFor()
   const spaceRows = () => page.locator('.space-list tbody tr .name > :first-child').allInnerTexts()
+  // The list is filled once the map has been asked for: wait for its rows,
+  // not for a moment to pass.
+  await page.locator('.space-list tbody tr .name').first().waitFor()
   assert.deepEqual((await spaceRows()).slice(0, 3), ['Users', 'Games', 'Windows'], 'the biggest first')
   const windowsRow = page.locator('.space-list tbody tr', { hasText: 'Windows' }).first()
   assert.match(await windowsRow.innerText(), /System folder: Keevoro never looks through it/)
