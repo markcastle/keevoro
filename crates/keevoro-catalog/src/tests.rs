@@ -124,6 +124,28 @@ fn looking_through_a_source_again_keeps_the_name_it_has() {
 }
 
 #[test]
+fn looking_through_a_source_again_keeps_its_id_and_its_place_in_the_list() {
+    let mut c = Catalog::in_memory().unwrap();
+    let card = c.save_scan("Mum's card", &report("/media/card"), 100).unwrap();
+    let beach = c.save_scan("Beach", &report("/media/beach"), 150).unwrap();
+    // The first one is looked through again: it is still the first, and
+    // still the source it was.
+    let again = c.save_scan("Card", &report("/media/card"), 200).unwrap();
+    assert_eq!(again, card);
+    let s = c.sources().unwrap();
+    assert_eq!(
+        s.iter().map(|x| (x.id, x.name.as_str())).collect::<Vec<_>>(),
+        [(card, "Mum's card"), (beach, "Beach")]
+    );
+    // What was found is replaced, not added to.
+    let found: i64 = c
+        .conn
+        .query_row("SELECT COUNT(*) FROM items WHERE source_id = ?1", [card], |r| r.get(0))
+        .unwrap();
+    assert_eq!(usize::try_from(found).unwrap(), report("/media/card").items.len());
+}
+
+#[test]
 fn forgetting_a_source_removes_everything_found_on_it() {
     let mut c = Catalog::in_memory().unwrap();
     let id = c.save_scan("Dell", &report("/media/dell"), 100).unwrap();
