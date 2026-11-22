@@ -73,21 +73,29 @@ Someone other than the owner has now used Keevoro (0.37.1, Windows 11 Home). The
 - [x] The map: calmer colours, a summary ring, small folders merged
 - [x] Cloud drives as sources: synced cloud folders done properly, then a bucket as a source (fetching online-only files waits on the owner; previews from a bucket, its map and agents' named buckets are later)
 
-### 4. Other kinds of file, carried along
+### 4. Asked for since: storage hints, Google Cloud Storage, and reporting from inside the app
+
+Three things asked for after the first round of feedback, by the owner and by Adam Sparshott, Keevoro's first tester. The detail is under "Asked for since the first round".
+
+- [ ] Helpful hints on where to buy cloud storage, using Stratus (Adam's comparison of what cloud storage costs) live inside Keevoro, with his agreement
+- [ ] Google Cloud Storage as a cloud source, and as somewhere to back up to (Adam's request)
+- [ ] Report a problem or suggest something from inside the app, which you approve and an AI then builds
+
+### 5. Other kinds of file, carried along
 
 Keevoro stays a photo and video tool, but can take your other files with it: music, documents, project files. Asked for by the owner. It comes after the map, which is where a person sees what else a folder holds. See "Other kinds of file".
 
 - [x] A third kind in the kinds list, "other": found, backed up exactly and listed by folder, with no previews and no clever grouping
 
-### 5. Scheduled and repeat backups
+### 6. Scheduled and repeat backups
 
 The next thing a person would notice, and the reason the jobs work came first: a scheduled run is just another program asking the API to run a backup, taking its turn with the app. Start with the single command a system scheduler can call, then the schedule in the app, then running with the window closed. See "Scheduled and repeat backups".
 
-### 6. The catalog travels with the backup
+### 7. The catalog travels with the backup
 
 A copy of Keevoro's record inside each destination, so a backup can be opened on a new computer or after the record here is lost. This matters more once backups run unattended. See "The catalog".
 
-### 7. Cloud storage as sure as a folder
+### 8. Cloud storage as sure as a folder
 
 A folder backup is fingerprinted as it is sent and read back afterwards. Cloud storage is not yet held to the same standard.
 
@@ -570,6 +578,43 @@ Cloud drives as sources
 Already answered
 
 - [x] "Could the same software be used for more than just photos/videos? Music files, document file backups? Manual selection of file extension to search for?" Yes, from 0.39.0: Settings, Advanced, kinds of file, "Other files"
+
+### Asked for since the first round
+
+Hints on where to buy cloud storage
+
+Someone choosing where to back up to often does not have anywhere yet. Stratus, by Adam Sparshott, compares what cloud storage costs for a given size, cheapest first, with how to set each one up. He has agreed to Keevoro showing it. Decided by the owner: it is used live, never copied, because a price copied into Keevoro goes stale between releases and a wrong price is worse than none.
+
+- [ ] On "Where should they go?", a quiet hint: "Not sure where to back up to? Compare what cloud storage costs."
+- [ ] Stratus shown inside Keevoro through its own embed mode, already set to the size of this backup and the person's currency
+- [ ] Keevoro's own short note beside it on which choices it connects to directly (Cloudflare R2, Amazon S3, Backblaze B2, Wasabi, Scaleway, OVHcloud, DigitalOcean Spaces, Google Cloud Storage) and which it reaches as a folder (Hetzner Storage Box, and synced services such as OneDrive and Dropbox)
+- [ ] Choosing one Keevoro connects to directly goes straight to the right form, with its address filled in
+- [ ] With no connection, a plain link and a sentence saying prices need one; never stale figures
+- [ ] Credit to Stratus and its author where it is shown
+- [ ] The page is another site shown inside Keevoro: it must not be able to reach Keevoro's own commands, and nothing about the person's backup is sent to it beyond the size and currency
+
+Google Cloud Storage
+
+Asked for by Adam. Google's storage answers the same requests as Amazon S3 at `storage.googleapis.com` when given a pair of keys Google calls HMAC keys, so most of what Keevoro needs is already there.
+
+- [ ] "Google Cloud Storage" as a named choice beside Cloudflare R2 and Amazon S3, as a source and as a destination, with its address filled in and plain steps for making the keys
+- [ ] Prove against the real service, or say plainly what is not proved: listing, reading, writing, large files sent in parts, the label Keevoro writes with a file's fingerprint, and dates
+- [ ] What reading out of Google Cloud Storage costs, in the table of prices said before a backup from cloud storage starts
+- [ ] Its colder kinds of storage (Nearline, Coldline, Archive), which cost extra to read early: counted and said, as archive storage is for Amazon
+- [ ] Keys kept in the keychain and never shown, as for the others
+
+Report a problem or suggest something, from inside the app
+
+The owner's words: "At work we now have an icon that allows users to report bugs/ask for features.. then our system allows us to approve those and ai goes off and gets them done... it's the future." Keevoro's first tester sent a PDF and a photo of a screen; this is the front door that was missing.
+
+- [ ] A button: "Report a problem or suggest something". The person says what happened, or what they would like
+- [ ] Keevoro adds the useful facts for them: its version, the system, the screen they were on, and the end of its log. It shows exactly what will be sent before sending, and never sends keys
+- [ ] File names and folder paths are personal: left out unless the person chooses to include them
+- [ ] No account needed to send one: a small receiving service files it as an issue on the project
+- [ ] The owner approves each one: yes, no, or later
+- [ ] An AI builds what was approved and it goes through the same checks on Windows and a Mac as every release
+- [ ] The person who reported it hears when it ships
+- [ ] Decided before building: where reports are received; how much may go out without the owner's say (nothing at first; anything touching how files are copied or proved always waits for the owner); and how abuse and repeats are kept out
 
 ### Scheduled and repeat backups
 
