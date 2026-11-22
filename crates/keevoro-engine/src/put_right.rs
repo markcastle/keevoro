@@ -244,8 +244,18 @@ pub fn plan_words(plan: &Plan) -> Vec<String> {
     } else {
         String::new()
     };
+    let lead = if plan.known > 0 {
+        "Then it reads".to_string()
+    } else {
+        "Keevoro reads".to_string()
+    };
+    let there = if plan.known > 0 {
+        "there".to_string()
+    } else {
+        format!("at {}", plan.to)
+    };
     said.push(format!(
-        "Then it reads back in full each of the {} you are keeping there and compares it with its original: {}, \
+        "{lead} back in full each of the {} you are keeping {there} and compares it with its original: {}, \
          which should take {} over this connection. It works in the background, so you can use the rest of \
          Keevoro meanwhile, and you can stop it and carry on later.{carrying_on}",
         summary::count(plan.files, "file"),

@@ -1969,8 +1969,10 @@ export function demoBackend(): Backend {
         thoroughSeconds: 4 * 3600,
         setsAside: first?.kind === 'folder',
         said: [
-          `First, Keevoro puts right the ${known} files it already knows are wrong at ${first?.name}, which should take about 5 minutes.`,
-          `Then it reads back in full each of the ${files.toLocaleString('en-GB')} files you are keeping there and compares it with its original: ${(bytes / GB).toFixed(1)} GB, which should take about 4 hours over this connection. It works in the background, so you can use the rest of Keevoro meanwhile, and you can stop it and carry on later.`,
+          ...(known > 0
+            ? [`First, Keevoro puts right the ${known} files it already knows are wrong at ${first?.name}, which should take about 5 minutes.`]
+            : []),
+          `${known > 0 ? 'Then it reads' : 'Keevoro reads'} back in full each of the ${files.toLocaleString('en-GB')} files you are keeping ${known > 0 ? 'there' : `at ${first?.name}`} and compares it with its original: ${(bytes / GB).toFixed(1)} GB, which should take about 4 hours over this connection. It works in the background, so you can use the rest of Keevoro meanwhile, and you can stop it and carry on later.`,
           'Any copy that is short, the wrong size or not the same as its original is moved aside there, into a folder called "Set aside by Keevoro", with a note saying what it is. Nothing is deleted or replaced. Then the original is sent again and its new copy read back.',
         ],
       }

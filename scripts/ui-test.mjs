@@ -919,6 +919,11 @@ try {
   await page.getByText(/^Everything you are keeping is there: [\d,]+ files\.$/).waitFor()
   assert.equal(await page.getByRole('button', { name: 'Put this backup right…' }).count(), 0, 'offered only when something needs it')
   await shot('9z3-backup-put-right')
+  // With nothing known to be wrong, the full proof is still a quiet press away.
+  await page.getByRole('button', { name: 'Prove every copy…' }).click()
+  await page.getByText(/^Keevoro reads back in full each of the [\d,]+ files you are keeping at the folder F:\\Family Backup/).waitFor()
+  await shot('9z4-prove-every-copy')
+  await page.getByRole('button', { name: 'Not now' }).click()
 
   // --- On a Mac or Linux an unplugged drive can leave the folder it was
   // mounted on behind, empty, on the computer's own disk. That is never

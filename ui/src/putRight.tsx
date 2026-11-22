@@ -22,8 +22,29 @@ export function PutRight(props: {
   const [plan, setPlan] = useState<PutRightPlan | null>(null)
   const [asking, setAsking] = useState(false)
   const attention = needingAttention(props.destinations)
-  if (attention === 0) return null
   const n = (x: number) => x.toLocaleString('en-GB')
+  const ask = () => {
+    setAsking(true)
+    props.api
+      .putRightPlan()
+      .then(setPlan)
+      .catch(props.onProblem)
+      .finally(() => setAsking(false))
+  }
+  // Nothing known to be wrong: the full proof is still a press away, quietly,
+  // for a backup that went through a share that dropped out.
+  if (attention === 0 && plan === null) {
+    if (!props.destinations.some((d) => d.there > 0)) return null
+    return (
+      <p className="quiet small">
+        <button className="button small" disabled={asking} onClick={ask}>
+          Prove every copy…
+        </button>{' '}
+        Reads every file back from where it was sent and compares it with its original, and puts right anything
+        that is not.
+      </p>
+    )
+  }
   const go = (thorough: boolean) => {
     setPlan(null)
     props.start('Putting this backup right…', () => props.api.putRight(thorough))
@@ -40,14 +61,7 @@ export function PutRight(props: {
             <button
               className="primary"
               disabled={asking}
-              onClick={() => {
-                setAsking(true)
-                props.api
-                  .putRightPlan()
-                  .then(setPlan)
-                  .catch(props.onProblem)
-                  .finally(() => setAsking(false))
-              }}
+              onClick={ask}
             >
               Put this backup right…
             </button>
