@@ -94,15 +94,33 @@ fn scanning_the_same_place_again_replaces_what_was_known() {
     let mut second = report("/media/dell");
     second.items.truncate(1);
     second.skipped.clear();
-    c.save_scan("Dad's old Dell", &second, 200).unwrap();
+    c.save_scan("Dell", &second, 200).unwrap();
 
     let s = c.sources().unwrap();
     assert_eq!(s.len(), 1);
-    assert_eq!(
-        (s[0].name.as_str(), s[0].items, s[0].scanned_at),
-        ("Dad's old Dell", 1, 200)
-    );
+    assert_eq!((s[0].name.as_str(), s[0].items, s[0].scanned_at), ("Dell", 1, 200));
     assert_eq!(json(&c.load_reports().unwrap()), json(&[second]));
+}
+
+/// A source's name is the person's: looking through its place again,
+/// whatever name the look comes with (its folder's, say), keeps it.
+#[test]
+fn looking_through_a_source_again_keeps_the_name_it_has() {
+    let mut c = Catalog::in_memory().unwrap();
+    c.save_scan("Mum's card", &report("/media/card"), 100).unwrap();
+    c.save_scan("Card", &report("/media/card"), 200).unwrap();
+    let s = c.sources().unwrap();
+    assert_eq!((s.len(), s[0].name.as_str(), s[0].scanned_at), (1, "Mum's card", 200));
+
+    // A bucket source keeps its name too.
+    c.add_bucket_source("Holiday videos", "/bucket/holiday", "{}", 1)
+        .unwrap();
+    c.save_scan("holiday", &report("/bucket/holiday"), 300).unwrap();
+    assert_eq!(c.sources().unwrap()[1].name, "Holiday videos");
+
+    // A new place takes the name it is given.
+    c.save_scan("Beach", &report("/media/beach"), 400).unwrap();
+    assert_eq!(c.sources().unwrap()[2].name, "Beach");
 }
 
 #[test]

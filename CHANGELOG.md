@@ -20,6 +20,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 - **A different example name for a new backup.** Where Keevoro suggests a name as you start a backup, in the app and in `keevoro backups start --help`, the example is now "Holiday videos".
 
+### Fixed
+
+- **Looking through a source again keeps its name.** Pressing Look again on a source with a name of its own, such as "Mum's card", could rename it after its folder ("Card"). Its name is now kept however it is looked through again: Look again, adding the same place again, a backup by itself on its schedule or when the card is plugged in, and a source set aside for another card and brought back. The screen and a backup's record of what it looked through say its own name too. A name already lost this way can't be brought back; the source is otherwise just as it was.
+
 ## [0.48.0] - 2026-11-22
 
 ### Added

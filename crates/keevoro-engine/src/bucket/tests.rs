@@ -101,6 +101,12 @@ fn walk(folder: &Path) -> Vec<PathBuf> {
 impl Bench {
     /// A bucket holding these files, added as a source of a new backup.
     fn new(files: &[(&str, Vec<u8>)]) -> Self {
+        Self::called(files, None)
+    }
+
+    /// [`Bench::new`], with the source given a name of the person's own
+    /// rather than its folder's.
+    fn called(files: &[(&str, Vec<u8>)], name: Option<&str>) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let bucket = dir.path().join("bucket");
         for (key, body) in files {
@@ -124,7 +130,12 @@ impl Bench {
         let home = dir.path().join("home");
         let catalog = Catalog::open_in_library(&home).unwrap();
         let id = catalog
-            .add_bucket_source(&place.name(), &place.root(), &serde_json::to_string(&place).unwrap(), 0)
+            .add_bucket_source(
+                name.unwrap_or(&place.name()),
+                &place.root(),
+                &serde_json::to_string(&place).unwrap(),
+                0,
+            )
             .unwrap();
         catalog
             .set_source_arrange(id, Some(keevoro_core::Arrange::Folders))
@@ -581,4 +592,18 @@ fn against_a_real_server_a_bucket_source_is_added_looked_through_and_backed_up_a
             writer.delete(&ObjectKey::new(key).unwrap()).await.unwrap();
         }
     });
+}
+
+/// A name the person gave a bucket source is kept by every look through
+/// it, whatever name the look comes with.
+#[test]
+fn looking_through_a_bucket_source_again_keeps_the_name_the_person_gave_it() {
+    let mut bench = Bench::called(
+        &[("Photos/IMG_0048.jpg", b"not really a photo".to_vec())],
+        Some("Holiday videos"),
+    );
+    bench.look();
+    bench.look();
+    let names: Vec<String> = bench.catalog.sources().unwrap().into_iter().map(|s| s.name).collect();
+    assert_eq!(names, ["Holiday videos"]);
 }

@@ -327,7 +327,7 @@ pub(super) fn start(
     let handle = job.handle.clone();
     // Said at once, so anyone who asks straight away hears it.
     if let Some(first) = to_look.first_place() {
-        job.note_line(&format!("Looking through {}", name_of(first)));
+        job.note_line(&format!("Looking through {}", name_at(&backup.home, first)));
     }
     for said in to_look
         .passed_over
@@ -400,6 +400,18 @@ fn name_of(source: &Path) -> String {
         .map_or_else(|| source.display().to_string(), |n| n.to_string_lossy().to_string())
 }
 
+/// What the place `place` is called in the backup whose home is `home`:
+/// the name of the source there, which may be one the person gave it, or
+/// for a place not yet a source, its folder's name ([`name_of`]).
+fn name_at(home: &Path, place: &Path) -> String {
+    let root = std::fs::canonicalize(place).unwrap_or_else(|_| place.to_path_buf());
+    Catalog::open_in_library(home)
+        .and_then(|c| c.sources())
+        .ok()
+        .and_then(|sources| sources.into_iter().find(|s| s.root == root || s.root == place))
+        .map_or_else(|| name_of(place), |s| s.name)
+}
+
 /// The catalog setting holding when every file on the source at `root` was
 /// last read, in seconds since 1970: a look that was not quick, and was
 /// neither stopped nor cut short.
@@ -433,7 +445,7 @@ pub(super) fn look_through(
     if keevoro_core::bucket::is_bucket_path(source) {
         return look_through_bucket(ctx, job, home, source, kinds, skip);
     }
-    let name = name_of(source);
+    let name = name_at(home, source);
     // What to call it if it is unplugged part-way: the drive's own name
     // when the place is a whole drive. From the system's quick list, so it
     // costs next to nothing and never waits on a network share.

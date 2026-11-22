@@ -893,6 +893,92 @@ fn a_different_card_at_a_sources_place_never_replaces_what_was_found_on_the_sour
     assert_eq!((now.root.as_str(), now.items), (card_a.root.as_str(), 1));
 }
 
+/// A source's name is the person's (one an older Keevoro kept, say), and is
+/// never swapped for its folder's by looking through it again, however that
+/// comes about: Look again, adding its place again, a backup on its
+/// schedule (which looks quickly), one started by plugging it in, or being
+/// set aside for another card and brought back.
+#[test]
+fn a_sources_own_name_is_kept_by_every_way_of_looking_through_it_again() {
+    use keevoro_core::recognise::Mark;
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro(dir.path()).with_signals(plugged_in_and_quiet());
+    let named = keevoro.start_backup("Family photos").unwrap();
+    let card = card_in(dir.path());
+    let catalog = || Catalog::open_in_library(&named.home).unwrap();
+    keevoro_engine::scan_into(&mut catalog(), &card, Some("Mum's card"), &mut |_| {}).unwrap();
+    let sources = || Backup::open(&named.home).unwrap().sources().unwrap();
+    let names = || sources().into_iter().map(|s| s.name).collect::<Vec<_>>();
+
+    let last = last_scan(&keevoro, &keevoro.look_again(&named, None, None, None).unwrap());
+    assert_eq!(
+        (last.name.as_str(), names()),
+        ("Mum's card", vec!["Mum's card".to_string()])
+    );
+    let id = sources()[0].id;
+    let last = last_scan(&keevoro, &keevoro.look_again(&named, Some(id), None, None).unwrap());
+    assert_eq!(
+        (last.name.as_str(), names()),
+        ("Mum's card", vec!["Mum's card".to_string()])
+    );
+    let last = last_scan(&keevoro, &keevoro.look(&named, &card, None).unwrap());
+    assert_eq!(
+        (last.name.as_str(), names()),
+        ("Mum's card", vec!["Mum's card".to_string()])
+    );
+
+    // By itself, on its schedule and when plugged in.
+    keevoro
+        .add_destination(&Backup::open(&named.home).unwrap(), &folder(&dir.path().join("USB")))
+        .unwrap();
+    catalog().set_arrange(keevoro_core::Arrange::ByDate).unwrap();
+    let last = by_itself(&keevoro, &named);
+    assert_eq!(last.outcome, Some(Outcome::Worked), "{last:?}");
+    assert_eq!(last_by_itself(&named).looked_again, ["Mum's card"]);
+    assert!(keevoro.log().tail(400).contains("quickly"), "a quick look");
+    assert_eq!(names(), ["Mum's card"]);
+    let job = keevoro.run_by_itself_for_source(&named, sources()[0].id, 0).unwrap();
+    keevoro.wait(job.id);
+    keevoro.wait_for_jobs();
+    assert_eq!(last_by_itself(&named).looked_again, ["Mum's card"]);
+    assert_eq!(names(), ["Mum's card"]);
+
+    // Another card in the reader, added as a new source: the card is set
+    // aside under its own name, and brought back under it.
+    let root = std::fs::canonicalize(&card).unwrap();
+    let mark = catalog().source_mark(&root).unwrap().unwrap();
+    let elsewhere = Mark {
+        volume: Some("another drive".into()),
+        ..mark
+    };
+    catalog().set_source_mark(&root, &elsewhere).unwrap();
+    let in_a_drawer = dir.path().join("Mum's card, in a drawer");
+    std::fs::rename(&card, &in_a_drawer).unwrap();
+    std::fs::create_dir_all(card.join("DCIM")).unwrap();
+    std::fs::write(card.join("DCIM/IMG_20210101_120000.jpg"), large_photo(60)).unwrap();
+    let id = sources()[0].id;
+    last_scan(
+        &keevoro,
+        &keevoro
+            .look_again(&named, Some(id), Some(OtherDrive::AddAsNew), None)
+            .unwrap(),
+    );
+    let aside = sources().into_iter().find(|s| s.id == id).unwrap();
+    assert_eq!(
+        (aside.name.as_str(), aside.set_aside_from.is_some()),
+        ("Mum's card", true)
+    );
+    std::fs::rename(&card, dir.path().join("The other card")).unwrap();
+    std::fs::rename(&in_a_drawer, &card).unwrap();
+    last_scan(&keevoro, &keevoro.look_again(&named, None, None, None).unwrap());
+    let back = sources().into_iter().find(|s| s.set_aside_from.is_none()).unwrap();
+    assert_eq!(
+        (back.name.as_str(), back.root.as_str()),
+        ("Mum's card", aside.set_aside_from.as_deref().unwrap())
+    );
+}
+
 #[test]
 fn the_check_after_an_agents_search_reads_only_the_folders_that_agent_may_look_in() {
     let _turn = one_at_a_time();
