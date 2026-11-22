@@ -95,6 +95,8 @@ pub(super) fn send_and_record(
     let stop = job.stop_switch();
     let result = (|| {
         let catalog = Catalog::open_in_library(&home)?;
+        // Its name as the person last gave it, for its notes at each destination.
+        catalog.set_setting(keevoro_engine::notes::NAME, &backup.name)?;
         let world = World {
             secrets: &*ctx.secrets,
             environment: &*ctx.environment,
@@ -334,6 +336,7 @@ fn check(
             Ok(wrong) => {
                 went.reached += 1;
                 went.failed_files += wrong;
+                keevoro_engine::notes::keep_after(said, catalog, to, world);
             }
             Err(e) => {
                 said.extend_from_slice(format!("Couldn't check {}. {e:#}\n", to.describe()).as_bytes());

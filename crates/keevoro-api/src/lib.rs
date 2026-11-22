@@ -44,6 +44,7 @@ pub mod keevoro;
 pub mod leave_out;
 pub mod log;
 pub mod manners;
+pub mod opening;
 pub mod picture;
 pub mod places;
 mod rates;
@@ -359,6 +360,22 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
                 keevoro.set_arrangement(&Backup::open(&started.home)?, word.arrange())?;
             }
             answer(started)
+        }
+        Op::BackupsFindAt => {
+            let r: AddDestinationRequest = read_with_keys(request)?;
+            answer(keevoro.find_backup_at(&r)?)
+        }
+        Op::BackupsOpenFrom => {
+            let r: AddDestinationRequest = read_with_keys(request)?;
+            answer(keevoro.open_backup_from(&r)?)
+        }
+        Op::SourcesConnectAgain => {
+            let r: opening::ConnectAgainRequest = read(request)?;
+            let answered = open()?.connect_again(&r)?;
+            keevoro
+                .log()
+                .say(&format!("Connected {} again, at {}", answered.name, answered.place));
+            answer(answered)
         }
         Op::BackupsRename => {
             let r: RenameBackupRequest = read(request)?;

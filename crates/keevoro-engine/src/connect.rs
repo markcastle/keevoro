@@ -155,6 +155,28 @@ pub fn keys_to_use(
     }
 }
 
+/// The place `saved` names, to be read before it is added anywhere (as
+/// when a backup is opened from it): a folder as it is, cloud storage with
+/// the keys given, or only when none are, the environment's.
+pub fn to_read(
+    saved: &Saved,
+    given: Option<Keys>,
+    environment: &dyn Fn(&str) -> Option<String>,
+) -> Result<Destination> {
+    let Some(preset) = saved.preset() else {
+        return saved.as_folder();
+    };
+    let Some((keys, _)) = keys_to_use(given, KeysFrom::Given, environment) else {
+        bail!("Enter both keys for the storage.");
+    };
+    Ok(Destination::Bucket {
+        preset,
+        bucket: saved.bucket.clone().unwrap_or_default(),
+        access_key_id: keys.access,
+        secret_access_key: keys.secret,
+    })
+}
+
 /// What is said when a destination is added with the environment's keys.
 /// It names the variables, never the keys.
 pub fn environment_keys_saved(saved: &Saved) -> String {

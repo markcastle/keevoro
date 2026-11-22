@@ -175,6 +175,12 @@ pub(super) fn what_to_look_again(
             to_look.steps.push(Step::Look(s.root.clone()));
             continue;
         }
+        // One opened from its notes is looked for nowhere until the person
+        // says where it is on this computer.
+        if catalog.elsewhere(&s.root)?.is_some() {
+            to_look.passed_over.push(crate::words::not_connected_yet(&s.name));
+            continue;
+        }
         let mark = catalog.source_mark(&s.root)?;
         if let Some(was_at) = mark.as_ref().and_then(|m| m.was_at.clone()).map(PathBuf::from) {
             if was_at.is_dir() && recognised_at(&catalog, s, mark.as_ref(), &was_at) != Recognised::Different {

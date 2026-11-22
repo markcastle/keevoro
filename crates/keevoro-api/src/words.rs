@@ -31,6 +31,15 @@ pub fn not_plugged_in(name: &str, drive: bool) -> String {
     }
 }
 
+/// A source of a backup opened from its notes, passed over because it is
+/// not connected on this computer yet.
+pub fn not_connected_yet(name: &str) -> String {
+    format!(
+        "{name} is not connected on this computer yet, so it was not looked through. Connect it again to say where \
+         these photos live here. What was found on it before is kept."
+    )
+}
+
 /// Every source passed over, none of them there.
 pub const NONE_PLUGGED_IN: &str =
     "None of this backup's sources are plugged in, so nothing was looked through. What was found on them before is kept.";

@@ -85,6 +85,14 @@ pub struct SourceView {
     /// True when it is backed up by itself whenever it is plugged in.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub on_arrival: bool,
+    /// For a source of a backup opened from its notes, not yet connected
+    /// on this computer: where it was on the computer the backup came
+    /// from, as that computer wrote it. History only, never looked at.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub waiting_from: Option<String>,
+    /// The same in words, with what to do.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub waiting_said: Option<String>,
 }
 
 /// What is said of a source set aside, kept until its own drive is back.
@@ -532,7 +540,10 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
                 .flatten()
                 .and_then(|m| m.was_at)
                 .map(|at| friendly_path(Path::new(&at)));
+            let waiting_from = catalog.elsewhere(&s.root).ok().flatten().map(|e| e.was_at);
             SourceView {
+                waiting_said: waiting_from.as_deref().map(crate::notes::waiting_words),
+                waiting_from,
                 on_arrival: catalog
                     .setting(&keevoro_core::arrival::key(&s.root))
                     .ok()

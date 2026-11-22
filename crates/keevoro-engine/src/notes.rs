@@ -537,6 +537,43 @@ pub enum Found {
     Nothing,
 }
 
+/// Looks for a backup's notes at a place not yet any backup's destination,
+/// only reading: a folder is never made, nothing is written.
+pub fn look_for(destination: crate::send::Destination) -> Result<Found> {
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    let store: Box<dyn ObjectStore> = match destination {
+        crate::send::Destination::Folder(folder) => {
+            if !folder.is_dir() {
+                bail!(
+                    "Keevoro can't find the folder {}. Is it plugged in?",
+                    crate::friendly_path(&folder)
+                );
+            }
+            Box::new(keevoro_storage_folder::FolderStore::look_at(&folder)?)
+        }
+        crate::send::Destination::Bucket {
+            preset,
+            bucket,
+            access_key_id,
+            secret_access_key,
+        } => Box::new(
+            keevoro_storage_s3::S3Store::connect(&keevoro_storage_s3::S3Settings {
+                preset,
+                bucket,
+                access_key_id,
+                secret_access_key,
+            })
+            .map_err(|e| anyhow!("{}.", keevoro_publish::plain_reason(&e)))?,
+        ),
+    };
+    runtime
+        .block_on(find_at(store.as_ref()))
+        .map_err(|e| match e.downcast_ref::<keevoro_storage::StorageError>() {
+            Some(storage) => anyhow!("Couldn't look there. {}.", keevoro_publish::plain_reason(storage)),
+            None => e,
+        })
+}
+
 /// Looks for a backup's notes at a destination, falling back to the
 /// earlier generation when the newest cannot be used.
 pub async fn find_at(store: &dyn ObjectStore) -> Result<Found> {

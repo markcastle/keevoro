@@ -38,6 +38,7 @@ pub(super) fn start(
         let stop = job.stop_switch();
         let result = (|| -> anyhow::Result<(usize, usize, bool)> {
             let catalog = Catalog::open_in_library(&backup.home)?;
+            catalog.set_setting(keevoro_engine::notes::NAME, &backup.name)?;
             let world = World {
                 secrets: &*ctx.secrets,
                 environment: &*ctx.environment,
@@ -79,6 +80,9 @@ pub(super) fn start(
                         stopped |= outcome.stopped;
                         if outcome.lost_connection {
                             unreachable += 1;
+                        } else {
+                            // What was proved goes into the notes there.
+                            keevoro_engine::notes::keep_after(&mut said, &catalog, to, &world);
                         }
                     }
                     Err(e) => {

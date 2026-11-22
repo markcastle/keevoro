@@ -103,6 +103,12 @@ register! {
     BackupsStart = "backups.start",
         "Starts a new, empty backup with a name",
         changes: Always, job: false, command_line: true, agents: Agents::Yes, implemented: true;
+    BackupsFindAt = "backups.find_at",
+        "Looks for a Keevoro backup in a folder or in cloud storage, and says what it holds. Changes nothing",
+        changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
+    BackupsOpenFrom = "backups.open_from",
+        "Opens a backup that is already somewhere, from Keevoro's notes there, as a backup on this computer",
+        changes: Always, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     BackupsRename = "backups.rename",
         "Gives a backup a new name",
         changes: Always, job: false, command_line: true, agents: Agents::Yes, implemented: true;
@@ -150,6 +156,9 @@ register! {
     SourcesLookAgain = "sources.look_again",
         "Looks through one source, or all of them, for what is new",
         changes: Always, job: true, command_line: true, agents: Agents::Yes, implemented: true;
+    SourcesConnectAgain = "sources.connect_again",
+        "Says where a source of a backup opened from its notes is on this computer",
+        changes: Always, job: false, command_line: true, agents: Agents::No, implemented: true;
     SourcesForget = "sources.forget",
         "Takes a source off the backup. Nothing on it is touched",
         changes: Always, job: false, command_line: true, agents: Agents::Yes, implemented: true;
@@ -387,6 +396,8 @@ impl Op {
             self,
             Op::BackupsList
                 | Op::BackupsStart
+                | Op::BackupsFindAt
+                | Op::BackupsOpenFrom
                 | Op::BackupsRename
                 | Op::BackupsForget
                 | Op::BackupsRemoved
@@ -493,7 +504,8 @@ impl Op {
             Op::CollectionsKeep => schema::<KeepCollectionRequest>(),
             Op::PhotosKeep => schema::<KeepPhotoRequest>(),
             Op::PhotosPicture => schema::<PictureRequest>(),
-            Op::DestinationsAdd => schema::<Add>(),
+            Op::DestinationsAdd | Op::BackupsFindAt | Op::BackupsOpenFrom => schema::<Add>(),
+            Op::SourcesConnectAgain => schema::<crate::opening::ConnectAgainRequest>(),
             Op::SourcesAddBucket => schema::<crate::bucket_sources::AddBucketRequest>(),
             Op::DestinationsRemove => schema::<Remove>(),
             Op::BackupPreviews => schema::<PreviewsRequest>(),
@@ -566,6 +578,23 @@ impl Op {
                 "start_backup",
                 "Starts a new, empty backup with the name given, and gives back its name and id. It has no sources \
                  or destinations yet: add them with look_through and add_destination.",
+            ),
+            Op::BackupsFindAt => (
+                "find_backup_at",
+                "Looks for a Keevoro backup in a folder (kind \"folder\", place the folder) or in cloud storage \
+                 (kind \"r2\", \"s3\", \"gcs\" or \"endpoint\", with bucket and keys), from the notes Keevoro \
+                 keeps beside every backup, and says what it holds: its name, how many files and how big, when it \
+                 was last backed up and proved, which Keevoro wrote its notes, its sources as they were on the \
+                 computer that made it, and whether it is already on this computer. Changes nothing. A folder must \
+                 be one the person has allowed (see my_access).",
+            ),
+            Op::BackupsOpenFrom => (
+                "open_backup_from",
+                "Opens a backup find_backup_at found, as a backup on this computer, from Keevoro's notes there, with \
+                 that place as its destination: it then knows every file there and sends none of them again. Its \
+                 sources must be connected again by the person, who knows where the photos are on this computer. \
+                 One already on this computer is opened instead of a second. Takes the same place as \
+                 find_backup_at. A folder must be one the person has allowed to back up to (see my_access).",
             ),
             Op::BackupsRename => (
                 "rename_backup",
@@ -875,6 +904,7 @@ impl Op {
             | Op::ScheduleSet
             | Op::ScheduleSkipNext
             | Op::SourcesOnArrival
+            | Op::SourcesConnectAgain
             | Op::BackgroundSettings
             | Op::BackupsForget
             | Op::BackupsRemoved
@@ -947,7 +977,7 @@ mod tests {
 
     #[test]
     fn the_register_has_every_operation_in_the_plan() {
-        assert_eq!(Op::ALL.len(), 78);
+        assert_eq!(Op::ALL.len(), 81);
         // Each entry is the one for its own operation.
         for op in Op::ALL {
             assert_eq!(op.entry().op, *op);
@@ -1035,6 +1065,9 @@ mod tests {
             // and so is when a backup by itself may start.
             Op::SourcesOnArrival,
             Op::BackgroundSettings,
+            // Where a backup's photos are on this computer is the person's
+            // to say: it is never assumed.
+            Op::SourcesConnectAgain,
             // A report goes to Keevoro's maker in the person's own words, so
             // only the person makes, sends or asks after one, never an agent.
             Op::ReportsPrepare,
@@ -1106,6 +1139,8 @@ mod tests {
     const PLANNED_TOOLS: &[&str] = &[
         "list_backups",
         "start_backup",
+        "find_backup_at",
+        "open_backup_from",
         "rename_backup",
         "list_places",
         "survey_place",
