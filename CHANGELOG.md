@@ -13,13 +13,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Told how a backup by itself went.** When a backup that runs by itself finishes while Keevoro's window is closed or behind other windows, a notice says what happened, in a line: "Family photos: Safely backed up 23 files (41.0 MB).", or what waits for your say, or "Family photos couldn't be backed up" with why. Nothing is said when there was nothing new, when you stopped it, or when it waited for a better moment. Click the notice to open Keevoro on that backup. Turn them off in Settings with "Tell me when a backup by itself finishes".
 - **A pause can end by itself.** Paused from the icon "for an hour" or "until tomorrow morning", Keevoro carries on by itself then, and the foot of the window says "Keevoro is paused until 13:00."
 
+### Changed
+
+- **Switches in place of tick boxes for things that are simply on or off:** what a backup is for (photos, videos, other files), whether a source follows its backup, and starting Keevoro with the computer. Choosing several folders out of a list keeps its ticks, since that is what ticks are for.
+
+## [0.45.1] - 2026-11-22
+
 ### Fixed
 
 - **The check for duplicates no longer carries on over a drive you have removed.** Our outside tester Adam found Keevoro still "checking for duplicates in the background (5,501 of 6,816)" on a drive he had taken out. Now, before it reads anything, the check looks once at each source, and passes over every file of one that is not plugged in, without trying them one by one; if a drive is pulled out while a file is being read, the rest of that drive is passed over at once. Sources that are still there are checked as before. It says so, at the foot of the window, in the log and in `keevoro status`: for example "KINGSTON (E:) is not plugged in, so its 1,315 files not yet checked for duplicates will be checked when it is back." When there is nothing else to check, the check ends. Nothing found or chosen is changed: those files simply stay "not checked yet", as when you stop the check, and a backup still reads in full any file that looks like another before sending it, so nothing is backed up twice or left out by mistake. The check starts again by itself the next time that source is looked through or backed up, and "Check for duplicates now" while it is still unplugged says plainly why there is nothing to check.
 
-### Changed
+## [0.45.0] - 2026-11-22
 
-- **Switches in place of tick boxes for things that are simply on or off:** what a backup is for (photos, videos, other files), whether a source follows its backup, and starting Keevoro with the computer. Choosing several folders out of a list keeps its ticks, since that is what ticks are for.
+### Added
+
+- **A thank you on the About page.** It says who makes Keevoro, and gives special thanks to Adam Sparshott for all his help in testing and his excellent ideas.
 
 ## [0.44.0] - 2026-11-22
 
@@ -737,7 +745,9 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.44.0...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.45.1...HEAD
+[0.45.1]: https://github.com/markcastle/keevoro/compare/v0.45.0...v0.45.1
+[0.45.0]: https://github.com/markcastle/keevoro/compare/v0.44.0...v0.45.0
 [0.44.0]: https://github.com/markcastle/keevoro/compare/v0.43.0...v0.44.0
 [0.43.0]: https://github.com/markcastle/keevoro/compare/v0.42.0...v0.43.0
 [0.42.0]: https://github.com/markcastle/keevoro/compare/v0.41.0...v0.42.0
