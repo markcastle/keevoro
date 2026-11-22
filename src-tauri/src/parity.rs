@@ -113,6 +113,7 @@ const BACKED: &[(&str, &[Op])] = &[
     ("look_again", &[Op::SourcesLookAgain]),
     // Backing up by itself.
     ("schedule", &[Op::ScheduleShow]),
+    ("away", &[Op::ScheduleAway]),
     ("set_schedule", &[Op::ScheduleSet]),
     ("skip_next_run", &[Op::ScheduleSkipNext]),
     ("run_scheduled_now", &[Op::ScheduleRun]),
@@ -140,6 +141,9 @@ const WINDOW_ONLY: &[&str] = &[
     // The person is using the window, so a backup by itself waits until
     // they have finished. Only a window has a person in it.
     "window_used",
+    // The person has read "While you were away": when the window last
+    // showed it is the window's own to remember.
+    "away_seen",
     // Which backup the window shows. The API keeps the choice in the
     // settings file, but it is not an operation: the command line and an
     // agent name the backup they mean each time.

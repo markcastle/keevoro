@@ -251,6 +251,9 @@ register! {
     ScheduleRun = "schedule.run",
         "Backs up by itself: looks through sources again, holds back what needs your say, sends what is new",
         changes: Always, job: true, command_line: true, agents: Agents::No, implemented: true;
+    ScheduleAway = "schedule.away",
+        "What every backup did by itself since a time, what it caught up, and what waits for your say",
+        changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     BackupWants = "backup.wants",
         "What a backup is for: photos, videos, other files, or some of them, and changing it",
         changes: OnlyWhenAsked, job: false, command_line: true, agents: Agents::Yes, implemented: true;
@@ -380,6 +383,7 @@ impl Op {
                 | Op::JobsCarryOn
                 | Op::KeevoroAbout
                 | Op::KeevoroActivity
+                | Op::ScheduleAway
                 | Op::KeevoroLog
                 | Op::KeevoroSettings
                 | Op::KeevoroUpdate
@@ -482,6 +486,7 @@ impl Op {
             Op::ScheduleRun => schema::<crate::RunByItselfRequest>(),
             Op::ScheduleSet => schema::<crate::schedule::SetScheduleRequest>(),
             Op::ScheduleSkipNext => schema::<crate::schedule::SkipNextRequest>(),
+            Op::ScheduleAway => schema::<crate::schedule::AwayRequest>(),
             Op::BackupWants => schema::<crate::wants::BackupWantsRequest>(),
             Op::BackupArrange => schema::<crate::arrange::BackupArrangeRequest>(),
             Op::SourcesArrange => schema::<crate::arrange::SourceArrangeRequest>(),
@@ -828,6 +833,13 @@ impl Op {
                  schedule, or start a run by itself: a run by itself happens long after this conversation, with \
                  nobody watching, so only the person sets one up. Changes nothing.",
             ),
+            Op::ScheduleAway => (
+                "while_you_were_away",
+                "Says what every backup did by itself since a time (since, in seconds since 1970, or the last days \
+                 days, a week unless given): each run, what it backed up or why it could not, runs that were \
+                 missed because the computer was off and caught up, and what waits for the person's say. Changes \
+                 nothing.",
+            ),
             Op::DuplicatesCheck
             | Op::BackupPutRight
             | Op::BackupPutRightPlan
@@ -902,7 +914,7 @@ mod tests {
 
     #[test]
     fn the_register_has_every_operation_in_the_plan() {
-        assert_eq!(Op::ALL.len(), 72);
+        assert_eq!(Op::ALL.len(), 73);
         // Each entry is the one for its own operation.
         for op in Op::ALL {
             assert_eq!(op.entry().op, *op);
@@ -1079,6 +1091,7 @@ mod tests {
         "backup_history",
         "last_summary",
         "backup_schedule",
+        "while_you_were_away",
         "backup_wants",
         "backup_arrange",
         "set_previews",

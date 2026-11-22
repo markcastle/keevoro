@@ -1295,6 +1295,27 @@ try {
   await scheduleCard.getByRole('button', { name: 'Carry on' }).click()
   await scheduleCard.getByText(/^Next: tonight at 02:30/).waitFor()
 
+  // --- While you were away: back after the window was closed, the backup
+  // screen says what each backup did by itself, what was missed and
+  // caught up, and what waits; Done puts it away.
+  await page.goto(`${base}/?byitself&away&fast`)
+  const away = page.locator('.away')
+  await away.getByRole('heading', { name: 'While you were away', level: 2 }).waitFor()
+  assert.deepEqual(await away.locator('h3').allInnerTexts(), ['Family photos', 'Holiday videos', 'Waiting for your say'])
+  assert.deepEqual(await away.locator('.away-runs .mark').allInnerTexts(), ['Done.', 'Done.', 'Couldn’t reach it.'])
+  await away.getByText('This caught up a run that was missed, perhaps because the computer was off or asleep.').waitFor()
+  await away.getByText(/^The run due today at 02:30 didn't happen/).waitFor()
+  await away.getByText(/^4 new pictures were set aside/).waitFor()
+  await shot('9x2a-while-you-were-away')
+  await fitsNarrow('While you were away')
+  await narrowShots('9x2a-while-you-were-away', away)
+  await away.getByRole('button', { name: 'Done' }).click()
+  await away.waitFor({ state: 'detached' })
+  await page.goto(`${base}/?byitself&fast`)
+  await page.getByRole('heading', { name: 'Where should they go?', level: 1 }).waitFor()
+  await settled()
+  assert.equal(await page.locator('.away').count(), 0, 'nothing to say, nothing shown')
+
   // --- Keevoro by the clock. The first time the window is closed, it says
   // Keevoro keeps running, and where its icon is; starting with the
   // computer is never ticked for the person.

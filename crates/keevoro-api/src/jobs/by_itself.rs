@@ -160,12 +160,13 @@ impl Keevoro {
             let one_at_a_time = lock;
             // A guest's work: everything else on the computer comes first.
             keevoro_frame::quiet::lower_this_threads_priority();
-            let (last, slot, ran) = match run.what_to_do(ctx) {
-                Plan::NotDue { said, passed } => (run.end(ctx, job, Ending::NotDue(said)), passed, false),
+            let (last, slot, ran, missed) = match run.what_to_do(ctx) {
+                Plan::NotDue { said, passed } => (run.end(ctx, job, Ending::NotDue(said)), passed, false, 0),
                 Plan::Go {
                     slot,
                     occasion,
                     said_first,
+                    missed,
                 } => {
                     let _ = Backup::open(&run.backup.home).and_then(|b| b.forget_last_summary());
                     ctx.log.say(&format!(
@@ -173,10 +174,10 @@ impl Keevoro {
                         run.backup.name,
                         occasion.words()
                     ));
-                    (run.go(ctx, job, &tracker, occasion, said_first), slot, true)
+                    (run.go(ctx, job, &tracker, occasion, said_first), slot, true, missed)
                 }
             };
-            run.remember(ctx, &last, slot, ran);
+            run.remember(ctx, &last, slot, ran, missed);
             if ran {
                 super::duplicates::start(ctx, &run.backup, None, super::duplicates::Why::AfterRunningByItself);
             }
@@ -200,6 +201,8 @@ enum Plan {
         slot: Option<jiff::Timestamp>,
         occasion: Occasion,
         said_first: Vec<String>,
+        /// How many slots before this one were missed.
+        missed: usize,
     },
 }
 
@@ -227,6 +230,7 @@ impl Run {
                 slot: None,
                 occasion: self.occasion,
                 said_first: Vec::new(),
+                missed: 0,
             };
         };
         let schedule = crate::schedule::schedule_of(&catalog).ok().flatten();
@@ -234,6 +238,7 @@ impl Run {
         let mut said_first = Vec::new();
         let mut slot = None;
         let mut occasion = self.occasion;
+        let mut missed_before = 0;
         if self.if_due {
             let Some(schedule) = schedule else {
                 return Plan::NotDue {
@@ -244,6 +249,7 @@ impl Run {
             match keevoro_core::schedule::due(&schedule, &record.rules(), &zone, now) {
                 keevoro_core::schedule::Due::Now { slot: due, missed } => {
                     slot = Some(due);
+                    missed_before = missed;
                     occasion = if missed > 0 {
                         Occasion::CatchUp
                     } else {
@@ -297,12 +303,13 @@ impl Run {
             slot,
             occasion,
             said_first,
+            missed: missed_before,
         }
     }
 
     /// Writes down how a run ended: what its schedule has accounted for,
     /// and a line in its last few.
-    fn remember(&self, ctx: &Context, last: &Said, slot: Option<jiff::Timestamp>, it_ran: bool) {
+    fn remember(&self, ctx: &Context, last: &Said, slot: Option<jiff::Timestamp>, it_ran: bool, missed: usize) {
         let Said::Send(last) = last else { return };
         let (now, zone) = (self.clock.now(), self.clock.zone());
         let (outcome, ran) = if it_ran {
@@ -336,6 +343,7 @@ impl Run {
                     why: self.occasion.words().to_string(),
                     outcome: outcome.to_string(),
                     said: said_in_a_line(last),
+                    missed,
                 });
             }
             crate::schedule::keep_record(&catalog, &record)

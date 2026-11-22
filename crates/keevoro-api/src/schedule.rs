@@ -109,6 +109,14 @@ pub struct Attempt {
     pub outcome: String,
     /// What it said, in a line.
     pub said: String,
+    /// How many runs due before it were missed (the computer off or
+    /// asleep, or Keevoro not running) that it caught up.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub missed: usize,
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
 }
 
 impl Record {
@@ -120,7 +128,16 @@ impl Record {
         }
     }
 
+    /// Notes a run at the top of the last few. One that waited for a good
+    /// moment again, for the same reason as the one before, only moves
+    /// that one's time on: a laptop on battery all night is one line.
     pub(crate) fn note(&mut self, attempt: Attempt) {
+        if let Some(latest) = self.last.first_mut() {
+            if attempt.outcome == "notNow" && latest.outcome == "notNow" && latest.said == attempt.said {
+                latest.at = attempt.at;
+                return;
+            }
+        }
         self.last.insert(0, attempt);
         self.last.truncate(LAST_KEPT);
     }
@@ -281,6 +298,137 @@ fn asked_for(request: &SetScheduleRequest, now: Option<Schedule>) -> Result<Opti
     }))
 }
 
+/// `schedule.away`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AwayRequest {
+    /// Since when, in seconds since 1970. Left out, the last `days` days.
+    #[serde(default)]
+    pub since: Option<i64>,
+    /// How many days back, when `since` is left out. 7 unless given.
+    #[serde(default)]
+    pub days: Option<u32>,
+}
+
+/// `schedule.away`: what every backup did by itself since a time, and what
+/// is waiting for the person's say. The app shows it as "While you were
+/// away" when its window opens; the command line says it with
+/// `keevoro away`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AwayView {
+    /// Since when, in seconds since 1970.
+    pub since: i64,
+    /// Each backup that ran by itself, or missed a run, since then.
+    pub backups: Vec<AwayBackup>,
+    /// What waits for the person's say, a sentence each, newest first.
+    pub waiting: Vec<AwayWaiting>,
+}
+
+impl AwayView {
+    /// True when there is nothing to say.
+    pub fn is_empty(&self) -> bool {
+        self.backups.is_empty() && self.waiting.is_empty()
+    }
+}
+
+/// One backup, in "While you were away".
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AwayBackup {
+    pub backup: String,
+    pub id: String,
+    /// Its runs since then, oldest first.
+    pub runs: Vec<AwayRun>,
+    /// A run due that has not happened yet, perhaps because the computer
+    /// was off: when it was due, and that it will run once, soon.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub missed: Option<String>,
+}
+
+/// One run by itself, in "While you were away".
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AwayRun {
+    /// When it ended, in seconds since 1970, and in words: "Yesterday at
+    /// 02:31".
+    pub at: i64,
+    pub when: String,
+    /// How it went, in a word, as in [`Attempt::outcome`].
+    pub outcome: String,
+    /// What it said, in a line.
+    pub said: String,
+    /// What it caught up, when it caught up runs that were missed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub caught_up: Option<String>,
+}
+
+/// One thing waiting for the person's say.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AwayWaiting {
+    pub backup: String,
+    pub id: String,
+    pub said: String,
+}
+
+/// A run due this long ago, in seconds, that has not happened was missed.
+const MISSED_AFTER: i64 = 10 * 60;
+
+/// How a run ended that leaves something for the person: what it held
+/// back, or a problem only they can put right.
+const WAITS_FOR_YOU: &[&str] = &["heldBack"];
+
+/// What one backup did by itself since `since`, from its schedule and
+/// record, as "While you were away" says it. Pure.
+pub(crate) fn away_of(
+    backup: &Named,
+    schedule: Option<&Schedule>,
+    record: &Record,
+    since: i64,
+    now: Timestamp,
+    zone: &TimeZone,
+) -> (Option<AwayBackup>, Option<AwayWaiting>) {
+    let mut runs: Vec<AwayRun> = record
+        .last
+        .iter()
+        .filter(|a| a.at > since)
+        .map(|a| AwayRun {
+            at: a.at,
+            when: Timestamp::from_second(a.at).map_or_else(|_| String::new(), |t| rules::when_words(t, now, zone)),
+            outcome: a.outcome.clone(),
+            said: a.said.clone(),
+            caught_up: rules::caught_up_words(a.missed),
+        })
+        .collect();
+    runs.reverse();
+    let missed = schedule.and_then(|schedule| match rules::due(schedule, &record.rules(), zone, now) {
+        // A run due a moment ago is about to start; one due a while ago did
+        // not happen when it should have.
+        Due::Now { slot, .. } if now.as_second() - slot.as_second() > MISSED_AFTER => Some(format!(
+            "The run due {} didn't happen, perhaps because the computer was off or asleep. It will run once, in a few minutes.",
+            rules::when_words(slot, now, zone).to_lowercase()
+        )),
+        _ => None,
+    });
+    let waiting = record
+        .last
+        .iter()
+        .find(|a| a.at > since && WAITS_FOR_YOU.contains(&a.outcome.as_str()))
+        .map(|a| AwayWaiting {
+            backup: backup.name.clone(),
+            id: backup.id.clone(),
+            said: a.said.clone(),
+        });
+    let away = (!runs.is_empty() || missed.is_some()).then(|| AwayBackup {
+        backup: backup.name.clone(),
+        id: backup.id.clone(),
+        runs,
+        missed,
+    });
+    (away, waiting)
+}
+
 /// What the scheduler remembers of each backup between looks.
 #[derive(Default)]
 pub(crate) struct Known {
@@ -424,6 +572,32 @@ impl Keevoro {
         view(&catalog, now, zone)
     }
 
+    /// `schedule.away`: what every backup did by itself since `since`
+    /// (seconds since 1970), or the last `days` days, and what waits for
+    /// the person's say. A backup whose catalog cannot be opened now (its
+    /// drive unplugged) is left out.
+    pub fn away(&self, request: &AwayRequest) -> AwayView {
+        let (now, zone) = (self.clock.now(), self.clock.zone());
+        let since = request
+            .since
+            .unwrap_or_else(|| now.as_second() - i64::from(request.days.unwrap_or(7)) * 86_400);
+        let mut view = AwayView {
+            since,
+            ..AwayView::default()
+        };
+        for backup in self.backups().all() {
+            let Some(catalog) = crate::backup::existing_catalog(&backup.home) else {
+                continue;
+            };
+            let schedule = schedule_of(&catalog).ok().flatten();
+            let Ok(record) = record_of(&catalog) else { continue };
+            let (away, waiting) = away_of(&backup, schedule.as_ref(), &record, since, now, &zone);
+            view.backups.extend(away);
+            view.waiting.extend(waiting);
+        }
+        view
+    }
+
     /// The scheduler's look: starts a run by itself for each backup whose
     /// schedule is due at `now` in `zone`, and accounts for a slot passed
     /// over (skipped, or too soon after the last run) without one. Gives
@@ -548,6 +722,7 @@ impl Keevoro {
                 rules::Pass::Skipped => "Skipped, as you asked.".into(),
                 rules::Pass::TooSoon => "Not run again so soon after the last run.".into(),
             },
+            missed: 0,
         });
         keep_record(&catalog, &record)?;
         self.schedules.forget(&backup.id);
@@ -726,6 +901,20 @@ mod tests {
             keevoro.run_schedules_due().is_empty(),
             "once, not once per night missed"
         );
+        // While you were away: the one run, and what it caught up.
+        let away = keevoro.away(&AwayRequest {
+            since: Some(wall("2026-06-10T23:00").as_second()),
+            days: None,
+        });
+        assert_eq!(away.backups.len(), 1, "{away:?}");
+        let run = &away.backups[0].runs[0];
+        assert_eq!((run.when.as_str(), run.outcome.as_str()), ("Today at 08:00", "worked"));
+        assert_eq!(
+            run.caught_up.as_deref(),
+            Some("This caught up 2 runs that were missed, perhaps because the computer was off or asleep.")
+        );
+        assert_eq!(away.backups[0].missed, None, "nothing more to catch up");
+        assert!(away.waiting.is_empty());
 
         // Skipped, as asked: accounted for, and said, with no run.
         keevoro.skip_next_run(&named, false).unwrap();
@@ -801,5 +990,96 @@ mod tests {
         assert!(ticker.may_run(wall("2026-06-11T07:05")));
         // The clock set back is treated as a wake too.
         assert!(!ticker.may_run(wall("2026-06-11T06:00")));
+    }
+
+    fn named(name: &str) -> Named {
+        Named {
+            id: "backup-1".into(),
+            name: name.into(),
+            home: std::path::PathBuf::from("unused"),
+        }
+    }
+
+    fn attempt(at: &str, outcome: &str, said: &str) -> Attempt {
+        Attempt {
+            at: wall(at).as_second(),
+            why: "on its schedule".into(),
+            outcome: outcome.into(),
+            said: said.into(),
+            missed: 0,
+        }
+    }
+
+    #[test]
+    fn while_you_were_away_says_each_run_since_what_was_missed_and_what_waits() {
+        let schedule = Schedule {
+            every: Every::Day,
+            at: rules::time_named("02:30").unwrap(),
+            paused: false,
+        };
+        let mut record = Record {
+            handled_through: Some(wall("2026-06-09T02:30").as_second()),
+            ..Record::default()
+        };
+        record.note(attempt("2026-06-08T02:31", "worked", "Long ago."));
+        record.note(attempt(
+            "2026-06-09T02:40",
+            "heldBack",
+            "4 new pictures were set aside as probably not photos, and not backed up.",
+        ));
+        let since = wall("2026-06-08T12:00").as_second();
+        let now = wall("2026-06-11T09:00");
+        let (away, waiting) = away_of(&named("Family photos"), Some(&schedule), &record, since, now, &london());
+        let away = away.unwrap();
+        assert_eq!(away.runs.len(), 1, "only since then");
+        assert_eq!(away.runs[0].when, "Tuesday at 02:40");
+        assert_eq!(
+            away.missed.as_deref(),
+            Some("The run due today at 02:30 didn't happen, perhaps because the computer was off or asleep. It will run once, in a few minutes.")
+        );
+        assert_eq!(
+            waiting.unwrap().said,
+            "4 new pictures were set aside as probably not photos, and not backed up."
+        );
+
+        // Nothing since: nothing to say.
+        let later = wall("2026-06-12T00:00").as_second();
+        let record = Record {
+            handled_through: Some(now.as_second()),
+            ..record
+        };
+        assert_eq!(
+            away_of(&named("Family photos"), Some(&schedule), &record, later, now, &london()),
+            (None, None)
+        );
+    }
+
+    #[test]
+    fn a_record_kept_before_runs_said_what_they_caught_up_reads_as_catching_up_nothing() {
+        let kept = r#"{"v":1,"handledThrough":5,"last":[{"at":4,"why":"on its schedule","outcome":"worked","said":"Nothing new to back up."}]}"#;
+        let record: Record = serde_json::from_str(kept).unwrap();
+        assert_eq!(record.last[0].missed, 0);
+        assert!(
+            !serde_json::to_string(&record).unwrap().contains("missed"),
+            "nothing new written"
+        );
+    }
+
+    #[test]
+    fn a_run_that_waits_again_for_the_same_reason_is_one_line_in_the_last_few() {
+        let mut record = Record::default();
+        let waiting = "Not backed up then. Waiting while this computer is on battery.";
+        record.note(attempt("2026-06-10T02:30", "notNow", waiting));
+        record.note(attempt("2026-06-10T02:31", "notNow", waiting));
+        record.note(attempt("2026-06-10T02:32", "notNow", waiting));
+        assert_eq!(record.last.len(), 1);
+        assert_eq!(record.last[0].at, wall("2026-06-10T02:32").as_second());
+        record.note(attempt(
+            "2026-06-10T03:00",
+            "worked",
+            "Safely backed up 23 files (41.0 MB).",
+        ));
+        record.note(attempt("2026-06-11T02:30", "notNow", waiting));
+        assert_eq!(record.last.len(), 3);
     }
 }

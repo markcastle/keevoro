@@ -566,6 +566,11 @@ fn a_backup_run_by_itself_for_a_system_scheduler_says_in_its_exit_code_what_happ
     let ran = at.keevoro(&["run", "--unattended"]);
     assert_eq!(ran.code, Code::Worked, "{}{}", ran.out, ran.err);
     assert!(usb.join("originals").is_dir());
+    // Said again, with the runs before it, as "While you were away".
+    let away = at.keevoro(&["away", "--days", "2"]);
+    assert_eq!(away.code, Code::Worked, "{}", away.err);
+    assert!(away.out.starts_with("Card photos\n  "), "{}", away.out);
+    assert!(away.out.contains("Safely backed up"), "{}", away.out);
 
     // With --if-due, only when its schedule says so: none yet, then not
     // due, as saving a schedule never runs it at once.

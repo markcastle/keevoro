@@ -4995,6 +4995,75 @@ tr[aria-selected='true'] .share-bar .carried {
   color: var(--ink-muted);
 }
 
+/* While you were away, at the top of the backup screen (ui/src/away.tsx). */
+.away {
+  margin: var(--space-5) 0;
+  padding: var(--space-4) var(--space-5);
+  max-width: 860px;
+  border-radius: var(--radius-md);
+  background: var(--surface-raised, var(--surface, transparent));
+  border: 1px solid var(--line);
+}
+
+.away h2 {
+  margin: 0 0 var(--space-3);
+  font-size: 1.15rem;
+}
+
+.away h3 {
+  margin: var(--space-3) 0 var(--space-1);
+  font-size: 1rem;
+}
+
+.away-runs {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.away-runs li {
+  display: grid;
+  grid-template-columns: minmax(9rem, auto) 1fr;
+  gap: var(--space-1) var(--space-4);
+  padding: var(--space-1) 0;
+}
+
+.away-runs .when {
+  color: var(--ink-muted);
+}
+
+.away-runs .said {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.away-runs .mark {
+  font-weight: 500;
+}
+
+.away-runs li.loud .mark,
+.away-runs li.loud .when {
+  color: var(--sun-ink);
+}
+
+.away-missed {
+  margin: var(--space-1) 0 0;
+}
+
+.away .away-done {
+  margin-top: var(--space-4);
+}
+
+@media (max-width: 600px) {
+  .away {
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .away-runs li {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Backing up by itself, on the backup screen (ui/src/schedule.tsx). */
 .schedule-card {
   margin: var(--space-5) 0;

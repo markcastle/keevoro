@@ -49,6 +49,7 @@ import type {
   ScheduleChoice,
   ScheduleView,
   ReportListed,
+  AwayView,
 } from './backend'
 import { count, size } from './format'
 import { PictureQueue, fileKey } from './pictureQueue'
@@ -747,6 +748,51 @@ export function demoBackend(): Backend {
         },
       ]
     : []
+  // "While you were away": `?away` opens with two backups that ran by
+  // themselves while the window was closed, one catching up a night the
+  // computer was off, one that could not reach its drive, and something
+  // waiting for the person's say.
+  let awayView: AwayView = new URLSearchParams(window.location.search).has('away')
+    ? {
+        since: hoursAgo(60),
+        backups: [
+          {
+            backup: 'Family photos',
+            id: 'backup-1',
+            runs: [
+              {
+                at: hoursAgo(30),
+                when: 'Yesterday at 08:05',
+                outcome: 'worked',
+                said: 'Safely backed up 23 files (96.0 MB).',
+                caughtUp: 'This caught up a run that was missed, perhaps because the computer was off or asleep.',
+              },
+              { at: hoursAgo(6), when: 'Today at 02:31', outcome: 'worked', said: 'Nothing new to back up.' },
+            ],
+          },
+          {
+            backup: 'Holiday videos',
+            id: 'backup-2',
+            runs: [
+              {
+                at: hoursAgo(54),
+                when: 'Tuesday at 02:30',
+                outcome: 'unreachable',
+                said: "Keevoro can't find the folder F:\\Family Backup. Is it plugged in?",
+              },
+            ],
+            missed: "The run due today at 02:30 didn't happen, perhaps because the computer was off or asleep. It will run once, in a few minutes.",
+          },
+        ],
+        waiting: [
+          {
+            backup: 'Family photos',
+            id: 'backup-1',
+            said: '4 new pictures were set aside as probably not photos, and not backed up. Look at them in Keevoro to keep any.',
+          },
+        ],
+      }
+    : { since: hoursAgo(1), backups: [], waiting: [] }
   const ordinalOf = (n: number) =>
     `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : n % 10 === 1 ? 'st' : n % 10 === 2 ? 'nd' : n % 10 === 3 ? 'rd' : 'th'}`
   const DAYS: Record<string, string> = { mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday' }
@@ -1951,6 +1997,10 @@ export function demoBackend(): Backend {
       await this.send()
     },
     windowUsed: async () => {},
+    away: async () => awayView,
+    awaySeen: async () => {
+      awayView = { since: hoursAgo(0), backups: [], waiting: [] }
+    },
     async send() {
       const kept = collections.filter((c) => c.kept)
       const keptOthers = otherFolders().flatMap((f) => otherRowsIn(f.key)).filter((r) => r.kept)

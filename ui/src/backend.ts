@@ -445,6 +445,44 @@ export type ScheduleAttempt = {
   why: string
   outcome: 'worked' | 'someFiles' | 'unreachable' | 'refused' | 'stopped' | 'heldBack' | 'notNow' | 'skipped'
   said: string
+  /** How many runs due before it were missed and caught up. */
+  missed?: number
+}
+
+/** "While you were away": what every backup did by itself since the window was last seen. */
+export type AwayView = {
+  since: number
+  backups: AwayBackup[]
+  /** What waits for the person's say, a sentence each. */
+  waiting: AwayWaiting[]
+}
+
+/** One backup, in "While you were away". */
+export type AwayBackup = {
+  backup: string
+  id: string
+  /** Its runs since then, oldest first. */
+  runs: AwayRun[]
+  /** A run due that has not happened yet, and that it will run once, soon. */
+  missed?: string
+}
+
+/** One run by itself, in "While you were away". */
+export type AwayRun = {
+  at: number
+  /** "Yesterday at 02:31" */
+  when: string
+  outcome: ScheduleAttempt['outcome']
+  said: string
+  /** What it caught up, when it caught up runs that were missed. */
+  caughtUp?: string
+}
+
+/** One thing waiting for the person's say. */
+export type AwayWaiting = {
+  backup: string
+  id: string
+  said: string
 }
 
 /** When a backup backs up by itself, when next, and its last few runs. */
@@ -1162,6 +1200,10 @@ export interface Backend {
   runScheduledNow(): Promise<void>
   /** The person is using the window, so a backup by itself waits until they have finished. */
   windowUsed(): Promise<void>
+  /** "While you were away": what every backup did by itself since the window was last seen. */
+  away(): Promise<AwayView>
+  /** The person has read "While you were away". */
+  awaySeen(): Promise<void>
   /** Looks through one source again, or every one; a source not plugged in is passed over and said, and `differentDrive` answers the question about one. */
   lookAgain(source?: number, differentDrive?: OtherDrive): Promise<void>
   /**
@@ -1364,6 +1406,8 @@ async function tauriBackend(): Promise<Backend> {
     skipNextRun: (undo) => invoke('skip_next_run', { undo }),
     runScheduledNow: () => invoke('run_scheduled_now'),
     windowUsed: () => invoke('window_used'),
+    away: () => invoke('away'),
+    awaySeen: () => invoke('away_seen'),
     surveyPlace: (path) => invoke('survey_place', { path }),
     stopSurvey: () => invoke('stop_survey'),
     onSurvey: (listener) => subscribe('survey', listener),

@@ -525,6 +525,7 @@ mod tests {
             why: "on its schedule".into(),
             outcome: outcome.into(),
             said: String::new(),
+            missed: 0,
         });
         crate::schedule::keep_record(&catalog, &record).unwrap();
         keevoro.schedules.forget(&named.id);

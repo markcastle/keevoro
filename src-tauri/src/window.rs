@@ -87,6 +87,10 @@ pub struct Desk {
     pub startup: Arc<dyn StartWithComputer>,
     /// When the person last had the window open, in seconds since 1970.
     seen_since: AtomicI64,
+    /// When the person last had the window open before it last came back,
+    /// or last pressed Done on "While you were away": what that tells is
+    /// what happened since.
+    away_since: AtomicI64,
 }
 
 impl Desk {
@@ -98,7 +102,20 @@ impl Desk {
             asks: Mutex::default(),
             startup,
             seen_since: AtomicI64::new(seen_since.unwrap_or(0)),
+            away_since: AtomicI64::new(seen_since.unwrap_or(0)),
         }
+    }
+
+    /// Since when "While you were away" tells, in seconds since 1970, or
+    /// `None` when the window has never been seen (it then tells the last
+    /// week).
+    pub fn away_since(&self) -> Option<i64> {
+        Some(self.away_since.load(Ordering::SeqCst)).filter(|at| *at > 0)
+    }
+
+    /// The person has read "While you were away".
+    pub fn away_seen(&self, now: i64) {
+        self.away_since.store(now, Ordering::SeqCst);
     }
 
     pub fn tray(&self) -> Tray {
@@ -169,6 +186,15 @@ pub fn open<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<WebviewWindow<R>> {
 /// front, and on `page` if one is named.
 pub fn show<R: Runtime>(app: &AppHandle<R>, page: Option<&str>) {
     let shared = app.state::<Shared>();
+    // Back from being closed or hidden: what happened since it was last
+    // seen is what "While you were away" tells.
+    let was_away = shared.desk.is_hiding()
+        || app
+            .get_webview_window(WINDOW)
+            .is_none_or(|window| !window.is_visible().unwrap_or(false));
+    if was_away {
+        shared.desk.away_since.store(shared.desk.seen_since(), Ordering::SeqCst);
+    }
     shared.desk.hiding.store(false, Ordering::SeqCst);
     if let Some(page) = page {
         shared.desk.add_ask(Ask {

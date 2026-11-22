@@ -658,6 +658,10 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
                 None,
             )?)
         }
+        Op::ScheduleAway => {
+            let r: schedule::AwayRequest = read(request)?;
+            answer(keevoro.away(&r))
+        }
         Op::ScheduleShow => {
             read::<Nothing>(request)?;
             answer(keevoro.schedule(&named()?)?)

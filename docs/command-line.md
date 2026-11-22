@@ -437,6 +437,7 @@ A collection is named by its whole name, such as "Holidays / Cornwall", or by it
 | `keevoro schedule` | When the backup backs up by itself, when it runs next, and how its last few runs went. |
 | `keevoro schedule set daily 02:30` | Backs it up by itself every day at that time, in this computer's own time. Also `weekly sun 09:00`, `monthly 31 02:30` (the last day of shorter months), `off`, `pause` and `carry-on` (which never catches up what was missed while paused). Saving never runs it at once. The app runs it while it is open; see [For a system scheduler](#for-a-system-scheduler) for when it is not. |
 | `keevoro schedule skip [--undo]` | Skips the next run by itself, or stops skipping it. |
+| `keevoro away [--days N]` | What every backup did by itself over the last week (or N days), as the app's "While you were away" says it: each run and what it backed up, runs missed because the computer was off and caught up, and what waits for your say. |
 | `keevoro run --unattended [--if-due] [--wait MINUTES]` | Backs up by itself, as a schedule does, for a system scheduler: waits while the computer is on battery or busy, looks through the sources again, holds back what needs your say, and sends what is new. See [For a system scheduler](#for-a-system-scheduler). |
 | `keevoro check` | Confirms what is at each destination. |
 | `keevoro repair plan` | What putting the backup right would do at each destination, and about how long it would take. Changes nothing. |

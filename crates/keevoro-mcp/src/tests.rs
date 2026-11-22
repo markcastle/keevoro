@@ -120,7 +120,7 @@ async fn an_app_sees_every_tool_with_what_it_takes_and_whether_it_changes_things
     let mut app = App::connect(keevoro(dir.path())).await;
     let listed = app.ask("tools/list", json!({})).await;
     let tools = listed["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 49);
+    assert_eq!(tools.len(), 50);
     let kinds = tools.iter().find(|t| t["name"] == "list_file_kinds").unwrap();
     assert_eq!(
         kinds["annotations"]["readOnlyHint"], true,

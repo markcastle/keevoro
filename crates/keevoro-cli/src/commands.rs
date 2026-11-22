@@ -1058,6 +1058,24 @@ pub static ROWS: &[Row] = &[
         show: show::about,
     },
     Row {
+        words: &["away"],
+        ops: &[Op::ScheduleAway],
+        about: Some(
+            "What every backup did by itself over the last few days, as the app's \"While you were away\" says it: each run, what it backed up or why it couldn't, runs that were missed because the computer was off and were caught up, and what waits for your say.",
+        ),
+        args: |c| {
+            c.arg(
+                Arg::new("days")
+                    .long("days")
+                    .value_name("N")
+                    .help("How many days back; 7 when left out")
+                    .value_parser(clap::value_parser!(u32)),
+            )
+        },
+        ask: |_, m, _| Ok((Op::ScheduleAway, json!({ "days": m.get_one::<u32>("days") }))),
+        show: show::away,
+    },
+    Row {
         words: &["activity"],
         ops: &[Op::KeevoroActivity],
         about: None,

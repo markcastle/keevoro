@@ -20,6 +20,7 @@
 import { DifferentDriveAsked, PassedOver } from './differentDrive'
 import { ByItselfDetail } from './byItself'
 import { ScheduleCard, useNoteWindowUse } from './schedule'
+import { AwayPanel } from './away'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
@@ -2218,6 +2219,7 @@ function SendScreen(props: {
           never replaces a file that is already there. Your sources are not changed.
         </p>
       </header>
+      <AwayPanel api={props.api} onProblem={props.onProblem} />
       {props.found && <Tally found={props.found} onDuplicates={props.onDuplicates} />}
       {props.found && props.arrange && (
         <p className="quiet small arranged">

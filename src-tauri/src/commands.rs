@@ -767,6 +767,22 @@ pub fn run_scheduled_now(shared: State<'_, Shared>) -> Said<()> {
     Ok(())
 }
 
+/// "While you were away": what every backup did by itself since the
+/// window was last seen, and what waits for the person's say.
+#[tauri::command]
+pub fn away(shared: State<'_, Shared>) -> keevoro_api::schedule::AwayView {
+    shared.keevoro.away(&keevoro_api::schedule::AwayRequest {
+        since: shared.desk.away_since(),
+        days: None,
+    })
+}
+
+/// The person pressed Done on "While you were away".
+#[tauri::command]
+pub fn away_seen(shared: State<'_, Shared>) {
+    shared.desk.away_seen(shared.keevoro.now().as_second());
+}
+
 /// The person is using the window: a backup by itself waits until they
 /// have finished.
 #[tauri::command]

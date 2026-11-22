@@ -1364,6 +1364,37 @@ pub fn last_word(io: &mut Io<'_>, last: Option<&Said>) -> std::io::Result<()> {
 }
 
 /// When a backup backs up by itself, when next, and its last few runs.
+/// `keevoro away`: what every backup did by itself, as "While you were
+/// away" says it.
+pub fn away(io: &mut Io<'_>, _: &ArgMatches, view: &Value) -> Said_ {
+    let list = |name: &str| view.get(name).and_then(Value::as_array).cloned().unwrap_or_default();
+    let words = |v: &Value, name: &str| v.get(name).and_then(Value::as_str).unwrap_or_default().to_string();
+    let (backups, waiting) = (list("backups"), list("waiting"));
+    if backups.is_empty() && waiting.is_empty() {
+        writeln!(io.out, "Nothing ran by itself in that time.")?;
+        return Ok(Code::Worked);
+    }
+    for backup in &backups {
+        writeln!(io.out, "{}", words(backup, "backup"))?;
+        for run in backup.get("runs").and_then(Value::as_array).into_iter().flatten() {
+            writeln!(io.out, "  {}: {}", words(run, "when"), words(run, "said"))?;
+            if let Some(caught_up) = run.get("caughtUp").and_then(Value::as_str) {
+                writeln!(io.out, "    {caught_up}")?;
+            }
+        }
+        if let Some(missed) = backup.get("missed").and_then(Value::as_str) {
+            writeln!(io.out, "  {missed}")?;
+        }
+    }
+    if !waiting.is_empty() {
+        writeln!(io.out, "Waiting for your say:")?;
+        for wait in &waiting {
+            writeln!(io.out, "  {}: {}", words(wait, "backup"), words(wait, "said"))?;
+        }
+    }
+    Ok(Code::Worked)
+}
+
 pub fn schedule(io: &mut Io<'_>, _: &ArgMatches, view: &Value) -> Said_ {
     let Some(every) = view.get("every").and_then(Value::as_str) else {
         if view.get("unreadable").and_then(Value::as_bool) == Some(true) {

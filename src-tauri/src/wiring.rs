@@ -462,6 +462,15 @@ fn the_screens_commands_start_the_apis_jobs_and_their_events_reach_the_window() 
     let off = invoke(&window, "set_schedule", json!({ "request": { "every": "off" } })).unwrap();
     assert_eq!(off["every"], Value::Null);
     assert_eq!(off["last"], json!([]));
+    // While you were away: nothing ran by itself yet, in the shape the
+    // screen reads, and Done is heard.
+    let away = invoke(&window, "away", json!({})).unwrap();
+    fits(&away, "AwayView");
+    assert_eq!(
+        (away["backups"].clone(), away["waiting"].clone()),
+        (json!([]), json!([]))
+    );
+    invoke(&window, "away_seen", json!({})).unwrap();
 
     // How it is arranged, asked once something is found, by the names and
     // shapes the screens use.

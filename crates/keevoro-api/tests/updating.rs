@@ -447,6 +447,12 @@ fn a_backup_0_37_1_kept_has_no_schedule_and_nothing_runs_by_itself() {
         );
     }
     assert!(keevoro.run_schedules_due().is_empty());
+    // Nothing ran by itself while the person was away.
+    let away = ask(&keevoro, Op::ScheduleAway, None, json!({ "days": 3650 }));
+    assert_eq!(
+        (away["backups"].clone(), away["waiting"].clone()),
+        (json!([]), json!([]))
+    );
     // Setting one leaves the settings file exactly as it was.
     let settings = places.folders.config.join("settings.json");
     let before = std::fs::read_to_string(&settings).unwrap();

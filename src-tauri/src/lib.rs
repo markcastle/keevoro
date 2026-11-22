@@ -300,6 +300,8 @@ fn app<R: Runtime>(
             commands::skip_next_run,
             commands::run_scheduled_now,
             commands::window_used,
+            commands::away,
+            commands::away_seen,
             commands::stop_scanning,
             commands::survey_place,
             commands::stop_survey,

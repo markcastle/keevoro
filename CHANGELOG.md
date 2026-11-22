@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Added
+
+- **While you were away.** When you open Keevoro after its window has been closed, the backup screen starts with what happened while you were away: each backup that ran by itself, when, and what it backed up or why it couldn't ("Yesterday at 08:05. Done. Safely backed up 23 files (96.0 MB)."); a run that was missed because the computer was off or asleep, and that it was caught up with one run, not one for every run missed; a run that is still to catch up ("The run due today at 02:30 didn't happen, perhaps because the computer was off or asleep. It will run once, in a few minutes."); and what is waiting for your say, such as new pictures set aside. Done puts it away until something new happens. At the command line, `keevoro away` says the same for the last week, or `--days 3`, and an AI agent can read it too. A backup that waits all night because the computer is on battery now shows as one line in its last few runs, not one for every minute it waited.
+
 ### Changed
 
 - **A backup by itself looks through your sources much more quickly.** Before it backs up, a backup that runs by itself looks through its sources for anything new. It used to open and read every file each time; now a file still in the same place, the same size and last changed at the same moment as at the last look is taken as it was, without being opened, so looking again over 48,210 files that have not changed takes about as long as listing their folders. Anything new, or with a different size or time, is read in full as before, and so is a file Keevoro cannot be sure about. Once a month it reads every file again anyway, so a file changed without its size or time changing is still found. Pressing Look again yourself still reads every file. Your sources are only ever read, as always.
