@@ -945,6 +945,26 @@ fn the_kinds_of_file_looked_for_are_listed_added_switched_and_put_back() {
     let ran = at.keevoro(&["kinds"]);
     assert_eq!(ran.code, Code::Worked, "{}", ran.err);
     assert!(ran.out.contains(".jpg        photo  built in  on"), "{}", ran.out);
+    assert!(
+        !ran.out.contains(".tga"),
+        "less common kinds wait for --all: {}",
+        ran.out
+    );
+    assert!(
+        ran.out
+            .contains("less common kinds, looked for too but 9 switched off: keevoro kinds --all lists them."),
+        "{}",
+        ran.out
+    );
+    let ran = at.keevoro(&["kinds", "--all"]);
+    assert!(ran.out.contains(".tga        photo  built in  on"), "{}", ran.out);
+    assert!(
+        ran.out
+            .contains(".dat        video  built in  off  (often not a photo or video)"),
+        "{}",
+        ran.out
+    );
+    assert!(!ran.out.contains("keevoro kinds --all lists them"), "{}", ran.out);
 
     let ran = at.keevoro(&["kinds", "add", ".HEIX", "--photo"]);
     assert_eq!(

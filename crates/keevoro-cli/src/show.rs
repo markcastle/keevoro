@@ -1170,19 +1170,41 @@ pub fn reset(io: &mut Io<'_>, _: &ArgMatches, done: &Value) -> Said_ {
 
 /// One line of the list of kinds, as `keevoro kinds` shows it.
 fn kind_line(kind: &Value) -> String {
-    format!(
+    let line = format!(
         ".{:<10} {:<6} {:<9} {}",
         s(kind, "ending"),
         s(kind, "kind"),
         if yes(kind, "builtIn") { "built in" } else { "yours" },
         if yes(kind, "on") { "on" } else { "off" }
-    )
+    );
+    if yes(kind, "unsure") {
+        format!("{line}  (often not a photo or video)")
+    } else {
+        line
+    }
 }
 
-pub fn kinds(io: &mut Io<'_>, _: &ArgMatches, list: &Value) -> Said_ {
+/// The list of kinds: the usual ones and your own, or with `--all` every
+/// one. The less common kinds are looked for all the same, so how many
+/// there are is said.
+pub fn kinds(io: &mut Io<'_>, m: &ArgMatches, list: &Value) -> Said_ {
+    let all = matches!(m.try_get_one::<bool>("all"), Ok(Some(true)));
     writeln!(io.out, "{:<11} {:<6} {:<9} looked for", "ending", "kind", "from")?;
-    for kind in each(list) {
+    let (shown, hidden): (Vec<&Value>, Vec<&Value>) = each(list).partition(|k| all || yes(k, "usual"));
+    for kind in shown {
         writeln!(io.out, "{}", kind_line(kind))?;
+    }
+    if !hidden.is_empty() {
+        let off = hidden.iter().filter(|k| !yes(k, "on")).count();
+        writeln!(
+            io.out,
+            "And {}, looked for too{}: keevoro kinds --all lists them.",
+            count(hidden.len(), "less common kind"),
+            match off {
+                0 => String::new(),
+                off => format!(" but {off} switched off"),
+            }
+        )?;
     }
     writeln!(
         io.out,

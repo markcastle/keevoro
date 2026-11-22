@@ -188,6 +188,29 @@ mod previews {
     }
 
     #[test]
+    fn a_kind_no_decoder_can_read_is_not_opened_to_try_but_a_picture_inside_any_name_is() {
+        let w = World::new();
+        w.add("Family/scan.tga", &[0u8, 0, 2, 0, 0, 0, 0, 0, 0, 0, 7, 7]);
+        w.add("Family/renamed.tga", &real_jpeg(10));
+        let report = w.scan();
+        assert_eq!(report.items.len(), 2, "{:?}", report.items);
+        w.place(&report);
+        // Gone from the source: had it been opened, that would be a disk
+        // problem to try again, not a kind that has no preview.
+        let scan = report.items.iter().find(|i| i.path.ends_with("scan.tga")).unwrap();
+        fs::remove_file(&scan.path).unwrap();
+
+        let made = previews(&w, &report);
+        assert_eq!(made.made, 1, "the JPEG inside is previewed");
+        assert_eq!(made.no_preview.len(), 1);
+        assert_eq!(made.no_preview[0].reason, "This kind of picture can't be previewed yet");
+        assert!(matches!(
+            w.catalog.rendition(scan.blake3.as_deref().unwrap()).unwrap(),
+            Some(RenditionState::NoPreview { .. })
+        ));
+    }
+
+    #[test]
     fn a_file_missing_from_its_source_is_retried_next_time_not_written_off() {
         let w = World::new();
         w.add("Family/a.jpg", &real_jpeg(10));

@@ -94,7 +94,8 @@ fn plural(kind: MediaKind) -> &'static str {
 
 impl Keevoro {
     /// `file_kinds.list`: every kind Keevoro looks for or could, the
-    /// built-in ones first.
+    /// built-in ones first, each marked usual or less common, and the few
+    /// endings that are often something else marked unsure.
     pub fn file_kinds(&self) -> Vec<FileKind> {
         self.backups().read().file_kinds.list()
     }
@@ -176,7 +177,7 @@ impl Keevoro {
             Ok(())
         })?;
         self.log()
-            .say("Put back the kinds of file Keevoro comes with, all switched on");
+            .say("Put back the kinds of file Keevoro comes with, as they came");
         Ok(self.file_kinds())
     }
 }
@@ -197,22 +198,16 @@ mod tests {
             .as_array()
             .unwrap()
             .iter()
-            .all(|k| k["builtIn"] == true && k["on"] == true));
+            .all(|k| k["builtIn"] == true && k["on"] == (k["unsure"] == false)));
 
-        let added = call(
-            &k,
-            Op::FileKindsAdd,
-            None,
-            json!({ "ending": ".INSP", "kind": "photo" }),
-        )
-        .unwrap();
+        let added = call(&k, Op::FileKindsAdd, None, json!({ "ending": ".XYZ", "kind": "photo" })).unwrap();
         assert_eq!(
             added,
-            json!({ "ending": "insp", "kind": "photo", "on": true, "builtIn": false })
+            json!({ "ending": "xyz", "kind": "photo", "on": true, "builtIn": false, "usual": true, "unsure": false })
         );
         assert_eq!(
             other.file_kinds().last().unwrap().ending,
-            "insp",
+            "xyz",
             "seen by another program"
         );
 
@@ -220,12 +215,12 @@ mod tests {
             &other,
             Op::FileKindsAdd,
             None,
-            json!({ "ending": "insp", "kind": "video" }),
+            json!({ "ending": "xyz", "kind": "video" }),
         )
         .unwrap_err();
         assert_eq!(
             (e.kind, e.message.as_str()),
-            (Kind::Refused, "Keevoro already looks for .insp files.")
+            (Kind::Refused, "Keevoro already looks for .xyz files.")
         );
         let e = call(
             &k,
@@ -243,7 +238,7 @@ mod tests {
         let flac = call(&k, Op::FileKindsAdd, None, json!({ "ending": "flac", "kind": "other" })).unwrap();
         assert_eq!(
             flac,
-            json!({ "ending": "flac", "kind": "other", "on": true, "builtIn": false })
+            json!({ "ending": "flac", "kind": "other", "on": true, "builtIn": false, "usual": true, "unsure": false })
         );
         assert!(k.lists_other_files());
         assert!(k.log_tail(5).contains("as other files"));
@@ -261,7 +256,7 @@ mod tests {
             &k,
             Op::FileKindsChange,
             None,
-            json!({ "ending": "insp", "to": "insx", "kind": "video" }),
+            json!({ "ending": "xyz", "to": "insx", "kind": "video" }),
         )
         .unwrap();
         assert_eq!(
@@ -280,15 +275,18 @@ mod tests {
 
         let reset = call(&k, Op::FileKindsReset, None, json!({})).unwrap();
         let reset = reset.as_array().unwrap();
-        assert!(reset.iter().filter(|k| k["builtIn"] == true).all(|k| k["on"] == true));
+        assert!(reset
+            .iter()
+            .filter(|k| k["builtIn"] == true)
+            .all(|k| k["on"] == (k["unsure"] == false)));
         assert_eq!(reset.last().unwrap()["ending"], "insx", "your own stay");
         call(&k, Op::FileKindsRemove, None, json!({ "ending": "insx" })).unwrap();
         assert!(k.backups().read().file_kinds.is_built_in());
 
         let log = k.log_tail(20);
         for line in [
-            "Keevoro now looks for .insp files, as photos",
-            "Renamed .insp to .insx",
+            "Keevoro now looks for .xyz files, as photos",
+            "Renamed .xyz to .insx",
             ".insx files are now videos",
             "Took .insx off the kinds of file Keevoro looks for",
             "Put back the kinds of file Keevoro comes with",

@@ -36,10 +36,17 @@ impl MediaKind {
 pub fn kind_from_mime(mime: &str) -> Option<MediaKind> {
     let mime = mime.to_ascii_lowercase();
     if mime.starts_with("image/") {
-        // Icons and vector images are never photos.
+        // Icons, vector images, documents and drawings are never photos.
         if matches!(
             mime.as_str(),
-            "image/x-icon" | "image/vnd.microsoft.icon" | "image/svg+xml" | "image/vnd.adobe.photoshop"
+            "image/x-icon"
+                | "image/vnd.microsoft.icon"
+                | "image/svg+xml"
+                | "image/vnd.adobe.photoshop"
+                // Scanned documents and technical drawings, which the
+                // detector files under images.
+                | "image/vnd.djvu"
+                | "image/vnd.dwg"
         ) {
             return None;
         }
@@ -59,35 +66,7 @@ pub fn kind_from_mime(mime: &str) -> Option<MediaKind> {
 /// the real, full-size one tucked further in. So the size in the header is
 /// the preview's, not the photo's, and must never be used to judge it.
 pub fn is_raw_extension(ext: &str) -> bool {
-    let ext = ext.trim_start_matches('.').to_ascii_lowercase();
-    matches!(
-        ext.as_str(),
-        "dng"
-            | "cr2"
-            | "cr3"
-            | "crw"
-            | "nef"
-            | "nrw"
-            | "arw"
-            | "srf"
-            | "sr2"
-            | "orf"
-            | "rw2"
-            | "raf"
-            | "pef"
-            | "srw"
-            | "x3f"
-            | "3fr"
-            | "erf"
-            | "kdc"
-            | "mrw"
-            | "raw"
-            | "iiq"
-            | "dcr"
-            | "mef"
-            | "mos"
-            | "rwl"
-    )
+    crate::kinds::raw_ending(ext)
 }
 
 /// Is a file with this extension certainly not a photo or video?
@@ -98,9 +77,14 @@ pub fn is_raw_extension(ext: &str) -> bool {
 /// names kinds of file that are never a memory; anything unfamiliar, or
 /// with no ending at all, is still opened and judged by what is inside.
 pub fn never_media_extension(ext: &str) -> bool {
-    let ext = ext.trim_start_matches('.').to_ascii_lowercase();
+    // Asked of nearly every file on a drive, so lowered without allocating.
+    // None of these is longer than eight letters.
+    let mut buffer = [0u8; 8];
+    let Some(ext) = crate::kinds::ascii_lower(ext.trim_start_matches('.'), &mut buffer) else {
+        return false;
+    };
     matches!(
-        ext.as_str(),
+        ext,
         // Programs and their parts
         "exe" | "dll" | "sys" | "msi" | "cab" | "ocx" | "drv" | "bat" | "cmd" | "ps1" | "sh" | "so" | "dylib"
         | "lib" | "obj" | "o" | "a" | "class" | "jar" | "pyc" | "pdb" | "mui" | "manifest" | "cat" | "inf" | "nls"
@@ -120,6 +104,16 @@ pub fn never_media_extension(ext: &str) -> bool {
     )
 }
 
+/// What the tests compare with.
+#[cfg(test)]
+pub(crate) mod tests_support {
+    /// The endings counted as camera raw before the list was widened.
+    pub const WAS_RAW: &[&str] = &[
+        "dng", "cr2", "cr3", "crw", "nef", "nrw", "arw", "srf", "sr2", "orf", "rw2", "raf", "pef", "srw", "x3f", "3fr",
+        "erf", "kdc", "mrw", "raw", "iiq", "dcr", "mef", "mos", "rwl",
+    ];
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -129,15 +123,21 @@ mod tests {
         for ext in ["dng", "DNG", ".cr2", "NEF", "arw", "raf"] {
             assert!(is_raw_extension(ext), "{ext}");
         }
-        for ext in ["jpg", "tif", "png", "mp4", ""] {
+        for ext in ["jpg", "tif", "png", "mp4", "", "abcdefghijklmnop", "ÉCL"] {
             assert!(!is_raw_extension(ext), "{ext}");
+        }
+        for ext in tests_support::WAS_RAW {
+            assert!(is_raw_extension(ext), "{ext}");
         }
     }
 
     #[test]
     fn programs_documents_and_music_are_passed_over_by_name() {
-        for ext in ["exe", "DLL", ".txt", "Pdf", "mp3", "zip", "js"] {
+        for ext in ["exe", "DLL", ".txt", "Pdf", "mp3", "zip", "js", "MANIFEST", "woff2"] {
             assert!(never_media_extension(ext), "{ext}");
+        }
+        for ext in ["manifests", "ÉXE"] {
+            assert!(!never_media_extension(ext), "{ext}");
         }
     }
 
@@ -155,6 +155,9 @@ mod tests {
         assert_eq!(kind_from_mime("IMAGE/HEIF"), Some(MediaKind::Photo));
         assert_eq!(kind_from_mime("video/quicktime"), Some(MediaKind::Video));
         assert_eq!(kind_from_mime("video/x-msvideo"), Some(MediaKind::Video));
+        // A scanned document and a technical drawing are not photos.
+        assert_eq!(kind_from_mime("image/vnd.djvu"), None);
+        assert_eq!(kind_from_mime("image/vnd.dwg"), None);
     }
 
     #[test]

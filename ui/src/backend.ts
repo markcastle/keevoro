@@ -882,6 +882,12 @@ export type FileKind = {
   on: boolean
   /** Comes with Keevoro: it can be switched off, not removed or renamed. */
   builtIn: boolean
+  /** Listed without asking for the less common kinds: a usual built-in kind, or one of your own. */
+  usual: boolean
+  /** An ending that is often not a photo or video at all, such as .dat: off as Keevoro comes. */
+  unsure: boolean
+  /** For a built-in kind, what it is as Keevoro comes. */
+  cameAs?: ListedAs
 }
 
 /** A change to one kind of file. Anything left out stays as it is. */
@@ -1235,7 +1241,7 @@ export interface Backend {
   changeFileKind(ending: string, change: FileKindChange): Promise<FileKind>
   /** Takes an ending you added off the list. */
   removeFileKind(ending: string): Promise<FileKind>
-  /** Puts back the kinds Keevoro comes with, all on. Your own stay. */
+  /** Puts back the kinds Keevoro comes with, as they came. Your own stay. */
   resetFileKinds(): Promise<FileKind[]>
   /**
    * Clears Keevoro's unfinished copies (its `.keevoro-uploads` working

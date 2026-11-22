@@ -6,7 +6,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Keevoro finds far more kinds of photo and video.** It now knows about 140 kinds of file, up from 57. Newly found: Photoshop and GIMP files, film scans (.exr, .dpx, .cin), older computer pictures (.tga, .pcx, .pict, Amiga .ilbm), JPEG 2000 codestreams, more camera raw (Hasselblad .fff, Kodak, Casio, ARRI and others) and more video (.mxf, RED .r3d, Blackmagic .braw, Canon .crm, HDV .m2t, .ogv, RealMedia and others). Kinds Keevoro already found by looking inside are now on the list by name too, so you can see them and switch them off: GIF, .jfif, .mpo, Insta360's .insp, JPEG 2000 and JPEG XR, .qt, GoPro's .lrv, DivX and more. A kind Keevoro cannot open is backed up exactly, dated by the file and its folder, and shown with "No preview"; Keevoro does not spend time trying to read it, so searches and backups are no slower. Nothing you had set changes: if you had added one of these endings yourself, it stays yours, exactly as you set it.
+- **Usual and less common kinds.** Settings, Advanced, Kinds of file lists the usual kinds, with "Show less common kinds" for the rest (remembered on this computer) and a search box that finds any ending. The less common kinds are looked for just the same. A few endings are as often something else (.ts, .dat, .bin, .img, .seq, .pic, .iff, .cap, .001), so they are listed switched off, with a note saying why: while off, such a file is still backed up when Keevoro can tell from inside that it is a photo or video, as before. At the command line, `keevoro kinds` lists the usual ones and `keevoro kinds --all` every one.
+
+### Changed
+
+- **"Put back the built-in list" is now "Undo my changes…", and says what it will do first.** It appears only when you have changed something. Pressing it lists exactly what will be undone (the kinds you added that will be taken off, the kinds you switched off that will be switched back on, and so on), says that nothing already found or backed up is touched, and waits for "Undo my changes" or "Cancel". Afterwards "Put my changes back" brings them all back while the page is open.
+- **Searches ask less of each file.** Deciding whether a file is a photo or video by its ending now takes one quick look however long the list is, so a search of a big drive is a little quicker than before even with more than twice the kinds.
+- **Two more buttons say what they do.** "Put back" beside a folder you left out is now "Include again", and beside a backup you removed it is "Bring it back".
+
+### Fixed
+
+- **Drawings and scanned documents are no longer taken for photos.** DjVu documents and DWG drawings were being found as photos; they are now left alone unless you add their kind yourself.
 
 ## [0.51.3] - 2026-11-22
 

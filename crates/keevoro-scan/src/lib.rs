@@ -31,8 +31,8 @@ pub use online::{ByAttributes, OnlineCheck};
 
 use keevoro_core::{
     best_date, date_from_filename, folder_hints, folder_made_by_keevoro, holds_originals, is_raw_extension, junk_hint,
-    kind_from_mime, library_album_segments, never_media_extension, photo_library, DateGuess, DateSource, FolderHints,
-    JunkInput, JunkReason, Kinds, MediaKind, PartialDate, SkipReason, SkipRules,
+    kind_from_mime, library_album_segments, photo_library, DateGuess, DateSource, FolderHints, JunkInput, JunkReason,
+    Kinds, MediaKind, PartialDate, SkipReason, SkipRules,
 };
 use serde::Serialize;
 use std::fs::File;
@@ -471,13 +471,10 @@ fn walk(
         if !entry.file_type().is_file() || opts.skip.skip_file(&name).is_some() {
             continue;
         }
-        let passed_over = entry.path().extension().is_some_and(|ext| {
-            let ext = ext.to_string_lossy();
-            match opts.kinds.looked_for(&ext) {
-                Some(_) => false,
-                None => opts.kinds.switched_off(&ext) || never_media_extension(&ext),
-            }
-        });
+        let passed_over = entry
+            .path()
+            .extension()
+            .is_some_and(|ext| opts.kinds.passed_over(&ext.to_string_lossy()));
         // Only in online storage: opening it would download it. Asked of
         // what the listing says, and only of files that could be photos.
         let listing = if passed_over { None } else { entry.metadata().ok() };
@@ -527,11 +524,14 @@ fn examine(root: &Path, path: &Path, opts: &ScanOptions) -> std::io::Result<Opti
     // is taken at its word when the inside says nothing, or says
     // something Keevoro does not count as a photo.
     let inside = infer::get(&head).map(|t| t.mime_type());
-    let (kind, mime) = match (inside.and_then(kind_from_mime), opts.kinds.by_name(&ext)) {
-        (Some(k), _) => (k, inside.unwrap_or_default().to_string()),
+    let (kind, mime, readable) = match (inside.and_then(kind_from_mime), opts.kinds.by_name(&ext)) {
+        (Some(k), _) => (k, inside.unwrap_or_default().to_string(), true),
         (None, Some(k)) => (
             k,
             inside.map_or_else(|| format!("application/x-{}", ext.to_lowercase()), str::to_string),
+            // A kind Keevoro has no way to read is not tried: no more is
+            // read of it than the little already read to judge it.
+            opts.kinds.read_inside(&ext),
         ),
         (None, None) => return Ok(None),
     };
@@ -565,6 +565,7 @@ fn examine(root: &Path, path: &Path, opts: &ScanOptions) -> std::io::Result<Opti
     let mut guesses = Vec::new();
     let mut size = None;
     match kind {
+        _ if !readable => {}
         MediaKind::Photo => {
             if let Some(d) = exif_date(path) {
                 guesses.push(DateGuess {

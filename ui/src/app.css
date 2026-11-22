@@ -3307,6 +3307,54 @@ main > section > :nth-last-child(2) {
   font-size: 13px;
 }
 
+/* Finding a kind, and the switch for the less common ones, above the table. */
+.kinds-find {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  margin-top: var(--space-3);
+}
+
+.kinds-find input[type='search'] {
+  flex: 1 1 14em;
+  min-width: 0;
+  max-width: 22em;
+}
+
+.kinds-table .ending .info-tip {
+  margin-left: var(--space-1);
+}
+
+/* Undoing your changes: quiet, set apart from the everyday controls. */
+.kinds-undo {
+  margin-top: var(--space-6);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.kinds-undo.asking > p:first-child {
+  margin: 0 0 var(--space-2);
+  font-weight: 500;
+}
+
+.kinds-undo.asking ul {
+  margin: 0 0 var(--space-2);
+  padding-left: var(--space-4);
+}
+
+.kinds-undo.asking li + li {
+  margin-top: var(--space-1);
+}
+
+.kinds-undo.asking .choices {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
 /* How earlier backups went: the table scrolls inside itself when narrow. */
 .sends-scroll {
   max-width: 100%;
