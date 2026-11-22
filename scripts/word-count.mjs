@@ -6,7 +6,7 @@
 //
 //   npm run ui:build && node scripts/word-count.mjs
 //
-// Prints one line per screen. With --json it prints the figures as JSON;
+// Prints one line per screen, with how many "i"s and "More about" disclosures it shows. With --json it prints the figures as JSON;
 // with --show <part of a screen's name> it also prints the words it counted there.
 
 import { createServer } from 'node:http'
@@ -57,14 +57,17 @@ export const visibleWords = (p, within = 'body') =>
     for (const field of root.querySelectorAll('input[type=text], input:not([type])')) {
       if (field.checkVisibility() && field.value && !skip(field)) words += field.value.split(/\s+/).length
     }
-    return { words, said: said.join(' | ') }
+    // The "i"s and "More about" disclosures in view, as a screen peppered with them is its own kind of noise.
+    const shown = (selector) =>
+      [...root.querySelectorAll(selector)].filter((el) => !el.closest('.sidebar') && el.checkVisibility()).length
+    return { words, said: said.join(' | '), tips: shown('.info-tip-button'), more: shown('details.more-about') }
   }, within)
 
 const screens = []
 const count = async (name, within) => {
   await page.evaluate(() => document.fonts.ready)
-  const { words, said } = await visibleWords(page, within)
-  screens.push({ screen: name, words, said })
+  const { words, said, tips, more } = await visibleWords(page, within)
+  screens.push({ screen: name, words, said, tips, more })
 }
 const heading = (name) => page.getByRole('heading', { name, level: 1 }).waitFor()
 const settings = async (section) => {
@@ -158,8 +161,9 @@ try {
 
 if (process.argv.includes('--json')) console.log(JSON.stringify(screens, null, 2))
 else
-  for (const { screen, words, said } of screens) {
-    console.log(`${String(words).padStart(5)}  ${screen}`)
+  for (const { screen, words, said, tips, more } of screens) {
+    const extra = `${tips} i${more ? `, ${more} more` : ''}`
+    console.log(`${String(words).padStart(5)}  ${screen}  (${extra})`)
     // --show <part of a name> prints the words counted on that screen.
     const show = process.argv[process.argv.indexOf('--show') + 1]
     if (process.argv.includes('--show') && screen.includes(show)) console.log(`       ${said}`)

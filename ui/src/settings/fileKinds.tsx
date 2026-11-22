@@ -13,7 +13,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import type { Backend, FileKind, ListedAs } from '../backend'
-import { InfoTip, MoreAbout } from '../infoTip'
+import { InfoTip } from '../infoTip'
 import { Toggle } from '../toggle'
 import { Intro } from './parts'
 
@@ -226,19 +226,16 @@ export function FileKindsPage(props: {
 
   return (
     <div className="kinds">
-      <Intro>Add a kind your camera makes that is missing here. One list serves every backup.</Intro>
-      <MoreAbout className="kv-more">
-        <p>
-          Keevoro finds photos and videos by the ending of their names, such as .jpg, and for the kinds it knows, by
-          looking inside too. The less common kinds are looked for just the same as the usual ones; they are only
-          left out of the list until you ask to see them.
-        </p>
-        <p>
-          A kind Keevoro cannot open is backed up just the same, exactly as it is, with “No preview” where its picture
-          would be. Changes count from the next time a source is looked through. Switching a kind off or removing it
-          never takes away anything already found or backed up.
-        </p>
-      </MoreAbout>
+      <Intro>
+        Keevoro finds photos and videos by the ending of their names, such as .jpg. Add one your camera makes that is
+        missing; switching one off never takes away anything already backed up.
+        <InfoTip about="kinds of file">
+          For the kinds it knows, Keevoro looks inside too. One list serves every backup. The less common kinds are
+          looked for just the same, and only left out of the list until you ask. A kind Keevoro cannot open is backed up
+          exactly as it is, with “No preview” where its picture would be. Changes count from the next time a source is
+          looked through.
+        </InfoTip>
+      </Intro>
       <div className="kinds-find">
         <input
           type="search"

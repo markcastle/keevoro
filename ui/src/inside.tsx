@@ -179,8 +179,7 @@ export function LookInside(props: {
         </button>
         <h1>Inside {name}</h1>
         <p className="status">
-          {`${files(outline.photos, outline.videos, outline.others ?? 0)} · ${size(outline.bytes)}`}
-          <InfoTip about="looking inside">Nothing here is added or changed until you choose.</InfoTip>
+          {`${files(outline.photos, outline.videos, outline.others ?? 0)} · ${size(outline.bytes)}. Nothing is added or changed until you choose.`}
         </p>
         {outline.onlineOnly > 0 && (
           <p className="online-only small">

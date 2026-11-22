@@ -111,6 +111,7 @@ export function CloseExplained(props: {
         </button>
         .
       </p>
+      <p className="quiet small">Quit instead, and nothing backs up by itself until you open Keevoro again.</p>
       <p className="choices">
         <button
           onClick={() =>

@@ -73,12 +73,11 @@ export function BackingUpSection(props: {
       {manners && (
         <Group
           title="Waiting for a good moment"
-          tip="These apply only to a backup by itself. A backup you start yourself, or Back up now anyway, never waits."
+          footnote="Only a backup by itself waits. One you start yourself, or Back up now anyway, never does."
         >
           <Row
             id="waitOnBattery"
             about="Until it is plugged in, when under half charged."
-            tip="While this computer is on battery and less than half charged, a backup by itself waits for it to be plugged in."
             control={<RowSwitch on={manners.waitOnBattery} onChange={(on) => mind({ waitOnBattery: on })} />}
           />
           <Row
@@ -87,11 +86,6 @@ export function BackingUpSection(props: {
               manners.meteredKnown
                 ? 'Such as a phone’s hotspot, for cloud storage.'
                 : 'This computer can’t tell, so this is off.'
-            }
-            tip={
-              manners.meteredKnown
-                ? 'A backup to or from cloud storage waits while the connection is metered, such as a phone’s hotspot.'
-                : 'This computer can’t say whether its connection is metered, so a backup to cloud storage doesn’t wait for one.'
             }
             control={
               <RowSwitch
@@ -105,11 +99,6 @@ export function BackingUpSection(props: {
             id="between"
             about={
               manners.between ? `Starts only ${manners.betweenSaid}.` : 'Starts at any hour.'
-            }
-            tip={
-              manners.between
-                ? `A run that comes round by itself starts only ${manners.betweenSaid}, in this computer’s own time.`
-                : 'A run that comes round by itself starts at any hour.'
             }
             control={
               <RowSwitch
@@ -154,7 +143,7 @@ export function BackingUpSection(props: {
           <Group title="Notifications">
             <Row
               id="notify"
-              tip="Only when something was backed up, something waits for your say, or a backup could not be done; never while Keevoro’s window is in front of you."
+              about="When something was backed up, needs your say or could not be done. Never while you are using Keevoro."
               control={<RowSwitch on={view.notify} onChange={(on) => change({ notify: on })} />}
             />
           </Group>
