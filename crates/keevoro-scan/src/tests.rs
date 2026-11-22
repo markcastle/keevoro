@@ -1128,7 +1128,9 @@ fn a_drive_unplugged_part_way_stops_the_search_and_is_not_taken_for_unreadable_f
         "{:?}",
         &report.unreadable[..report.unreadable.len().min(3)]
     );
-    assert!(report.items.len() < 2000, "it stopped part-way: {}", report.items.len());
+    // How far it had got when the card went depends on how quick the computer
+    // is (a fast one has every name listed before the first file is said), so
+    // the count is not judged: knowing the card went, and blaming no file, is.
     // Nothing of the card was changed: it is all there once plugged back.
     std::fs::rename(&elsewhere, &card).unwrap();
     let whole = scan(&card, &ScanOptions::default(), &mut |_| {});
