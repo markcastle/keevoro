@@ -76,6 +76,22 @@ pub fn checking_paused(done: usize, total: usize) -> String {
     )
 }
 
+/// Files a check for duplicates could not read because their source is not
+/// plugged in (or was unplugged part-way): they wait for it. `drive` is
+/// true when the source is a whole drive, named as the computer named it.
+pub fn check_waits_for(name: &str, drive: bool, left: usize) -> String {
+    let files = count(left, "file");
+    if drive {
+        format!(
+            "{name} is not plugged in, so its {files} not yet checked for duplicates will be checked when it is back."
+        )
+    } else {
+        format!(
+            "{name} can't be found, so its {files} not yet checked for duplicates will be checked when its drive is back."
+        )
+    }
+}
+
 /// The background check for duplicates, stopped by the person with `left`
 /// files still to check: what that means, and when it starts again.
 ///

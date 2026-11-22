@@ -387,6 +387,9 @@ pub struct Unhashed {
     pub path: PathBuf,
     pub quick: String,
     pub bytes: u64,
+    /// The root of the source it was found on, so a check can pass over
+    /// every file of a source that is not plugged in with one look.
+    pub source: PathBuf,
 }
 
 pub struct Catalog {
@@ -635,13 +638,15 @@ impl Catalog {
     /// quick fingerprint and its size, in the order found.
     pub fn unhashed(&self) -> Result<Vec<Unhashed>> {
         let mut q = self.conn.prepare(&format!(
-            "SELECT path, blake3, bytes FROM items WHERE hashed = 0 AND blake3 IS NOT NULL{ON_A_DISK} ORDER BY id"
+            "SELECT path, blake3, bytes, (SELECT root FROM sources WHERE id = source_id) FROM items
+             WHERE hashed = 0 AND blake3 IS NOT NULL{ON_A_DISK} ORDER BY id"
         ))?;
         let rows = q.query_map([], |r| {
             Ok(Unhashed {
                 path: PathBuf::from(r.get::<_, String>(0)?),
                 quick: r.get(1)?,
                 bytes: u64::try_from(r.get::<_, i64>(2)?).unwrap_or(0),
+                source: PathBuf::from(r.get::<_, String>(3)?),
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)

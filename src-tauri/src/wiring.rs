@@ -619,3 +619,50 @@ fn the_screens_commands_start_the_apis_jobs_and_their_events_reach_the_window() 
     // And the source was only ever read.
     assert_eq!(snapshot(&card), card_before, "the source is exactly as it was");
 }
+
+#[test]
+fn the_check_for_duplicates_says_when_it_waits_for_a_source_that_is_not_plugged_in() {
+    let dir = tempfile::tempdir().unwrap();
+    let (app, window, heard) = the_app(dir.path());
+    invoke(&window, "start_backup", json!({ "name": "Card photos" })).unwrap();
+    // Two large photos found by a quick search, so the check has them to read.
+    let card = dir.path().join("Card");
+    fs::create_dir_all(&card).unwrap();
+    for (name, seed) in [("IMG_1.jpg", 1u8), ("IMG_2.jpg", 2u8)] {
+        let mut bytes = photo();
+        bytes.extend((0..3_000_000u32).map(|n| u8::try_from(n % 251).unwrap() ^ seed));
+        fs::write(card.join(name), bytes).unwrap();
+    }
+    let home = app.state::<Shared>().keevoro.backups().current().unwrap().home;
+    let mut catalog = keevoro_catalog::Catalog::open_in_library(&home).unwrap();
+    let quick = keevoro_scan::ScanOptions {
+        quick: true,
+        ..Default::default()
+    };
+    keevoro_engine::scan_into_with(&mut catalog, &card, None, &quick, &mut |_| {}, &mut || {}).unwrap();
+    assert_eq!(catalog.unhashed_count().unwrap(), 2);
+    fs::rename(&card, dir.path().join("In a drawer")).unwrap();
+
+    // As the screens ask when they open: the check ends at once and says why.
+    invoke(&window, "keep_checking", json!({})).unwrap();
+    let ended = heard.wait_for("check", |e| e["finished"] == true);
+    fits(&ended, "CheckEvent");
+    let said = ended["said"][0].as_str().unwrap_or_default().to_string();
+    assert!(
+        said.ends_with(
+            "can't be found, so its 2 files not yet checked for duplicates will be checked when its drive is back."
+        ),
+        "{ended}"
+    );
+    app.state::<Shared>().keevoro.wait_for_jobs();
+    // Opened again, the foot says the same, and asking says why nothing happens.
+    let left = invoke(&window, "keep_checking", json!({})).unwrap();
+    fits(&left, "DuplicatesLeft");
+    assert_eq!(left["said"][0], said.as_str());
+    app.state::<Shared>().keevoro.wait_for_jobs();
+    assert_eq!(
+        invoke(&window, "check_duplicates_now", json!({})).unwrap_err(),
+        said.as_str()
+    );
+    assert_eq!(catalog.unhashed_count().unwrap(), 2, "nothing found is changed");
+}

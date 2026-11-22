@@ -26,6 +26,20 @@ pub struct DeepReport {
     pub failed: Vec<(PathBuf, String)>,
     /// True when the pass was asked to stop before it had finished.
     pub stopped: bool,
+    /// Sources that were not there (not plugged in, or unplugged part-way
+    /// through), each with how many of its files were left unchecked. Their
+    /// files are not tried one by one: they stay as they were, known by
+    /// their sample, for a check once the source is back.
+    pub gone: Vec<Gone>,
+}
+
+/// A source the check could not reach, and what it left of it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Gone {
+    /// The source's root, as the catalog keeps it.
+    pub source: PathBuf,
+    /// Its files still known only by their sample.
+    pub left: usize,
 }
 
 /// How far a pass has got.
@@ -71,6 +85,31 @@ pub fn deep_look_where(
     on_progress: &mut dyn FnMut(DeepProgress<'_>),
     keep_going: &dyn Fn() -> bool,
 ) -> Result<DeepReport> {
+    deep_look_unless_gone(
+        catalog,
+        cache,
+        only,
+        may_read,
+        &crate::reach::is_there,
+        on_progress,
+        keep_going,
+    )
+}
+
+/// [`deep_look_where`], asking `is_there` whether each source is plugged
+/// in: once for each source before reading anything, and again only when a
+/// file of it could not be read. A source that is not there ends the work
+/// on it at once; its files are never tried one by one, which on a drive
+/// pulled out or a share gone can take a long while each.
+fn deep_look_unless_gone(
+    catalog: &Catalog,
+    cache: Option<&Path>,
+    only: Option<&HashSet<String>>,
+    may_read: &dyn Fn(&Path) -> bool,
+    is_there: &dyn Fn(&Path) -> bool,
+    on_progress: &mut dyn FnMut(DeepProgress<'_>),
+    keep_going: &dyn Fn() -> bool,
+) -> Result<DeepReport> {
     let _busy = keevoro_core::doing::doing(keevoro_core::doing::Work::CheckingForDuplicates);
     let unhashed = catalog.unhashed()?;
     let mut sharing = std::collections::HashMap::<&str, usize>::new();
@@ -82,13 +121,33 @@ pub fn deep_look_where(
         .filter(|(_, files)| *files == 1)
         .map(|(quick, _)| quick.to_string())
         .collect();
-    let waiting: Vec<_> = unhashed
+    let wanted: Vec<_> = unhashed
         .iter()
         .filter(|file| only.is_none_or(|wanted| wanted.contains(&file.quick)))
         .filter(|file| may_read(&file.path))
         .collect();
     let mut report = DeepReport::default();
-    for (done, file) in waiting.iter().enumerate() {
+    // One look at each source, not one per file.
+    let mut sources: Vec<&Path> = wanted.iter().map(|f| f.source.as_path()).collect();
+    sources.sort();
+    sources.dedup();
+    let mut gone: HashSet<&Path> = sources.into_iter().filter(|root| !is_there(root)).collect();
+    let mut left_on = std::collections::BTreeMap::<&Path, usize>::new();
+    for file in &wanted {
+        if gone.contains(file.source.as_path()) {
+            *left_on.entry(file.source.as_path()).or_default() += 1;
+        }
+    }
+    let waiting: Vec<_> = wanted
+        .into_iter()
+        .filter(|file| !gone.contains(file.source.as_path()))
+        .collect();
+    let mut total = waiting.len();
+    let mut done = 0;
+    for (at, file) in waiting.iter().enumerate() {
+        if gone.contains(file.source.as_path()) {
+            continue;
+        }
         // Asked to stop while Keevoro is paused, it stops at once and leaves
         // the pause as it was for everything else.
         keevoro_core::pause::wait_while_paused_unless(&|| !keep_going());
@@ -98,10 +157,11 @@ pub fn deep_look_where(
         }
         on_progress(DeepProgress {
             done,
-            total: waiting.len(),
+            total,
             reading: &file.path,
             bytes: file.bytes,
         });
+        done += 1;
         match keevoro_scan::whole_hash(&file.path) {
             Ok(whole) => {
                 catalog.set_whole_hash(&file.path, &file.quick, &whole)?;
@@ -110,9 +170,26 @@ pub fn deep_look_where(
                 }
                 report.checked += 1;
             }
+            // Its source went part-way through: this file and the rest of
+            // that source are left as they were, and none is tried again.
+            Err(_) if !is_there(&file.source) => {
+                let source = file.source.as_path();
+                gone.insert(source);
+                let rest = waiting[at + 1..].iter().filter(|f| f.source == source).count();
+                *left_on.entry(source).or_default() += rest + 1;
+                total -= rest + 1;
+                done -= 1;
+            }
             Err(e) => report.failed.push((file.path.clone(), e.to_string())),
         }
     }
+    report.gone = left_on
+        .into_iter()
+        .map(|(source, left)| Gone {
+            source: source.to_path_buf(),
+            left,
+        })
+        .collect();
     Ok(report)
 }
 
@@ -371,6 +448,127 @@ mod tests {
             3,
             "and, being a true copy, it is not given a place of its own, so it is never sent twice"
         );
+    }
+
+    /// The world, with a second card of two large photos searched after the
+    /// first, and its root.
+    fn two_cards() -> (tempfile::TempDir, PathBuf, PathBuf, Catalog) {
+        let (dir, card, _library, mut catalog) = world();
+        let second = dir.path().join("Card 2");
+        fs::create_dir_all(&second).unwrap();
+        fs::write(second.join("IMG_0001.jpg"), big_photo(2_000_000, 21)).unwrap();
+        fs::write(second.join("IMG_0002.jpg"), big_photo(2_000_000, 22)).unwrap();
+        let quick = ScanOptions {
+            quick: true,
+            ..ScanOptions::default()
+        };
+        scan_into_with(&mut catalog, &second, Some("Card 2"), &quick, &mut |_| {}, &mut || {}).unwrap();
+        assert_eq!(catalog.unhashed().unwrap().len(), 5);
+        (dir, card, second, catalog)
+    }
+
+    /// `is_there` as the check asks it, counting each look.
+    fn counted() -> (std::cell::Cell<usize>, impl Fn(&std::cell::Cell<usize>, &Path) -> bool) {
+        (
+            std::cell::Cell::new(0),
+            |looks: &std::cell::Cell<usize>, root: &Path| {
+                looks.set(looks.get() + 1);
+                crate::reach::is_there(root)
+            },
+        )
+    }
+
+    #[test]
+    fn a_healthy_check_looks_at_each_source_once_not_at_each_file() {
+        let (_dir, _card, _second, catalog) = two_cards();
+        let (looks, is_there) = counted();
+        let report = deep_look_unless_gone(
+            &catalog,
+            None,
+            None,
+            &|_| true,
+            &|root| is_there(&looks, root),
+            &mut |_| {},
+            &|| true,
+        )
+        .unwrap();
+        assert_eq!((report.checked, report.failed.len()), (5, 0));
+        assert!(report.gone.is_empty());
+        assert_eq!(looks.get(), 2, "one look for each of the two sources");
+    }
+
+    #[test]
+    fn a_source_not_plugged_in_is_passed_over_at_once_and_its_files_stay_unchecked() {
+        let (dir, card, second, catalog) = two_cards();
+        let card_root = catalog.unhashed().unwrap()[0].source.clone();
+        fs::rename(&card, dir.path().join("In a drawer")).unwrap();
+        let (looks, is_there) = counted();
+        let mut read = Vec::new();
+        let report = deep_look_unless_gone(
+            &catalog,
+            None,
+            None,
+            &|_| true,
+            &|root| is_there(&looks, root),
+            &mut |p| read.push((p.reading.to_path_buf(), p.done, p.total)),
+            &|| true,
+        )
+        .unwrap();
+        assert_eq!(report.checked, 2, "the other card is checked");
+        assert!(report.failed.is_empty(), "nothing on the card in a drawer was tried");
+        assert_eq!(
+            report.gone,
+            [Gone {
+                source: card_root,
+                left: 3
+            }]
+        );
+        assert_eq!(looks.get(), 2);
+        let second = fs::canonicalize(&second).unwrap();
+        assert!(read
+            .iter()
+            .all(|(path, _, total)| path.starts_with(&second) && *total == 2));
+        let left = catalog.unhashed().unwrap();
+        assert_eq!(left.len(), 3, "still not checked, exactly as before");
+        assert!(left.iter().all(|f| !f.source.starts_with(&second)));
+    }
+
+    #[test]
+    fn a_source_unplugged_part_way_ends_the_work_on_it_and_the_other_carries_on() {
+        let (dir, card, second, catalog) = two_cards();
+        let drawer = dir.path().join("In a drawer");
+        let (looks, is_there) = counted();
+        let mut seen = Vec::new();
+        let report = deep_look_unless_gone(
+            &catalog,
+            None,
+            None,
+            &|_| true,
+            &|root| is_there(&looks, root),
+            &mut |p| {
+                seen.push((p.done, p.total));
+                // Pulled out once the first file of the first card is read.
+                if p.done == 1 && card.is_dir() {
+                    fs::rename(&card, &drawer).unwrap();
+                }
+            },
+            &|| true,
+        )
+        .unwrap();
+        assert_eq!(report.checked, 3, "one from the first card, both from the second");
+        assert!(report.failed.is_empty(), "the file in hand is not counted as a failure");
+        assert_eq!(report.gone.len(), 1);
+        assert_eq!(report.gone[0].left, 2, "the file in hand and the one after it");
+        assert_eq!(looks.get(), 3, "two at the start, one when a read failed");
+        assert_eq!(
+            seen,
+            [(0, 5), (1, 5), (1, 3), (2, 3)],
+            "the count shrinks, never stalls"
+        );
+        let second = fs::canonicalize(&second).unwrap();
+        let left = catalog.unhashed().unwrap();
+        assert_eq!(left.len(), 2);
+        assert!(left.iter().all(|f| !f.source.starts_with(&second)));
     }
 
     #[test]

@@ -495,7 +495,7 @@ export type CheckEvent = {
   stopped?: boolean
   /** On the last event: how many files are still to be checked. */
   left?: number
-  /** On the last event of one a person stopped: what that means, a sentence each. */
+  /** On the last event: what that means, a sentence each, when a person stopped it; and each source not plugged in whose files wait for it. */
   said?: string[]
 }
 

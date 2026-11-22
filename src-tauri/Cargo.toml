@@ -32,6 +32,7 @@ tauri-plugin-opener = "2"
 
 [dev-dependencies]
 image.workspace = true
+keevoro-scan.workspace = true
 tempfile.workspace = true
 # Tauri's stand-in for a window, so the tests can drive the app's commands
 # and hear its events exactly as the screens do.
