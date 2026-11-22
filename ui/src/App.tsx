@@ -66,6 +66,8 @@ import lockupShadowUrl from './assets/keevoro-lockup-shadow.png'
 import lockupDarkUrl from './assets/keevoro-lockup-reversed.png'
 import lockupUrl from './assets/keevoro-lockup.png'
 import { ClearUnfinished } from './tidy'
+import { MoreMenu } from './moreMenu'
+import type { MenuChoice } from './moreMenu'
 import { FoundPicture, Viewer } from './pictures'
 import { LookInside } from './inside'
 import { SpaceScreen } from './map'
@@ -2284,6 +2286,8 @@ function SendPanel(props: {
   const [stopping, setStopping] = useState(false)
   // True while a further destination is being chosen for a backup that has one.
   const [adding, setAdding] = useState(false)
+  // Clearing unfinished copies, once chosen from More, until its question is put away.
+  const [clearing, setClearing] = useState(false)
   const { destinations } = props
   // Whether this backup also makes previews, or sends the originals alone.
   const [previews, setPreviews] = useState(true)
@@ -2457,6 +2461,31 @@ function SendPanel(props: {
       onProblem(error)
     })
   }
+
+  // What the row of buttons keeps behind More: wanted now and then, never
+  // after every backup. With several places, each has its own in the list.
+  const rarerChoices: MenuChoice[] = [
+    ...(destinations.length <= 1 && destinations[0]?.folder
+      ? [
+          {
+            label: 'Clear unfinished copies…',
+            title:
+              'Clears the working files a backup that was stopped part-way left behind. Nothing that was backed up is touched. Keevoro says how much first.',
+            onChoose: () => setClearing(true),
+          },
+        ]
+      : []),
+    { label: 'Add another destination', onChoose: () => setAdding(true) },
+    ...(destinations.length <= 1
+      ? [
+          {
+            label: 'Back up somewhere else',
+            title: 'Stops backing up here, so you can choose somewhere else. Nothing backed up there is deleted.',
+            onChoose: () => void remove(),
+          },
+        ]
+      : []),
+  ]
 
   if (where === undefined || !asked) return null
   return (
@@ -2728,7 +2757,7 @@ function SendPanel(props: {
               </button>
             </p>
             <CloudCost said={room?.cost ?? []} />
-            <div className="choices">
+            <div className="choices actions">
               <button
                 className={said?.checkAdvised && props.waiting === 0 ? 'button' : 'primary'}
                 onClick={() => start('Starting…', api.send)}
@@ -2748,27 +2777,19 @@ function SendPanel(props: {
                   Show me the folder
                 </button>
               )}
-              {destinations.length <= 1 && destinations[0]?.folder && (
-                <ClearUnfinished
-                  api={api}
-                  folder={destinations[0].folder}
-                  label="Clear unfinished copies…"
-                  onProblem={onProblem}
-                />
-              )}
-              <button className="button" onClick={() => setAdding(true)}>
-                Add another destination
-              </button>
-              {destinations.length <= 1 && (
-                <button
-                  className="button"
-                  onClick={() => remove()}
-                  title="Stops backing up here, so you can choose somewhere else. Nothing backed up there is deleted."
-                >
-                  Back up somewhere else
-                </button>
-              )}
+              {/* The rest are wanted now and then, so they wait behind More. */}
+              <MoreMenu choices={rarerChoices} />
             </div>
+            {clearing && destinations[0]?.folder && (
+              <ClearUnfinished
+                api={api}
+                folder={destinations[0].folder}
+                label="Clear unfinished copies…"
+                asked
+                onClosed={() => setClearing(false)}
+                onProblem={onProblem}
+              />
+            )}
             </>
           )}
           {/* What the last backup said is about that one, so it steps aside while another runs. */}

@@ -18,6 +18,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 - **A backup by itself looks through your sources much more quickly.** Before it backs up, a backup that runs by itself looks through its sources for anything new. It used to open and read every file each time; now a file still in the same place, the same size and last changed at the same moment as at the last look is taken as it was, without being opened, so looking again over 48,210 files that have not changed takes about as long as listing their folders. Anything new, or with a different size or time, is read in full as before, and so is a file Keevoro cannot be sure about. Once a month it reads every file again anyway, so a file changed without its size or time changing is still found. Pressing Look again yourself still reads every file. Your sources are only ever read, as always.
 
+- **A tidier row of buttons on the backup screen.** Once a backup has somewhere to go, "Where should they go?" keeps the buttons used most in its row: Back up again, Check they all arrived and, for a folder, Show me the folder. The ones wanted now and then (Clear unfinished copies…, Add another destination and Back up somewhere else) are behind a new "More" button that opens a small menu, which works with the arrow keys as well as the pointer. The row no longer wraps untidily in a wide window, and in a narrow one its buttons share the rows evenly.
+
 - **A different example name for a new backup.** Where Keevoro suggests a name as you start a backup, in the app and in `keevoro backups start --help`, the example is now "Holiday videos".
 
 ### Fixed

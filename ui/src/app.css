@@ -6145,3 +6145,59 @@ h3.kv-group-title {
     padding: var(--space-4);
   }
 }
+
+/* ---------- More: the choices wanted now and then ---------- */
+
+/* Its button is a quiet one, with a small mark that it opens a menu. */
+.button.more span {
+  font-size: 11px;
+  color: var(--ink-muted);
+}
+
+/* Fixed to the window beside its button, so nothing that scrolls or clips
+   what is inside it can cut it off. Placed by moreMenu.tsx. */
+.more-menu {
+  position: fixed;
+  z-index: 50;
+  display: grid;
+  gap: 2px;
+  min-width: 220px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  padding: var(--space-2);
+  background: var(--surface-raised);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+
+.more-menu [role='menuitem'] {
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.more-menu [role='menuitem']:hover,
+.more-menu [role='menuitem']:focus {
+  background: var(--surface-sunken);
+}
+
+.panel.send .tidying {
+  margin-top: var(--space-3);
+}
+
+/* In a narrow window the backup's few buttons share the rows evenly,
+   rather than each sitting at its own width. */
+@media (max-width: 560px) {
+  .panel.send .choices.actions {
+    gap: var(--space-3);
+  }
+
+  .panel.send .choices.actions > button {
+    flex: 1 1 40%;
+  }
+}

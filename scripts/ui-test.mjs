@@ -158,6 +158,12 @@ const narrowShots = async (name, part) => {
   await page.emulateMedia({ colorScheme: 'light' })
   await page.setViewportSize({ width: 1440, height: 900 })
 }
+// The backup screen's choices wanted now and then wait behind More, a menu
+// beside the few buttons used most. Chooses one of them, as a person would.
+const moreChoice = async (label) => {
+  await page.locator('.panel.send .choices.actions').getByRole('button', { name: 'More' }).click()
+  await page.getByRole('menu', { name: 'More' }).getByRole('menuitem', { name: label, exact: true }).click()
+}
 // A switch's words sit beside it, centred on it, never above or below.
 const centredOnSwitch = (switches) =>
   switches.evaluateAll((all) =>
@@ -535,13 +541,13 @@ try {
   await details.click()
   await page.getByText(/^Everything you are keeping is there: [\d,]+ files\.$/).waitFor()
   assert.ok(await page.getByRole('button', { name: 'Show me the folder' }).isVisible())
-  // Beside it, clearing what a stopped backup left there: said first, cleared on a yes.
-  await page.getByRole('button', { name: 'Clear unfinished copies…' }).click()
+  // Behind More, clearing what a stopped backup left there: said first, cleared on a yes.
+  await moreChoice('Clear unfinished copies…')
   const unfinished = page.getByRole('group', { name: 'Unfinished copies in F:\\Family Backup' })
   assert.match(await unfinished.innerText(), /^There are 320\.4 MB of unfinished copies \(12 files\) in F:\\Family Backup/)
   await unfinished.getByRole('button', { name: 'Cancel' }).click()
   assert.equal(await unfinished.count(), 0, 'cancelling clears nothing and puts the question away')
-  await page.getByRole('button', { name: 'Clear unfinished copies…' }).click()
+  await moreChoice('Clear unfinished copies…')
   await unfinished.getByRole('button', { name: 'Clear them' }).click()
   await unfinished.getByText(/^Cleared 320\.4 MB of unfinished copies \(12 files\) from F:\\Family Backup\./).waitFor()
   await unfinished.getByRole('button', { name: 'Done' }).click()
@@ -552,7 +558,7 @@ try {
   await shot('9-sent')
   // --- A backup can go to more than one place. A second destination is
   // added beside the first, starts empty, and catches up on the next backup.
-  await page.getByRole('button', { name: 'Add another destination' }).click()
+  await moreChoice('Add another destination')
   await page.getByRole('heading', { name: 'Add another destination' }).waitFor()
   assert.match(await text('.send .adding'), /as well as the folder F:\\Family Backup\. It starts empty/)
   await page.getByRole('button', { name: /Cloudflare R2/ }).click()
@@ -1094,6 +1100,129 @@ try {
     .waitFor()
   await page.getByText(/^Everything you are keeping was there when Keevoro last looked, 2 days ago: [\d,]+ files\.$/).waitFor()
   await shot('9y-backup-folder-unplugged')
+
+  // --- The backup screen keeps the few buttons used most in its row, Back
+  // up again the one filled, and the rest behind More: a menu, used with
+  // the keyboard as well as the pointer, never cut off, and each of its
+  // items doing what its button did.
+  await page.goto(`${base}/?fast`)
+  await page.getByRole('button', { name: 'Choose where they go' }).click()
+  await page.getByRole('button', { name: /^A folder/ }).click()
+  await page.getByRole('button', { name: 'Back up now' }).click()
+  await page.getByText(/^Everything you are keeping is there: [\d,]+ files\.$/).waitFor()
+  const actions = page.locator('.panel.send .choices.actions')
+  assert.deepEqual(
+    await actions.getByRole('button').evaluateAll((all) => all.map((b) => b.childNodes[0].textContent)),
+    ['Back up again', 'Check they all arrived', 'Show me the folder', 'More'],
+  )
+  assert.deepEqual(await actions.locator('.primary').allInnerTexts(), ['Back up again'], 'one filled button')
+  const more = actions.getByRole('button', { name: 'More' })
+  const menu = page.getByRole('menu', { name: 'More' })
+  const items = menu.getByRole('menuitem')
+  const focused = () => page.evaluate(() => document.activeElement?.textContent)
+  assert.equal(await more.getAttribute('aria-haspopup'), 'menu')
+  assert.equal(await more.getAttribute('aria-expanded'), 'false')
+  await fitsNarrow('The backup screen with More')
+  await more.click()
+  await menu.waitFor()
+  assert.equal(await more.getAttribute('aria-expanded'), 'true')
+  assert.equal(await more.getAttribute('aria-controls'), await menu.getAttribute('id'))
+  assert.deepEqual(await items.allInnerTexts(), ['Clear unfinished copies…', 'Add another destination', 'Back up somewhere else'])
+  assert.equal(await focused(), 'Clear unfinished copies…', 'the focus goes to the first item')
+  for (const [key, then] of [
+    ['ArrowDown', 'Add another destination'],
+    ['ArrowDown', 'Back up somewhere else'],
+    ['ArrowDown', 'Clear unfinished copies…'],
+    ['ArrowUp', 'Back up somewhere else'],
+    ['Home', 'Clear unfinished copies…'],
+    ['End', 'Back up somewhere else'],
+  ]) {
+    await page.keyboard.press(key)
+    assert.equal(await focused(), then, `${key} goes to ${then}`)
+  }
+  await shot('9-more-menu')
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await shot('9-more-menu-dark')
+  await page.emulateMedia({ colorScheme: 'light' })
+  // Escape closes it and puts the focus back on its button.
+  await page.keyboard.press('Escape')
+  await menu.waitFor({ state: 'detached' })
+  assert.equal(await more.getAttribute('aria-expanded'), 'false')
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-haspopup')), 'menu', 'the focus is back on More')
+  // Opened from the keyboard: down to the first item, up to the last.
+  await page.keyboard.press('ArrowUp')
+  await menu.waitFor()
+  assert.equal(await focused(), 'Back up somewhere else')
+  await page.keyboard.press('Tab')
+  await menu.waitFor({ state: 'detached' })
+  await page.keyboard.press('ArrowDown')
+  assert.equal(await focused(), 'Clear unfinished copies…')
+  // A click anywhere else closes it.
+  await page.getByRole('heading', { name: 'Where should they go?', level: 1 }).click()
+  await menu.waitFor({ state: 'detached' })
+  // Never cut off, by the window or by anything it sits in, and in a narrow
+  // window too.
+  const wholly = () =>
+    menu.evaluate((el) => {
+      const box = el.getBoundingClientRect()
+      const there = document.elementFromPoint(box.left + box.width / 2, box.bottom - 4)
+      return box.left >= 16 && box.right <= window.innerWidth - 16 && box.top >= 0 && box.bottom <= window.innerHeight && el.contains(there)
+    })
+  await more.click()
+  assert.ok(await wholly(), 'the menu is wholly in the window, on top')
+  await page.keyboard.press('Escape')
+  await page.setViewportSize({ width: 400, height: 800 })
+  await more.scrollIntoViewIfNeeded()
+  await more.click()
+  assert.ok(await wholly(), 'at 400 pixels wide too')
+  await shot('9-more-menu-400')
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await shot('9-more-menu-400-dark')
+  await page.emulateMedia({ colorScheme: 'light' })
+  await page.keyboard.press('Escape')
+  await page.setViewportSize({ width: 1440, height: 900 })
+  // Each item does what its button did. Clearing unfinished copies, chosen
+  // from the keyboard, asks first, with the focus on its question.
+  await more.focus()
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('Enter')
+  const clearing = page.getByRole('group', { name: 'Unfinished copies in F:\\Family Backup' })
+  await clearing.waitFor()
+  assert.equal(await focused(), 'Clear them', 'the focus goes to the question')
+  await page.keyboard.press('Enter')
+  await clearing.getByText(/^Cleared 320\.4 MB of unfinished copies \(12 files\) from F:\\Family Backup\./).waitFor()
+  await clearing.getByRole('button', { name: 'Done' }).click()
+  assert.equal(await clearing.count(), 0)
+  // Adding another destination opens its choices, and Not now goes back.
+  await moreChoice('Add another destination')
+  await page.getByRole('heading', { name: 'Add another destination' }).waitFor()
+  await page.getByRole('button', { name: 'Not now' }).click()
+  await more.waitFor()
+  // Backing up somewhere else takes this one off, deleting nothing, and
+  // asks where instead.
+  await more.click()
+  assert.equal(
+    await menu.getByRole('menuitem', { name: 'Back up somewhere else' }).getAttribute('title'),
+    'Stops backing up here, so you can choose somewhere else. Nothing backed up there is deleted.',
+  )
+  await menu.getByRole('menuitem', { name: 'Back up somewhere else' }).click()
+  await page.getByRole('button', { name: /^A folder/ }).waitFor()
+  assert.equal(await page.getByRole('heading', { name: /^Backing up to/ }).count(), 0)
+  // With several places, each has its own Clear and Remove in the list, so
+  // More keeps only Add another destination.
+  await page.getByRole('button', { name: /^A folder/ }).click()
+  await page.getByRole('heading', { name: 'Backing up to the folder F:\\Family Backup' }).waitFor()
+  await moreChoice('Add another destination')
+  await page.getByRole('button', { name: /Cloudflare R2/ }).click()
+  await page.getByLabel('Cloudflare account ID').fill('0123456789abcdef0123456789abcdef')
+  await page.getByLabel('Bucket name').fill('family-photos')
+  await page.getByLabel('Access key ID').fill('key')
+  await page.getByLabel('Secret access key').fill('secret')
+  await page.locator('.send form button[type=submit]').click()
+  await page.getByRole('heading', { name: 'Backing up to 2 places' }).waitFor()
+  await more.click()
+  assert.deepEqual(await items.allInnerTexts(), ['Add another destination'])
+  await page.keyboard.press('Escape')
 
   // --- A share that drops out during a backup: one grouped sentence, said
   // as the destination's, an account that adds up, and the main button
@@ -2285,7 +2414,7 @@ try {
   await page.getByRole('heading', { name: /^Backing up to the folder/ }).waitFor()
   await page.getByText('How earlier backups went').click()
   await page.getByText('What is in the backup', { exact: true }).click()
-  await page.getByRole('button', { name: 'Clear unfinished copies…' }).click()
+  await moreChoice('Clear unfinished copies…')
   await page.getByRole('group', { name: /^Unfinished copies in/ }).waitFor()
   await fitsNarrow('Backing up')
   await page.setViewportSize({ width: 400, height: 800 })
