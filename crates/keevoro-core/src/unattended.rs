@@ -39,6 +39,10 @@ pub enum Occasion {
     RunNow,
     /// The command line, for a system scheduler or a script.
     CommandLine,
+    /// A source the person asked to be backed up when it is plugged in
+    /// was plugged in. Other programs see it as [`Occasion::RunNow`], with
+    /// `pluggedIn` beside it, as older ones know no such word.
+    SourceArrived,
 }
 
 impl Occasion {
@@ -49,12 +53,13 @@ impl Occasion {
             Occasion::CatchUp => "to catch up a run that was missed",
             Occasion::RunNow => "when you pressed Run now",
             Occasion::CommandLine => "for a system scheduler or a script",
+            Occasion::SourceArrived => "when its source was plugged in",
         }
     }
 
     /// True when the person asked for it there and then.
     pub fn person_asked(self) -> bool {
-        matches!(self, Occasion::RunNow)
+        matches!(self, Occasion::RunNow | Occasion::SourceArrived)
     }
 }
 

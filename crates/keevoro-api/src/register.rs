@@ -156,6 +156,9 @@ register! {
     SourcesWants = "sources.wants",
         "What one source is for: its backup's choice of photos, videos and other files, or its own",
         changes: OnlyWhenAsked, job: false, command_line: true, agents: Agents::Yes, implemented: true;
+    SourcesOnArrival = "sources.on_arrival",
+        "Whether a source is backed up by itself whenever it is plugged in, and changing it",
+        changes: OnlyWhenAsked, job: false, command_line: true, agents: Agents::No, implemented: true;
     SourcesArrange = "sources.arrange",
         "How one source's files are arranged: as its backup does, by date, or keeping its folders",
         changes: OnlyWhenAsked, job: false, command_line: true, agents: Agents::Yes, implemented: true;
@@ -425,6 +428,7 @@ impl Op {
                 Op::BackupPreviews => given("wanted"),
                 Op::BackupWants | Op::SourcesWants => given("wants"),
                 Op::BackupArrange | Op::SourcesArrange => given("arrange"),
+                Op::SourcesOnArrival => given("on"),
                 Op::KeevoroSettings => given("ownCodecs"),
                 // Asked only what it would clear, it clears nothing.
                 Op::DestinationsTidy | Op::BackupsForget => {
@@ -490,6 +494,7 @@ impl Op {
             Op::BackupWants => schema::<crate::wants::BackupWantsRequest>(),
             Op::BackupArrange => schema::<crate::arrange::BackupArrangeRequest>(),
             Op::SourcesArrange => schema::<crate::arrange::SourceArrangeRequest>(),
+            Op::SourcesOnArrival => schema::<crate::arrival::OnArrivalRequest>(),
             Op::SourcesWants => schema::<crate::wants::SourceWantsRequest>(),
             Op::DestinationsTidy => schema::<crate::keevoro::TidyRequest>(),
             Op::FileKindsAdd => schema::<AddFileKindRequest>(),
@@ -846,6 +851,7 @@ impl Op {
             | Op::ScheduleRun
             | Op::ScheduleSet
             | Op::ScheduleSkipNext
+            | Op::SourcesOnArrival
             | Op::BackupsForget
             | Op::BackupsRemoved
             | Op::BackupsPutBack
@@ -914,7 +920,7 @@ mod tests {
 
     #[test]
     fn the_register_has_every_operation_in_the_plan() {
-        assert_eq!(Op::ALL.len(), 73);
+        assert_eq!(Op::ALL.len(), 74);
         // Each entry is the one for its own operation.
         for op in Op::ALL {
             assert_eq!(op.entry().op, *op);
@@ -998,6 +1004,8 @@ mod tests {
             Op::ScheduleRun,
             Op::ScheduleSet,
             Op::ScheduleSkipNext,
+            // Backing up when a source is plugged in is the same promise.
+            Op::SourcesOnArrival,
             // A report goes to Keevoro's maker in the person's own words, so
             // only the person makes, sends or asks after one, never an agent.
             Op::ReportsPrepare,

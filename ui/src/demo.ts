@@ -281,6 +281,8 @@ export function demoBackend(): Backend {
     setAsideSaid?: string
   }[] =
     collections.length > 0 ? [{ id: 1, name: 'Family hard drive', root: 'E:\\', items: 240, bytes: 1.4 * 1024 ** 3 }] : []
+  // The sources backed up by themselves whenever they are plugged in.
+  const onArrival = new Set<number>()
   // The files inside each collection are made up the first time it is opened.
   const inside = new Map<string, PhotoChoice[]>()
   const filesOf = (c: Collection) => {
@@ -1035,6 +1037,7 @@ export function demoBackend(): Backend {
         leftOut: [...leftOutFolders].filter((f) => within(f, s.root) || within(s.root, f)),
         ...(sourceArranges.has(s.id) ? { arrange: sourceArranges.get(s.id) } : {}),
         ...(arrangementOf(s.id) === 'folders' ? { keptAs: topOf(s) } : {}),
+        ...(onArrival.has(s.id) ? { onArrival: true } : {}),
       })),
       destinations: dests.map((d) => {
         const all = kept.reduce((n, c) => n + c.photos + c.videos, 0) + keptOthers.length
@@ -1797,6 +1800,11 @@ export function demoBackend(): Backend {
       return wantsView(wants, undefined, true)
     },
     sourceWants: async (id) => sourceView(id),
+    setSourceOnArrival: async (source, on) => {
+      if (on) onArrival.add(source)
+      else onArrival.delete(source)
+      return { source, on }
+    },
     setSourceWants: async (id, wants) => {
       if (wants === 'backup') sourceChoices.delete(id)
       else sourceChoices.set(id, wants)

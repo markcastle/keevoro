@@ -211,6 +211,8 @@ export type Source = {
   /** Set aside when a different drive was plugged in at its place: that place, and this in words. Everything found on it is kept. */
   setAsideFrom?: string
   setAsideSaid?: string
+  /** True when it is backed up by itself whenever it is plugged in. */
+  onArrival?: boolean
 }
 
 /** How photos and videos are arranged in a backup. */
@@ -477,6 +479,9 @@ export type AwayRun = {
   /** What it caught up, when it caught up runs that were missed. */
   caughtUp?: string
 }
+
+/** Whether a source is backed up by itself whenever it is plugged in. */
+export type OnArrivalView = { source: number; on: boolean }
 
 /** One thing waiting for the person's say. */
 export type AwayWaiting = {
@@ -1202,6 +1207,8 @@ export interface Backend {
   windowUsed(): Promise<void>
   /** "While you were away": what every backup did by itself since the window was last seen. */
   away(): Promise<AwayView>
+  /** Whether a source is backed up by itself whenever it is plugged in, and changing it. */
+  setSourceOnArrival(source: number, on: boolean): Promise<OnArrivalView>
   /** The person has read "While you were away". */
   awaySeen(): Promise<void>
   /** Looks through one source again, or every one; a source not plugged in is passed over and said, and `differentDrive` answers the question about one. */
@@ -1407,6 +1414,7 @@ async function tauriBackend(): Promise<Backend> {
     runScheduledNow: () => invoke('run_scheduled_now'),
     windowUsed: () => invoke('window_used'),
     away: () => invoke('away'),
+    setSourceOnArrival: (source, on) => invoke('source_on_arrival', { source, on }),
     awaySeen: () => invoke('away_seen'),
     surveyPlace: (path) => invoke('survey_place', { path }),
     stopSurvey: () => invoke('stop_survey'),

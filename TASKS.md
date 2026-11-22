@@ -622,7 +622,7 @@ Today a backup runs when someone presses "Back up now". These make it run by its
 
 - [x] Repeat a backup on a schedule: every day, every week, or every month, at a time the person chooses (0.42, while the app is open)
 - [x] Each run looks through the sources again first, then sends only what is new (0.42; quickly since 0.49, reading only what is new or changed)
-- [ ] Run when a known source is plugged in (a camera card, a drone's drive), with a choice of "ask me" or "just do it". The first half is built: Keevoro notices a drive arriving (`keevoro_api::places::if_changed` gives the drives that `arrived`, and on Windows `watch_for_drives` hears the system's notice); what is left is matching an arrival against each backup's sources and asking
+- [x] Run when a known source is plugged in (a camera card, a drone's drive): "Back up when this is plugged in" (0.49; "ask me" is left)
 - [ ] Run when a destination comes back (a backup drive plugged in, the network returns) if a run was missed
 - [x] Carry on in the background with the window closed: an icon by the clock, and a way to start with the computer (0.45: closing hides to the icon where one shows; Pause, Back up now and Settings from its menu)
 - [x] Say what happened: a notification when a run finishes (0.45: when something was sent, waits for your say, or could not be done; quiet otherwise; a setting to turn them off)
@@ -640,7 +640,8 @@ What is left of backing up by itself, in the order of the plan (the owner's deci
 - [ ] Left from running with the window closed: a Mac test of the Launch Agent and menu-bar icon; a timed pause shown in "What Keevoro is doing" as well as the foot; "Update when this backup finishes" waiting with the window closed (today the update waits only while the window is open); on battery and metered choices in Settings; `keevoro background` for the command line
 - [x] "While you were away" (`schedule.away`, `keevoro away`, `ui/src/away.tsx`): each run since the window was last seen, what it caught up (`Attempt::missed`), a run still to catch up, and what waits for your say
 - [ ] Catching up when a destination returns (`owed`, `Saved::reachable_now`, backoff), louder notices when one has not been reached for `NOT_REACHED_FOR`; "Also when a backup drive comes back" ticked by default
-- [ ] A known source plugged in: `sources.on_arrival` (ask, or just do it), the settle time and one run per ten minutes, Linux and macOS volume ids for `mark:`, moving a source whose drive got a new letter (`Catalog::move_source` is there); "just do it" on battery waits, with "Back up now anyway" (the owner's decision)
+- [x] A known source plugged in (`sources.on_arrival`, `keevoro sources on-arrival`, `ui/src/onArrival.tsx`): a switch per drive source, the settle time and one run per ten minutes (`keevoro_core::arrival`), looking through that source alone, never paused, never a different drive at its place, a notice as it starts
+- [ ] Left from a known source plugged in: "Ask me" as well as the switch; Linux and macOS volume ids for `mark:` (Linux uses the device number today, which a card may not keep); moving a source whose drive got a new letter (`Catalog::move_source` is there)
 - [ ] The rest of the good guest: a metered connection (`keevoro_frame::network::metered`, WinRT on Windows, Network.framework on a Mac; nothing says a connection is metered yet, so a run never waits for one), macOS battery, the per-file hold in `Going` when the laptop goes onto battery mid-run, and the first run's size and time in the schedule dialog
 - [ ] `keevoro run --unattended` with no backup named running every backup with a schedule, one after another
 

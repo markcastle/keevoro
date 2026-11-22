@@ -4995,6 +4995,19 @@ tr[aria-selected='true'] .share-bar .carried {
   color: var(--ink-muted);
 }
 
+/* Back up when this is plugged in, under a drive's source (ui/src/onArrival.tsx). */
+.on-arrival {
+  grid-column: 1 / -1;
+  margin-top: var(--space-2);
+}
+
+.kept li.source .on-arrival p {
+  margin: var(--space-1) 0 0;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 /* While you were away, at the top of the backup screen (ui/src/away.tsx). */
 .away {
   margin: var(--space-5) 0;

@@ -114,6 +114,7 @@ const BACKED: &[(&str, &[Op])] = &[
     // Backing up by itself.
     ("schedule", &[Op::ScheduleShow]),
     ("away", &[Op::ScheduleAway]),
+    ("source_on_arrival", &[Op::SourcesOnArrival]),
     ("set_schedule", &[Op::ScheduleSet]),
     ("skip_next_run", &[Op::ScheduleSkipNext]),
     ("run_scheduled_now", &[Op::ScheduleRun]),

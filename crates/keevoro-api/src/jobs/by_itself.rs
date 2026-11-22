@@ -134,6 +134,25 @@ impl Keevoro {
         if_due: bool,
         listener: Option<Listener>,
     ) -> Result<JobHandle> {
+        self.start_by_itself(backup, occasion, wait_minutes, if_due, None, listener)
+    }
+
+    /// Backs up by itself because the source `source` was plugged in:
+    /// looks through that source alone, then sends what is new. Waits at
+    /// most `wait_minutes` for a good moment.
+    pub fn run_by_itself_for_source(&self, backup: &Named, source: i64, wait_minutes: u32) -> Result<JobHandle> {
+        self.start_by_itself(backup, Occasion::SourceArrived, wait_minutes, false, Some(source), None)
+    }
+
+    fn start_by_itself(
+        &self,
+        backup: &Named,
+        occasion: Occasion,
+        wait_minutes: u32,
+        if_due: bool,
+        only: Option<i64>,
+        listener: Option<Listener>,
+    ) -> Result<JobHandle> {
         let lock = OneAtATime::take(&self.data)?.ok_or_else(|| Error::busy(ONE_AT_A_TIME))?;
         let ctx = self.context();
         let job = ctx.jobs.begin_by_itself(backup, occasion, listener)?;
@@ -147,6 +166,7 @@ impl Keevoro {
             backup: backup.clone(),
             occasion,
             if_due,
+            only,
             wait: Duration::from_secs(u64::from(wait_minutes) * 60),
             signals: self.signals.clone(),
             window_used: self.window_used.clone(),
@@ -211,6 +231,8 @@ struct Run {
     backup: Named,
     occasion: Occasion,
     if_due: bool,
+    /// Only this source is looked through (one just plugged in).
+    only: Option<i64>,
     wait: Duration,
     signals: Arc<dyn Signals>,
     window_used: Arc<AtomicI64>,
@@ -373,7 +395,7 @@ impl Run {
         }
         let home = &self.backup.home;
         let found_before = found_paths(home);
-        let to_look = looking::what_to_look_again(&self.backup, None, None)
+        let to_look = looking::what_to_look_again(&self.backup, self.only, None)
             .map(|(to_look, _)| to_look)
             .unwrap_or_else(|e| ToLook {
                 passed_over: vec![e.message],

@@ -21,6 +21,7 @@ import { DifferentDriveAsked, PassedOver } from './differentDrive'
 import { ByItselfDetail } from './byItself'
 import { ScheduleCard, useNoteWindowUse } from './schedule'
 import { AwayPanel } from './away'
+import { OnArrival } from './onArrival'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
@@ -1492,6 +1493,9 @@ function FindScreen(props: {
                   <p className="kept-as small">
                     Kept in its own folders, starting with “{s.keptAs}”.{s.sharedSaid && ` ${s.sharedSaid}`}
                   </p>
+                )}
+                {!s.bucket && !s.setAsideFrom && wholePlace(s.root) && removing !== s.id && (
+                  <OnArrival api={api} source={s} onChanged={props.onChanged} onProblem={onProblem} />
                 )}
                 <LeftOutByYou
                   api={api}

@@ -777,6 +777,20 @@ pub fn away(shared: State<'_, Shared>) -> keevoro_api::schedule::AwayView {
     })
 }
 
+/// Whether a source of the open backup is backed up by itself whenever it
+/// is plugged in, and changing it.
+#[tauri::command]
+pub fn source_on_arrival(
+    shared: State<'_, Shared>,
+    source: i64,
+    on: Option<bool>,
+) -> Said<keevoro_api::arrival::OnArrivalView> {
+    shared
+        .keevoro
+        .on_arrival(&open_backup(&shared)?, source, on)
+        .map_err(say)
+}
+
 /// The person pressed Done on "While you were away".
 #[tauri::command]
 pub fn away_seen(shared: State<'_, Shared>) {

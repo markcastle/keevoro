@@ -29,6 +29,7 @@
 pub mod activity;
 pub mod agents;
 pub mod arrange;
+pub mod arrival;
 pub mod backup;
 pub mod backups;
 pub mod bucket_sources;
@@ -530,6 +531,10 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
                 Some(word) => answer(keevoro.set_source_arrangement(&backup, r.source, word.own())?),
                 None => answer(backup.source_arrangement(r.source)?),
             }
+        }
+        Op::SourcesOnArrival => {
+            let r: arrival::OnArrivalRequest = read(request)?;
+            answer(keevoro.on_arrival(&named()?, r.source, r.on)?)
         }
         Op::SourcesWants => {
             let r: wants::SourceWantsRequest = read(request)?;

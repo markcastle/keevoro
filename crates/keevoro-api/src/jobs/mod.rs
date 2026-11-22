@@ -69,6 +69,13 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
 pub use by_itself::{Signals, ThisComputer, LOCK as BY_ITSELF_LOCK, ONE_AT_A_TIME};
+
+/// Whether the source `source` is plugged in and is the drive it was
+/// looked through on: what looking again would look through.
+pub(crate) fn there_as_itself(backup: &crate::backups::Named, source: i64) -> Result<bool> {
+    let (to_look, _) = looking::what_to_look_again(backup, Some(source), None)?;
+    Ok(!to_look.steps.is_empty())
+}
 pub use duplicates::DuplicatesLeft;
 pub use keevoro_core::background::StartFacts;
 pub use looking::OtherDrive;
@@ -234,9 +241,31 @@ pub struct JobHandle {
     pub started_by: FrontEnd,
     /// For a backup that runs by itself, why it started. A field of its
     /// own, never a new word in `job` or `startedBy`, so older programs
-    /// still read the file this is shared in.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// still read the file this is shared in. A word added since the
+    /// field was (a source plugged in) is written as one they know, with
+    /// `pluggedIn` beside it (see [`shared_occasion`]).
+    #[serde(default, skip_serializing_if = "Option::is_none", serialize_with = "shared_occasion")]
     pub by_itself: Option<keevoro_core::unattended::Occasion>,
+    /// True for a backup that started because its source was plugged in,
+    /// which `byItself` says as `runNow` for older programs.
+    #[serde(rename = "pluggedIn", skip_serializing_if = "std::ops::Not::not")]
+    #[serde(default)]
+    plugged_in: bool,
+}
+
+/// Writes why a backup by itself started in words every Keevoro since 0.42
+/// reads: one that does not know a word cannot read the whole job, and
+/// would take its lock for garbled.
+fn shared_occasion<S: serde::Serializer>(
+    occasion: &Option<keevoro_core::unattended::Occasion>,
+    s: S,
+) -> std::result::Result<S::Ok, S::Error> {
+    use keevoro_core::unattended::Occasion;
+    let known = occasion.map(|o| match o {
+        Occasion::SourceArrived => Occasion::RunNow,
+        other => other,
+    });
+    serde::Serialize::serialize(&known, s)
 }
 
 /// A [`JobHandle`] as another program wrote it down.
@@ -251,6 +280,8 @@ struct HandleRead {
     started_by: FrontEnd,
     #[serde(default)]
     by_itself: Option<keevoro_core::unattended::Occasion>,
+    #[serde(default)]
+    plugged_in: bool,
 }
 
 impl<'de> Deserialize<'de> for JobHandle {
@@ -265,7 +296,13 @@ impl<'de> Deserialize<'de> for JobHandle {
             backup: read.backup,
             started_at: read.started_at,
             started_by: read.started_by,
-            by_itself: read.by_itself,
+            by_itself: match read.by_itself {
+                Some(keevoro_core::unattended::Occasion::RunNow) if read.plugged_in => {
+                    Some(keevoro_core::unattended::Occasion::SourceArrived)
+                }
+                other => other,
+            },
+            plugged_in: read.plugged_in,
         })
     }
 }
@@ -687,6 +724,7 @@ impl Jobs {
                     (None, None) => kind.op().map(Op::name),
                 },
                 by_itself,
+                plugged_in: by_itself == Some(keevoro_core::unattended::Occasion::SourceArrived),
                 backup: backup.map(|b| JobBackup {
                     id: b.id.clone(),
                     name: b.name.clone(),

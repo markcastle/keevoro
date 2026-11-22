@@ -78,6 +78,7 @@ fn running(kind: JobKind) -> status::Running {
                 started_at: 1,
                 started_by: FrontEnd::CommandLine,
                 by_itself: None,
+                plugged_in: false,
             },
             step: "Backing up".into(),
             line: "Backing up".into(),
@@ -602,4 +603,40 @@ fn a_backup_running_by_itself_is_read_by_an_older_program_as_a_backup() {
     let now: JobStatus = serde_json::from_value(written).unwrap();
     assert_eq!(now.handle.by_itself, Some(keevoro_core::unattended::Occasion::Schedule));
     assert_eq!(now.handle.op, Some("schedule.run"));
+}
+
+#[test]
+fn a_backup_started_by_its_source_being_plugged_in_is_read_by_a_0_42_program_as_run_now() {
+    use keevoro_core::unattended::Occasion;
+    /// The handle as 0.42 to 0.48 read it, knowing four reasons only.
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    #[allow(dead_code)]
+    struct HandleV1 {
+        id: JobId,
+        job: JobKind,
+        started_by: FrontEnd,
+        #[serde(default)]
+        by_itself: Option<OccasionV1>,
+    }
+    #[derive(serde::Deserialize, Debug, PartialEq)]
+    #[serde(rename_all = "camelCase")]
+    enum OccasionV1 {
+        Schedule,
+        CatchUp,
+        RunNow,
+        CommandLine,
+    }
+    let mut arrived = running(JobKind::BackUp);
+    arrived.status.handle.by_itself = Some(Occasion::SourceArrived);
+    arrived.status.handle.plugged_in = true;
+    let written = serde_json::to_value(&arrived.status).unwrap();
+    assert_eq!(
+        (written["byItself"].clone(), written["pluggedIn"].clone()),
+        ("runNow".into(), true.into())
+    );
+    let old: HandleV1 = serde_json::from_value(written.clone()).unwrap();
+    assert_eq!(old.by_itself, Some(OccasionV1::RunNow));
+    let now: JobStatus = serde_json::from_value(written).unwrap();
+    assert_eq!(now.handle.by_itself, Some(Occasion::SourceArrived));
 }

@@ -484,6 +484,15 @@ fn the_screens_commands_start_the_apis_jobs_and_their_events_reach_the_window() 
         (Some("folders"), Some(true))
     );
     let id = discover["sources"][0]["id"].as_i64().unwrap();
+    // Backing it up when it is plugged in: off unless asked, and said in
+    // the list of sources once on.
+    let arrival = invoke(&window, "source_on_arrival", json!({ "source": id, "on": true })).unwrap();
+    fits(&arrival, "OnArrivalView");
+    assert_eq!(arrival["on"], true);
+    let listed = invoke(&window, "discover", json!({})).unwrap();
+    assert_eq!(listed["sources"][0]["onArrival"], true);
+    let arrival = invoke(&window, "source_on_arrival", json!({ "source": id, "on": false })).unwrap();
+    assert_eq!(arrival["on"], false);
     let source = invoke(&window, "set_source_arrange", json!({ "id": id, "arrange": "byDate" })).unwrap();
     fits(&source, "SourceArrangeView");
     fits(

@@ -7,6 +7,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 pub mod arrange;
+pub mod arrival;
 pub mod background;
 pub mod bucket;
 pub mod collections;

@@ -1367,6 +1367,24 @@ try {
   await quitAsked.getByRole('button', { name: 'Keep it running' }).click()
   await quitAsked.waitFor({ state: 'detached' })
 
+  // --- A drive can be backed up by itself whenever it is plugged in: off
+  // unless the person turns it on, its words beside its switch.
+  await page.goto(`${base}/?fast`)
+  await page.getByRole('button', { name: /^Find your photos/ }).click()
+  await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
+  const whenPluggedIn = page.getByRole('switch', { name: /^Back up .* when it is plugged in$/ })
+  assert.equal(await whenPluggedIn.getAttribute('aria-checked'), 'false', 'off unless asked')
+  await whenPluggedIn.click()
+  await page.getByText('A few seconds after it is plugged in, Keevoro backs it up by itself and tells you, while Keevoro is running.').waitFor()
+  assert.equal(await whenPluggedIn.getAttribute('aria-checked'), 'true')
+  assert.deepEqual(await centredOnSwitch(whenPluggedIn), [], 'its words beside the switch, with no box around them')
+  await page.locator('.kept li.source').first().scrollIntoViewIfNeeded()
+  await shot('3d-back-up-when-plugged-in')
+  await fitsNarrow('A source backed up when it is plugged in')
+  await narrowShots('3d-back-up-when-plugged-in', page.locator('.on-arrival'))
+  await whenPluggedIn.click()
+  await page.getByText('A few seconds after it is plugged in').waitFor({ state: 'detached' })
+
   // --- Looking again with a source's card in a drawer passes it over and
   // says so: what was found on it is kept.
   await page.goto(`${base}/?drives=away&fast`)

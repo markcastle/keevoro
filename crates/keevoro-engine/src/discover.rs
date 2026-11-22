@@ -82,6 +82,9 @@ pub struct SourceView {
     /// The same in words.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub set_aside_said: Option<String>,
+    /// True when it is backed up by itself whenever it is plugged in.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub on_arrival: bool,
 }
 
 /// What is said of a source set aside, kept until its own drive is back.
@@ -530,6 +533,11 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
                 .and_then(|m| m.was_at)
                 .map(|at| friendly_path(Path::new(&at)));
             SourceView {
+                on_arrival: catalog
+                    .setting(&keevoro_core::arrival::key(&s.root))
+                    .ok()
+                    .flatten()
+                    .is_some_and(|v| v.trim() == "go"),
                 set_aside_said: set_aside_from.as_deref().map(set_aside_words),
                 set_aside_from,
                 arrange: choices

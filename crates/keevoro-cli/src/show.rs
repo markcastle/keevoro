@@ -1364,6 +1364,19 @@ pub fn last_word(io: &mut Io<'_>, last: Option<&Said>) -> std::io::Result<()> {
 }
 
 /// When a backup backs up by itself, when next, and its last few runs.
+/// `keevoro sources on-arrival`.
+pub fn on_arrival(io: &mut Io<'_>, _: &ArgMatches, view: &Value) -> Said_ {
+    if view.get("on").and_then(Value::as_bool) == Some(true) {
+        writeln!(
+            io.out,
+            "Backed up by itself whenever it is plugged in, while the Keevoro app is running."
+        )?;
+    } else {
+        writeln!(io.out, "Not backed up by itself when it is plugged in.")?;
+    }
+    Ok(Code::Worked)
+}
+
 /// `keevoro away`: what every backup did by itself, as "While you were
 /// away" says it.
 pub fn away(io: &mut Io<'_>, _: &ArgMatches, view: &Value) -> Said_ {

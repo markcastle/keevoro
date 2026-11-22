@@ -642,3 +642,36 @@ fn files_0_37_1_found_have_no_time_kept_and_the_next_look_keeps_one() {
     assert_eq!(after.len(), 1, "{after:?}");
     assert!(after[0].modified.is_some());
 }
+
+/// Backing up a source when it is plugged in (0.49) is a choice kept in
+/// each backup's catalog, `arrival:<root>`. No source 0.37.1 kept has it,
+/// so none is backed up when plugged in until the person asks.
+#[test]
+fn no_source_0_37_1_kept_is_backed_up_when_plugged_in_until_asked() {
+    let dir = tempfile::tempdir().unwrap();
+    let (keevoro, places) = as_0_37_1_left_it(dir.path());
+    for source in [1, 2] {
+        let shown = ask(
+            &keevoro,
+            Op::SourcesOnArrival,
+            Some("Family photos"),
+            json!({ "source": source }),
+        );
+        assert_eq!(shown, json!({ "source": source, "on": false }));
+    }
+    assert!(keevoro.notice_arrivals().is_empty());
+    let settings = places.folders.config.join("settings.json");
+    let before = std::fs::read_to_string(&settings).unwrap();
+    let on = ask(
+        &keevoro,
+        Op::SourcesOnArrival,
+        Some("Family photos"),
+        json!({ "source": 1, "on": true }),
+    );
+    assert_eq!(on["on"], true);
+    assert_eq!(
+        std::fs::read_to_string(&settings).unwrap(),
+        before,
+        "nothing in the settings file"
+    );
+}

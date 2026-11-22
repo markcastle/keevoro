@@ -274,6 +274,8 @@ pub struct Keevoro {
     pub(crate) window_used: Arc<std::sync::atomic::AtomicI64>,
     /// What the scheduler knows of each backup's schedule between looks.
     pub(crate) schedules: Arc<crate::schedule::Known>,
+    /// What the watch for sources plugged in keeps between looks.
+    pub(crate) arrivals: Arc<crate::arrival::Arrivals>,
     /// The time and time zone, for schedules: the computer's, or a test's.
     pub(crate) clock: Arc<dyn crate::schedule::Clock>,
     /// When a pause for a while ends by itself, in seconds since 1970;
@@ -310,6 +312,7 @@ impl Keevoro {
             signals: Arc::new(crate::jobs::ThisComputer::default()),
             window_used: Arc::default(),
             schedules: Arc::default(),
+            arrivals: Arc::default(),
             clock: Arc::new(crate::schedule::SystemClock),
             paused_until: Arc::default(),
         };

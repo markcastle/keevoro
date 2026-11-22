@@ -564,6 +564,23 @@ pub static ROWS: &[Row] = &[
         show: show::said,
     },
     Row {
+        words: &["sources", "on-arrival"],
+        ops: &[Op::SourcesOnArrival],
+        about: Some(
+            "Whether a source (a card or a drive) is backed up by itself whenever it is plugged in, while the Keevoro app is running. Give on or off to change it; it is off unless you turn it on. Keevoro waits a few seconds after it is plugged in, backs it up at most once in ten minutes, never while paused, and never a different drive at the same place.",
+        ),
+        args: |c| {
+            c.arg(arg("source", "The source's number, place or name").required(true))
+                .arg(arg("on", "on or off").value_parser(["on", "off"]))
+        },
+        ask: |c, m, _| {
+            let source = source(c, &required(m, "source"))?;
+            let on = text(m, "on").map(|w| w == "on");
+            Ok((Op::SourcesOnArrival, json!({ "source": source, "on": on })))
+        },
+        show: show::on_arrival,
+    },
+    Row {
         words: &["sources", "wants"],
         ops: &[Op::SourcesWants],
         about: Some(

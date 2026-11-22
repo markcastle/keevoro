@@ -571,6 +571,22 @@ fn a_backup_run_by_itself_for_a_system_scheduler_says_in_its_exit_code_what_happ
     assert_eq!(away.code, Code::Worked, "{}", away.err);
     assert!(away.out.starts_with("Card photos\n  "), "{}", away.out);
     assert!(away.out.contains("Safely backed up"), "{}", away.out);
+    // Backing up when its card is plugged in: off unless asked.
+    let asked = at.keevoro(&["sources", "on-arrival", "1"]);
+    assert_eq!(
+        asked.out.trim(),
+        "Not backed up by itself when it is plugged in.",
+        "{}",
+        asked.err
+    );
+    let on = at.keevoro(&["sources", "on-arrival", "1", "on"]);
+    assert!(
+        on.out.starts_with("Backed up by itself whenever it is plugged in"),
+        "{}{}",
+        on.out,
+        on.err
+    );
+    at.keevoro(&["sources", "on-arrival", "1", "off"]);
 
     // With --if-due, only when its schedule says so: none yet, then not
     // due, as saving a schedule never runs it at once.
