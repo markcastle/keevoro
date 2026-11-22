@@ -760,6 +760,8 @@ impl Catalog {
                 .execute("DELETE FROM settings WHERE key = ?1", [online_only_key(root)])?;
             self.conn
                 .execute("DELETE FROM settings WHERE key = ?1", [mark_key(root)])?;
+            self.conn
+                .execute("DELETE FROM settings WHERE key = ?1", [notes::elsewhere_key(root)])?;
         }
         Ok(self.conn.execute("DELETE FROM sources WHERE id = ?1", [id])? > 0)
     }
@@ -1860,6 +1862,12 @@ fn to_name<T: Serialize>(value: &T) -> Result<String> {
 fn from_name<T: DeserializeOwned>(name: &str) -> Result<T> {
     serde_json::from_value(serde_json::Value::String(name.to_string())).map_err(|_| damaged(format!("unknown {name}")))
 }
+
+mod notes;
+pub use notes::{
+    elsewhere_key, Elsewhere, Noted, NotedFile, NotedFound, NotedPreview, NotedSource, NotedVideo, NOTES_ID,
+    SETTINGS_THAT_TRAVEL,
+};
 
 #[cfg(test)]
 mod tests;
