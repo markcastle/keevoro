@@ -56,6 +56,22 @@ await page.route(STRATUS, (route) => {
   if (stratusOffline) return route.abort('internetdisconnected')
   return route.fulfill({ status: 200, contentType: 'text/html', body: fakeStratus })
 })
+// Keevoro's reports service is never reached for real either. A stand-in
+// answers at its address as `reportsService` says, as the real one does to
+// the window (any origin may ask), and otherwise the address does not
+// answer at all. What the window asked of it is noted.
+const REPORTS = /^https:\/\/reports\.keevoro\.com\//
+const reportsAsked = []
+let reportsService = null
+await page.route(REPORTS, (route) => {
+  const request = route.request()
+  const open = { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET, POST, OPTIONS', 'access-control-allow-headers': 'content-type' }
+  if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: open })
+  reportsAsked.push({ method: request.method(), url: request.url(), body: request.postData(), cookie: request.headers().cookie })
+  if (!reportsService) return route.abort('internetdisconnected')
+  const { status, answer } = reportsService(request)
+  return route.fulfill({ status, headers: { ...open, 'content-type': 'application/json' }, body: JSON.stringify(answer) })
+})
 const problems = []
 page.on('pageerror', (error) => problems.push(String(error)))
 page.on('console', (message) => message.type() === 'error' && problems.push(message.text()))
@@ -2716,6 +2732,62 @@ try {
   await page.getByLabel('Search Settings').fill('feedback')
   assert.match(await page.getByRole('list', { name: 'Settings found' }).locator('li').first().innerText(), /^Report a problem or suggest an idea\s+Help$/)
   await page.getByLabel('Search Settings').fill('')
+
+  // --- On a work computer whose proxy Keevoro cannot use, Keevoro cannot
+  // reach the reports service, so the window sends the very same text
+  // itself, through the system's own network settings, and Keevoro keeps
+  // the reference as if it had sent it. It asks after reports the same way.
+  const WINDOW_TOKEN = '89abcdef0123456789abcdef0123456789abcdef'
+  reportsService = (request) =>
+    request.method() === 'POST'
+      ? { status: 201, answer: { ok: true, reference: 'K-2001', token: WINDOW_TOKEN } }
+      : { status: 200, answer: { ok: true, reference: 'K-2001', status: 'started' } }
+  await page.goto(`${base}/?fast&reportUnreachable&page=settings/help`)
+  await page.getByRole('button', { name: 'Report a problem or suggest an idea' }).click()
+  await page.getByLabel('What happened?').fill('Sending a report sat on Sending.')
+  await page.getByText('See exactly what will be sent').click()
+  await page.waitForFunction(() => document.querySelector('.report-preview pre')?.textContent.includes('Sending a report'))
+  const shownThroughWindow = await sentText()
+  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await page.getByText('Thank you. Your reference is K-2001.').waitFor()
+  const posted = reportsAsked.filter((r) => r.method === 'POST')
+  assert.equal(posted.length, 1)
+  assert.equal(posted[0].url, 'https://reports.keevoro.com/v1/reports')
+  assert.equal(posted[0].body, shownThroughWindow, 'exactly what was shown')
+  assert.equal(posted[0].cookie, undefined, 'nothing of the window’s own')
+  await page.waitForFunction(() => /K-2001/.test(document.querySelector('#setting-yourReports')?.textContent ?? ''))
+  await shot('13-report-sent-through-the-window')
+  // Asked after through the window too, next time the page opens.
+  await page.getByRole('button', { name: '‹ Back', exact: true }).click()
+  await page.getByRole('button', { name: 'Report a problem or idea' }).click()
+  await page.locator('#setting-yourReports li', { hasText: 'K-2001' }).getByText('Being worked on').waitFor()
+  assert.ok(
+    reportsAsked.some((r) => r.method === 'GET' && r.url === `https://reports.keevoro.com/v1/reports/K-2001?token=${WINDOW_TOKEN}`),
+    'asked after with its token',
+  )
+  // Keevoro said it couldn't check; once the window has, it no longer says so.
+  await page.getByText('Couldn’t check just now.').waitFor({ state: 'detached' })
+
+  // Neither way reaches it: the words stay, with why in plain words.
+  reportsService = null
+  const beforeOffline = problems.length
+  await page.goto(`${base}/?fast&reportUnreachable&page=settings/help`)
+  await page.getByRole('button', { name: 'Report a problem or suggest an idea' }).click()
+  await page.getByLabel('What happened?').fill('Sending a report sat on Sending.')
+  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  const unreached = page.getByRole('alert').filter({ hasText: 'Your report wasn’t sent.' })
+  await unreached.waitFor()
+  assert.match(await unreached.innerText(), /Couldn’t reach Keevoro’s reports service just now\. Check this computer is online, then try again\./)
+  assert.equal(
+    await unreached.locator('.report-why').innerText(),
+    'This computer’s network would not let Keevoro connect securely, as some work and school networks do.',
+  )
+  assert.equal(await page.getByLabel('What happened?').inputValue(), 'Sending a report sat on Sending.', 'their words are kept')
+  await page.getByRole('button', { name: 'Try again' }).waitFor()
+  await shot('13-report-unreachable')
+  await fitsNarrow('A report that could not be sent either way')
+  // The browser notes the address that did not answer; that was the point.
+  problems.splice(beforeOffline, problems.length - beforeOffline, ...problems.slice(beforeOffline).filter((p) => !/ERR_INTERNET_DISCONNECTED|Failed to load resource|reports\.keevoro\.com/.test(p)))
 
   assert.deepEqual(problems, [], 'the browser reported no errors')
   console.log(`UI test passed. Screenshots are in ${shots}`)

@@ -589,6 +589,18 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
             read::<Nothing>(request)?;
             answer(keevoro.refresh_reports())
         }
+        Op::ReportsNote => {
+            let r: reports::NoteReportRequest = read(request)?;
+            answer(keevoro.note_report(&r)?)
+        }
+        Op::ReportsAsking => {
+            read::<Nothing>(request)?;
+            answer(keevoro.reports_asking())
+        }
+        Op::ReportsHeard => {
+            let r: reports::HeardRequest = read(request)?;
+            answer(keevoro.reports_heard(&r))
+        }
         Op::KeevoroSettings => {
             let r: SettingsRequest = read(request)?;
             match r.own_codecs {

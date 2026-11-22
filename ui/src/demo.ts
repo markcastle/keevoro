@@ -54,6 +54,7 @@ import type {
 } from './backend'
 import { count, size } from './format'
 import { PictureQueue, fileKey } from './pictureQueue'
+import { ReportNotSent } from './reportsWindow'
 
 const SCENES: [string, string, string][] = [
   ['#7ec8e3', '#f6d365', '#2e7d6b'], // beach
@@ -913,6 +914,8 @@ export function demoBackend(): Backend {
   const later = (ms: number) => new Promise((done) => setTimeout(done, ms))
   // Reports sent from this computer, newest first: two from before.
   let reportRefused = false
+  // The tokens the window was given for reports it sent itself.
+  const tokens = new Map<string, string>()
   const reportsSent: ReportListed[] = [
     {
       reference: 'K-1041',
@@ -1674,7 +1677,10 @@ export function demoBackend(): Backend {
     openLog: async () => {},
     // Reports to Keevoro's maker. `?reportFails` refuses the first one sent,
     // as the service does when too many come from one computer, and
-    // `?reportsOffline` cannot ask after them.
+    // `?reportsOffline` cannot ask after them. `?reportUnreachable` cannot
+    // reach the service at all, as on a work computer whose proxy Keevoro
+    // cannot use, so the window sends it and asks after them itself (the UI
+    // test stands in for the service; nothing is sent anywhere real).
     async prepareReport(request) {
       const message = request.message.trim()
       if (!message) throw new Error(request.kind === 'problem' ? 'Say what went wrong first.' : 'Say what your idea is first.')
@@ -1697,10 +1703,17 @@ export function demoBackend(): Backend {
         logTail: request.withLog ? log : undefined,
         contact,
       }
-      return { body: JSON.stringify(report, null, 2) }
+      return { body: JSON.stringify(report, null, 2), sendTo: 'https://reports.keevoro.com' }
     },
     async sendReport(prepared) {
       await later(300 * pace)
+      if (opening.has('reportUnreachable')) {
+        throw new ReportNotSent(
+          'Couldn’t reach Keevoro’s reports service just now. Check this computer is online, then try again.',
+          true,
+          'This computer’s network would not let Keevoro connect securely, as some work and school networks do.',
+        )
+      }
       if (opening.has('reportFails') && !reportRefused) {
         reportRefused = true
         throw new Error('That’s a lot of reports from one computer today. Please try again tomorrow.')
@@ -1717,9 +1730,44 @@ export function demoBackend(): Backend {
       })
       return { reference, said: `Thank you. Your reference is ${reference}.` }
     },
+    async noteReport(prepared, reference, token) {
+      if (!/^K-\d{1,12}$/.test(reference) || !/^[0-9a-f]{40}$/.test(token)) {
+        throw new Error('That isn’t an answer from Keevoro’s reports service, so the report isn’t noted.')
+      }
+      const report = JSON.parse(prepared) as { kind: 'problem' | 'idea'; message: string }
+      reportsSent.unshift({
+        reference,
+        kind: report.kind,
+        firstLine: report.message.split('\n')[0].slice(0, 80),
+        sentAt: Math.floor(Date.now() / 1000),
+        status: 'new',
+        statusSaid: 'Received',
+      })
+      tokens.set(reference, token)
+      return { reference, said: `Thank you. Your reference is ${reference}.` }
+    },
+    reportsAsking: async () => ({
+      sendTo: 'https://reports.keevoro.com',
+      reports: opening.has('reportUnreachable')
+        ? reportsSent.filter((r) => tokens.has(r.reference)).map((r) => ({ reference: r.reference, token: tokens.get(r.reference) ?? '' }))
+        : [],
+    }),
+    async reportsHeard(heard, all) {
+      for (const { reference, answer } of heard) {
+        const said = answer as { ok?: boolean; reference?: string; status?: string; shippedIn?: string; note?: string }
+        const kept = reportsSent.find((r) => r.reference === reference)
+        if (!kept || said.ok !== true || (said.reference && said.reference !== reference)) continue
+        kept.status = said.status ?? kept.status
+        kept.shippedIn = said.shippedIn
+        kept.note = said.note
+        kept.statusSaid =
+          said.status === 'shipped' ? `Done in version ${said.shippedIn ?? ''}`.trim() : said.status === 'new' ? 'Received' : 'Being worked on'
+      }
+      return all ? { reports: reportsSent.slice(), checked: true } : { reports: reportsSent.slice(), checked: false, said: 'Couldn’t check just now.' }
+    },
     reports: async () => ({ reports: reportsSent.slice(), checked: false }),
     refreshReports: async () =>
-      opening.has('reportsOffline')
+      opening.has('reportsOffline') || opening.has('reportUnreachable')
         ? { reports: reportsSent.slice(), checked: false, said: 'Couldn’t check just now.' }
         : { reports: reportsSent.slice(), checked: true },
     checkUpdate: async () =>

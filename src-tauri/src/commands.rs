@@ -1184,13 +1184,48 @@ pub async fn prepare_report<R: Runtime>(
 }
 
 /// Sends a report exactly as it was prepared and shown. It waits on the
-/// network, so never on the window's thread.
+/// network, so never on the window's thread. Not sent, it says whether
+/// the service could not be reached at all, so the window can send it
+/// itself, and why in plain words.
 #[tauri::command]
-pub async fn send_report<R: Runtime>(app: AppHandle<R>, prepared: String) -> Said<keevoro_api::reports::Sent> {
-    tauri::async_runtime::spawn_blocking(move || app.state::<Shared>().keevoro.send_report(&prepared))
+pub async fn send_report<R: Runtime>(
+    app: AppHandle<R>,
+    prepared: String,
+) -> Result<keevoro_api::reports::Sent, keevoro_api::reports::NotSent> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<Shared>().keevoro.send_report_saying_why(&prepared))
         .await
-        .map_err(say)?
-        .map_err(say)
+        .map_err(|e| keevoro_api::reports::NotSent {
+            error: keevoro_api::Error {
+                kind: keevoro_api::Kind::Failed,
+                message: say(e),
+            },
+            cause: None,
+        })?
+}
+
+/// Keeps a report the window sent itself, with the service's answer.
+#[tauri::command]
+pub fn note_report(
+    shared: State<'_, Shared>,
+    request: keevoro_api::reports::NoteReportRequest,
+) -> Said<keevoro_api::reports::Sent> {
+    shared.keevoro.note_report(&request).map_err(say)
+}
+
+/// Where reports go, and the newest with their tokens, for the window to
+/// ask after them itself when Keevoro cannot.
+#[tauri::command]
+pub fn reports_asking(shared: State<'_, Shared>) -> keevoro_api::reports::Asking {
+    shared.keevoro.reports_asking()
+}
+
+/// Notes how reports are getting on, as the window heard.
+#[tauri::command]
+pub fn reports_heard(
+    shared: State<'_, Shared>,
+    request: keevoro_api::reports::HeardRequest,
+) -> keevoro_api::reports::ReportsView {
+    shared.keevoro.reports_heard(&request)
 }
 
 /// The reports sent from this computer, as last heard of.

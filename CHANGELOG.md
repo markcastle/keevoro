@@ -28,6 +28,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- **Sending a report from a work computer.** On some work and school computers a report sat on "Sending…" for a long while and then said Keevoro couldn't reach its reports service, though the computer was online. Keevoro now goes through the proxy such a computer is set to use (on Windows, the one in its Internet settings, and anywhere, the one in `HTTPS_PROXY`), waits less before trying another way, and when it still cannot get through, the Keevoro window sends the very same report itself, through the computer's own network settings, as a web page would. It asks after your reports the same way. If neither way gets through, your words stay, and a quiet line says why where it can tell, such as "This computer's network would not let Keevoro connect securely, as some work and school networks do."; the reason is in Keevoro's log too.
+
 - **Looking through a source again keeps its name.** Pressing Look again on a source with a name of its own, such as "Mum's card", could rename it after its folder ("Card"). Its name is now kept however it is looked through again: Look again, adding the same place again, a backup by itself on its schedule or when the card is plugged in, and a source set aside for another card and brought back. The screen and a backup's record of what it looked through say its own name too. A name already lost this way can't be brought back; the source is otherwise just as it was.
 
 ## [0.48.0] - 2026-11-22

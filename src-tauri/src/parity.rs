@@ -70,6 +70,10 @@ const BACKED: &[(&str, &[Op])] = &[
     ("send_report", &[Op::ReportsSend]),
     ("reports", &[Op::ReportsList]),
     ("refresh_reports", &[Op::ReportsRefresh]),
+    // When Keevoro cannot reach the reports service, the window does.
+    ("note_report", &[Op::ReportsNote]),
+    ("reports_asking", &[Op::ReportsAsking]),
+    ("reports_heard", &[Op::ReportsHeard]),
     ("acceleration", &[Op::KeevoroSettings]),
     ("set_acceleration", &[Op::KeevoroSettings]),
     // What an AI agent may do: for the person, never the agent.

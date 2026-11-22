@@ -323,6 +323,15 @@ register! {
     ReportsRefresh = "reports.refresh",
         "Asks how each report sent from this computer is getting on",
         changes: Always, job: false, command_line: true, agents: Agents::No, implemented: true;
+    ReportsNote = "reports.note",
+        "Keeps a report the app's window sent itself, when Keevoro could not, as one sent from here",
+        changes: Always, job: false, command_line: false, agents: Agents::No, implemented: true;
+    ReportsAsking = "reports.asking",
+        "Where reports go, and what lets the app's window ask after the newest itself",
+        changes: Never, job: false, command_line: false, agents: Agents::No, implemented: true;
+    ReportsHeard = "reports.heard",
+        "Notes how each report is getting on, as the app's window heard when Keevoro could not ask",
+        changes: Always, job: false, command_line: false, agents: Agents::No, implemented: true;
 
     // The kinds of file looked for
     FileKindsList = "file_kinds.list",
@@ -400,6 +409,9 @@ impl Op {
                 | Op::ReportsSend
                 | Op::ReportsList
                 | Op::ReportsRefresh
+                | Op::ReportsNote
+                | Op::ReportsAsking
+                | Op::ReportsHeard
                 | Op::DestinationsTidy
                 | Op::FileKindsList
                 | Op::FileKindsAdd
@@ -490,6 +502,8 @@ impl Op {
             Op::KeevoroLog => schema::<LogRequest>(),
             Op::ReportsPrepare => schema::<crate::reports::PrepareReportRequest>(),
             Op::ReportsSend => schema::<crate::reports::SendReportRequest>(),
+            Op::ReportsNote => schema::<crate::reports::NoteReportRequest>(),
+            Op::ReportsHeard => schema::<crate::reports::HeardRequest>(),
             Op::KeevoroSettings => schema::<SettingsRequest>(),
             Op::AgentsAccess => schema::<Agents>(),
             Op::BackupHistory => schema::<HistoryRequest>(),
@@ -533,6 +547,7 @@ impl Op {
             | Op::FileKindsReset
             | Op::ReportsList
             | Op::ReportsRefresh
+            | Op::ReportsAsking
             | Op::PlacesForgetMaps => schema::<Nothing>(),
         }
     }
@@ -877,6 +892,9 @@ impl Op {
             | Op::ReportsSend
             | Op::ReportsList
             | Op::ReportsRefresh
+            | Op::ReportsNote
+            | Op::ReportsAsking
+            | Op::ReportsHeard
             | Op::PlacesForgetMaps => return None,
         };
         Some(Tool { name, tells })
@@ -929,7 +947,7 @@ mod tests {
 
     #[test]
     fn the_register_has_every_operation_in_the_plan() {
-        assert_eq!(Op::ALL.len(), 75);
+        assert_eq!(Op::ALL.len(), 78);
         // Each entry is the one for its own operation.
         for op in Op::ALL {
             assert_eq!(op.entry().op, *op);
@@ -1023,6 +1041,9 @@ mod tests {
             Op::ReportsSend,
             Op::ReportsList,
             Op::ReportsRefresh,
+            Op::ReportsNote,
+            Op::ReportsAsking,
+            Op::ReportsHeard,
         ]
         .into();
         assert_eq!(kept_from_agents, plan);
@@ -1050,8 +1071,17 @@ mod tests {
 
     #[test]
     fn the_command_line_offers_everything() {
+        // Except what only the app's window can do: reaching the reports
+        // service through the system's own network settings when Keevoro
+        // cannot. The command line has no window to send through.
+        let window_only = [Op::ReportsNote, Op::ReportsAsking, Op::ReportsHeard];
         for entry in entries() {
-            assert!(entry.command_line, "{} is missing from the command line", entry.name);
+            assert_eq!(
+                entry.command_line,
+                !window_only.contains(&entry.op),
+                "{} is missing from the command line",
+                entry.name
+            );
         }
     }
 

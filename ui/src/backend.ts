@@ -11,6 +11,7 @@
 
 import { demoBackend } from './demo'
 import { PictureQueue, fileKey, photoKey } from './pictureQueue'
+import { notSent } from './reportsWindow'
 
 export type Photo = {
   id: string
@@ -1097,8 +1098,11 @@ export type ReportRequest = {
   screen: string
 }
 
-/** A report made and not yet sent: `body` is exactly what will go. */
-export type PreparedReport = { body: string }
+/** A report made and not yet sent: `body` is exactly what will go, and `sendTo` where. */
+export type PreparedReport = { body: string; sendTo: string }
+
+/** For the window alone: where reports go, and the newest with what lets it ask after them. */
+export type ReportsAsking = { sendTo: string; reports: { reference: string; token: string }[] }
 
 /** A report sent: its reference, and the thank you to say. */
 export type SentReport = { reference: string; said: string }
@@ -1258,8 +1262,18 @@ export interface Backend {
   openLog(): Promise<void>
   /** A report of a problem or an idea, made exactly as it would be sent. Nothing is sent. */
   prepareReport(request: ReportRequest): Promise<PreparedReport>
-  /** Sends a report exactly as `prepareReport` made it. */
+  /**
+   * Sends a report exactly as `prepareReport` made it. Not sent, it fails
+   * with a `ReportNotSent`, which says whether the service could not be
+   * reached at all, and why.
+   */
   sendReport(prepared: string): Promise<SentReport>
+  /** Keeps a report the window sent itself, with the service's answer, as one sent from here. */
+  noteReport(prepared: string, reference: string, token: string): Promise<SentReport>
+  /** For the window to ask after reports itself when Keevoro cannot. */
+  reportsAsking(): Promise<ReportsAsking>
+  /** Notes what the window heard of each report; `all` when every one asked about answered. */
+  reportsHeard(heard: { reference: string; answer: unknown }[], all: boolean): Promise<ReportsView>
   /** The reports sent from this computer, as last heard of. Nothing is asked. */
   reports(): Promise<ReportsView>
   /** Asks how each report sent from this computer is getting on. */
@@ -1452,7 +1466,13 @@ async function tauriBackend(): Promise<Backend> {
     logTail: () => invoke('log_tail'),
     openLog: () => invoke('open_log'),
     prepareReport: (request) => invoke('prepare_report', { request }),
-    sendReport: (prepared) => invoke('send_report', { prepared }),
+    sendReport: (prepared) =>
+      invoke<SentReport>('send_report', { prepared }).catch((said: unknown) => {
+        throw notSent(said)
+      }),
+    noteReport: (prepared, reference, token) => invoke('note_report', { request: { prepared, reference, token } }),
+    reportsAsking: () => invoke('reports_asking'),
+    reportsHeard: (heard, all) => invoke('reports_heard', { request: { heard, all } }),
     reports: () => invoke('reports'),
     refreshReports: () => invoke('refresh_reports'),
     checkUpdate: () => invoke('check_update'),

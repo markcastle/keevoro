@@ -11,6 +11,16 @@
 //! set (for tests, which never reach the real one). Nothing is ever sent
 //! unless the person sends it: an AI agent cannot.
 //!
+//! A work computer may reach the internet only through a proxy, or look
+//! inside secure connections. Keevoro goes through the proxy named in
+//! `HTTPS_PROXY` (or `ALL_PROXY`, minding `NO_PROXY`) and, on Windows, the
+//! one set in its Internet settings. When it still cannot reach the
+//! service, the app's window, which goes through the system's own network
+//! settings, sends the very same text and hands back the answer
+//! (`reports.note`), and asks after reports the same way (`reports.asking`
+//! and `reports.heard`). Why it could not be reached is logged and said in
+//! plain words; a report and its token never are.
+//!
 //! The reports sent from this computer are kept in a file of their own,
 //! `reports.json` in Keevoro's config folder, never in `settings.json`
 //! (older versions write that back without parts they do not know). Each
@@ -37,8 +47,11 @@ pub const KEPT_ASIDE: &str = "reports that could not be read.json";
 const USUAL_ADDRESS: &str = "https://reports.keevoro.com";
 /// Set, the address reports go to instead: for tests.
 pub const ADDRESS_VARIABLE: &str = "KEEVORO_REPORTS_URL";
-/// How long to wait for the reports service before giving up.
+/// How long to wait for the reports service before giving up, so the
+/// window can try soon after.
 const WAIT: Duration = Duration::from_secs(15);
+/// How long to wait for a connection to it.
+const CONNECT_WAIT: Duration = Duration::from_secs(6);
 /// How many lines of the log are read before the report cuts it to size.
 const LOG_LINES: usize = 3_000;
 /// How many of the newest reports are asked after each time.
@@ -98,6 +111,71 @@ pub struct SendReportRequest {
 #[serde(rename_all = "camelCase")]
 pub struct Prepared {
     pub body: String,
+    /// Where it goes, for the window to send it itself when Keevoro
+    /// cannot reach it.
+    pub send_to: String,
+}
+
+/// `reports.note`: a report the app's window sent itself, with what the
+/// service answered.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NoteReportRequest {
+    /// The report exactly as `reports.prepare` gave it, as it was sent.
+    pub prepared: String,
+    /// The reference the service gave it, such as `K-1042`.
+    pub reference: String,
+    /// The token the service gave with it.
+    pub token: String,
+}
+
+/// `reports.heard`: what the app's window heard of the reports
+/// `reports.asking` gave it.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HeardRequest {
+    /// Each answer, as the service gave it.
+    pub heard: Vec<HeardOne>,
+    /// True when every report asked about was answered.
+    #[serde(default)]
+    pub all: bool,
+}
+
+/// One answer the window heard.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HeardOne {
+    pub reference: String,
+    pub answer: serde_json::Value,
+}
+
+/// `reports.asking`: for the app's window alone, what it needs to ask
+/// after the newest reports itself.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Asking {
+    pub send_to: String,
+    pub reports: Vec<AskAfter>,
+}
+
+/// One report to ask after: its reference and its token.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AskAfter {
+    pub reference: String,
+    pub token: String,
+}
+
+/// Why a report did not go, for the app: the sentence, and when the
+/// service could not be reached at all, why not in plain words, if that
+/// can be told.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotSent {
+    #[serde(flatten)]
+    pub error: Error,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cause: Option<String>,
 }
 
 /// What `reports.send` answers once a report has gone.
@@ -292,6 +370,186 @@ struct Answer {
 const UNREACHABLE: &str =
     "Couldn't reach Keevoro's reports service just now. Check this computer is online, then try again.";
 
+/// Why the reports service could not be reached at all, as far as can be
+/// told. Never because it answered: a refusal is an answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Unreached {
+    /// Its name could not be looked up.
+    Name,
+    /// No connection could be made, or it was cut.
+    Connection,
+    /// A secure connection could not be made, as when a network looks
+    /// inside them.
+    Secure,
+    /// It took too long.
+    Slow,
+    /// The proxy would not pass it on.
+    Proxy,
+    Other,
+}
+
+impl Unreached {
+    pub(crate) fn of(error: &ureq::Error) -> Self {
+        use std::io::ErrorKind;
+        match error {
+            ureq::Error::HostNotFound => Self::Name,
+            ureq::Error::ConnectionFailed => Self::Connection,
+            ureq::Error::Timeout(_) => Self::Slow,
+            ureq::Error::Tls(_) | ureq::Error::Rustls(_) | ureq::Error::Pem(_) | ureq::Error::TlsRequired => {
+                Self::Secure
+            }
+            ureq::Error::ConnectProxyFailed(_) | ureq::Error::InvalidProxyUrl => Self::Proxy,
+            ureq::Error::Io(e) => match e.kind() {
+                ErrorKind::TimedOut => Self::Slow,
+                ErrorKind::ConnectionRefused
+                | ErrorKind::ConnectionReset
+                | ErrorKind::ConnectionAborted
+                | ErrorKind::NotConnected
+                | ErrorKind::AddrNotAvailable
+                | ErrorKind::NetworkUnreachable
+                | ErrorKind::HostUnreachable
+                | ErrorKind::NetworkDown
+                | ErrorKind::BrokenPipe
+                | ErrorKind::UnexpectedEof => Self::Connection,
+                // What a secure connection that could not be agreed gives.
+                ErrorKind::InvalidData => Self::Secure,
+                _ => Self::Other,
+            },
+            _ => Self::Other,
+        }
+    }
+
+    /// What it was, for the log.
+    fn word(self) -> &'static str {
+        match self {
+            Self::Name => "the name could not be looked up",
+            Self::Connection => "the connection failed",
+            Self::Secure => "a secure connection could not be made",
+            Self::Slow => "it took too long",
+            Self::Proxy => "the proxy refused",
+            Self::Other => "something else went wrong",
+        }
+    }
+
+    /// Why, in plain words, when that can be told.
+    pub(crate) fn said(self) -> Option<&'static str> {
+        match self {
+            Self::Name => Some("This computer couldn't look up the reports service's address, which usually means it is offline or its network blocks it."),
+            Self::Connection => Some("This computer's network would not let Keevoro connect to the reports service."),
+            Self::Secure => Some("This computer's network would not let Keevoro connect securely, as some work and school networks do."),
+            Self::Slow => Some("The reports service took too long to answer, perhaps because the network is slow or held the connection up."),
+            Self::Proxy => Some("This computer's proxy would not pass Keevoro's connection on."),
+            Self::Other => None,
+        }
+    }
+
+    /// The line for the log: what it was, and the error in full, with
+    /// `secret` (a token in an address) taken out.
+    fn logged(error: &ureq::Error, secret: Option<&str>) -> String {
+        let mut text = format!("{}: {error}", Self::of(error).word());
+        let mut source = std::error::Error::source(error);
+        while let Some(cause) = source {
+            text.push_str(&format!(": {cause}"));
+            source = cause.source();
+        }
+        match secret.filter(|s| !s.is_empty()) {
+            Some(secret) => text.replace(secret, "•••"),
+            None => text,
+        }
+    }
+}
+
+/// A proxy set in Windows' Internet settings, for secure addresses.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SystemProxy {
+    pub(crate) host: String,
+    pub(crate) port: u16,
+    /// The addresses it is not used for, as Windows lists them.
+    pub(crate) not_for: Vec<String>,
+}
+
+/// The proxy for secure addresses that Windows' Internet settings name:
+/// `ProxyEnable`, `ProxyServer` (`host:port` for everything, or
+/// `http=host:port;https=host:port;...` one for each kind of address) and
+/// `ProxyOverride` (addresses to reach directly, by `;`). None when it is
+/// off, or none is set for secure addresses.
+// Read on Windows alone; checked everywhere.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) fn system_proxy_from(enabled: bool, server: &str, overrides: &str) -> Option<SystemProxy> {
+    if !enabled {
+        return None;
+    }
+    let parts: Vec<&str> = server.split(';').map(str::trim).filter(|p| !p.is_empty()).collect();
+    let chosen = if parts.iter().any(|p| p.contains('=')) {
+        parts.iter().find_map(|p| {
+            let (kind, place) = p.split_once('=')?;
+            kind.trim().eq_ignore_ascii_case("https").then_some(place.trim())
+        })?
+    } else {
+        parts.first().copied()?
+    };
+    let place = chosen
+        .strip_prefix("http://")
+        .or_else(|| chosen.strip_prefix("https://"))
+        .unwrap_or(chosen)
+        .trim_end_matches('/');
+    let (host, port) = place.rsplit_once(':')?;
+    let port = port.parse().ok()?;
+    if host.is_empty() {
+        return None;
+    }
+    let not_for = overrides
+        .split(';')
+        .map(str::trim)
+        .filter(|o| !o.is_empty() && !o.eq_ignore_ascii_case("<local>"))
+        .map(str::to_string)
+        .collect();
+    Some(SystemProxy {
+        host: host.to_string(),
+        port,
+        not_for,
+    })
+}
+
+/// The proxy set in this user's Windows Internet settings, if any.
+#[cfg(windows)]
+fn system_proxy() -> Option<SystemProxy> {
+    use winreg::enums::{HKEY_CURRENT_USER, KEY_READ};
+    let settings = winreg::RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey_with_flags(r"Software\Microsoft\Windows\CurrentVersion\Internet Settings", KEY_READ)
+        .ok()?;
+    let enabled = settings.get_value::<u32, _>("ProxyEnable").is_ok_and(|on| on == 1);
+    let server: String = settings.get_value("ProxyServer").unwrap_or_default();
+    let overrides: String = settings.get_value("ProxyOverride").unwrap_or_default();
+    system_proxy_from(enabled, &server, &overrides)
+}
+
+#[cfg(not(windows))]
+fn system_proxy() -> Option<SystemProxy> {
+    None
+}
+
+/// The proxy to go through: the one named in the environment, else the
+/// one Windows is set to use, else none.
+fn proxy() -> Option<ureq::Proxy> {
+    ureq::Proxy::try_from_env().or_else(|| {
+        let set = system_proxy()?;
+        let mut builder = ureq::Proxy::builder(ureq::ProxyProtocol::Http)
+            .host(&set.host)
+            .port(set.port);
+        for address in &set.not_for {
+            builder = builder.no_proxy(address);
+        }
+        builder.build().ok()
+    })
+}
+
+/// Why sending did not work: the service was not reached, or it answered.
+enum Failure {
+    Unreached(ureq::Error),
+    Answered(Error),
+}
+
 /// A reference or a token fit to put in an address: letters, digits and
 /// dashes, and not too long.
 fn plain_word(text: &str, most: usize) -> bool {
@@ -319,6 +577,8 @@ impl Service {
             .build();
         let agent = ureq::Agent::config_builder()
             .timeout_global(Some(WAIT))
+            .timeout_connect(Some(CONNECT_WAIT))
+            .proxy(proxy())
             .http_status_as_error(false)
             .tls_config(tls)
             .build()
@@ -329,10 +589,12 @@ impl Service {
         }
     }
 
-    /// The status and the answer, or `None` when the service could not be
-    /// reached at all.
-    fn read(response: std::result::Result<ureq::http::Response<ureq::Body>, ureq::Error>) -> Option<(u16, Answer)> {
-        let mut response = response.ok()?;
+    /// The status and the answer, or why the service could not be reached
+    /// at all.
+    fn read(
+        response: std::result::Result<ureq::http::Response<ureq::Body>, ureq::Error>,
+    ) -> std::result::Result<(u16, Answer), ureq::Error> {
+        let mut response = response?;
         let status = response.status().as_u16();
         let text = response
             .body_mut()
@@ -340,17 +602,17 @@ impl Service {
             .limit(ANSWER_MOST)
             .read_to_string()
             .unwrap_or_default();
-        Some((status, serde_json::from_str(&text).unwrap_or_default()))
+        Ok((status, serde_json::from_str(&text).unwrap_or_default()))
     }
 
-    fn send(&self, body: &str) -> Result<(String, String)> {
+    fn send(&self, body: &str) -> std::result::Result<(String, String), Failure> {
         let response = self
             .agent
             .post(format!("{}/v1/reports", self.base))
             .header("Content-Type", "application/json")
             .header("User-Agent", concat!("Keevoro/", env!("CARGO_PKG_VERSION")))
             .send(body.as_bytes());
-        let (status, answer) = Self::read(response).ok_or_else(|| Error::unreachable(UNREACHABLE.to_string()))?;
+        let (status, answer) = Self::read(response).map_err(Failure::Unreached)?;
         if (200..300).contains(&status) && answer.ok == Some(true) {
             let reference = answer.reference.unwrap_or_default();
             let token = answer.token.unwrap_or_default();
@@ -358,18 +620,20 @@ impl Service {
                 return Ok((reference, token));
             }
         }
-        match answer.why.as_deref().map(shown).filter(|w| !w.is_empty()) {
-            Some(why) if status >= 500 => Err(Error::failed(why)),
-            Some(why) => Err(Error::refused(why)),
-            None => Err(Error::failed(format!(
-                "Keevoro's reports service didn't answer as expected (it said {status}). Try again later."
-            ))),
-        }
+        Err(Failure::Answered(
+            match answer.why.as_deref().map(shown).filter(|w| !w.is_empty()) {
+                Some(why) if status >= 500 => Error::failed(why),
+                Some(why) => Error::refused(why),
+                None => Error::failed(format!(
+                    "Keevoro's reports service didn't answer as expected (it said {status}). Try again later."
+                )),
+            },
+        ))
     }
 
-    /// How one report is getting on, or `None` when the service could not
-    /// be reached. An answer that is not about the report changes nothing.
-    fn ask_after(&self, kept: &Kept) -> Option<Option<Answer>> {
+    /// How one report is getting on, or why the service could not be
+    /// reached. An answer that is not about the report changes nothing.
+    fn ask_after(&self, kept: &Kept) -> std::result::Result<Option<Answer>, ureq::Error> {
         let response = self
             .agent
             .get(format!("{}/v1/reports/{}", self.base, kept.reference))
@@ -377,11 +641,27 @@ impl Service {
             .header("User-Agent", concat!("Keevoro/", env!("CARGO_PKG_VERSION")))
             .call();
         let (status, answer) = Self::read(response)?;
-        let about_it = (200..300).contains(&status)
-            && answer.ok == Some(true)
-            && answer.reference.as_deref().is_none_or(|r| r == kept.reference);
-        Some(about_it.then_some(answer))
+        Ok(about(&kept.reference, status, answer))
     }
+}
+
+/// An answer about the report `reference`, or none when it is not one.
+fn about(reference: &str, status: u16, answer: Answer) -> Option<Answer> {
+    let about_it = (200..300).contains(&status)
+        && answer.ok == Some(true)
+        && answer.reference.as_deref().is_none_or(|r| r == reference);
+    about_it.then_some(answer)
+}
+
+/// A reference as the service gives them: `K-` and digits.
+fn a_reference(text: &str) -> bool {
+    text.strip_prefix("K-")
+        .is_some_and(|n| !n.is_empty() && n.len() <= 12 && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// A token as the service gives them: 40 hexadecimal letters and digits.
+fn a_token(text: &str) -> bool {
+    text.len() == 40 && text.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 fn now() -> i64 {
@@ -394,11 +674,13 @@ impl Keevoro {
     /// Where reports go: the address set for tests, the one Keevoro was
     /// built with, or the usual one.
     fn reports_address(&self) -> String {
-        self.environment_variable(ADDRESS_VARIABLE)
+        let address = self
+            .environment_variable(ADDRESS_VARIABLE)
             .map(|a| a.trim().to_string())
             .filter(|a| !a.is_empty())
             .or_else(|| option_env!("KEEVORO_REPORTS_URL").map(str::to_string))
-            .unwrap_or_else(|| USUAL_ADDRESS.to_string())
+            .unwrap_or_else(|| USUAL_ADDRESS.to_string());
+        address.trim_end_matches('/').to_string()
     }
 
     /// The person's home folder and the forms of their user name, which
@@ -439,20 +721,70 @@ impl Keevoro {
             names,
         };
         let body = report::prepare(&draft, &facts).map_err(Error::refused)?;
-        Ok(Prepared { body })
+        Ok(Prepared {
+            body,
+            send_to: self.reports_address().trim_end_matches('/').to_string(),
+        })
     }
 
     /// `reports.send`: sends a report exactly as `reports.prepare` made it,
-    /// and keeps a note of it on this computer.
+    /// and keeps a note of it on this computer. Not reached, it says why
+    /// after the sentence, if that can be told.
     pub fn send_report(&self, prepared: &str) -> Result<Sent> {
-        let (home, names) = self.who();
-        let names: Vec<&str> = names.iter().map(String::as_str).collect();
-        let report = report::check_prepared(prepared, home.as_deref(), &names).map_err(Error::refused)?;
+        self.send_report_saying_why(prepared).map_err(|not| match not.cause {
+            Some(cause) => Error::unreachable(format!("{} {cause}", not.error.message)),
+            None => not.error,
+        })
+    }
+
+    /// [`Keevoro::send_report`], for the app: whether the service could
+    /// not be reached at all, when the window can try, and why apart from
+    /// the sentence.
+    pub fn send_report_saying_why(&self, prepared: &str) -> std::result::Result<Sent, NotSent> {
+        let plain = |error: Error| NotSent { error, cause: None };
+        let report = self.checked(prepared).map_err(plain)?;
         let service = Service::at(&self.reports_address());
-        let (reference, token) = service.send(prepared).inspect_err(|e| {
-            self.log().say(&format!("Couldn't send a report: {}", e.message));
+        let (reference, token) = service.send(prepared).map_err(|failure| match failure {
+            Failure::Unreached(e) => {
+                self.log()
+                    .say(&format!("Couldn't send a report: {}", Unreached::logged(&e, None)));
+                NotSent {
+                    error: Error::unreachable(UNREACHABLE.to_string()),
+                    cause: Unreached::of(&e).said().map(str::to_string),
+                }
+            }
+            Failure::Answered(error) => {
+                self.log().say(&format!("Couldn't send a report: {}", error.message));
+                plain(error)
+            }
         })?;
         self.log().say(&format!("Sent a report, {reference}"));
+        Ok(self.keep_sent(&report, reference, token))
+    }
+
+    /// The report as it was made and shown, or why it cannot go.
+    fn checked(&self, prepared: &str) -> Result<report::Report> {
+        let (home, names) = self.who();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        report::check_prepared(prepared, home.as_deref(), &names).map_err(Error::refused)
+    }
+
+    /// `reports.note`: keeps a report the app's window sent itself, as one
+    /// sent from here, once its answer and its text are as they should be.
+    pub fn note_report(&self, request: &NoteReportRequest) -> Result<Sent> {
+        if !a_reference(&request.reference) || !a_token(&request.token) {
+            return Err(Error::refused(
+                "That isn't an answer from Keevoro's reports service, so the report isn't noted.",
+            ));
+        }
+        let report = self.checked(&request.prepared)?;
+        self.log()
+            .say(&format!("Sent a report through the window, {}", request.reference));
+        Ok(self.keep_sent(&report, request.reference.clone(), request.token.clone()))
+    }
+
+    /// Notes a report that has gone, and says thank you.
+    fn keep_sent(&self, report: &report::Report, reference: String, token: String) -> Sent {
         let kept = Kept {
             reference: reference.clone(),
             token,
@@ -471,10 +803,10 @@ impl Keevoro {
                 "Couldn't keep a note of report {reference} on this computer: {e}"
             ));
         }
-        Ok(Sent {
+        Sent {
             said: format!("Thank you. Your reference is {reference}."),
             reference,
-        })
+        }
     }
 
     /// `reports.list`: the reports sent from this computer, newest first,
@@ -506,14 +838,58 @@ impl Keevoro {
         let mut reached = true;
         for kept in &asking {
             match service.ask_after(kept) {
-                Some(Some(answer)) => heard.push((kept.reference.clone(), answer)),
-                Some(None) => {}
-                None => {
+                Ok(Some(answer)) => heard.push((kept.reference.clone(), answer)),
+                Ok(None) => {}
+                Err(e) => {
+                    self.log().say(&format!(
+                        "Couldn't ask after reports: {}",
+                        Unreached::logged(&e, Some(&kept.token))
+                    ));
                     reached = false;
                     break;
                 }
             }
         }
+        self.note_heard(heard, reached)
+    }
+
+    /// `reports.asking`: for the app's window alone, the address and the
+    /// newest reports with their tokens, to ask after them itself when
+    /// Keevoro cannot.
+    pub fn reports_asking(&self) -> Asking {
+        let mut kept = ReportsFile::read(self.backups().config_folder()).reports;
+        kept.sort_by_key(|r| std::cmp::Reverse(r.sent_at));
+        kept.truncate(ASKED_AFTER);
+        Asking {
+            send_to: self.reports_address(),
+            reports: kept
+                .into_iter()
+                .map(|k| AskAfter {
+                    reference: k.reference,
+                    token: k.token,
+                })
+                .collect(),
+        }
+    }
+
+    /// `reports.heard`: notes what the window heard of each report, as
+    /// `reports.refresh` notes what it hears, and answers the list.
+    pub fn reports_heard(&self, request: &HeardRequest) -> ReportsView {
+        let heard = request
+            .heard
+            .iter()
+            .filter_map(|one| {
+                let answer = serde_json::from_value(one.answer.clone()).ok()?;
+                Some((one.reference.clone(), about(&one.reference, 200, answer)?))
+            })
+            .collect();
+        self.note_heard(heard, request.all)
+    }
+
+    /// Notes what was heard of each report, and answers the list; `reached`
+    /// when every one asked about was answered.
+    fn note_heard(&self, heard: Vec<(String, Answer)>, reached: bool) -> ReportsView {
+        let config = self.backups().config_folder();
         let text = |v: Option<String>| v.map(|t| shown(&t)).filter(|t| !t.is_empty());
         let changed = ReportsFile::change(config, |all| {
             for (reference, answer) in heard {
