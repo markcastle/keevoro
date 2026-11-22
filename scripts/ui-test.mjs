@@ -61,7 +61,11 @@ const spills = () =>
       const box = el.getBoundingClientRect()
       if (box.width === 0 || box.right <= edge + 1 || getComputedStyle(el).position === 'fixed') continue
       if (scrollsItself(el)) continue
-      found.push(`${el.tagName.toLowerCase()}.${String(el.className).split(' ')[0]} reaches ${Math.round(box.right)} of ${Math.round(edge)}`)
+      // Says enough to find the cause from a failed run alone: where it starts,
+      // how it is laid out, and what holds it.
+      const up = el.parentElement
+      const held = up ? `${up.tagName.toLowerCase()}.${String(up.className).replaceAll(' ', '.')} (${getComputedStyle(up).display}, ${Math.round(up.getBoundingClientRect().left)} to ${Math.round(up.getBoundingClientRect().right)})` : 'nothing'
+      found.push(`${el.tagName.toLowerCase()}.${String(el.className).split(' ')[0]} reaches ${Math.round(box.right)} of ${Math.round(edge)}, from ${Math.round(box.left)}, ${getComputedStyle(el).display} ${getComputedStyle(el).whiteSpace}, in ${held}`)
     }
     return found.slice(0, 5)
   })
