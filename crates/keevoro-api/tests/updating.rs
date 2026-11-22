@@ -466,11 +466,11 @@ fn a_source_0_37_1_looked_through_is_looked_through_as_before_and_its_drive_reme
         .unwrap()
         .expect("remembered once looked through");
     assert_eq!(remembered.volume, keevoro_engine::reach::volume_of(&card));
-    // Under the name 0.37.1 kept, not its folder's. (Looking through a
-    // source moves it to the end of the list, as it always has.)
+    // Under the name 0.37.1 kept, not its folder's, and where it was in
+    // the list.
     assert_eq!(
         names(&ask(&keevoro, Op::SourcesList, family, Value::Null)),
-        ["Beach", "Mum's card"]
+        ["Mum's card", "Beach"]
     );
 }
 

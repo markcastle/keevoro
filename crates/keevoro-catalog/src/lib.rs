@@ -479,7 +479,8 @@ impl Catalog {
     /// Records the result of scanning one source. Scanning the same place
     /// again replaces what was known about it; the user's keep choices are
     /// untouched because they belong to the files, not the scan. `name` is
-    /// for a place not yet a source: one already a source keeps its own.
+    /// for a place not yet a source: one already a source keeps its own,
+    /// with its id and its place in the list.
     pub fn save_scan(&mut self, name: &str, report: &ScanReport, scanned_at: i64) -> Result<i64> {
         let tx = self.conn.transaction()?;
         let root = path_text(&report.root);
@@ -508,13 +509,12 @@ impl Catalog {
         // is, belong to the source, not to what was found, so they carry
         // over. A name the person gave is never swapped for one worked out
         // again from its folder.
-        let (name, kind, place): (String, String, Option<String>) = tx
-            .query_row("SELECT name, kind, place FROM sources WHERE root = ?1", [&root], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-            })
-            .optional()?
-            .unwrap_or_else(|| (name.to_string(), "folder".to_string(), None));
-        tx.execute("DELETE FROM sources WHERE root = ?1", [&root])?;
+        //
+        // It also stays the source it was: the same row, so the same id and
+        // the same place in the list. Only what was found on it is replaced.
+        let before: Option<i64> = tx
+            .query_row("SELECT id FROM sources WHERE root = ?1", [&root], |r| r.get(0))
+            .optional()?;
         tx.execute("DELETE FROM settings WHERE key = ?1", [online_only_key(&root)])?;
         if !report.online_only.is_empty() {
             tx.execute(
@@ -522,11 +522,24 @@ impl Catalog {
                 params![online_only_key(&root), report.online_only.len().to_string()],
             )?;
         }
-        tx.execute(
-            "INSERT INTO sources (name, root, other_files, scanned_at, kind, place) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![name, root, to_i64(report.other_files), scanned_at, kind, place],
-        )?;
-        let source = tx.last_insert_rowid();
+        let source = if let Some(id) = before {
+            // Everything found on it last time goes, as it did when the row
+            // itself was replaced; its name, kind and place are left alone.
+            for table in ["items", "skipped", "unreadable", "online_only"] {
+                tx.execute(&format!("DELETE FROM {table} WHERE source_id = ?1"), [id])?;
+            }
+            tx.execute(
+                "UPDATE sources SET other_files = ?2, scanned_at = ?3 WHERE id = ?1",
+                params![id, to_i64(report.other_files), scanned_at],
+            )?;
+            id
+        } else {
+            tx.execute(
+                "INSERT INTO sources (name, root, other_files, scanned_at) VALUES (?1, ?2, ?3, ?4)",
+                params![name, root, to_i64(report.other_files), scanned_at],
+            )?;
+            tx.last_insert_rowid()
+        };
         {
             let mut insert = tx.prepare(
                 "INSERT INTO items (source_id, path, kind, mime, bytes, blake3, date, date_source,

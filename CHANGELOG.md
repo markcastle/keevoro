@@ -6,7 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **A source stays where it is in your list when it is looked through again.** It used to jump to the end.
 
 ## [0.51.1] - 2026-11-22
 
