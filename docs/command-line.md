@@ -266,7 +266,46 @@ The exit code says what happened, without reading the words:
 | 3 | No such backup, source, collection, photo or job, or no backup chosen yet. |
 | 4 | Something is already being done to that backup, here or in another program. |
 | 5 | Refused, such as a destination without the room, or nowhere to back up to yet. |
+| 6 | A backup that ran by itself (`keevoro run --unattended`) held something back for your say. Other things may still have been sent. |
+| 7 | A backup that runs by itself did not run now: this computer was on battery or busy, and `--wait` ran out. |
 | 64 | The command was not understood. |
+
+When more than one thing happened, the most serious decides: 2, then 5, then 1, then 6, then 7.
+
+### For a system scheduler
+
+`keevoro run --unattended` backs up the way a schedule does, for those who would rather use their computer's own scheduler (Task Scheduler on Windows, launchd on a Mac, a systemd timer or cron on Linux). Keevoro itself never writes anything into the system's scheduler. Each time it:
+
+1. Waits while this computer is on battery or busy, for at most `--wait MINUTES` (none by default), and otherwise ends with code 7: "Not backed up now. Waiting while this computer is on battery."
+2. Looks through every source again. A source that is not plugged in is passed over and said, and what was found on it is kept. A different drive where a source's drive was is passed over and said, never taken for it.
+3. Holds back what needs your say. A backup never asked how to arrange its files, or one whose reading from cloud storage would cost about £1 or more, sends nothing. New pictures set aside as probably not photos are not sent (as always) and are listed; new copies of other files are sent once (as always) and listed.
+4. Sends what is new. A backup drive that looks emptied or swapped for another is not sent to: "Keevoro has not sent anything there. Open Keevoro to decide."
+5. Says what waits for your say under "Waiting for your say:", ends with code 6 if anything does, and writes it all into the backup's history (`keevoro history 1`).
+
+Only one backup runs by itself at a time on a computer; a second one asked for meanwhile ends with code 4. It works at a low priority, and so does the check for duplicates that follows it, which also gives way while the computer is on battery or busy.
+
+A daily run at 02:30 in Task Scheduler, on Windows, with the `keevoro` command installed (`install.ps1` puts it on your PATH):
+
+```bat
+schtasks /Create /SC DAILY /ST 02:30 /TN "Keevoro Family photos" /TR "keevoro run --unattended -b \"Family photos\" --wait 60"
+```
+
+As a systemd user timer on Linux, `~/.config/systemd/user/keevoro.service` and `keevoro.timer`:
+
+```ini
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/keevoro run --unattended -b "Family photos" --wait 60
+
+[Timer]
+OnCalendar=*-*-* 02:30
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+With cron, `30 2 * * * $HOME/.local/bin/keevoro run --unattended -b "Family photos"`.
 
 To try Keevoro out without touching your real backups, set `KEEVORO_HOME` to an empty folder. Keevoro then keeps its settings, its notes about each backup and its log under that folder instead.
 
@@ -365,6 +404,7 @@ A collection is named by its whole name, such as "Holidays / Cornwall", or by it
 | --- | --- |
 | `keevoro rehearse` | What backing up now would do: how many files, how much, to where, after looking at what is really at each place. Sends nothing. |
 | `keevoro run` | Backs up to every destination, originals first. |
+| `keevoro run --unattended [--wait MINUTES]` | Backs up by itself, as a schedule does, for a system scheduler: waits while the computer is on battery or busy, looks through the sources again, holds back what needs your say, and sends what is new. See [For a system scheduler](#for-a-system-scheduler). |
 | `keevoro check` | Confirms what is at each destination. |
 | `keevoro history` | How earlier backups went: when, where, how much, how long, numbered from the newest. |
 | `keevoro history N` | Everything recorded about one of them, by its number. |

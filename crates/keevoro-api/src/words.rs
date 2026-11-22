@@ -283,12 +283,29 @@ pub fn run_in_full(sent: &Sent) -> Vec<String> {
     } else {
         String::new()
     };
+    let started = match &detail.by_itself {
+        Some(by_itself) => format!("Started by itself {}, from {}", by_itself.why, detail.started_by),
+        None => format!("Started from {}", detail.started_by),
+    };
     lines.push(format!(
-        "Started from {} at {} (UTC), with Keevoro {}. {ended}.{paused}",
-        detail.started_by,
+        "{started} at {} (UTC), with Keevoro {}. {ended}.{paused}",
         date_and_time(detail.started_at),
         detail.version
     ));
+    if let Some(by_itself) = &detail.by_itself {
+        if !by_itself.looked_again.is_empty() {
+            lines.push(format!(
+                "It looked through {} again first.",
+                by_itself.looked_again.join(", ")
+            ));
+        }
+        lines.extend(by_itself.passed_over.iter().cloned());
+        lines.extend(by_itself.found.iter().cloned());
+        if !by_itself.waiting.is_empty() {
+            lines.push("Waiting for your say:".into());
+            lines.extend(by_itself.waiting.iter().map(|w| format!("  {w}")));
+        }
+    }
 
     lines.push(String::new());
     lines.push("Stages, with time paused left out:".into());
@@ -526,6 +543,7 @@ mod a_run_in_full {
                     videos_without: 0,
                 }),
                 summary: vec!["Safely backed up 11,243 files (716.8 GB).".into()],
+                by_itself: None,
             })),
         }
     }

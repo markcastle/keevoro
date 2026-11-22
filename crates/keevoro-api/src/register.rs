@@ -222,6 +222,9 @@ register! {
     BackupRun = "backup.run",
         "Backs up to every destination, originals first",
         changes: Always, job: true, command_line: true, agents: Agents::Yes, implemented: true;
+    ScheduleRun = "schedule.run",
+        "Backs up by itself: looks through sources again, holds back what needs your say, sends what is new",
+        changes: Always, job: true, command_line: true, agents: Agents::No, implemented: true;
     BackupCheck = "backup.check",
         "Confirms what is at each destination",
         changes: Never, job: true, command_line: true, agents: Agents::Yes, implemented: true;
@@ -438,6 +441,7 @@ impl Op {
             Op::KeevoroSettings => schema::<SettingsRequest>(),
             Op::AgentsAccess => schema::<Agents>(),
             Op::BackupHistory => schema::<HistoryRequest>(),
+            Op::ScheduleRun => schema::<crate::RunByItselfRequest>(),
             Op::BackupWants => schema::<crate::wants::BackupWantsRequest>(),
             Op::BackupArrange => schema::<crate::arrange::BackupArrangeRequest>(),
             Op::SourcesArrange => schema::<crate::arrange::SourceArrangeRequest>(),
@@ -771,6 +775,7 @@ impl Op {
                  cannot change the list; the person can, in Settings or with the keevoro command. Changes nothing.",
             ),
             Op::DuplicatesCheck
+            | Op::ScheduleRun
             | Op::BackupsForget
             | Op::BackupsRemoved
             | Op::BackupsPutBack
@@ -835,7 +840,7 @@ mod tests {
 
     #[test]
     fn the_register_has_every_operation_in_the_plan() {
-        assert_eq!(Op::ALL.len(), 62);
+        assert_eq!(Op::ALL.len(), 63);
         // Each entry is the one for its own operation.
         for op in Op::ALL {
             assert_eq!(op.entry().op, *op);
@@ -909,6 +914,10 @@ mod tests {
             Op::FileKindsRemove,
             Op::FileKindsReset,
             Op::DestinationsTidy,
+            // A backup that runs by itself runs long after an agent's
+            // conversation has ended, with nobody watching: only the
+            // person starts one.
+            Op::ScheduleRun,
         ]
         .into();
         assert_eq!(kept_from_agents, plan);
@@ -949,6 +958,7 @@ mod tests {
             "sources.look",
             "sources.look_again",
             "backup.run",
+            "schedule.run",
             "backup.check",
             "duplicates.check",
         ]

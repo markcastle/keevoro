@@ -72,7 +72,16 @@ pub(crate) enum Why {
     CarryingOn,
     /// The person asked: "Check for duplicates now".
     Asked,
+    /// A backup that ran by itself has just ended. As after any backup, but
+    /// a guest's work, with nobody waiting for it: at low priority, and it
+    /// gives way while the computer is on battery or busy, to carry on next
+    /// time Keevoro opens.
+    AfterRunningByItself,
 }
+
+/// How often a check after a backup that ran by itself asks whether the
+/// computer is still free for it.
+const ASK_THE_COMPUTER_EVERY: Duration = Duration::from_secs(30);
 
 /// The catalog setting that says a person stopped the check, and when.
 const STOPPED: &str = "duplicates_stopped";
@@ -124,7 +133,7 @@ pub(crate) fn start(ctx: &Context, backup: &Named, within: Option<AgentAccess>, 
                 return None;
             }
         }
-        Why::AfterWork | Why::Asked => {
+        Why::AfterWork | Why::Asked | Why::AfterRunningByItself => {
             if let Ok(catalog) = Catalog::open_in_library(&home) {
                 if stopped_by_person(&catalog) {
                     let _ = catalog.set_setting(STOPPED, "");
@@ -142,6 +151,27 @@ pub(crate) fn start(ctx: &Context, backup: &Named, within: Option<AgentAccess>, 
         let mut every = Every::now(ctx.jobs.progress_every());
         let mut total = 0;
         let give_way = GiveWayWhen::new(ctx, &backup_id);
+        let a_guest = why == Why::AfterRunningByItself;
+        if a_guest {
+            keevoro_frame::quiet::lower_this_threads_priority();
+        }
+        let computer_asked: Cell<Option<(Instant, bool)>> = Cell::new(None);
+        // True while the computer is on battery or busy, asked every so
+        // often, for a check that is a guest.
+        let not_a_good_moment = || {
+            if !a_guest {
+                return false;
+            }
+            match computer_asked.get() {
+                Some((at, answer)) if at.elapsed() < ASK_THE_COMPUTER_EVERY => answer,
+                _ => {
+                    let facts = ctx.signals.now();
+                    let answer = keevoro_core::background::may_start(&facts).is_err();
+                    computer_asked.set(Some((Instant::now(), answer)));
+                    answer
+                }
+            }
+        };
         // Paused on its own, it waits here between one file and the next,
         // as it would for Keevoro's own Pause, until it is let go on or
         // asked to stop.
@@ -149,7 +179,7 @@ pub(crate) fn start(ctx: &Context, backup: &Named, within: Option<AgentAccess>, 
             while job.held() && !job.stopped() {
                 std::thread::sleep(Duration::from_millis(150));
             }
-            !job.stopped() && !give_way.now()
+            !job.stopped() && !give_way.now() && !not_a_good_moment()
         };
         let result = Catalog::open_in_library(&home)
             .map_err(anyhow::Error::from)

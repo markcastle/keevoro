@@ -197,6 +197,14 @@ fn hear(
 /// The exit code for how a job ended.
 pub fn code_for(last: Option<&Said>) -> Code {
     match last {
+        // A backup that ran by itself and did not run now, or held
+        // something back for the person, after anything more serious.
+        Some(Said::Send(e)) if e.not_now.is_some() => Code::NotNow,
+        Some(Said::Send(e))
+            if !e.held_back.is_empty() && matches!(e.outcome, Some(Outcome::Worked | Outcome::Stopped)) =>
+        {
+            Code::Waiting
+        }
         Some(Said::Send(e)) => match e.outcome {
             Some(Outcome::Worked | Outcome::Stopped) => Code::Worked,
             Some(Outcome::SomeFiles) => Code::SomeFiles,
@@ -356,6 +364,8 @@ fn detached(ctx: &Ctx<'_>, io: &mut Io<'_>) -> Result<Code, Failure> {
         Some(3) => Code::NotFound,
         Some(4) => Code::Busy,
         Some(5) => Code::Refused,
+        Some(6) => Code::Waiting,
+        Some(7) => Code::NotNow,
         Some(64) => Code::NotUnderstood,
         _ => Code::SomeFiles,
     };

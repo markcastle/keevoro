@@ -48,103 +48,161 @@ pub(super) fn start(ctx: &Context, backup: &Named, kind: JobKind, listener: Opti
     }
     let backup = backup.clone();
     spawn(ctx, &job, move |ctx, job, ending| {
-        let mut said = Vec::new();
-        let mut every = Every::now(ctx.jobs.progress_every());
-        // How each destination's turn went, for the backup's record.
-        let mut turns = Vec::new();
-        let stop = job.stop_switch();
-        let result = (|| {
-            let catalog = Catalog::open_in_library(&home)?;
-            let world = World {
-                secrets: &*ctx.secrets,
-                environment: &*ctx.environment,
-            };
-            let mut progress = |line: &str| {
-                // Remembered every time, said a few times a second.
-                job.note_line(line);
-                let tell = every.due();
-                ctx.jobs.heard(job, Said::Send(SendEvent::progress(line)), tell);
-            };
-            if record {
-                run(
-                    &home,
-                    &catalog,
-                    &world,
-                    &stop,
-                    &tracker,
-                    &mut said,
-                    &mut progress,
-                    &mut turns,
-                )
-            } else {
-                check(&catalog, &world, &stop, &mut said, &mut progress)
-            }
-        })();
-        // Another may start the moment this one is heard to end.
-        ctx.jobs.release(job);
-        // What it measured makes the next backup's first estimate better.
-        if record {
-            if let Err(e) = crate::rates::remember(&ctx.rates, &tracker.measured()) {
-                ctx.log
-                    .say(&format!("Couldn't remember how fast this backup went: {e}"));
-            }
-        }
-        // How it went, said to the person, so "was that slow?" has an
-        // answer at once.
-        if record && result.as_ref().is_ok_and(|went| went.refused.is_none()) {
-            let several = turns.len() > 1;
-            for sent in &turns {
-                if let Some(sentence) = sent.sentence() {
-                    // With more than one destination, each sentence says whose it is.
-                    let line = if several {
-                        format!("To {}: {}", sent.to, sentence.to_lowercase())
-                    } else {
-                        sentence
-                    };
-                    said.extend_from_slice(line.as_bytes());
-                    said.push(b'\n');
-                }
-            }
-        }
-        let (problem, outcome) = match &result {
-            Ok(went) => (went.refused.as_ref().map(|e| format!("{e:#}")), outcome(went)),
-            // Nowhere to back up to, or Keevoro's own record could not be read.
-            Err(e) => (Some(format!("{e:#}")), Outcome::Refused),
-        };
-        match &problem {
-            None => ctx.log.say(&format!(
-                "Backup job finished: {}",
-                String::from_utf8_lossy(&said).trim()
-            )),
-            Some(e) => ctx.log.say(&format!("Backup job failed: {e}")),
-        }
-        let last = SendEvent::finished(&said, problem, outcome);
-        // Written into the backup's record, with everything measured, so a
-        // person can look back at it in full.
-        if let (true, Ok(went)) = (record, &result) {
-            let entry = entry(&home, &job.handle, &tracker, went, &last, outcome);
-            if entry.bytes > 0 || outcome != Outcome::Worked {
-                let recorded = Catalog::open_in_library(&home)
-                    .map_err(anyhow::Error::from)
-                    .and_then(|c| keevoro_engine::history::record(&c, &entry));
-                if let Err(e) = recorded {
-                    ctx.log.say(&format!("Couldn't write down how this backup went: {e:#}"));
-                }
-            }
-        }
-        // What a backup said when it ended is kept with the backup, so it
-        // is still there after looking at another screen or closing
-        // Keevoro, until the next backup replaces it.
-        if record {
-            let _ = Backup::open(&home).and_then(|b| b.remember_last_summary(&last));
-        }
-        let last = Said::Send(last);
-        ctx.jobs.heard(job, last.clone(), true);
+        let last = send_and_record(ctx, job, &backup, &tracker, kind, None);
         // Whatever the backup did not fingerprint is picked up again now.
         super::duplicates::start(ctx, &backup, None, super::duplicates::Why::AfterWork);
         ending.with(Some(last));
     })?;
     Ok(handle)
+}
+
+/// For a backup that runs by itself: what it did before sending, for its
+/// history, and what waits for the person, which it says at the end.
+pub(super) struct ByItselfSoFar {
+    pub(super) record: keevoro_engine::history::ByItself,
+    /// Said first in its summary: the sources passed over.
+    pub(super) said_first: Vec<String>,
+    /// What waits for the person's say, found before sending.
+    pub(super) waiting: Vec<String>,
+}
+
+/// Backs up (or checks) on this job's thread, says how it went, writes it
+/// into the backup's history, and gives its last word. The job lets go of
+/// its backup before it says that last word.
+pub(super) fn send_and_record(
+    ctx: &Context,
+    job: &Arc<super::Job>,
+    backup: &Named,
+    tracker: &Tracker,
+    kind: JobKind,
+    by_itself: Option<ByItselfSoFar>,
+) -> Said {
+    let record = kind == JobKind::BackUp;
+    let home = backup.home.clone();
+    let how = keevoro_engine::send::HowToSend {
+        unattended: by_itself.is_some(),
+    };
+    let mut said = Vec::new();
+    if let Some(so_far) = &by_itself {
+        for line in &so_far.said_first {
+            said.extend_from_slice(line.as_bytes());
+            said.push(b'\n');
+        }
+    }
+    let mut every = Every::now(ctx.jobs.progress_every());
+    // How each destination's turn went, for the backup's record.
+    let mut turns = Vec::new();
+    let stop = job.stop_switch();
+    let result = (|| {
+        let catalog = Catalog::open_in_library(&home)?;
+        let world = World {
+            secrets: &*ctx.secrets,
+            environment: &*ctx.environment,
+        };
+        let mut progress = |line: &str| {
+            // Remembered every time, said a few times a second.
+            job.note_line(line);
+            let tell = every.due();
+            ctx.jobs.heard(job, Said::Send(SendEvent::progress(line)), tell);
+        };
+        if record {
+            run(
+                &how,
+                &home,
+                &catalog,
+                &world,
+                &stop,
+                tracker,
+                &mut said,
+                &mut progress,
+                &mut turns,
+            )
+        } else {
+            check(&catalog, &world, &stop, &mut said, &mut progress)
+        }
+    })();
+    // Another may start the moment this one is heard to end.
+    ctx.jobs.release(job);
+    // What it measured makes the next backup's first estimate better.
+    if record {
+        if let Err(e) = crate::rates::remember(&ctx.rates, &tracker.measured()) {
+            ctx.log
+                .say(&format!("Couldn't remember how fast this backup went: {e}"));
+        }
+    }
+    // How it went, said to the person, so "was that slow?" has an
+    // answer at once.
+    if record && result.as_ref().is_ok_and(|went| went.refused.is_none()) {
+        let several = turns.len() > 1;
+        for sent in &turns {
+            if let Some(sentence) = sent.sentence() {
+                // With more than one destination, each sentence says whose it is.
+                let line = if several {
+                    format!("To {}: {}", sent.to, sentence.to_lowercase())
+                } else {
+                    sentence
+                };
+                said.extend_from_slice(line.as_bytes());
+                said.push(b'\n');
+            }
+        }
+    }
+    let (problem, outcome) = match &result {
+        Ok(went) => (went.refused.as_ref().map(|e| format!("{e:#}")), outcome(went)),
+        // Nowhere to back up to, or Keevoro's own record could not be read.
+        Err(e) => (Some(format!("{e:#}")), Outcome::Refused),
+    };
+    match &problem {
+        None => ctx.log.say(&format!(
+            "Backup job finished: {}",
+            String::from_utf8_lossy(&said).trim()
+        )),
+        Some(e) => ctx.log.say(&format!("Backup job failed: {e}")),
+    }
+    let mut last = SendEvent::finished(&said, problem, outcome);
+    let mut by_itself = by_itself;
+    if let Some(so_far) = by_itself.as_mut() {
+        last.held_back = so_far.waiting.clone();
+        if let Ok(went) = &result {
+            last.held_back.extend(went.held.iter().cloned());
+        }
+        so_far.record.waiting = last.held_back.clone();
+        for line in &last.held_back {
+            ctx.log.say(&format!("Waiting for your say: {line}"));
+        }
+    }
+    // Written into the backup's record, with everything measured, so a
+    // person can look back at it in full.
+    if let (true, Ok(went)) = (record, &result) {
+        let mut entry = entry(&home, &job.handle, tracker, went, &last, outcome);
+        if let (Some(detail), Some(so_far)) = (entry.detail.as_mut(), by_itself) {
+            detail.by_itself = Some(so_far.record);
+        }
+        let worth_keeping = entry.bytes > 0
+            || outcome != Outcome::Worked
+            || entry
+                .detail
+                .as_ref()
+                .and_then(|d| d.by_itself.as_ref())
+                .is_some_and(|b| !b.waiting.is_empty() || !b.passed_over.is_empty());
+        if worth_keeping {
+            let recorded = Catalog::open_in_library(&home)
+                .map_err(anyhow::Error::from)
+                .and_then(|c| keevoro_engine::history::record(&c, &entry));
+            if let Err(e) = recorded {
+                ctx.log.say(&format!("Couldn't write down how this backup went: {e:#}"));
+            }
+        }
+    }
+    // What a backup said when it ended is kept with the backup, so it
+    // is still there after looking at another screen or closing
+    // Keevoro, until the next backup replaces it.
+    if record {
+        let _ = Backup::open(&home).and_then(|b| b.remember_last_summary(&last));
+    }
+    let last = Said::Send(last);
+    ctx.jobs.heard(job, last.clone(), true);
+    last
 }
 
 /// One backup, for its history: the line in the list, and everything
@@ -176,6 +234,7 @@ fn entry(home: &Path, handle: &JobHandle, tracker: &Tracker, went: &Went, last: 
             duplicate_bytes: found.as_ref().map_or(0, |f| f.duplicate_bytes),
             previews: went.previews.clone(),
             summary: last.summary.clone(),
+            by_itself: None,
         })),
     }
 }
@@ -201,6 +260,7 @@ fn outcome(went: &Went) -> Outcome {
 /// are made beside them and sent after.
 #[allow(clippy::too_many_arguments)]
 fn run(
+    how: &keevoro_engine::send::HowToSend,
     home: &Path,
     catalog: &Catalog,
     world: &World<'_>,
@@ -210,7 +270,8 @@ fn run(
     progress: &mut dyn FnMut(&str),
     turns: &mut Vec<Sent>,
 ) -> anyhow::Result<Went> {
-    keevoro_engine::send::everywhere(
+    keevoro_engine::send::everywhere_as(
+        how,
         said,
         catalog,
         home,

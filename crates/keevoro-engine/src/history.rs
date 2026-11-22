@@ -86,6 +86,33 @@ pub struct RunDetail {
     pub previews: Option<PreviewsMade>,
     /// What it said when it ended, exactly as the person saw it.
     pub summary: Vec<String>,
+    /// For a backup that ran by itself, with nobody watching: why it
+    /// started, what it looked through and passed over, what it found new,
+    /// and what waits for the person. Absent for one a person started, and
+    /// in entries written before 0.42.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by_itself: Option<ByItself>,
+}
+
+/// What a backup that ran by itself did before it sent anything.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ByItself {
+    /// Why it started, in a few words: "on its schedule", "from the
+    /// command line".
+    pub why: String,
+    /// The sources it looked through again, by name.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub looked_again: Vec<String>,
+    /// The sources it passed over, a sentence each.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub passed_over: Vec<String>,
+    /// What looking again found that was not there before, in words.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub found: Vec<String>,
+    /// What waits for the person's say, a sentence each.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub waiting: Vec<String>,
 }
 
 /// What one destination's turn did.

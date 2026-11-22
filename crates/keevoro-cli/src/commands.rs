@@ -809,10 +809,34 @@ pub static ROWS: &[Row] = &[
     },
     Row {
         words: &["run"],
-        ops: &[Op::BackupRun],
-        about: None,
-        args: none,
-        ask: |c, m, io| nothing(c, m, io, Op::BackupRun),
+        ops: &[Op::BackupRun, Op::ScheduleRun],
+        about: Some(
+            "Backs up to every destination, originals first. With --unattended, runs as a schedule does, for a system scheduler: looks through the sources again, holds back what needs your say, waits while this computer is on battery or busy, and sends what is new.",
+        ),
+        args: |c| {
+            c.arg(flag(
+                "unattended",
+                "Run by itself, with nobody watching: hold back what needs your say, and never start on battery or while the computer is busy",
+            ))
+            .arg(
+                arg("wait", "With --unattended, how many minutes to wait at most for a good moment; none by default")
+                    .long("wait")
+                    .value_name("MINUTES")
+                    .value_parser(clap::value_parser!(u32))
+                    .requires("unattended"),
+            )
+        },
+        ask: |_, m, _| {
+            if m.get_flag("unattended") {
+                let mut ask = json!({});
+                if let Some(minutes) = m.get_one::<u32>("wait") {
+                    ask["waitMinutes"] = json!(minutes);
+                }
+                Ok((Op::ScheduleRun, ask))
+            } else {
+                Ok((Op::BackupRun, json!({})))
+            }
+        },
         show: show::nothing_more,
     },
     Row {

@@ -77,6 +77,7 @@ fn running(kind: JobKind) -> status::Running {
                 }),
                 started_at: 1,
                 started_by: FrontEnd::CommandLine,
+                by_itself: None,
             },
             step: "Backing up".into(),
             line: "Backing up".into(),
@@ -568,4 +569,37 @@ fn the_words_older_programs_read_in_shared_files_never_grow() {
     ] {
         assert_eq!(serde_json::to_value(o).unwrap(), outcome(o));
     }
+}
+
+/// What a newer program writes about a backup that runs by itself is read
+/// by an older one as an ordinary backup: the new fields are passed over.
+#[test]
+fn a_backup_running_by_itself_is_read_by_an_older_program_as_a_backup() {
+    /// The handle as 0.41 read it.
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    #[allow(dead_code)]
+    struct HandleV0 {
+        id: JobId,
+        job: JobKind,
+        op: Option<String>,
+        backup: Option<JobBackup>,
+        started_at: i64,
+        started_by: FrontEnd,
+    }
+    let mut by_itself = running(JobKind::BackUp);
+    by_itself.status.handle.by_itself = Some(keevoro_core::unattended::Occasion::Schedule);
+    by_itself.status.handle.op = Some("schedule.run");
+    by_itself.status.last = Some(crate::jobs::Said::Send(crate::jobs::SendEvent {
+        held_back: vec!["4 new pictures were set aside.".into()],
+        not_now: Some("Waiting while this computer is on battery".into()),
+        ..crate::jobs::SendEvent::finished(b"Done.", None, crate::jobs::Outcome::Worked)
+    }));
+    let written = serde_json::to_value(&by_itself.status).unwrap();
+    assert_eq!(written["byItself"], "schedule");
+    let old: HandleV0 = serde_json::from_value(written.clone()).unwrap();
+    assert_eq!((old.job, old.started_by), (JobKind::BackUp, FrontEnd::CommandLine));
+    let now: JobStatus = serde_json::from_value(written).unwrap();
+    assert_eq!(now.handle.by_itself, Some(keevoro_core::unattended::Occasion::Schedule));
+    assert_eq!(now.handle.op, Some("schedule.run"));
 }

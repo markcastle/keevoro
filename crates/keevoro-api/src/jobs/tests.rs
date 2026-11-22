@@ -2654,3 +2654,197 @@ fn a_source_unplugged_while_it_is_looked_through_is_said_plainly_and_nothing_fou
     assert!(keevoro.log_tail(10).contains("went part-way through looking"));
     std::fs::rename(&away, &card).unwrap();
 }
+
+/// The computer as a test says it is, for backups that run by themselves.
+struct Says(keevoro_core::background::StartFacts);
+
+impl Signals for Says {
+    fn now(&self) -> keevoro_core::background::StartFacts {
+        self.0
+    }
+}
+
+fn plugged_in_and_quiet() -> Says {
+    Says(keevoro_core::background::StartFacts {
+        on_battery: Some(false),
+        others_cpu: Some(2.0),
+        ..Default::default()
+    })
+}
+
+fn on_battery() -> Says {
+    Says(keevoro_core::background::StartFacts {
+        on_battery: Some(true),
+        ..Default::default()
+    })
+}
+
+/// A backup run by itself, waited for, with its last word.
+fn by_itself(keevoro: &Keevoro, named: &Named) -> SendEvent {
+    let job = keevoro
+        .run_by_itself(named, keevoro_core::unattended::Occasion::CommandLine, 0, None)
+        .unwrap();
+    assert_eq!(job.op, Some("schedule.run"));
+    assert_eq!(job.job, JobKind::BackUp, "an ordinary backup to every other program");
+    assert_eq!(job.by_itself, Some(keevoro_core::unattended::Occasion::CommandLine));
+    let Some(Said::Send(last)) = keevoro.wait(job.id) else {
+        panic!("a backup ends with how it went")
+    };
+    keevoro.wait_for_jobs();
+    last
+}
+
+/// The last entry in a backup's history, as a backup that ran by itself
+/// wrote it.
+fn last_by_itself(named: &Named) -> keevoro_engine::history::ByItself {
+    Backup::open(&named.home).unwrap().history().unwrap()[0]
+        .detail
+        .clone()
+        .unwrap()
+        .by_itself
+        .unwrap()
+}
+
+#[test]
+fn a_backup_run_by_itself_holds_back_what_needs_the_persons_say_and_sends_the_rest() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro(dir.path()).with_signals(plugged_in_and_quiet());
+    let (named, card, usb) = card_going_to_usb(dir.path(), &keevoro);
+    let originals = || walk_files(&usb.join("originals"));
+
+    // Never asked how to arrange it: nothing is sent, nothing is settled.
+    let last = by_itself(&keevoro, &named);
+    assert_eq!(
+        last.held_back,
+        ["Keevoro needs one answer before it can back up \"Card photos\" by itself: how to arrange it."]
+    );
+    assert!(originals().is_empty(), "nothing was sent");
+    let catalog = || Catalog::open_in_library(&named.home).unwrap();
+    assert_eq!(catalog().arrange().unwrap(), None, "and nothing was settled");
+    assert_eq!(last_by_itself(&named).waiting, last.held_back);
+    assert_eq!(last_by_itself(&named).why, "for a system scheduler or a script");
+
+    // Asked: it looks again, sends what is new, and lists the pictures set
+    // aside, which it does not send.
+    catalog().set_arrange(keevoro_core::Arrange::ByDate).unwrap();
+    std::fs::write(card.join("DCIM/IMG_20200101_120000.jpg"), large_photo(200)).unwrap();
+    image::RgbImage::from_pixel(120, 90, image::Rgb([9, 9, 9]))
+        .save(card.join("DCIM/icon.png"))
+        .unwrap();
+    let last = by_itself(&keevoro, &named);
+    assert_eq!(last.outcome, Some(Outcome::Worked), "{last:?}");
+    assert_eq!(
+        last.held_back,
+        ["1 new picture was set aside as probably not photos, and not backed up. Look at them in Keevoro to keep any."]
+    );
+    assert_eq!(originals().len(), 4, "the three photos kept and the new one");
+    let record = last_by_itself(&named);
+    assert_eq!(record.looked_again, ["Card"]);
+    assert_eq!(record.found, ["New since the last look: 2 photos."]);
+
+    // The card in a drawer: passed over and said; what was found is kept.
+    let drawer = dir.path().join("In a drawer");
+    std::fs::rename(&card, &drawer).unwrap();
+    let last = by_itself(&keevoro, &named);
+    assert!(
+        last.summary
+            .iter()
+            .any(|l| l.contains("can't be found, so it was not looked through")),
+        "{last:?}"
+    );
+    assert!(Backup::open(&named.home).unwrap().found().unwrap().photos > 0);
+    std::fs::rename(&drawer, &card).unwrap();
+
+    // The backup drive wiped or swapped: nothing is sent there without the
+    // person's say.
+    for entry in std::fs::read_dir(&usb).unwrap().map(std::io::Result::unwrap) {
+        if !entry.file_name().to_string_lossy().starts_with('.') {
+            let path = entry.path();
+            if path.is_dir() {
+                std::fs::remove_dir_all(path).unwrap();
+            } else {
+                std::fs::remove_file(path).unwrap();
+            }
+        }
+    }
+    let last = by_itself(&keevoro, &named);
+    assert!(originals().is_empty(), "nothing was sent there");
+    assert!(
+        last.held_back
+            .iter()
+            .any(|l| l
+                .ends_with("looks emptied or replaced. Keevoro has not sent anything there. Open Keevoro to decide.")),
+        "{last:?}"
+    );
+}
+
+#[test]
+fn one_backup_runs_by_itself_at_a_time_and_none_starts_on_battery() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let waits = keevoro(dir.path()).with_signals(on_battery());
+    let (named, _, usb) = card_going_to_usb(dir.path(), &waits);
+    Catalog::open_in_library(&named.home)
+        .unwrap()
+        .set_arrange(keevoro_core::Arrange::ByDate)
+        .unwrap();
+
+    // On battery, allowed to wait a minute: it waits, and says why.
+    let waiting = waits
+        .run_by_itself(&named, keevoro_core::unattended::Occasion::CommandLine, 1, None)
+        .unwrap();
+    // Another program, or another backup, cannot start one meanwhile.
+    let other = keevoro(dir.path()).with_signals(plugged_in_and_quiet());
+    let e = other
+        .run_by_itself(&named, keevoro_core::unattended::Occasion::CommandLine, 0, None)
+        .unwrap_err();
+    assert_eq!(
+        (e.kind, e.message.as_str()),
+        (Kind::Busy, super::by_itself::ONE_AT_A_TIME)
+    );
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !waits
+        .jobs(None)
+        .iter()
+        .any(|j| j.step == "Waiting while this computer is on battery")
+    {
+        assert!(Instant::now() < deadline, "it says why it waits");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    waits.stop(Which::Job(waiting.id));
+    assert!(matches!(waits.wait(waiting.id), Some(Said::Send(e)) if e.outcome == Some(Outcome::Stopped)));
+    waits.wait_for_jobs();
+
+    // Not allowed to wait: not backed up now, and why.
+    let last = by_itself(&waits, &named);
+    assert_eq!(
+        last.not_now.as_deref(),
+        Some("Waiting while this computer is on battery")
+    );
+    assert_eq!(
+        last.summary,
+        ["Not backed up now. Waiting while this computer is on battery."]
+    );
+    assert!(!usb.join("originals").exists(), "nothing was sent");
+}
+
+/// Every file under a folder, if it is there.
+fn walk_files(folder: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut todo = vec![folder.to_path_buf()];
+    while let Some(next) = todo.pop() {
+        let Ok(entries) = std::fs::read_dir(&next) else {
+            continue;
+        };
+        for entry in entries.map(std::io::Result::unwrap) {
+            let path = entry.path();
+            if path.is_dir() {
+                todo.push(path);
+            } else {
+                found.push(path);
+            }
+        }
+    }
+    found
+}

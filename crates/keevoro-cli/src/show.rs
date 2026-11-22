@@ -1185,6 +1185,12 @@ pub fn last_word(io: &mut Io<'_>, last: Option<&Said>) -> std::io::Result<()> {
             for line in &e.summary {
                 writeln!(io.out, "{line}")?;
             }
+            if !e.held_back.is_empty() {
+                writeln!(io.out, "Waiting for your say:")?;
+                for line in &e.held_back {
+                    writeln!(io.out, "  {line}")?;
+                }
+            }
             if let Some(problem) = &e.problem {
                 writeln!(io.err, "{problem}")?;
             }

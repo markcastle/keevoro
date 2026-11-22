@@ -582,7 +582,7 @@ Today a backup runs when someone presses "Back up now". These make it run by its
 - [ ] Carry on in the background with the window closed: an icon by the clock, and a way to start with the computer
 - [ ] Say what happened: a notification when a run finishes, and louder when one fails or a destination has not been reached for a while
 - [ ] Be a good guest: wait while on battery, on a metered connection, or while the computer is busy, and never start two runs at once
-- [ ] Never back up without the person's say on anything new: files a schedule finds are backed up, but newly found duplicates and set-aside pictures still follow the same rules
+- [x] Never back up without the person's say on anything new: files a schedule finds are backed up, but newly found duplicates and set-aside pictures still follow the same rules (0.42: `keevoro run --unattended` holds back a backup never asked how to arrange it, reading from cloud storage costing about £1 or more, and a backup drive that looks emptied or replaced; lists set-aside pictures, new copies and another drive at a source's place)
 - [ ] Show the next run and the last few on the backup screen, with "Run now" and "Skip the next one"
 - [ ] A missed run (the computer was off) is caught up at the next chance, once, not once per run missed
 - [ ] Command line: a single command a system scheduler can call, for those who prefer their own

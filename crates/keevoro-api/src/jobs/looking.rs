@@ -69,6 +69,13 @@ impl ToLook {
     }
 }
 
+/// The place a step looks through.
+pub(super) fn place_of(step: &Step) -> &Path {
+    match step {
+        Step::Look(place) | Step::SetAsideAndLook { place, .. } | Step::BringBack { place, .. } => place,
+    }
+}
+
 /// Where a source set aside is kept in the catalog: a place inside the
 /// backup's own folder that is never made, so it is never looked through
 /// and never mistaken for a real one.
@@ -131,6 +138,29 @@ fn different(source: &keevoro_catalog::Source) -> DifferentDrive {
 /// A source set aside before is brought back once its own drive is at its
 /// place again.
 pub(super) fn sources_to_look_again(backup: &Named, source: Option<i64>, answer: Option<OtherDrive>) -> Result<ToLook> {
+    let (mut to_look, left_out) = what_to_look_again(backup, source, answer)?;
+    if to_look.steps.is_empty() && to_look.different.is_empty() {
+        return match (source, left_out, to_look.passed_over.len()) {
+            (_, Some(folder), 0) => Err(Error::refused(left_out_said(&folder))),
+            (Some(_), _, 1) => Err(Error::unreachable(to_look.passed_over.remove(0))),
+            (None, _, n) if n > 0 => Err(Error::unreachable(crate::words::NONE_PLUGGED_IN.to_string())),
+            (Some(_), _, _) => Err(Error::not_found("That source isn't part of this backup.")),
+            (None, _, _) => Err(Error::refused(
+                "This backup has no sources to look through again. Add one first.",
+            )),
+        };
+    }
+    Ok(to_look)
+}
+
+/// [`sources_to_look_again`] with nothing refused: for a backup that runs
+/// by itself, which says each source it passes over even when it passes
+/// over all of them. Also gives a folder left out that holds a source.
+pub(super) fn what_to_look_again(
+    backup: &Named,
+    source: Option<i64>,
+    answer: Option<OtherDrive>,
+) -> Result<(ToLook, Option<String>)> {
     let catalog = Catalog::open_in_library(&backup.home)?;
     let sources = catalog.sources()?;
     let choices = catalog.choices()?;
@@ -181,18 +211,7 @@ pub(super) fn sources_to_look_again(backup: &Named, source: Option<i64>, answer:
     to_look
         .different
         .retain(|d| !coming_back.iter().any(|p| friendly_path(p) == d.place));
-    if to_look.steps.is_empty() && to_look.different.is_empty() {
-        return match (source, left_out, to_look.passed_over.len()) {
-            (_, Some(folder), 0) => Err(Error::refused(left_out_said(&folder))),
-            (Some(_), _, 1) => Err(Error::unreachable(to_look.passed_over.remove(0))),
-            (None, _, n) if n > 0 => Err(Error::unreachable(crate::words::NONE_PLUGGED_IN.to_string())),
-            (Some(_), _, _) => Err(Error::not_found("That source isn't part of this backup.")),
-            (None, _, _) => Err(Error::refused(
-                "This backup has no sources to look through again. Add one first.",
-            )),
-        };
-    }
-    Ok(to_look)
+    Ok((to_look, left_out))
 }
 
 /// What `sources.look` of `place` does: looks through it, unless it is a
@@ -227,7 +246,7 @@ fn set_aside(catalog: &mut Catalog, home: &Path, id: i64, place: &Path) -> Resul
 
 /// Does what a step must before its place is looked through, and says it
 /// in the log. Gives what to say on the screen, if anything.
-fn get_ready(ctx: &Context, home: &Path, step: &Step) -> Result<Option<String>> {
+pub(super) fn get_ready(ctx: &Context, home: &Path, step: &Step) -> Result<Option<String>> {
     let mut catalog = Catalog::open_in_library(home)?;
     match step {
         Step::Look(_) => Ok(None),
@@ -382,7 +401,7 @@ fn name_of(source: &Path) -> String {
 }
 
 /// Looks through one place, saying how it goes, and gives the last event.
-fn look_through(
+pub(super) fn look_through(
     ctx: &Context,
     job: &Arc<Job>,
     home: &Path,

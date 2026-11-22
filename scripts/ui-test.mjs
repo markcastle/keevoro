@@ -931,6 +931,22 @@ try {
   assert.equal(await page.locator('.kept li.source').count(), 1, 'what was found so far is kept')
   await shot('9j1-search-drive-unplugged')
 
+  // --- A backup that ran by itself says so in its history, with what it
+  // passed over and what waits for the person's say.
+  await page.goto(`${base}/?byitself&fast`)
+  await page.getByRole('heading', { name: 'Where should they go?', level: 1 }).waitFor()
+  await page.getByText('How earlier backups went').click()
+  const byItselfRun = page.locator('.sends > .sends-scroll > table > tbody > tr').first()
+  await byItselfRun.getByRole('button', { name: /^Show everything/ }).click()
+  const byItselfPanel = page.locator('.run-detail')
+  assert.match(await byItselfPanel.innerText(), /Started by itself for a system scheduler or a script, \d+ Nov, \d\d:\d\d, from the command line, with Keevoro 0\.42\.0\. It finished\./)
+  assert.match(await byItselfPanel.innerText(), /It looked through Family hard drive again first\./)
+  assert.match(await byItselfPanel.innerText(), /KINGSTON \(E:\) is not plugged in, so it was not looked through\./)
+  assert.match(await byItselfPanel.innerText(), /Waiting for your say\s+2 new pictures were set aside as probably not photos/)
+  await byItselfPanel.scrollIntoViewIfNeeded()
+  await shot('9v1-a-backup-that-ran-by-itself')
+  await fitsNarrow('A backup that ran by itself, in its history')
+
   // --- Looking again with a source's card in a drawer passes it over and
   // says so: what was found on it is kept.
   await page.goto(`${base}/?drives=away&fast`)

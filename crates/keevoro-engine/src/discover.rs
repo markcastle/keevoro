@@ -206,6 +206,10 @@ pub struct FromCloud {
     pub bytes: u64,
     /// About what reading it costs, in a sentence or two, each with "about".
     pub cost: String,
+    /// The same in pence, the careful way, for a backup that runs by
+    /// itself to weigh (`keevoro_core::unattended`). Not shown.
+    #[serde(skip)]
+    pub pence: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -586,6 +590,9 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
             .map(|(place, bytes)| FromCloud {
                 name: place.describe(),
                 cost: keevoro_core::egress::cost_said(&place.kind, &place.place, bytes, &crate::summary::bytes(bytes)),
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                pence: (keevoro_core::egress::estimated_pounds(&place.kind, &place.place, bytes) * 100.0).round()
+                    as u64,
                 bytes,
             })
             .collect(),

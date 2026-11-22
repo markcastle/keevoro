@@ -209,6 +209,17 @@ pub struct LookAgainRequest {
     pub different_drive: Option<crate::jobs::OtherDrive>,
 }
 
+/// `schedule.run`: how a backup that runs by itself is run.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RunByItselfRequest {
+    /// How many minutes to wait, at most, while this computer is on
+    /// battery or busy, before giving up for now. Left out, it does not
+    /// wait.
+    #[serde(default)]
+    pub wait_minutes: Option<u32>,
+}
+
 /// `jobs.follow`, `jobs.stop`: one job by its id, or every one running on
 /// the backup named, or on any backup when none is named.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
@@ -599,6 +610,15 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
         Op::BackupRun => {
             read::<Nothing>(request)?;
             answer(keevoro.run_backup(&named()?, None)?)
+        }
+        Op::ScheduleRun => {
+            let r: RunByItselfRequest = read(request)?;
+            answer(keevoro.run_by_itself(
+                &named()?,
+                keevoro_core::unattended::Occasion::CommandLine,
+                r.wait_minutes.unwrap_or(0),
+                None,
+            )?)
         }
         Op::BackupCheck => {
             read::<Nothing>(request)?;

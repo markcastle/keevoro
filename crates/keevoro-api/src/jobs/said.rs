@@ -207,6 +207,15 @@ pub struct SendEvent {
     /// On the last event: how it ended, in a word, for a program to act on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outcome: Option<Outcome>,
+    /// On the last event of a backup that ran by itself: what waits for
+    /// the person's say, a sentence each. Other things may still have been
+    /// sent.
+    #[serde(rename = "heldBack", default, skip_serializing_if = "Vec::is_empty")]
+    pub held_back: Vec<String>,
+    /// On the last event of a backup that ran by itself and did not run
+    /// now, why: "Waiting while this computer is on battery".
+    #[serde(rename = "notNow", default, skip_serializing_if = "Option::is_none")]
+    pub not_now: Option<String>,
 }
 
 /// How a backup or a check ended, in a word, for a program to act on. The
@@ -236,6 +245,8 @@ impl SendEvent {
             summary: Vec::new(),
             problem: None,
             outcome: None,
+            held_back: Vec::new(),
+            not_now: None,
         }
     }
 
@@ -253,6 +264,8 @@ impl SendEvent {
                 .collect(),
             problem,
             outcome: Some(outcome),
+            held_back: Vec::new(),
+            not_now: None,
         }
     }
 }

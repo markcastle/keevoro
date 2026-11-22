@@ -301,6 +301,67 @@ fn the_testers_case_a_folder_emptied_is_said_before_anything_is_sent_then_sent_a
 }
 
 #[test]
+fn an_unattended_backup_sends_nothing_to_a_folder_that_looks_emptied_and_says_so() {
+    let t = Tester::new();
+    t.run();
+    t.empty_the_folder();
+    let mut said = Vec::new();
+    let went = crate::send::everywhere_as(
+        &crate::send::HowToSend { unattended: true },
+        &mut said,
+        &t.catalog,
+        &t.home,
+        &t.world(),
+        None,
+        &Stop::default(),
+        &Tracker::new(Remembered::default()),
+        &mut |_| {},
+        &mut |_| {},
+    )
+    .unwrap();
+    let said = String::from_utf8(said).unwrap();
+    assert!(t.originals().is_empty(), "nothing was sent there");
+    assert!(said.contains(crate::send::NOT_SENT_THERE), "{said}");
+    assert!(!said.contains("They will be sent again"), "{said}");
+    assert_eq!(
+        went.held,
+        [format!(
+            "The folder {} looks emptied or replaced. {}",
+            t.usb().display(),
+            crate::send::NOT_SENT_THERE
+        )]
+    );
+    assert_eq!((went.reached, went.unreachable, went.failed_files), (0, 0, 0));
+    assert!(went.refused.is_none());
+    assert_eq!(t.waiting(), 4, "still waiting, for the person's say");
+}
+
+#[test]
+fn an_unattended_backup_still_sends_again_a_few_files_gone_from_a_destination() {
+    let t = Tester::new();
+    t.run();
+    std::fs::remove_file(&t.originals()[1]).unwrap();
+    let mut said = Vec::new();
+    let went = crate::send::everywhere_as(
+        &crate::send::HowToSend { unattended: true },
+        &mut said,
+        &t.catalog,
+        &t.home,
+        &t.world(),
+        None,
+        &Stop::default(),
+        &Tracker::new(Remembered::default()),
+        &mut |_| {},
+        &mut |_| {},
+    )
+    .unwrap();
+    let said = String::from_utf8(said).unwrap();
+    assert!(said.contains("Restored 1 file that had gone from there."), "{said}");
+    assert!(went.held.is_empty());
+    assert_eq!(t.originals().len(), 4);
+}
+
+#[test]
 fn one_file_deleted_is_found_said_and_sent_again() {
     let t = Tester::new();
     t.run();

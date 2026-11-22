@@ -18,6 +18,7 @@
 // progress in human terms ("3,412 of 9,870 safely backed up").
 
 import { DifferentDriveAsked, PassedOver } from './differentDrive'
+import { ByItselfDetail } from './byItself'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
@@ -3464,9 +3465,13 @@ function RunDetailPanel(props: { sent: Sent }) {
     <div className="run-detail">
       <p className="headline">{headline}</p>
       <p className="quiet small">
-        Started {when(d.startedAt)} from {d.startedBy}, with Keevoro {d.version}. {ended}
+        {d.byItself
+          ? `Started by itself ${d.byItself.why}, ${when(d.startedAt)}, from ${d.startedBy}`
+          : `Started ${when(d.startedAt)} from ${d.startedBy}`}
+        , with Keevoro {d.version}. {ended}
         {d.pausedSeconds >= 60 && ` It was paused for ${took(d.pausedSeconds)}, which is not counted in the stages.`}
       </p>
+      {d.byItself && <ByItselfDetail run={d.byItself} />}
 
       <h4>Stages</h4>
       <div className="stages-scroll">

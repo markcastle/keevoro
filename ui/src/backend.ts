@@ -443,6 +443,10 @@ export type SendEvent = {
   problem?: string
   /** On the last event: how it ended, in a word. */
   outcome?: 'worked' | 'someFiles' | 'unreachable' | 'refused' | 'stopped'
+  /** On the last event of a backup that ran by itself: what waits for your say, a sentence each. */
+  heldBack?: string[]
+  /** On the last event of a backup that ran by itself and did not run now, why. */
+  notNow?: string
 }
 
 /** What the "connect" form collects. Keys go to the system keychain. */
@@ -529,6 +533,18 @@ export type RunDetail = {
   previews?: PreviewsMade
   /** What it said at the end, exactly as it was shown. */
   summary: string[]
+  /** For a backup that ran by itself: why, what it looked through and passed over, what was new, and what waits for your say. */
+  byItself?: ByItself
+}
+
+/** What a backup that ran by itself did before it sent anything. */
+export type ByItself = {
+  /** "on its schedule", "from the command line". */
+  why: string
+  lookedAgain?: string[]
+  passedOver?: string[]
+  found?: string[]
+  waiting?: string[]
 }
 
 export type StageKind =

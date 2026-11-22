@@ -421,6 +421,11 @@ export function demoBackend(): Backend {
   const said = () => {
     sendingTo = dests.length === 0 ? null : dests.length === 1 ? dests[0].name : `${dests.length} places`
   }
+  // A backup that already goes somewhere, for `?byitself`.
+  if (new URLSearchParams(window.location.search).has('byitself')) {
+    dests = [{ name: 'the folder \\\\NAS\\Photos', kind: 'folder', folder: '\\\\NAS\\Photos', there: 0 }]
+    said()
+  }
   let stopAsked = false
   let stopLooking = false
   // Pictures of files in a folder being looked inside, a few at a time.
@@ -634,6 +639,50 @@ export function demoBackend(): Backend {
     },
     { finishedAt: Date.UTC(2026, 10, 9, 14, 2) / 1000, seconds: 41 * 60, bytes: 30.1 * GB, to: 'the folder F:\\Family Backup', stopped: false },
   ]
+  // `?byitself` adds a backup that ran by itself, from the command line,
+  // with what it passed over and what waits for the person's say.
+  if (new URLSearchParams(window.location.search).has('byitself')) {
+    sends.unshift({
+      finishedAt: Date.UTC(2026, 10, 20, 2, 33) / 1000,
+      seconds: 180,
+      bytes: 96 * MB,
+      to: nas,
+      stopped: false,
+      detail: {
+        startedAt: Date.UTC(2026, 10, 20, 2, 30) / 1000,
+        pausedSeconds: 0,
+        ended: 'finished',
+        startedBy: 'the command line',
+        version: '0.42.0',
+        stages: [
+          { kind: 'sendingOriginals', to: nas, unit: 'bytes', done: 96 * MB, seconds: 150, finished: true, perSecond: (96 * MB) / 150, slowest: null, fastest: null },
+        ],
+        destinations: [
+          {
+            to: nas,
+            overNetwork: true,
+            reached: true,
+            seconds: 150,
+            bytes: 96 * MB,
+            originals: { sent: 23, sentBytes: 96 * MB, alreadyThere: 11_243, notSent: [], notSentMore: 0 },
+          },
+        ],
+        duplicates: 0,
+        duplicateBytes: 0,
+        summary: [
+          'KINGSTON (E:) is not plugged in, so it was not looked through. What was found on it before is kept.',
+          'Safely backed up 23 files (96.0 MB).',
+        ],
+        byItself: {
+          why: 'for a system scheduler or a script',
+          lookedAgain: ['Family hard drive'],
+          passedOver: ['KINGSTON (E:) is not plugged in, so it was not looked through. What was found on it before is kept.'],
+          found: ['New since the last look: 23 photos and 2 videos.'],
+          waiting: ['2 new pictures were set aside as probably not photos, and not backed up. Look at them in Keevoro to keep any.'],
+        },
+      },
+    })
+  }
   let pausedNow = false
   let tick = 0
   const usage: Sample[] = Array.from({ length: 60 }, (_, i) => ({
