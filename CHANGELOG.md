@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.47.0] - 2026-11-22
+
 ### Added
 
 - **Report a problem or suggest an idea, from inside Keevoro.** Choose "Report a problem or idea" at the foot of the window, or Settings, Help, "Report a problem or suggest an idea". Say whether something went wrong or you have an idea, write it in your own words and press Send, and Keevoro says "Thank you. Your reference is K-1042." It goes to a private list that only Keevoro's maker reads. Only your words, Keevoro's version, which system your computer runs and the screen you were on are sent, unless you switch on "Include the end of Keevoro's log" (it can name your folders and files; your home folder and user name are taken out first, and anything that looks like a key or a password is hidden) or "Include a way to reach me". "See exactly what will be sent" shows the report word for word, and that is exactly what goes. If it cannot be sent, your words stay, with why and Try again. "Your reports", on the same page, lists each one you sent with how it is getting on: Received, Accepted, Being worked on, "Done in version 0.47.0" or Not planned, with any note, and says "Couldn't check just now" when the computer is offline. At the command line: `keevoro report --problem "..."` or `--idea "..."`, with `--with-log`, `--contact` and `--dry-run`, and `keevoro reports`. An AI agent cannot send one for you. Resetting Keevoro forgets the list of reports you sent.
@@ -769,7 +773,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.46.1...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.47.0...HEAD
+[0.47.0]: https://github.com/markcastle/keevoro/compare/v0.46.1...v0.47.0
 [0.46.1]: https://github.com/markcastle/keevoro/compare/v0.46.0...v0.46.1
 [0.46.0]: https://github.com/markcastle/keevoro/compare/v0.45.1...v0.46.0
 [0.45.1]: https://github.com/markcastle/keevoro/compare/v0.45.0...v0.45.1
