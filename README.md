@@ -249,6 +249,7 @@ npm run ui:dev
 Changes are welcome. Start with these:
 
 - [docs/developing.md](docs/developing.md): building, testing, how the pieces fit, cutting a release.
+- [docs/research/image-and-video-formats.md](docs/research/image-and-video-formats.md): a survey of photo, raw and video formats, kept as background for deciding which kinds of file Keevoro should know. Not yet checked against real files.
 - [PLANNING.md](PLANNING.md): the design and the reasons behind it.
 - [TASKS.md](TASKS.md): what is done and what is next.
 - [AI_AGENT_PROMPT.md](AI_AGENT_PROMPT.md): the rules every change follows, whoever writes it. Tests first, plain words, and a changelog entry for anything a person would notice.
