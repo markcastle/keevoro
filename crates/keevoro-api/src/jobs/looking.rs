@@ -412,7 +412,14 @@ pub(super) fn look_through(
     if keevoro_core::bucket::is_bucket_path(source) {
         return look_through_bucket(ctx, job, home, source, kinds, skip);
     }
-    let name = name_of(source);
+    // A source looked through before keeps the name it has, which a person
+    // may have given it; a new one is called after its folder, or the drive.
+    let root = std::fs::canonicalize(source).unwrap_or_else(|_| source.to_path_buf());
+    let name = Catalog::open_in_library(home)
+        .and_then(|c| c.sources())
+        .ok()
+        .and_then(|sources| sources.into_iter().find(|s| s.root == root))
+        .map_or_else(|| name_of(source), |s| s.name);
     // What to call it if it is unplugged part-way: the drive's own name
     // when the place is a whole drive. From the system's quick list, so it
     // costs next to nothing and never waits on a network share.
@@ -438,7 +445,6 @@ pub(super) fn look_through(
     let mut last_progress = keevoro_scan::ScanProgress::default();
     // What an earlier look through this place found, to say which files
     // are no longer offered if Keevoro's own folders are left out now.
-    let root = std::fs::canonicalize(source).unwrap_or_else(|_| source.to_path_buf());
     let found_before: Vec<PathBuf> = Catalog::open_in_library(home)
         .and_then(|c| c.load_reports())
         .map(|reports| {

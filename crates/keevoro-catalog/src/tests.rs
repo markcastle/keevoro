@@ -104,6 +104,28 @@ fn scanning_the_same_place_again_replaces_what_was_known() {
 }
 
 #[test]
+fn scanning_the_same_place_again_keeps_the_source_and_its_place_in_the_list() {
+    let mut c = Catalog::in_memory().unwrap();
+    let dell = c.save_scan("Dad's old Dell", &report("/media/dell"), 100).unwrap();
+    let disk = c.save_scan("2012 backup disk", &report("/media/backup"), 200).unwrap();
+    let mut second = report("/media/dell");
+    second.items.truncate(1);
+    second.skipped.clear();
+    second.unreadable.clear();
+    assert_eq!(c.save_scan("Dad's old Dell", &second, 300).unwrap(), dell);
+
+    let s = c.sources().unwrap();
+    assert_eq!(
+        s.iter().map(|s| (s.id, s.name.as_str())).collect::<Vec<_>>(),
+        [(dell, "Dad's old Dell"), (disk, "2012 backup disk")]
+    );
+    assert_eq!((s[0].items, s[0].scanned_at), (1, 300));
+    // Only what the second look found is known of it now.
+    let reports = c.load_reports().unwrap();
+    assert_eq!(json(&reports[..1]), json(&[second]));
+}
+
+#[test]
 fn forgetting_a_source_removes_everything_found_on_it() {
     let mut c = Catalog::in_memory().unwrap();
     let id = c.save_scan("Dell", &report("/media/dell"), 100).unwrap();

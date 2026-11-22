@@ -384,7 +384,9 @@ fn everything_a_person_set_and_keevoro_recorded_in_0_37_1_is_there_after_updatin
 #[test]
 fn a_source_0_37_1_looked_through_is_looked_through_as_before_and_its_drive_remembered() {
     let dir = tempfile::tempdir().unwrap();
-    let (keevoro, places) = as_0_37_1_left_it(dir.path());
+    // A source is kept under its real path, so the fixture's places are
+    // real ones here: the card looked through is the card the catalog has.
+    let (keevoro, places) = as_0_37_1_left_it(&std::fs::canonicalize(dir.path()).unwrap());
     let family = Some("Family photos");
     let home = places.folders.data.join("backups").join("backup-1");
     let mark = || {
@@ -428,6 +430,12 @@ fn a_source_0_37_1_looked_through_is_looked_through_as_before_and_its_drive_reme
         .unwrap()
         .expect("remembered once looked through");
     assert_eq!(remembered.volume, keevoro_engine::reach::volume_of(&card));
+
+    // It is still the source it was: the name a person gave it, not its
+    // folder's, the same source to ask for again, and first in the list.
+    let sources = ask(&keevoro, Op::SourcesList, family, Value::Null);
+    assert_eq!(names(&sources), ["Mum's card", "Beach"]);
+    assert_eq!(sources[0]["id"], 1, "{sources}");
 }
 
 /// Backing up by itself (0.42) keeps its schedule and its record in each

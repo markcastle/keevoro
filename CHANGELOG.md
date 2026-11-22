@@ -10,6 +10,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 - **A different example name for a new backup.** Where Keevoro suggests a name as you start a backup, in the app and in `keevoro backups start --help`, the example is now "Holiday videos".
 
+### Fixed
+
+- **A source keeps its name when you look through it again.** A source saved under a name of its own, say "Mum's card" for a card whose folder is called Card, was renamed after its folder ("Card") the next time it was looked through, and moved to the end of the list of sources. It now keeps its name and its place in the list, and at the command line the number `keevoro sources` shows for it stays the same.
+
 ## [0.48.0] - 2026-11-22
 
 ### Added
