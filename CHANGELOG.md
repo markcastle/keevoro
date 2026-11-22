@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.51.1] - 2026-11-22
+
 ### Changed
 
 - **Backing up by itself sits tidily on the backup screen.** It is now a plain part of the backup's panel under one fine line, not a box inside the box, and while a backup is running the offer to set a schedule waits until it is done.
@@ -827,7 +831,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.51.0...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.51.1...HEAD
+[0.51.1]: https://github.com/markcastle/keevoro/compare/v0.51.0...v0.51.1
 [0.51.0]: https://github.com/markcastle/keevoro/compare/v0.50.0...v0.51.0
 [0.50.0]: https://github.com/markcastle/keevoro/compare/v0.49.0...v0.50.0
 [0.49.0]: https://github.com/markcastle/keevoro/compare/v0.48.0...v0.49.0
