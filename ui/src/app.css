@@ -6357,3 +6357,176 @@ h3.kv-group-title {
   grid-column: 1 / -1;
   min-width: 0;
 }
+
+/* Detail on demand (infoTip.tsx). The "i" is always visible, in the same
+   place beside each label, quiet until pointed at; its hit area is larger
+   than the circle drawn, so it is easy to press. */
+/* Inline, not a flex box, so the sentence it follows reads on without a break. */
+.info-tip {
+  display: inline;
+  margin-left: 2px;
+}
+
+.info-tip-button {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin: -4px 0 -3px;
+  vertical-align: middle;
+  border-radius: 999px;
+  cursor: pointer;
+  color: var(--ink-muted);
+  flex: none;
+}
+
+.info-tip-button::before {
+  content: 'i';
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border: 1.25px solid currentColor;
+  border-radius: 999px;
+  font: italic 600 11px/1 Georgia, 'Times New Roman', serif;
+  opacity: 0.75;
+}
+
+.info-tip-button:hover,
+.info-tip-button[aria-expanded='true'] {
+  color: var(--ink);
+}
+
+.info-tip-button:hover::before,
+.info-tip-button[aria-expanded='true']::before {
+  opacity: 1;
+}
+
+.info-tip-button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 0;
+}
+
+.info-tip-box {
+  position: fixed;
+  z-index: 60;
+  display: block;
+  width: max-content;
+  max-width: min(320px, calc(100vw - 32px));
+  padding: 10px 12px;
+  background: var(--surface-raised);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  font: 400 13px/19px var(--font-sans);
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+
+.info-tip-box p + p {
+  margin-top: 6px;
+}
+
+.info-tip-box button.link {
+  font-size: inherit;
+}
+
+/* "More about this": a quiet disclosure that opens in place. */
+.more-about {
+  margin-top: var(--space-2);
+  font-size: 13px;
+  line-height: 19px;
+  color: var(--ink-muted);
+}
+
+.more-about > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  cursor: pointer;
+  list-style: none;
+  color: var(--ink-muted);
+  font-weight: 500;
+}
+
+.more-about > summary::-webkit-details-marker {
+  display: none;
+}
+
+.more-about > summary::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+
+.more-about[open] > summary::before {
+  transform: rotate(45deg);
+}
+
+.more-about > summary:hover {
+  color: var(--ink);
+}
+
+.more-about-body {
+  display: grid;
+  gap: var(--space-2);
+  max-width: 62ch;
+  padding: var(--space-1) 0 var(--space-2) 12px;
+  color: var(--ink-muted);
+}
+
+.more-about-body ul,
+.more-about-body ol {
+  margin: 0;
+  padding-left: 1.2em;
+}
+
+/* A group's heading and a row's name, each with its "i" beside it. */
+.kv-group-head {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  min-height: 22px;
+}
+
+.kv-group-head h3.kv-group-title {
+  padding-right: 0;
+}
+
+/* Inline, so a long name that wraps keeps its "i" beside its last word. */
+.kv-row-head {
+  display: block;
+  min-width: 0;
+}
+
+.kv-more {
+  margin-top: 0;
+  padding: 0 var(--space-4);
+}
+
+/* A button or a heading with its "i" just after it. */
+.with-tip {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 0;
+}
+
+.welcome .naming .with-tip {
+  justify-content: center;
+}
+
+.welcome .more-about {
+  margin-top: 0;
+}
