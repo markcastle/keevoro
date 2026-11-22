@@ -722,6 +722,8 @@ export type BackupEstimate = {
 /** What Keevoro is doing, why, and how hard it has been working. */
 export type Activity = {
   paused: boolean
+  /** When a pause for a while ends by itself, in words: "13:00", "tomorrow at 07:00". */
+  pausedUntil?: string
   /** What it is doing in one line, for a glance; null when idle. */
   doing: string | null
   /** The step a running backup is on, in its own words; null when none is running. */

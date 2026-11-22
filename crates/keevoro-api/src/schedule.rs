@@ -467,6 +467,22 @@ impl Keevoro {
         started
     }
 
+    /// Each backup with the schedule and record the scheduler knows for
+    /// it, read again from its catalog when old: for saying at a glance
+    /// what is next and how the last runs went, at no more cost than the
+    /// scheduler's own look. A backup whose catalog cannot be opened (its
+    /// drive unplugged, say) is left out.
+    pub(crate) fn schedules_known(&self, now: Timestamp) -> Vec<(Named, Option<Schedule>, Record)> {
+        self.backups()
+            .all()
+            .into_iter()
+            .filter_map(|backup| {
+                let seen = self.seen(&backup, now)?;
+                Some((backup, seen.schedule, seen.record))
+            })
+            .collect()
+    }
+
     /// What the scheduler knows of a backup, read again when old.
     fn seen(&self, backup: &Named, now: Timestamp) -> Option<Seen> {
         let mut all = self

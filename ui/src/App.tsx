@@ -124,6 +124,8 @@ export function App() {
   const stoppedLeft = (left: DuplicatesLeft | null) => (left && left.stopped && left.left > 0 ? left : null)
   // True while the person has paused Keevoro's heavy work.
   const [paused, setPaused] = useState(false)
+  // When a pause for a while (from the icon by the clock) ends by itself.
+  const [pausedUntil, setPausedUntil] = useState<string | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   // A newer Keevoro, and how far along installing it is.
   const [update, setUpdate] = useState<Update | null>(null)
@@ -178,6 +180,7 @@ export function App() {
           // Paused here or by another Keevoro program, it is said on
           // every screen, with Carry on, for as long as it lasts.
           setPaused(a.paused)
+          setPausedUntil(a.pausedUntil ?? null)
         })
         .catch(() => {})
     void ask()
@@ -382,7 +385,7 @@ export function App() {
           )}
           {paused && (
             <span className="paused" role="status">
-              Keevoro is paused.{' '}
+              Keevoro is paused{pausedUntil ? ` until ${pausedUntil}` : ''}.{' '}
               <button
                 className="button small"
                 onClick={() =>

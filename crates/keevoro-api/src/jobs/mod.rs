@@ -1593,6 +1593,7 @@ impl Keevoro {
     /// `jobs.pause`: every heavy job waits once the file in hand is done,
     /// in this program and any other working on a backup.
     pub fn pause(&self) {
+        self.paused_until.store(0, std::sync::atomic::Ordering::SeqCst);
         keevoro_core::pause::pause(PausedBy::ThisProgram);
         self.jobs.ask_everyone_else(Ask::Pause);
         self.log().say("Paused: all heavy work is waiting");
@@ -1601,6 +1602,7 @@ impl Keevoro {
     /// `jobs.carry_on`: paused jobs go on from where they were, in this
     /// program and any other working on a backup.
     pub fn carry_on(&self) {
+        self.paused_until.store(0, std::sync::atomic::Ordering::SeqCst);
         keevoro_core::pause::carry_on();
         self.jobs.ask_everyone_else(Ask::CarryOn);
         self.log().say("Resumed: work is carrying on from where it paused");

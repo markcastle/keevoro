@@ -276,6 +276,9 @@ pub struct Keevoro {
     pub(crate) schedules: Arc<crate::schedule::Known>,
     /// The time and time zone, for schedules: the computer's, or a test's.
     pub(crate) clock: Arc<dyn crate::schedule::Clock>,
+    /// When a pause for a while ends by itself, in seconds since 1970;
+    /// zero for a pause until someone carries on, or none.
+    pub(crate) paused_until: Arc<std::sync::atomic::AtomicI64>,
 }
 
 impl Keevoro {
@@ -308,6 +311,7 @@ impl Keevoro {
             window_used: Arc::default(),
             schedules: Arc::default(),
             clock: Arc::new(crate::schedule::SystemClock),
+            paused_until: Arc::default(),
         };
         keevoro.apply_saved_choices();
         // Pictures kept for quick showing are kept within bounds, quietly,
@@ -742,8 +746,12 @@ impl Keevoro {
 
     /// `keevoro.activity`
     pub fn activity(&self) -> ActivityView {
+        let (now, zone) = (self.clock.now(), self.clock.zone());
         ActivityView {
             check: self.jobs.check_now(),
+            paused_until: self
+                .paused_until()
+                .map(|until| crate::glance::until_words(until, now, &zone)),
             ..activity::now(Some(&self.backup_step()))
         }
     }
@@ -769,8 +777,11 @@ impl Keevoro {
             ));
         }
         let done = reset::reset(&self.backups, self.secrets(), &self.cache)?;
-        // What was learnt about this computer's speed goes too.
+        // What was learnt about this computer's speed goes too, and how
+        // the app's window behaves. The app takes away its own entry for
+        // starting with the computer.
         let _ = std::fs::remove_file(&self.rates);
+        let _ = std::fs::remove_file(self.backups.config_folder().join(crate::window::FILE));
         self.log.say(&format!(
             "Reset to how Keevoro was when first installed: {} backups removed, {} folders left where they are",
             done.removed.len(),

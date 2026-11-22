@@ -36,6 +36,7 @@ pub mod destinations;
 pub mod error;
 pub mod file_kinds;
 pub mod for_agents;
+pub mod glance;
 pub mod inside;
 pub mod jobs;
 pub mod keevoro;
@@ -51,6 +52,7 @@ pub mod schedule;
 pub mod space;
 pub mod synced;
 pub mod wants;
+pub mod window;
 pub mod words;
 
 pub use agents::{AgentAccess, AgentsAccessRequest};

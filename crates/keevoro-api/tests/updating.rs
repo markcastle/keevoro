@@ -461,6 +461,35 @@ fn a_backup_0_37_1_kept_has_no_schedule_and_nothing_runs_by_itself() {
     assert_eq!(shown["every"], "Every day at 02:30");
 }
 
+/// How the app's window behaves (0.45: keeping running by the clock when
+/// it is closed, minimising to the icon, notices, and having said so) is
+/// kept in a file of its own, `window.json`, never in `settings.json`. A
+/// Keevoro 0.37.1 left has no such file: every choice is as it comes,
+/// which keeps Keevoro running only where the computer shows icons by the
+/// clock, and choosing leaves the settings file exactly as it was.
+#[test]
+fn keevoro_0_37_1_left_has_no_window_choices_and_making_them_leaves_the_settings_file_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let (keevoro, places) = as_0_37_1_left_it(dir.path());
+    let window = keevoro.window_settings();
+    assert_eq!(window, keevoro_api::window::WindowSettings::default());
+    assert!(window.keep_running_or(true) && !window.keep_running_or(false));
+    assert!(window.notifies() && !window.explained_close && !window.minimise_to_tray);
+    let settings = places.folders.config.join("settings.json");
+    let before = std::fs::read_to_string(&settings).unwrap();
+    keevoro
+        .change_window_settings(|w| {
+            w.keep_running = Some(true);
+            w.explained_close = true;
+        })
+        .unwrap();
+    assert_eq!(std::fs::read_to_string(&settings).unwrap(), before);
+    assert!(keevoro.window_settings().explained_close);
+    // And the backups are all still there, as 0.37.1 left them.
+    let listed = ask(&keevoro, Op::BackupsList, None, Value::Null);
+    assert_eq!(names(&listed), ["Family photos", "Drone footage"]);
+}
+
 /// Putting a backup right (0.43) writes down when each copy was proved by
 /// reading it back in full (catalog step 15, `proved_at`). A backup 0.37.1
 /// kept has none: nothing counts as proved, every record still counts as
