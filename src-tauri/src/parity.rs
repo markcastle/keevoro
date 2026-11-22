@@ -149,6 +149,18 @@ const WINDOW_ONLY: &[&str] = &[
     "open_release_page",
     // Downloads and starts the app's own installer, then closes the window.
     "install_update",
+    // Keeping Keevoro running by the clock when its window is closed, and
+    // minimising and starting with the computer: what a window does, and
+    // the computer's list of programs it starts. Kept in `window.json`,
+    // which only the app reads.
+    "keep_running",
+    "set_keep_running",
+    // What waits for the window as it opens: a page, a question, a note.
+    "window_ask",
+    // The first-close explanation's OK: hide the window to the icon.
+    "hide_to_tray",
+    // Quitting the app, asking first with work in hand.
+    "quit_keevoro",
 ];
 
 /// Commands whose logic still lives in the shell, with the register

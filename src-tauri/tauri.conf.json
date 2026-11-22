@@ -12,6 +12,7 @@
     "windows": [
       {
         "label": "main",
+        "create": false,
         "title": "Keevoro",
         "width": 1280,
         "height": 860,
@@ -34,7 +35,8 @@
     "shortDescription": "Find the photos on your old drives and keep them safe.",
     "windows": {
       "nsis": {
-        "installMode": "currentUser"
+        "installMode": "currentUser",
+        "installerHooks": "windows/hooks.nsh"
       }
     },
     "icon": [

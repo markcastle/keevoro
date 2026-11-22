@@ -101,7 +101,13 @@ impl Heard {
 /// window, listening for every event the screens listen for.
 fn the_app(dir: &Path) -> (tauri::App<MockRuntime>, WebviewWindow<MockRuntime>, Heard) {
     let folders = Folders::under(dir);
-    let mut app = crate::app(mock_builder(), move |_| {
+    // No icon by the clock on the stand-in, and no list of programs the
+    // computer starts with: the app is told it has an icon, as on Windows,
+    // and is given a list in memory.
+    let desktop = crate::Desktop::StandIn {
+        tray: crate::closing::Tray::Shown,
+    };
+    let mut app = crate::app(mock_builder(), desktop, move |_| {
         Ok(Keevoro::open(&folders)
             .with_secrets(KeysInMemory::default())
             .with_environment(|_| None))
@@ -665,4 +671,83 @@ fn the_check_for_duplicates_says_when_it_waits_for_a_source_that_is_not_plugged_
         said.as_str()
     );
     assert_eq!(catalog.unhashed_count().unwrap(), 2, "nothing found is changed");
+}
+
+#[test]
+fn closing_minimising_and_starting_with_the_computer_are_set_by_the_names_and_shapes_the_screens_use() {
+    let dir = tempfile::tempdir().unwrap();
+    let (app, window, _heard) = the_app(dir.path());
+    // As it comes on a computer that shows the icon: closing keeps Keevoro
+    // running, and nothing else is on.
+    let view = invoke(&window, "keep_running", json!({})).unwrap();
+    fits(&view, "KeepRunningView");
+    assert_eq!(
+        (
+            &view["keepRunning"],
+            &view["minimiseToTray"],
+            &view["startWithComputer"],
+            &view["tray"]
+        ),
+        (&json!(true), &json!(false), &json!(false), &json!("shown"))
+    );
+    // As `setKeepRunning` sends it: only the parts changed.
+    let change = json!({ "change": { "keepRunning": false, "minimiseToTray": true } });
+    let view = invoke(&window, "set_keep_running", change).unwrap();
+    assert_eq!(
+        (&view["keepRunning"], &view["minimiseToTray"]),
+        (&json!(false), &json!(true))
+    );
+    let view = invoke(
+        &window,
+        "set_keep_running",
+        json!({ "change": { "startWithComputer": true } }),
+    )
+    .unwrap();
+    assert_eq!(view["startWithComputer"], true);
+    assert_eq!(view["notify"], true, "notices are on until switched off");
+    let view = invoke(&window, "set_keep_running", json!({ "change": { "notify": false } })).unwrap();
+    assert_eq!(view["notify"], false);
+    assert!(app.state::<Shared>().desk.startup.is_on().unwrap());
+    // Kept in its own file, never in the settings file.
+    let kept = app.state::<Shared>().keevoro.window_settings();
+    assert_eq!((kept.keep_running, kept.minimise_to_tray), (Some(false), true));
+    // Starting again from nothing takes Keevoro off the computer's list too.
+    invoke(&window, "reset_everything", json!({})).unwrap();
+    assert!(!app.state::<Shared>().desk.startup.is_on().unwrap());
+    assert_eq!(invoke(&window, "keep_running", json!({})).unwrap()["keepRunning"], true);
+}
+
+#[test]
+fn what_waits_for_the_window_is_taken_once_and_quitting_with_work_in_hand_asks_first() {
+    let dir = tempfile::tempdir().unwrap();
+    let (app, window, _heard) = the_app(dir.path());
+    // Opened as Keevoro starts, nothing waits.
+    assert_eq!(invoke(&window, "window_ask", json!({})).unwrap(), Value::Null);
+    // The icon's "Settings…" brings the window forward on its Settings page.
+    crate::window::show(app.handle(), Some("settings"));
+    let asked = invoke(&window, "window_ask", json!({})).unwrap();
+    fits(&asked, "WindowAsk");
+    assert_eq!(asked["page"], "settings");
+    assert_eq!(
+        invoke(&window, "window_ask", json!({})).unwrap(),
+        Value::Null,
+        "taken once"
+    );
+
+    // A search held by the pause is work in hand: quitting asks first.
+    let card = dir.path().join("Card");
+    fs::create_dir_all(card.join("DCIM")).unwrap();
+    fs::write(card.join("DCIM").join("IMG_1.jpg"), photo()).unwrap();
+    invoke(&window, "start_backup", json!({ "name": "Card photos" })).unwrap();
+    invoke(&window, "pause_work", json!({ "paused": true })).unwrap();
+    invoke(&window, "scan_place", json!({ "path": card.display().to_string() })).unwrap();
+    let answer = invoke(&window, "quit_keevoro", json!({ "stop": false })).unwrap();
+    fits(&answer, "QuitAnswer");
+    assert_eq!(
+        answer["asked"],
+        "Keevoro is looking through a source. Stop it and quit? Nothing is lost, and it can look again later."
+    );
+    invoke(&window, "stop_scanning", json!({})).unwrap();
+    invoke(&window, "pause_work", json!({ "paused": false })).unwrap();
+    app.state::<Shared>().keevoro.wait_for_jobs();
 }

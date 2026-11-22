@@ -1,6 +1,6 @@
 [package]
 name = "xtask"
-description = "Keevoro's own tooling: the changelog, cutting a release and the list of open source licences. Run it with `cargo xtask`."
+description = "Keevoro's own tooling: the changelog, cutting a release, the list of open source licences and the icons by the clock. Run it with `cargo xtask`."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,6 +10,7 @@ publish = false
 
 [dependencies]
 anyhow.workspace = true
+image.workspace = true
 keevoro-core.workspace = true
 regex.workspace = true
 serde_json.workspace = true

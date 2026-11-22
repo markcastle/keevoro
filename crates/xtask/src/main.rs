@@ -10,6 +10,8 @@
 //! cargo xtask changelog note "text"       add a line under Unreleased's Changed
 //! cargo xtask licences             write the list of open source licences the app shows
 //! cargo xtask licences --check     fail if that list is out of date
+//! cargo xtask tray-icons           make the icons shown by the clock from the logo
+//! cargo xtask tray-icons --check   fail if those kept are not the ones made
 //! ```
 //!
 //! It is Rust rather than a shell script so that it runs the same on
@@ -22,6 +24,7 @@
 
 mod changelog;
 mod licences;
+mod tray_icons;
 
 use anyhow::{bail, Context, Result};
 use std::path::Path;
@@ -38,7 +41,8 @@ const USAGE: &str = "Usage:
   cargo xtask changelog next <current version>
   cargo xtask changelog release <version>
   cargo xtask changelog note \"what changed\"
-  cargo xtask licences [--check]";
+  cargo xtask licences [--check]
+  cargo xtask tray-icons [--check]";
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -92,6 +96,18 @@ fn run(args: &[&str], root: &Path) -> Result<()> {
                 );
             }
             eprintln!("{} is up to date.", licences::DATA);
+        }
+        ["tray-icons"] => {
+            tray_icons::write(root)?;
+            eprintln!(
+                "{}: the icons by the clock, made from {}.",
+                tray_icons::FOLDER,
+                tray_icons::LOGO
+            );
+        }
+        ["tray-icons", "--check"] => {
+            tray_icons::check(root)?;
+            eprintln!("{} is up to date.", tray_icons::FOLDER);
         }
         ["release"] => cut_release(root, None)?,
         ["release", version] => cut_release(root, Some(version))?,

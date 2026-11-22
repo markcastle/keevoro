@@ -12,6 +12,8 @@
 
 import { demoMap } from './demoMap'
 import type {
+  KeepRunningView,
+  WindowAsk,
   TopBox,
   AppState,
   FileKind,
@@ -235,6 +237,24 @@ function topSoFar(place: string, part: number): TopBox[] {
 
 export function demoBackend(): Backend {
   const mode = new URLSearchParams(window.location.search).get('demo')
+  // Keeping Keevoro running by the clock, as on Windows. `?closing` opens on
+  // the explanation said the first time the window is closed; `?quitting`
+  // on the question asked before quitting cuts a backup short.
+  let keepRunning: KeepRunningView = {
+    keepRunning: true,
+    minimiseToTray: false,
+    startWithComputer: false,
+    notify: true,
+    tray: 'shown',
+    whereTheIconIs:
+      'Its icon is by the clock, at the bottom right of the screen (it may be under the ^ arrow there). Open or quit Keevoro from there.',
+  }
+  const opening = new URLSearchParams(window.location.search)
+  let windowAsked: WindowAsk | null = opening.has('closing')
+    ? { closing: keepRunning.whereTheIconIs }
+    : opening.has('quitting')
+      ? { quitting: 'A backup is running. Stop it after the file in hand and quit? Nothing is lost.' }
+      : null
   const firstHome = 'C:\\Users\\You\\AppData\\Keevoro\\backups\\s1'
   let library: string | null = mode === 'new' ? null : firstHome
   const collections: Collection[] = mode === 'new' || mode === 'empty' ? [] : FOUND.slice(0, 5).map((make) => make())
@@ -2049,5 +2069,30 @@ export function demoBackend(): Backend {
       checkListeners.add(listener)
       return () => checkListeners.delete(listener)
     },
+    keepRunning: async () => ({ ...keepRunning }),
+    setKeepRunning: async (change) => {
+      keepRunning = {
+        ...keepRunning,
+        keepRunning: change.keepRunning ?? keepRunning.keepRunning,
+        minimiseToTray: change.minimiseToTray ?? keepRunning.minimiseToTray,
+        startWithComputer: change.startWithComputer ?? keepRunning.startWithComputer,
+        notify: change.notify ?? keepRunning.notify,
+      }
+      return { ...keepRunning }
+    },
+    windowAsk: async () => {
+      const asked = windowAsked
+      windowAsked = null
+      return asked
+    },
+    onWindowAsk: () => () => {},
+    hideToTray: async (startWithComputer) => {
+      // A browser has no icon by the clock to hide to.
+      if (startWithComputer) keepRunning = { ...keepRunning, startWithComputer: true }
+    },
+    quitKeevoro: async (stop) =>
+      new URLSearchParams(window.location.search).has('busy') && !stop
+        ? { asked: 'A backup is running. Stop it after the file in hand and quit? Nothing is lost.' }
+        : {},
   }
 }

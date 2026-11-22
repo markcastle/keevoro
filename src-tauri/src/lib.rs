@@ -22,14 +22,22 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
+mod closing;
 mod commands;
 mod events;
+mod keep_running;
+mod notices;
 #[cfg(test)]
 mod parity;
+mod relaunch;
+mod startup;
+mod tray;
 mod updates;
+mod window;
 #[cfg(test)]
 mod wiring;
 
+use std::sync::Arc;
 use tauri::{Emitter, Manager, Runtime};
 
 /// The window event that says a drive arrived or left, where the system
@@ -41,20 +49,80 @@ pub struct Shared {
     /// Keevoro itself: its backups, settings, log, keychain and jobs,
     /// through the API the command line uses too.
     keevoro: keevoro_api::Keevoro,
+    /// Its window coming and going, and its icon by the clock.
+    desk: window::Desk,
+}
+
+/// Where the app runs: on a person's desktop, or on Tauri's stand-in for a
+/// window in a test, which has no icon by the clock and no list of
+/// programs the computer starts with, so the test is given its own.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) enum Desktop {
+    Real {
+        /// False when started with the computer: it comes up with no window.
+        with_window: bool,
+    },
+    StandIn {
+        tray: closing::Tray,
+    },
 }
 
 pub fn run() {
-    let built = app(tauri::Builder::default(), |_| {
+    let args: Vec<String> = std::env::args().collect();
+    let builder = tauri::Builder::default()
+        // First, so that Keevoro started again (from the Start menu, say,
+        // while it waits by the clock) brings this one's window forward and
+        // goes. The command line and the agent server are other programs
+        // and never ask.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            window::show(app, None)
+        }))
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .app_name("Keevoro")
+                .arg(closing::IN_BACKGROUND)
+                .build(),
+        )
+        .plugin(tauri_plugin_notification::init());
+    let desktop = Desktop::Real {
+        with_window: closing::starts_with_its_window(&args),
+    };
+    let built = app(builder, desktop, |_| {
         // The same folders the command line uses, so both see the same
         // backups.
         let folders =
             keevoro_api::Folders::for_this_computer().ok_or("this computer does not say where an app's folders go")?;
         Ok(keevoro_api::Keevoro::open(&folders))
     })
-    .run(context());
-    if let Err(e) = built {
-        eprintln!("Keevoro couldn't start: {e}");
-        std::process::exit(1);
+    .build(context());
+    match built {
+        Ok(app) => app.run(window::on_run_event),
+        Err(e) => {
+            eprintln!("Keevoro couldn't start: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Tells the person how a backup by itself went, if it was one and has
+/// something worth saying (`notices.rs`).
+fn told_after<R: Runtime>(app: &tauri::AppHandle<R>, job: keevoro_api::JobId, last: &keevoro_api::jobs::SendEvent) {
+    let Some(shared) = app.try_state::<Shared>() else {
+        return;
+    };
+    let handle = shared
+        .keevoro
+        .jobs(None)
+        .into_iter()
+        .find(|j| j.handle.id == job)
+        .or_else(|| shared.keevoro.ended_job(job))
+        .map(|j| j.handle);
+    let Some(handle) = handle.filter(|h| h.by_itself.is_some()) else {
+        return;
+    };
+    let Some(backup) = handle.backup else { return };
+    if let Some(notice) = notices::notice(&backup.name, last) {
+        notices::tell(app, &backup.id, &notice);
     }
 }
 
@@ -72,25 +140,78 @@ fn context<R: Runtime>() -> tauri::Context<R> {
 /// stand-in for a window (`tauri::test`, in `wiring.rs`).
 fn app<R: Runtime>(
     builder: tauri::Builder<R>,
+    desktop: Desktop,
     open: impl FnOnce(&tauri::App<R>) -> Result<keevoro_api::Keevoro, Box<dyn std::error::Error>> + Send + 'static,
 ) -> tauri::Builder<R> {
     builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .on_window_event(window::on_window_event)
         .setup(move |app| {
             let keevoro = open(app)?;
-            keevoro_api::activity::watch();
             keevoro.log().say(&format!(
-                "Keevoro {} started on {} ({})",
+                "Keevoro {} started on {} ({}){}",
                 env!("CARGO_PKG_VERSION"),
                 std::env::consts::OS,
-                std::env::consts::ARCH
+                std::env::consts::ARCH,
+                match desktop {
+                    Desktop::Real { with_window: false } => ", by the clock, with the computer",
+                    _ => "",
+                }
             ));
             // Everything a job says goes to the window, as the event the
-            // screens listen for.
+            // screens listen for, and may change what the icon by the
+            // clock says.
             let window = app.handle().clone();
-            keevoro.listen(move |event| events::to_window(&window, &event.said));
-            app.manage(Shared { keevoro });
+            keevoro.listen(move |event| {
+                events::to_window(&window, &event.said);
+                tray::nudge(&window);
+                // A backup by itself that ended may have something to say.
+                if let keevoro_api::Said::Send(last) = &event.said {
+                    if last.finished {
+                        let (app, job, last) = (window.clone(), event.job, last.clone());
+                        std::thread::spawn(move || told_after(&app, job, &last));
+                    }
+                }
+            });
+            // The icon by the clock, where the computer has a place for one.
+            let handle = app.handle();
+            let (startup, tray, with_window): (Arc<dyn startup::StartWithComputer>, _, _) = match desktop {
+                Desktop::Real { with_window } => (
+                    {
+                        notices::listen(handle);
+                        Arc::new(startup::ThroughThePlugin(handle.clone()))
+                    },
+                    tray::make(handle).map_or(closing::Tray::None, |()| closing::Tray::made_on(std::env::consts::OS)),
+                    with_window,
+                ),
+                Desktop::StandIn { tray } => (Arc::new(startup::InMemory::default()), tray, true),
+            };
+            if tray == closing::Tray::None {
+                keevoro
+                    .log()
+                    .say("This computer has no place for an icon by the clock, so closing Keevoro quits it");
+            }
+            let seen_at = keevoro.window_settings().seen_at;
+            app.manage(Shared {
+                keevoro,
+                desk: window::Desk::new(startup, tray, seen_at),
+            });
+            tray::keep_up_to_date(handle)?;
+            // Measuring Keevoro's own work, for "What Keevoro is doing",
+            // rests while no window can show it.
+            keevoro_api::activity::watch();
+            if with_window {
+                window::open(handle)?;
+                window::show(handle, None);
+            } else {
+                keevoro_api::activity::rest(true);
+                #[cfg(target_os = "macos")]
+                app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+            }
+            // Asked for afresh: on a Mac the line above changes the app,
+            // which the handle taken earlier may not be held across.
+            tray::nudge(app.handle());
             // Where the system says when a drive arrives or leaves
             // (Windows), the first screen hears it at once, as `drives`;
             // elsewhere it looks every couple of seconds while it shows.
@@ -109,9 +230,16 @@ fn app<R: Runtime>(
                     let mut ticker = keevoro_api::schedule::Ticker::started_at(keevoro.now());
                     loop {
                         std::thread::sleep(std::time::Duration::from_secs(60));
+                        // A pause for a while from the icon ends by itself.
+                        keevoro.carry_on_if_the_pause_is_over();
                         if ticker.may_run(keevoro.now()) {
                             keevoro.run_schedules_due();
                         }
+                        // "Tonight" becomes "tomorrow" as the clock moves.
+                        tray::nudge(&scheduler);
+                        // On a Mac, a new version dragged over this one.
+                        #[cfg(target_os = "macos")]
+                        relaunch::if_updated(&scheduler);
                     }
                 })?;
             // Backups removed over a week ago are cleared away for good,
@@ -208,5 +336,10 @@ fn app<R: Runtime>(
             commands::check_arrived,
             commands::put_right,
             commands::put_right_plan,
+            keep_running::keep_running,
+            keep_running::set_keep_running,
+            keep_running::window_ask,
+            keep_running::hide_to_tray,
+            keep_running::quit_keevoro,
         ])
 }

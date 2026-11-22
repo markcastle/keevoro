@@ -84,6 +84,8 @@ import { ThereNow, WhatWasFound } from './whatIsThere'
 import { PutRight } from './putRight'
 import { ManageBackups } from './manageBackups'
 import { CheckLine, CheckStopped } from './checking'
+import { KeepRunningSetting } from './keepRunning'
+import { WindowAsks } from './tray'
 import { certain, mainButtonWords, outOfReachLine } from './thereWords'
 import { SyncedCard } from './synced'
 import { StorageFields } from './storageForm'
@@ -128,6 +130,8 @@ export function App() {
   const waitsOf = (left: DuplicatesLeft | null) => (left && !left.stopped ? (left.said ?? []) : [])
   // True while the person has paused Keevoro's heavy work.
   const [paused, setPaused] = useState(false)
+  // When a pause for a while (from the icon by the clock) ends by itself.
+  const [pausedUntil, setPausedUntil] = useState<string | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   // A newer Keevoro, and how far along installing it is.
   const [update, setUpdate] = useState<Update | null>(null)
@@ -182,6 +186,7 @@ export function App() {
           // Paused here or by another Keevoro program, it is said on
           // every screen, with Carry on, for as long as it lasts.
           setPaused(a.paused)
+          setPausedUntil(a.pausedUntil ?? null)
         })
         .catch(() => {})
     void ask()
@@ -307,8 +312,17 @@ export function App() {
       })
       .catch(report)
 
+  // From the icon by the clock: a page to open, the first-close explanation,
+  // the question before quitting, and anything its menu could not do.
+  const asks = <WindowAsks api={api} onPage={(page) => page === 'settings' && show('settings')} onProblem={report} />
+
   if (!state.backup) {
-    return <Welcome onStart={(name) => openBackup(api.startBackup(name))} problem={problem} />
+    return (
+      <>
+        <Welcome onStart={(name) => openBackup(api.startBackup(name))} problem={problem} />
+        {asks}
+      </>
+    )
   }
 
   const waiting = found?.waitingToGather ?? 0
@@ -357,6 +371,7 @@ export function App() {
 
   return (
     <div className="app">
+      {asks}
       <aside className="sidebar">
         <div className="brand">
           <Logo />
@@ -397,7 +412,7 @@ export function App() {
           )}
           {paused && (
             <span className="paused" role="status">
-              Keevoro is paused.{' '}
+              Keevoro is paused{pausedUntil ? ` until ${pausedUntil}` : ''}.{' '}
               <button
                 className="button small"
                 onClick={() =>
@@ -2100,6 +2115,8 @@ function SettingsScreen(props: {
           </>
         )}
       </div>
+
+      <KeepRunningSetting api={api} onProblem={onProblem} />
 
       <AgentsSetting api={api} onProblem={onProblem} />
 

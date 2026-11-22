@@ -193,6 +193,10 @@ pub fn recent() -> (Vec<Sample>, u64) {
 #[serde(rename_all = "camelCase")]
 pub struct ActivityView {
     pub paused: bool,
+    /// When a pause for a while ends by itself, in words: "13:00",
+    /// "tomorrow at 07:00". Absent for a pause until someone carries on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub paused_until: Option<String>,
     /// What it is doing in one line, or `None` when idle.
     pub doing: Option<String>,
     /// The step a running backup is on, in its own words, such as
@@ -239,6 +243,7 @@ pub fn now(backup_step: Option<&str>) -> ActivityView {
     }
     ActivityView {
         paused: keevoro_core::pause::is_paused(),
+        paused_until: None,
         doing: in_a_line(&now),
         backup_step,
         jobs: jobs(&now),
@@ -249,8 +254,32 @@ pub fn now(backup_step: Option<&str>) -> ActivityView {
     }
 }
 
-/// Measures this program once a second for as long as it runs. Asking more
-/// than once is harmless: there is only ever one measuring.
+/// True while nobody can see the measurements: the app's window is closed
+/// and Keevoro waits by the clock. Measuring then stops, so an idle
+/// Keevoro wakes the computer no more than its scheduler's once a minute.
+static RESTING: Mutex<bool> = Mutex::new(false);
+static WOKEN: std::sync::Condvar = std::sync::Condvar::new();
+
+/// Stops measuring while `resting`, and starts again when not. The app
+/// rests it while its window is closed.
+pub fn rest(resting: bool) {
+    *RESTING.lock().unwrap_or_else(PoisonError::into_inner) = resting;
+    WOKEN.notify_all();
+}
+
+/// Waits here while measuring rests. True if it waited.
+fn wait_while_resting() -> bool {
+    let mut resting = RESTING.lock().unwrap_or_else(PoisonError::into_inner);
+    let rested = *resting;
+    while *resting {
+        resting = WOKEN.wait(resting).unwrap_or_else(PoisonError::into_inner);
+    }
+    rested
+}
+
+/// Measures this program once a second for as long as it runs, except
+/// while it rests (see [`rest`]). Asking more than once is harmless: there
+/// is only ever one measuring.
 pub fn watch() {
     if WATCHING.swap(true, Ordering::SeqCst) {
         return;
@@ -264,6 +293,12 @@ pub fn watch() {
         let mut last = std::time::Instant::now();
         let mut counted = keevoro_core::meter::totals();
         loop {
+            if wait_while_resting() {
+                // What happened while resting was not watched: start afresh.
+                system.refresh_processes_specifics(ProcessesToUpdate::Some(&[me]), false, what);
+                last = std::time::Instant::now();
+                counted = keevoro_core::meter::totals();
+            }
             std::thread::sleep(std::time::Duration::from_secs(1));
             system.refresh_processes_specifics(ProcessesToUpdate::Some(&[me]), false, what);
             let seconds = last.elapsed().as_secs_f32();
@@ -291,6 +326,25 @@ pub fn watch() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn measuring_waits_while_it_rests_and_goes_on_when_woken() {
+        rest(true);
+        let passed = std::sync::Arc::new(AtomicBool::new(false));
+        let waiting = {
+            let passed = passed.clone();
+            std::thread::spawn(move || {
+                let waited = wait_while_resting();
+                passed.store(true, Ordering::SeqCst);
+                waited
+            })
+        };
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        assert!(!passed.load(Ordering::SeqCst), "nothing is measured while resting");
+        rest(false);
+        assert!(waiting.join().unwrap(), "it said it had waited");
+        assert!(!wait_while_resting(), "awake, it does not wait");
+    }
 
     #[test]
     fn processor_use_is_a_share_of_the_whole_computer() {

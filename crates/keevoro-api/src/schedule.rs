@@ -467,6 +467,22 @@ impl Keevoro {
         started
     }
 
+    /// Each backup with the schedule and record the scheduler knows for
+    /// it, read again from its catalog when old: for saying at a glance
+    /// what is next and how the last runs went, at no more cost than the
+    /// scheduler's own look. A backup whose catalog cannot be opened (its
+    /// drive unplugged, say) is left out.
+    pub(crate) fn schedules_known(&self, now: Timestamp) -> Vec<(Named, Option<Schedule>, Record)> {
+        self.backups()
+            .all()
+            .into_iter()
+            .filter_map(|backup| {
+                let seen = self.seen(&backup, now)?;
+                Some((backup, seen.schedule, seen.record))
+            })
+            .collect()
+    }
+
     /// What the scheduler knows of a backup, read again when old.
     fn seen(&self, backup: &Named, now: Timestamp) -> Option<Seen> {
         let mut all = self
@@ -478,7 +494,9 @@ impl Keevoro {
             .get(&backup.id)
             .is_some_and(|seen| now.as_second() - seen.read_at < READ_AGAIN_EVERY && now.as_second() >= seen.read_at);
         if !fresh {
-            let catalog = Catalog::open_in_library(&backup.home).ok()?;
+            // Never made where it is not: a backup removed a moment ago, or
+            // one whose drive is unplugged, is passed over.
+            let catalog = crate::backup::existing_catalog(&backup.home)?;
             let not_before = all.get(&backup.id).map_or(0, |s| s.not_before);
             all.insert(
                 backup.id.clone(),
