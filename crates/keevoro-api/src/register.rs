@@ -156,6 +156,9 @@ register! {
     SourcesWants = "sources.wants",
         "What one source is for: its backup's choice of photos, videos and other files, or its own",
         changes: OnlyWhenAsked, job: false, command_line: true, agents: Agents::Yes, implemented: true;
+    SourcesOnArrival = "sources.on_arrival",
+        "Whether a source is backed up by itself whenever it is plugged in, and changing it",
+        changes: OnlyWhenAsked, job: false, command_line: true, agents: Agents::No, implemented: true;
     SourcesArrange = "sources.arrange",
         "How one source's files are arranged: as its backup does, by date, or keeping its folders",
         changes: OnlyWhenAsked, job: false, command_line: true, agents: Agents::Yes, implemented: true;
@@ -239,6 +242,9 @@ register! {
         changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
 
     // Backing up by itself
+    BackgroundSettings = "background.settings",
+        "How a backup by itself waits: on battery, on a metered connection, and the hours it may start in",
+        changes: OnlyWhenAsked, job: false, command_line: true, agents: Agents::No, implemented: true;
     ScheduleShow = "schedule.show",
         "When a backup runs by itself, when it runs next, and its last few runs",
         changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
@@ -251,6 +257,9 @@ register! {
     ScheduleRun = "schedule.run",
         "Backs up by itself: looks through sources again, holds back what needs your say, sends what is new",
         changes: Always, job: true, command_line: true, agents: Agents::No, implemented: true;
+    ScheduleAway = "schedule.away",
+        "What every backup did by itself since a time, what it caught up, and what waits for your say",
+        changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     BackupWants = "backup.wants",
         "What a backup is for: photos, videos, other files, or some of them, and changing it",
         changes: OnlyWhenAsked, job: false, command_line: true, agents: Agents::Yes, implemented: true;
@@ -314,6 +323,15 @@ register! {
     ReportsRefresh = "reports.refresh",
         "Asks how each report sent from this computer is getting on",
         changes: Always, job: false, command_line: true, agents: Agents::No, implemented: true;
+    ReportsNote = "reports.note",
+        "Keeps a report the app's window sent itself, when Keevoro could not, as one sent from here",
+        changes: Always, job: false, command_line: false, agents: Agents::No, implemented: true;
+    ReportsAsking = "reports.asking",
+        "Where reports go, and what lets the app's window ask after the newest itself",
+        changes: Never, job: false, command_line: false, agents: Agents::No, implemented: true;
+    ReportsHeard = "reports.heard",
+        "Notes how each report is getting on, as the app's window heard when Keevoro could not ask",
+        changes: Always, job: false, command_line: false, agents: Agents::No, implemented: true;
 
     // The kinds of file looked for
     FileKindsList = "file_kinds.list",
@@ -380,6 +398,8 @@ impl Op {
                 | Op::JobsCarryOn
                 | Op::KeevoroAbout
                 | Op::KeevoroActivity
+                | Op::ScheduleAway
+                | Op::BackgroundSettings
                 | Op::KeevoroLog
                 | Op::KeevoroSettings
                 | Op::KeevoroUpdate
@@ -389,6 +409,9 @@ impl Op {
                 | Op::ReportsSend
                 | Op::ReportsList
                 | Op::ReportsRefresh
+                | Op::ReportsNote
+                | Op::ReportsAsking
+                | Op::ReportsHeard
                 | Op::DestinationsTidy
                 | Op::FileKindsList
                 | Op::FileKindsAdd
@@ -421,6 +444,10 @@ impl Op {
                 Op::BackupPreviews => given("wanted"),
                 Op::BackupWants | Op::SourcesWants => given("wants"),
                 Op::BackupArrange | Op::SourcesArrange => given("arrange"),
+                Op::SourcesOnArrival => given("on"),
+                Op::BackgroundSettings => {
+                    given("waitOnBattery") || given("waitOnMetered") || given("between") || given("anyHour")
+                }
                 Op::KeevoroSettings => given("ownCodecs"),
                 // Asked only what it would clear, it clears nothing.
                 Op::DestinationsTidy | Op::BackupsForget => {
@@ -475,6 +502,8 @@ impl Op {
             Op::KeevoroLog => schema::<LogRequest>(),
             Op::ReportsPrepare => schema::<crate::reports::PrepareReportRequest>(),
             Op::ReportsSend => schema::<crate::reports::SendReportRequest>(),
+            Op::ReportsNote => schema::<crate::reports::NoteReportRequest>(),
+            Op::ReportsHeard => schema::<crate::reports::HeardRequest>(),
             Op::KeevoroSettings => schema::<SettingsRequest>(),
             Op::AgentsAccess => schema::<Agents>(),
             Op::BackupHistory => schema::<HistoryRequest>(),
@@ -482,9 +511,12 @@ impl Op {
             Op::ScheduleRun => schema::<crate::RunByItselfRequest>(),
             Op::ScheduleSet => schema::<crate::schedule::SetScheduleRequest>(),
             Op::ScheduleSkipNext => schema::<crate::schedule::SkipNextRequest>(),
+            Op::ScheduleAway => schema::<crate::schedule::AwayRequest>(),
             Op::BackupWants => schema::<crate::wants::BackupWantsRequest>(),
             Op::BackupArrange => schema::<crate::arrange::BackupArrangeRequest>(),
             Op::SourcesArrange => schema::<crate::arrange::SourceArrangeRequest>(),
+            Op::SourcesOnArrival => schema::<crate::arrival::OnArrivalRequest>(),
+            Op::BackgroundSettings => schema::<crate::manners::MannersRequest>(),
             Op::SourcesWants => schema::<crate::wants::SourceWantsRequest>(),
             Op::DestinationsTidy => schema::<crate::keevoro::TidyRequest>(),
             Op::FileKindsAdd => schema::<AddFileKindRequest>(),
@@ -515,6 +547,7 @@ impl Op {
             | Op::FileKindsReset
             | Op::ReportsList
             | Op::ReportsRefresh
+            | Op::ReportsAsking
             | Op::PlacesForgetMaps => schema::<Nothing>(),
         }
     }
@@ -828,12 +861,21 @@ impl Op {
                  schedule, or start a run by itself: a run by itself happens long after this conversation, with \
                  nobody watching, so only the person sets one up. Changes nothing.",
             ),
+            Op::ScheduleAway => (
+                "while_you_were_away",
+                "Says what every backup did by itself since a time (since, in seconds since 1970, or the last days \
+                 days, a week unless given): each run, what it backed up or why it could not, runs that were \
+                 missed because the computer was off and caught up, and what waits for the person's say. Changes \
+                 nothing.",
+            ),
             Op::DuplicatesCheck
             | Op::BackupPutRight
             | Op::BackupPutRightPlan
             | Op::ScheduleRun
             | Op::ScheduleSet
             | Op::ScheduleSkipNext
+            | Op::SourcesOnArrival
+            | Op::BackgroundSettings
             | Op::BackupsForget
             | Op::BackupsRemoved
             | Op::BackupsPutBack
@@ -850,6 +892,9 @@ impl Op {
             | Op::ReportsSend
             | Op::ReportsList
             | Op::ReportsRefresh
+            | Op::ReportsNote
+            | Op::ReportsAsking
+            | Op::ReportsHeard
             | Op::PlacesForgetMaps => return None,
         };
         Some(Tool { name, tells })
@@ -902,7 +947,7 @@ mod tests {
 
     #[test]
     fn the_register_has_every_operation_in_the_plan() {
-        assert_eq!(Op::ALL.len(), 72);
+        assert_eq!(Op::ALL.len(), 78);
         // Each entry is the one for its own operation.
         for op in Op::ALL {
             assert_eq!(op.entry().op, *op);
@@ -986,12 +1031,19 @@ mod tests {
             Op::ScheduleRun,
             Op::ScheduleSet,
             Op::ScheduleSkipNext,
+            // Backing up when a source is plugged in is the same promise,
+            // and so is when a backup by itself may start.
+            Op::SourcesOnArrival,
+            Op::BackgroundSettings,
             // A report goes to Keevoro's maker in the person's own words, so
             // only the person makes, sends or asks after one, never an agent.
             Op::ReportsPrepare,
             Op::ReportsSend,
             Op::ReportsList,
             Op::ReportsRefresh,
+            Op::ReportsNote,
+            Op::ReportsAsking,
+            Op::ReportsHeard,
         ]
         .into();
         assert_eq!(kept_from_agents, plan);
@@ -1019,8 +1071,17 @@ mod tests {
 
     #[test]
     fn the_command_line_offers_everything() {
+        // Except what only the app's window can do: reaching the reports
+        // service through the system's own network settings when Keevoro
+        // cannot. The command line has no window to send through.
+        let window_only = [Op::ReportsNote, Op::ReportsAsking, Op::ReportsHeard];
         for entry in entries() {
-            assert!(entry.command_line, "{} is missing from the command line", entry.name);
+            assert_eq!(
+                entry.command_line,
+                !window_only.contains(&entry.op),
+                "{} is missing from the command line",
+                entry.name
+            );
         }
     }
 
@@ -1079,6 +1140,7 @@ mod tests {
         "backup_history",
         "last_summary",
         "backup_schedule",
+        "while_you_were_away",
         "backup_wants",
         "backup_arrange",
         "set_previews",

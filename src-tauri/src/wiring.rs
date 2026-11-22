@@ -398,7 +398,8 @@ fn the_screens_commands_start_the_apis_jobs_and_their_events_reach_the_window() 
     for hint in hints {
         fits(hint, "Hint");
     }
-    assert_eq!(heard.wait_for("survey", |_| true)["files"], 1);
+    // A first word may come before any file is counted, on a busy machine.
+    assert_eq!(heard.wait_for("survey", |p| p["files"] == 1)["files"], 1);
 
     // A search stopped before it gets going ends at once, saying so. It is
     // held before its first file by pausing, which stopping lifts.
@@ -461,6 +462,26 @@ fn the_screens_commands_start_the_apis_jobs_and_their_events_reach_the_window() 
     let off = invoke(&window, "set_schedule", json!({ "request": { "every": "off" } })).unwrap();
     assert_eq!(off["every"], Value::Null);
     assert_eq!(off["last"], json!([]));
+    // While you were away: nothing ran by itself yet, in the shape the
+    // screen reads, and Done is heard.
+    // How a backup by itself waits, in the shape the Settings rows read.
+    let manners = invoke(&window, "background_settings", json!({})).unwrap();
+    fits(&manners, "MannersView");
+    assert_eq!(manners["waitOnBattery"], true);
+    let changed = invoke(
+        &window,
+        "background_settings",
+        json!({ "request": { "between": { "from": "22:00", "to": "07:00" } } }),
+    )
+    .unwrap();
+    assert_eq!(changed["betweenSaid"], "between 22:00 and 07:00");
+    let away = invoke(&window, "away", json!({})).unwrap();
+    fits(&away, "AwayView");
+    assert_eq!(
+        (away["backups"].clone(), away["waiting"].clone()),
+        (json!([]), json!([]))
+    );
+    invoke(&window, "away_seen", json!({})).unwrap();
 
     // How it is arranged, asked once something is found, by the names and
     // shapes the screens use.
@@ -474,6 +495,15 @@ fn the_screens_commands_start_the_apis_jobs_and_their_events_reach_the_window() 
         (Some("folders"), Some(true))
     );
     let id = discover["sources"][0]["id"].as_i64().unwrap();
+    // Backing it up when it is plugged in: off unless asked, and said in
+    // the list of sources once on.
+    let arrival = invoke(&window, "source_on_arrival", json!({ "source": id, "on": true })).unwrap();
+    fits(&arrival, "OnArrivalView");
+    assert_eq!(arrival["on"], true);
+    let listed = invoke(&window, "discover", json!({})).unwrap();
+    assert_eq!(listed["sources"][0]["onArrival"], true);
+    let arrival = invoke(&window, "source_on_arrival", json!({ "source": id, "on": false })).unwrap();
+    assert_eq!(arrival["on"], false);
     let source = invoke(&window, "set_source_arrange", json!({ "id": id, "arrange": "byDate" })).unwrap();
     fits(&source, "SourceArrangeView");
     fits(

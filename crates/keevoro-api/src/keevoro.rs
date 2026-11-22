@@ -274,6 +274,8 @@ pub struct Keevoro {
     pub(crate) window_used: Arc<std::sync::atomic::AtomicI64>,
     /// What the scheduler knows of each backup's schedule between looks.
     pub(crate) schedules: Arc<crate::schedule::Known>,
+    /// What the watch for sources plugged in keeps between looks.
+    pub(crate) arrivals: Arc<crate::arrival::Arrivals>,
     /// The time and time zone, for schedules: the computer's, or a test's.
     pub(crate) clock: Arc<dyn crate::schedule::Clock>,
     /// When a pause for a while ends by itself, in seconds since 1970;
@@ -310,6 +312,7 @@ impl Keevoro {
             signals: Arc::new(crate::jobs::ThisComputer::default()),
             window_used: Arc::default(),
             schedules: Arc::default(),
+            arrivals: Arc::default(),
             clock: Arc::new(crate::schedule::SystemClock),
             paused_until: Arc::default(),
         };
@@ -787,6 +790,8 @@ impl Keevoro {
         // starting with the computer.
         let _ = std::fs::remove_file(&self.rates);
         let _ = std::fs::remove_file(self.backups.config_folder().join(crate::window::FILE));
+        // And how a backup by itself waits for a good moment.
+        let _ = std::fs::remove_file(self.backups.config_folder().join(crate::manners::FILE));
         // The list of reports sent from this computer goes too. The reports
         // themselves were sent, and stay with Keevoro's maker.
         let _ = std::fs::remove_file(self.backups.config_folder().join(crate::reports::FILE));

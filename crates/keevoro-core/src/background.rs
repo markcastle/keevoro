@@ -113,6 +113,45 @@ pub struct StartFacts {
     /// The person asked for this run (Run now), so their being in
     /// Keevoro's window is no reason to wait.
     pub person_asked: bool,
+    /// How full the battery is, 0 to 100, when the computer says.
+    pub battery_percent: Option<u8>,
+    /// The person asked for backups by themselves only between certain
+    /// hours, and it is not one of them now.
+    pub outside_hours: bool,
+}
+
+/// On battery, a backup by itself waits while the battery is below this
+/// share full, or when the computer does not say how full it is.
+pub const BATTERY_LOW: u8 = 50;
+
+/// The hours of the day a person allows backups by themselves in, in the
+/// computer's own time: from `from` until `to`, across midnight when `to`
+/// comes first ("22:00 until 07:00").
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Hours {
+    pub from: jiff::civil::Time,
+    pub to: jiff::civil::Time,
+}
+
+impl Hours {
+    /// True when `at` is within them. The same time twice means the whole
+    /// day.
+    pub fn contain(&self, at: jiff::civil::Time) -> bool {
+        match self.from.cmp(&self.to) {
+            std::cmp::Ordering::Equal => true,
+            std::cmp::Ordering::Less => at >= self.from && at < self.to,
+            std::cmp::Ordering::Greater => at >= self.from || at < self.to,
+        }
+    }
+
+    /// "between 22:00 and 07:00".
+    pub fn words(&self) -> String {
+        format!(
+            "between {} and {}",
+            crate::schedule::time_words(self.from),
+            crate::schedule::time_words(self.to)
+        )
+    }
 }
 
 /// Seconds since the window was last used within which a run by itself
@@ -126,6 +165,7 @@ pub enum Wait {
     Metered,
     Busy,
     WindowInUse,
+    OutsideHours,
 }
 
 impl Wait {
@@ -136,6 +176,7 @@ impl Wait {
             Wait::Metered => "Waiting for a connection that isn't metered",
             Wait::Busy => "Waiting for a quieter moment",
             Wait::WindowInUse => "Waiting until you have finished in Keevoro",
+            Wait::OutsideHours => "Waiting for the hours you chose",
         }
     }
 }
@@ -143,8 +184,12 @@ impl Wait {
 /// Whether a backup that runs by itself may start now. A signal the
 /// computer cannot give is never a reason to wait.
 pub fn may_start(f: &StartFacts) -> Result<(), Wait> {
-    if f.on_battery == Some(true) && !f.allow_battery {
+    let low = f.battery_percent.is_none_or(|p| p < BATTERY_LOW);
+    if f.on_battery == Some(true) && low && !f.allow_battery {
         return Err(Wait::OnBattery);
+    }
+    if f.outside_hours {
+        return Err(Wait::OutsideHours);
     }
     if f.needs_internet && f.metered == Some(true) && !f.allow_metered {
         return Err(Wait::Metered);
@@ -191,6 +236,59 @@ mod may_start_tests {
             }),
             Ok(())
         );
+    }
+
+    #[test]
+    fn on_battery_it_runs_once_the_battery_is_at_least_half_full() {
+        let on = StartFacts {
+            on_battery: Some(true),
+            battery_percent: Some(BATTERY_LOW),
+            ..StartFacts::default()
+        };
+        assert_eq!(may_start(&on), Ok(()));
+        let low = StartFacts {
+            battery_percent: Some(BATTERY_LOW - 1),
+            ..on
+        };
+        assert_eq!(may_start(&low), Err(Wait::OnBattery));
+        let mains = StartFacts {
+            on_battery: Some(false),
+            ..low
+        };
+        assert_eq!(may_start(&mains), Ok(()), "how full matters only on battery");
+    }
+
+    #[test]
+    fn outside_the_hours_chosen_it_waits() {
+        let outside = StartFacts {
+            outside_hours: true,
+            ..StartFacts::default()
+        };
+        assert_eq!(may_start(&outside), Err(Wait::OutsideHours));
+        assert_eq!(Wait::OutsideHours.words(), "Waiting for the hours you chose");
+    }
+
+    #[test]
+    fn hours_can_cross_midnight_and_the_same_time_twice_is_all_day() {
+        let t = |text: &str| crate::schedule::time_named(text).unwrap();
+        let night = Hours {
+            from: t("22:00"),
+            to: t("07:00"),
+        };
+        assert!(night.contain(t("23:30")) && night.contain(t("02:30")) && night.contain(t("22:00")));
+        assert!(!night.contain(t("07:00")) && !night.contain(t("12:00")));
+        let day = Hours {
+            from: t("09:00"),
+            to: t("17:00"),
+        };
+        assert!(day.contain(t("09:00")) && day.contain(t("16:59")));
+        assert!(!day.contain(t("17:00")) && !day.contain(t("08:59")));
+        assert!(Hours {
+            from: t("03:00"),
+            to: t("03:00")
+        }
+        .contain(t("12:00")));
+        assert_eq!(night.words(), "between 22:00 and 07:00");
     }
 
     #[test]

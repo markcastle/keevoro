@@ -16,6 +16,7 @@ windows = { version = "0.62", features = [
     "Win32_Graphics_Gdi",
     "Win32_Graphics_Imaging",
     "Win32_Media_MediaFoundation",
+    "Win32_Networking_NetworkListManager",
     "Win32_Storage_FileSystem",
     "Win32_System_Com",
     "Win32_System_Com_StructuredStorage",
@@ -42,7 +43,8 @@ objc2-core-foundation = { version = "0.3", features = ["CFCGTypes"] }
 # Talking to the operating system's decoder means calling into it, which
 # Rust cannot check. This is the one crate allowed to do that; every such
 # call is kept in `windows.rs`, `photo_windows.rs`, `macos.rs` and
-# `quiet.rs` (what the computer says about itself, for being a good guest)
+# `quiet.rs` (what the computer says about itself, for being a good guest),
+# `network.rs` (whether the connection is metered)
 # and `drives.rs` (hearing that a drive arrived or left), and explained there.
 [dev-dependencies]
 tempfile.workspace = true

@@ -168,7 +168,10 @@ fn a_service_that_cannot_be_reached_says_so_plainly() {
     let prepared = keevoro.prepare_report(&asked(KindWord::Idea, "Hello", false)).unwrap();
     let failed = keevoro.send_report(&prepared.body).unwrap_err();
     assert_eq!(failed.kind, Kind::Unreachable);
-    assert_eq!(failed.message, UNREACHABLE);
+    assert_eq!(
+        failed.message,
+        format!("{UNREACHABLE} {}", Unreached::Connection.said().unwrap())
+    );
 }
 
 #[test]
@@ -321,4 +324,191 @@ fn the_operations_are_reached_by_name_and_a_reset_forgets_the_list() {
     keevoro.reset().unwrap();
     assert!(keevoro.reports().reports.is_empty());
     assert!(!keevoro.backups().config_folder().join(FILE).exists());
+}
+
+#[test]
+fn the_windows_proxy_setting_is_read_in_each_of_its_forms() {
+    let proxy = |enabled, server, overrides| system_proxy_from(enabled, server, overrides);
+    // One for everything.
+    let all = proxy(true, "proxy.example.com:8080", "").unwrap();
+    assert_eq!((all.host.as_str(), all.port), ("proxy.example.com", 8080));
+    assert!(all.not_for.is_empty());
+    // One for each kind of address: the secure one is the one used.
+    let each = proxy(
+        true,
+        "http=web.example.com:80;https=secure.example.com:3128;ftp=files.example.com:21",
+        "",
+    )
+    .unwrap();
+    assert_eq!((each.host.as_str(), each.port), ("secure.example.com", 3128));
+    // Written with its scheme, or with spaces.
+    let written = proxy(true, " https = http://secure.example.com:8443 ", "").unwrap();
+    assert_eq!((written.host.as_str(), written.port), ("secure.example.com", 8443));
+    // None for secure addresses, switched off, or nothing usable: none.
+    assert_eq!(proxy(true, "http=web.example.com:80", ""), None);
+    assert_eq!(proxy(false, "proxy.example.com:8080", ""), None);
+    assert_eq!(proxy(true, "", ""), None);
+    assert_eq!(proxy(true, "proxy.example.com", ""), None, "no port");
+    assert_eq!(proxy(true, "proxy.example.com:port", ""), None);
+    // The addresses it is not used for, without Windows' own word for
+    // names with no dot in them.
+    let skipping = proxy(true, "proxy.example.com:8080", "*.example.com; intranet ;<local>;;").unwrap();
+    assert_eq!(skipping.not_for, ["*.example.com", "intranet"]);
+}
+
+#[test]
+fn not_reaching_the_service_is_told_apart_from_its_answer_and_said_in_plain_words() {
+    use std::io::{Error as IoError, ErrorKind};
+    for (error, cause) in [
+        (ureq::Error::HostNotFound, Unreached::Name),
+        (ureq::Error::ConnectionFailed, Unreached::Connection),
+        (
+            IoError::from(ErrorKind::ConnectionRefused).into(),
+            Unreached::Connection,
+        ),
+        (IoError::from(ErrorKind::TimedOut).into(), Unreached::Slow),
+        (ureq::Error::Timeout(ureq::Timeout::Connect), Unreached::Slow),
+        (ureq::Error::Tls("the certificate was not trusted"), Unreached::Secure),
+        (
+            ureq::Error::ConnectProxyFailed("407 Proxy Authentication Required".into()),
+            Unreached::Proxy,
+        ),
+        (ureq::Error::InvalidProxyUrl, Unreached::Proxy),
+    ] {
+        assert_eq!(Unreached::of(&error), cause, "{error}");
+        assert!(cause.said().is_some_and(|s| !s.contains('—')), "{cause:?}");
+    }
+    assert_eq!(Unreached::of(&ureq::Error::TooManyRedirects), Unreached::Other);
+    assert_eq!(Unreached::Other.said(), None);
+    assert_eq!(
+        Unreached::Secure.said(),
+        Some("This computer's network would not let Keevoro connect securely, as some work and school networks do.")
+    );
+
+    // Nobody there: not reached, with why, said and logged.
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro_reporting_to(dir.path(), &nowhere());
+    let prepared = keevoro.prepare_report(&asked(KindWord::Idea, "Hello", false)).unwrap();
+    let failed = keevoro.send_report_saying_why(&prepared.body).unwrap_err();
+    assert_eq!(
+        (failed.error.kind, failed.error.message.as_str()),
+        (Kind::Unreachable, UNREACHABLE)
+    );
+    assert_eq!(failed.cause.as_deref(), Unreached::Connection.said());
+    let log = keevoro.log_tail(20);
+    assert!(log.contains("Couldn't send a report: the connection failed: "), "{log}");
+    assert!(!log.contains("Hello"), "never the report itself");
+
+    // An answer, even a refusal, is not "not reached", and has no cause.
+    let why = "That's a lot of reports from one computer today. Please try again tomorrow.";
+    let (address, _) = fake_service(vec![(429, json!({ "ok": false, "why": why }))]);
+    let answered = keevoro_reporting_to(dir.path(), &address)
+        .send_report_saying_why(&prepared.body)
+        .unwrap_err();
+    assert_eq!((answered.error.kind, answered.cause), (Kind::Refused, None));
+}
+
+#[test]
+fn a_report_the_window_sent_is_kept_as_one_sent_here_and_a_wrong_answer_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let address = nowhere();
+    let keevoro = keevoro_reporting_to(dir.path(), &format!("{address}/"));
+    let prepared = keevoro
+        .prepare_report(&asked(KindWord::Problem, "It stopped\nhalf way", false))
+        .unwrap();
+    assert_eq!(
+        prepared.send_to, address,
+        "where the window sends it, without a slash at its end"
+    );
+    let note = |prepared: &str, reference: &str, token: &str| {
+        call(
+            &keevoro,
+            Op::ReportsNote,
+            None,
+            json!({ "prepared": prepared, "reference": reference, "token": token }),
+        )
+    };
+    for (reference, token) in [
+        ("1042", TOKEN),
+        ("K-", TOKEN),
+        ("K-10a", TOKEN),
+        ("K-1042/../x", TOKEN),
+        ("K-1042", "0123456789abcdef"),
+        ("K-1042", "0123456789abcdef0123456789abcdef0123456g"),
+        ("K-1042", "0123456789ABCDEF0123456789ABCDEF01234567x"),
+    ] {
+        let refused = note(&prepared.body, reference, token).unwrap_err();
+        assert_eq!(refused.kind, Kind::Refused, "{reference} {token}");
+    }
+    // Text that is not a report as Keevoro makes them passes no better
+    // than it would to be sent.
+    let changed = prepared.body.replace("\"kind\"", "\"sort\"");
+    let refused = note(&changed, "K-1042", TOKEN).unwrap_err();
+    assert_eq!(
+        (refused.kind, refused.message.as_str()),
+        (
+            Kind::Refused,
+            "That report has changed since it was made. Make it again, then send it."
+        )
+    );
+    assert!(keevoro.reports().reports.is_empty(), "nothing kept from a wrong answer");
+
+    let sent = note(&prepared.body, "K-1042", TOKEN).unwrap();
+    assert_eq!(sent["said"], "Thank you. Your reference is K-1042.");
+    let listed = keevoro.reports();
+    assert_eq!(
+        (
+            listed.reports[0].reference.as_str(),
+            listed.reports[0].first_line.as_str()
+        ),
+        ("K-1042", "It stopped")
+    );
+    let file = std::fs::read_to_string(keevoro.backups().config_folder().join(FILE)).unwrap();
+    assert!(file.contains(TOKEN), "kept to ask after it");
+    assert!(!keevoro.log_tail(20).contains(TOKEN), "never in the log");
+}
+
+#[test]
+fn the_window_asks_after_reports_when_keevoro_cannot_and_what_it_heard_is_kept() {
+    let dir = tempfile::tempdir().unwrap();
+    let (address, _) = fake_service(vec![received("K-7")]);
+    let keevoro = keevoro_reporting_to(dir.path(), &address);
+    let prepared = keevoro
+        .prepare_report(&asked(KindWord::Problem, "It stopped", false))
+        .unwrap();
+    keevoro.send_report(&prepared.body).unwrap();
+    let asking = call(&keevoro, Op::ReportsAsking, None, Value::Null).unwrap();
+    assert_eq!(asking["sendTo"], address);
+    assert_eq!(asking["reports"], json!([{ "reference": "K-7", "token": TOKEN }]));
+    let heard = call(
+        &keevoro,
+        Op::ReportsHeard,
+        None,
+        json!({
+            "all": true,
+            "heard": [
+                { "reference": "K-7", "answer": { "ok": true, "reference": "K-7", "status": "shipped", "shippedIn": "0.47.0" } },
+                { "reference": "K-8", "answer": { "ok": true, "status": "shipped" } },
+            ],
+        }),
+    )
+    .unwrap();
+    assert_eq!(heard["checked"], true);
+    assert_eq!(heard["reports"][0]["statusSaid"], "Done in version 0.47.0");
+    assert_eq!(
+        heard["reports"].as_array().map(Vec::len),
+        Some(1),
+        "an answer about no report here changes nothing"
+    );
+    // An answer about another report, or not an answer, changes nothing.
+    let unchanged = call(
+        &keevoro,
+        Op::ReportsHeard,
+        None,
+        json!({ "all": false, "heard": [{ "reference": "K-7", "answer": { "ok": true, "reference": "K-9", "status": "new" } }] }),
+    )
+    .unwrap();
+    assert_eq!(unchanged["reports"][0]["statusSaid"], "Done in version 0.47.0");
+    assert_eq!(unchanged["checked"], false);
+    assert_eq!(unchanged["said"], "Couldn't check just now.");
 }

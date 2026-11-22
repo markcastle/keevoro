@@ -76,8 +76,9 @@ impl Signals for ThisComputer {
         StartFacts {
             on_battery: conditions.on_battery,
             others_cpu: conditions.others_cpu,
-            // Not known yet on any computer: never a reason to wait.
-            metered: None,
+            // Known on Windows; elsewhere never a reason to wait.
+            metered: keevoro_frame::network::metered(),
+            battery_percent: keevoro_frame::quiet::battery_percent(),
             ..StartFacts::default()
         }
     }
@@ -134,6 +135,51 @@ impl Keevoro {
         if_due: bool,
         listener: Option<Listener>,
     ) -> Result<JobHandle> {
+        let asked = Asked {
+            occasion,
+            wait_minutes,
+            if_due,
+            only: None,
+            anyway: false,
+        };
+        self.start_by_itself(backup, asked, listener)
+    }
+
+    /// Backs up by itself now, as the schedule would, without waiting for a
+    /// good moment: "Back up now anyway".
+    pub fn run_by_itself_anyway(&self, backup: &Named, occasion: Occasion) -> Result<JobHandle> {
+        let asked = Asked {
+            occasion,
+            wait_minutes: 0,
+            if_due: false,
+            only: None,
+            anyway: true,
+        };
+        self.start_by_itself(backup, asked, None)
+    }
+
+    /// Backs up by itself because the source `source` was plugged in:
+    /// looks through that source alone, then sends what is new. Waits at
+    /// most `wait_minutes` for a good moment.
+    pub fn run_by_itself_for_source(&self, backup: &Named, source: i64, wait_minutes: u32) -> Result<JobHandle> {
+        let asked = Asked {
+            occasion: Occasion::SourceArrived,
+            wait_minutes,
+            if_due: false,
+            only: Some(source),
+            anyway: false,
+        };
+        self.start_by_itself(backup, asked, None)
+    }
+
+    fn start_by_itself(&self, backup: &Named, asked: Asked, listener: Option<Listener>) -> Result<JobHandle> {
+        let Asked {
+            occasion,
+            wait_minutes,
+            if_due,
+            only,
+            anyway,
+        } = asked;
         let lock = OneAtATime::take(&self.data)?.ok_or_else(|| Error::busy(ONE_AT_A_TIME))?;
         let ctx = self.context();
         let job = ctx.jobs.begin_by_itself(backup, occasion, listener)?;
@@ -147,6 +193,9 @@ impl Keevoro {
             backup: backup.clone(),
             occasion,
             if_due,
+            only,
+            anyway,
+            config: self.backups().config_folder().to_path_buf(),
             wait: Duration::from_secs(u64::from(wait_minutes) * 60),
             signals: self.signals.clone(),
             window_used: self.window_used.clone(),
@@ -160,12 +209,13 @@ impl Keevoro {
             let one_at_a_time = lock;
             // A guest's work: everything else on the computer comes first.
             keevoro_frame::quiet::lower_this_threads_priority();
-            let (last, slot, ran) = match run.what_to_do(ctx) {
-                Plan::NotDue { said, passed } => (run.end(ctx, job, Ending::NotDue(said)), passed, false),
+            let (last, slot, ran, missed) = match run.what_to_do(ctx) {
+                Plan::NotDue { said, passed } => (run.end(ctx, job, Ending::NotDue(said)), passed, false, 0),
                 Plan::Go {
                     slot,
                     occasion,
                     said_first,
+                    missed,
                 } => {
                     let _ = Backup::open(&run.backup.home).and_then(|b| b.forget_last_summary());
                     ctx.log.say(&format!(
@@ -173,10 +223,10 @@ impl Keevoro {
                         run.backup.name,
                         occasion.words()
                     ));
-                    (run.go(ctx, job, &tracker, occasion, said_first), slot, true)
+                    (run.go(ctx, job, &tracker, occasion, said_first), slot, true, missed)
                 }
             };
-            run.remember(ctx, &last, slot, ran);
+            run.remember(ctx, &last, slot, ran, missed);
             if ran {
                 super::duplicates::start(ctx, &run.backup, None, super::duplicates::Why::AfterRunningByItself);
             }
@@ -185,6 +235,19 @@ impl Keevoro {
         })?;
         Ok(handle)
     }
+}
+
+/// How a run by itself was asked for.
+struct Asked {
+    occasion: Occasion,
+    /// How long it may wait for a good moment.
+    wait_minutes: u32,
+    /// Only if its schedule has a run due.
+    if_due: bool,
+    /// Only this source is looked through.
+    only: Option<i64>,
+    /// Start without waiting for a good moment.
+    anyway: bool,
 }
 
 /// What a run by itself does, once it holds the lock.
@@ -200,6 +263,8 @@ enum Plan {
         slot: Option<jiff::Timestamp>,
         occasion: Occasion,
         said_first: Vec<String>,
+        /// How many slots before this one were missed.
+        missed: usize,
     },
 }
 
@@ -208,6 +273,13 @@ struct Run {
     backup: Named,
     occasion: Occasion,
     if_due: bool,
+    /// Only this source is looked through (one just plugged in).
+    only: Option<i64>,
+    /// Start without waiting for a good moment, as the person asked.
+    anyway: bool,
+    /// Keevoro's config folder, where how a backup by itself behaves as a
+    /// guest is kept (`crate::manners`).
+    config: PathBuf,
     wait: Duration,
     signals: Arc<dyn Signals>,
     window_used: Arc<AtomicI64>,
@@ -227,6 +299,7 @@ impl Run {
                 slot: None,
                 occasion: self.occasion,
                 said_first: Vec::new(),
+                missed: 0,
             };
         };
         let schedule = crate::schedule::schedule_of(&catalog).ok().flatten();
@@ -234,6 +307,7 @@ impl Run {
         let mut said_first = Vec::new();
         let mut slot = None;
         let mut occasion = self.occasion;
+        let mut missed_before = 0;
         if self.if_due {
             let Some(schedule) = schedule else {
                 return Plan::NotDue {
@@ -244,6 +318,7 @@ impl Run {
             match keevoro_core::schedule::due(&schedule, &record.rules(), &zone, now) {
                 keevoro_core::schedule::Due::Now { slot: due, missed } => {
                     slot = Some(due);
+                    missed_before = missed;
                     occasion = if missed > 0 {
                         Occasion::CatchUp
                     } else {
@@ -297,12 +372,13 @@ impl Run {
             slot,
             occasion,
             said_first,
+            missed: missed_before,
         }
     }
 
     /// Writes down how a run ended: what its schedule has accounted for,
     /// and a line in its last few.
-    fn remember(&self, ctx: &Context, last: &Said, slot: Option<jiff::Timestamp>, it_ran: bool) {
+    fn remember(&self, ctx: &Context, last: &Said, slot: Option<jiff::Timestamp>, it_ran: bool, missed: usize) {
         let Said::Send(last) = last else { return };
         let (now, zone) = (self.clock.now(), self.clock.zone());
         let (outcome, ran) = if it_ran {
@@ -336,6 +412,7 @@ impl Run {
                     why: self.occasion.words().to_string(),
                     outcome: outcome.to_string(),
                     said: said_in_a_line(last),
+                    missed,
                 });
             }
             crate::schedule::keep_record(&catalog, &record)
@@ -357,7 +434,7 @@ impl Run {
         occasion: Occasion,
         said_first: Vec<String>,
     ) -> Said {
-        if let Some(not_now) = self.wait_for_a_good_moment(job) {
+        if let Some(not_now) = self.wait_for_a_good_moment(job, occasion) {
             return self.end(ctx, job, not_now);
         }
         if job.stopped() {
@@ -365,7 +442,7 @@ impl Run {
         }
         let home = &self.backup.home;
         let found_before = found_paths(home);
-        let to_look = looking::what_to_look_again(&self.backup, None, None)
+        let to_look = looking::what_to_look_again(&self.backup, self.only, None)
             .map(|(to_look, _)| to_look)
             .unwrap_or_else(|e| ToLook {
                 passed_over: vec![e.message],
@@ -383,7 +460,10 @@ impl Run {
                 }
             }
             let place = looking::place_of(step);
-            let said = looking::look_through(ctx, job, home, place, &self.how.kinds, &self.how.skip);
+            // Quickly, reading only what is new or changed, except every so
+            // often, when every file is read again.
+            let quickly = looking::may_look_quickly(home, place, self.clock.now().as_second());
+            let said = looking::look_through(ctx, job, home, place, &self.how.kinds, &self.how.skip, quickly);
             let real = std::fs::canonicalize(place).unwrap_or_else(|_| place.to_path_buf());
             keevoro_engine::surveys::mark_out_of_date(&ctx.cache, &real);
             if said.stopped || job.stopped() {
@@ -435,13 +515,20 @@ impl Run {
     /// Waits while the computer is on battery or busy, or the person is in
     /// Keevoro's window, for at most the time allowed. Gives why it did not
     /// run now, if it gave up.
-    fn wait_for_a_good_moment(&self, job: &Arc<Job>) -> Option<Ending> {
+    fn wait_for_a_good_moment(&self, job: &Arc<Job>, occasion: Occasion) -> Option<Ending> {
+        if self.anyway {
+            return None;
+        }
         let started = Instant::now();
         loop {
+            let manners = crate::manners::Manners::read(&self.config);
             let facts = StartFacts {
                 needs_internet: needs_internet(&self.backup.home),
                 window_used: self.window_used_ago(),
                 person_asked: self.occasion.person_asked(),
+                allow_battery: !manners.wait_on_battery,
+                allow_metered: !manners.wait_on_metered,
+                outside_hours: manners.outside_hours(occasion, self.clock.now(), &self.clock.zone()),
                 ..self.signals.now()
             };
             let Err(wait) = may_start(&facts) else {

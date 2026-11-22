@@ -57,11 +57,37 @@ impl Places {
         ] {
             let plain = path.display().to_string();
             let json = serde_json::to_string(&plain).unwrap();
+            text = joined_as_here(&text, &format!("{{json:{name}}}"), true);
+            text = joined_as_here(&text, &format!("{{{name}}}"), false);
             text = text.replace(&format!("{{json:{name}}}"), &json[1..json.len() - 1]);
             text = text.replace(&format!("{{{name}}}"), &plain);
         }
         text
     }
+}
+
+/// The fixture joins names onto a place with a forward slash
+/// (`{CARD}/DCIM/a.jpg`). Windows takes that in an ordinary path but not in
+/// the long form a real path has there (`\\?\C:\...`), so on Windows what
+/// follows a place, up to the closing quote, is spelled with its own
+/// separator. Elsewhere the text is left as it is.
+fn joined_as_here(text: &str, place: &str, in_json: bool) -> String {
+    if !cfg!(windows) {
+        return text.to_string();
+    }
+    let separator = if in_json { "\\\\" } else { "\\" };
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find(place) {
+        let after = at + place.len();
+        out.push_str(&rest[..after]);
+        let tail = &rest[after..];
+        let end = tail.find(['\'', '"', '\n']).unwrap_or(tail.len());
+        out.push_str(&tail[..end].replace('/', separator));
+        rest = &tail[end..];
+    }
+    out.push_str(rest);
+    out
 }
 
 fn fixture(name: &str) -> String {
@@ -73,10 +99,20 @@ fn fixture(name: &str) -> String {
 
 /// Keevoro's folders as 0.37.1 left them, opened by the Keevoro of today.
 fn as_0_37_1_left_it(dir: &Path) -> (Keevoro, Places) {
+    // 0.37.1 kept each source under its real path, as Keevoro does now, so
+    // the places are spelled that way here too: a temporary folder can be
+    // reached by another spelling (`/var/...` for `/private/var/...` on a
+    // Mac, a short `RUNNER~1` name on Windows), and a source kept under
+    // that one would be taken by the next look for a different place.
+    //
+    // Keevoro's own folders stay spelled as given: the fixture joins names
+    // onto them with a forward slash, which the long form a real path takes
+    // on Windows (`\\?\C:\...`) does not allow.
+    let real = std::fs::canonicalize(dir).unwrap();
     let places = Places {
-        card: dir.join("Card"),
-        beach: dir.join("Beach"),
-        usb: dir.join("USB"),
+        card: real.join("Card"),
+        beach: real.join("Beach"),
+        usb: real.join("USB"),
         folders: Folders::under(&dir.join("home")),
     };
     std::fs::create_dir_all(&places.folders.config).unwrap();
@@ -167,7 +203,9 @@ fn everything_a_person_set_and_keevoro_recorded_in_0_37_1_is_there_after_updatin
     );
     let left_out = sources[0]["leftOut"][0].as_str().unwrap_or_default();
     assert!(
-        left_out.starts_with(&places.card.display().to_string()) && left_out.ends_with("Old"),
+        // Keevoro shows a place without the `\\?\` Windows puts before a real path.
+        left_out.starts_with(places.card.display().to_string().trim_start_matches(r"\\?\"))
+            && left_out.ends_with("Old"),
         "{sources}"
     );
     assert_eq!(sources[0]["onlineOnly"], 3);
@@ -428,6 +466,12 @@ fn a_source_0_37_1_looked_through_is_looked_through_as_before_and_its_drive_reme
         .unwrap()
         .expect("remembered once looked through");
     assert_eq!(remembered.volume, keevoro_engine::reach::volume_of(&card));
+    // Under the name 0.37.1 kept, not its folder's. (Looking through a
+    // source moves it to the end of the list, as it always has.)
+    assert_eq!(
+        names(&ask(&keevoro, Op::SourcesList, family, Value::Null)),
+        ["Beach", "Mum's card"]
+    );
 }
 
 /// Backing up by itself (0.42) keeps its schedule and its record in each
@@ -447,6 +491,12 @@ fn a_backup_0_37_1_kept_has_no_schedule_and_nothing_runs_by_itself() {
         );
     }
     assert!(keevoro.run_schedules_due().is_empty());
+    // Nothing ran by itself while the person was away.
+    let away = ask(&keevoro, Op::ScheduleAway, None, json!({ "days": 3650 }));
+    assert_eq!(
+        (away["backups"].clone(), away["waiting"].clone()),
+        (json!([]), json!([]))
+    );
     // Setting one leaves the settings file exactly as it was.
     let settings = places.folders.config.join("settings.json");
     let before = std::fs::read_to_string(&settings).unwrap();
@@ -593,4 +643,114 @@ fn keevoro_0_37_1_left_has_no_reports_and_sending_one_leaves_the_settings_file_a
     // And the backups are all still there, as 0.37.1 left them.
     let backups = ask(&keevoro, Op::BackupsList, None, Value::Null);
     assert_eq!(names(&backups), ["Family photos", "Holiday videos"]);
+}
+
+/// Looking again quickly (0.49) keeps when each file last changed, in a
+/// new column of the catalog. What 0.37.1 found has none, so each of
+/// those files is read as ever by the next look, which fills it in.
+#[test]
+fn files_0_37_1_found_have_no_time_kept_and_the_next_look_keeps_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let (keevoro, places) = as_0_37_1_left_it(dir.path());
+    let home = places.folders.data.join("backups").join("backup-1");
+    let found = || {
+        let catalog = keevoro_catalog::Catalog::open_in_library(&home).unwrap();
+        let root = catalog
+            .sources()
+            .unwrap()
+            .into_iter()
+            .find(|s| s.root.ends_with("Card"))
+            .unwrap()
+            .root;
+        catalog.found_at(&root).unwrap()
+    };
+    let before = found();
+    assert!(!before.is_empty());
+    assert!(before.iter().all(|i| i.modified.is_none()), "0.37.1 kept none");
+
+    std::fs::create_dir_all(places.card.join("DCIM")).unwrap();
+    std::fs::write(
+        places.card.join("DCIM/IMG_0048.jpg"),
+        b"\xFF\xD8\xFF\xE0 a made-up photo",
+    )
+    .unwrap();
+    let job = ask(
+        &keevoro,
+        Op::SourcesLookAgain,
+        Some("Family photos"),
+        json!({ "source": 1 }),
+    );
+    keevoro.wait(serde_json::from_value(job["id"].clone()).unwrap());
+    keevoro.wait_for_jobs();
+    let after = found();
+    assert_eq!(after.len(), 1, "{after:?}");
+    // The look replaced the source, never added a second one beside it.
+    let cards = keevoro_catalog::Catalog::open_in_library(&home)
+        .unwrap()
+        .sources()
+        .unwrap()
+        .into_iter()
+        .filter(|s| s.root.ends_with("Card"))
+        .count();
+    assert_eq!(cards, 1);
+    assert!(after[0].modified.is_some());
+}
+
+/// Backing up a source when it is plugged in (0.49) is a choice kept in
+/// each backup's catalog, `arrival:<root>`. No source 0.37.1 kept has it,
+/// so none is backed up when plugged in until the person asks.
+#[test]
+fn no_source_0_37_1_kept_is_backed_up_when_plugged_in_until_asked() {
+    let dir = tempfile::tempdir().unwrap();
+    let (keevoro, places) = as_0_37_1_left_it(dir.path());
+    for source in [1, 2] {
+        let shown = ask(
+            &keevoro,
+            Op::SourcesOnArrival,
+            Some("Family photos"),
+            json!({ "source": source }),
+        );
+        assert_eq!(shown, json!({ "source": source, "on": false }));
+    }
+    assert!(keevoro.notice_arrivals().is_empty());
+    let settings = places.folders.config.join("settings.json");
+    let before = std::fs::read_to_string(&settings).unwrap();
+    let on = ask(
+        &keevoro,
+        Op::SourcesOnArrival,
+        Some("Family photos"),
+        json!({ "source": 1, "on": true }),
+    );
+    assert_eq!(on["on"], true);
+    assert_eq!(
+        std::fs::read_to_string(&settings).unwrap(),
+        before,
+        "nothing in the settings file"
+    );
+}
+
+/// How a backup by itself waits for a good moment (0.49) is kept in a file
+/// of its own, `background.json`, never in `settings.json`. Keevoro 0.37.1
+/// left none: it waits on battery and on a metered connection, at any
+/// hour, as before, and choosing leaves the settings file exactly as it was.
+#[test]
+fn keevoro_0_37_1_left_waits_on_battery_at_any_hour_and_choosing_leaves_the_settings_file_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let (keevoro, places) = as_0_37_1_left_it(dir.path());
+    let shown = ask(&keevoro, Op::BackgroundSettings, None, json!({}));
+    assert_eq!(
+        (shown["waitOnBattery"].clone(), shown["waitOnMetered"].clone()),
+        (json!(true), json!(true))
+    );
+    assert_eq!(shown.get("between"), None);
+    let settings = places.folders.config.join("settings.json");
+    let before = std::fs::read_to_string(&settings).unwrap();
+    let changed = ask(
+        &keevoro,
+        Op::BackgroundSettings,
+        None,
+        json!({ "between": { "from": "22:00", "to": "07:00" } }),
+    );
+    assert_eq!(changed["betweenSaid"], "between 22:00 and 07:00");
+    assert_eq!(std::fs::read_to_string(&settings).unwrap(), before);
 }

@@ -757,14 +757,66 @@ pub fn skip_next_run(shared: State<'_, Shared>, undo: bool) -> Said<keevoro_api:
 
 /// Runs the open backup now as its schedule does: looks through the
 /// sources again, holds back what needs a say, sends what is new.
+/// With `anyway`, it starts without waiting for a good moment: "Back up
+/// now anyway" beside a run that waits.
 #[tauri::command]
-pub fn run_scheduled_now(shared: State<'_, Shared>) -> Said<()> {
+pub fn run_scheduled_now(shared: State<'_, Shared>, anyway: Option<bool>) -> Said<()> {
     let open = open_backup(&shared)?;
+    if anyway == Some(true) {
+        shared
+            .keevoro
+            .run_by_itself_anyway(&open, keevoro_api::Occasion::RunNow)
+            .map_err(say)?;
+    } else {
+        shared
+            .keevoro
+            .run_by_itself(&open, keevoro_api::Occasion::RunNow, 0, None)
+            .map_err(say)?;
+    }
+    Ok(())
+}
+
+/// How a backup by itself waits: on battery, on a metered connection, and
+/// the hours it may start in; and changing them.
+#[tauri::command]
+pub fn background_settings(
+    shared: State<'_, Shared>,
+    request: Option<keevoro_api::manners::MannersRequest>,
+) -> Said<keevoro_api::manners::MannersView> {
     shared
         .keevoro
-        .run_by_itself(&open, keevoro_api::Occasion::RunNow, 0, None)
-        .map_err(say)?;
-    Ok(())
+        .background_settings(&request.unwrap_or_default())
+        .map_err(say)
+}
+
+/// "While you were away": what every backup did by itself since the
+/// window was last seen, and what waits for the person's say.
+#[tauri::command]
+pub fn away(shared: State<'_, Shared>) -> keevoro_api::schedule::AwayView {
+    shared.keevoro.away(&keevoro_api::schedule::AwayRequest {
+        since: shared.desk.away_since(),
+        days: None,
+    })
+}
+
+/// Whether a source of the open backup is backed up by itself whenever it
+/// is plugged in, and changing it.
+#[tauri::command]
+pub fn source_on_arrival(
+    shared: State<'_, Shared>,
+    source: i64,
+    on: Option<bool>,
+) -> Said<keevoro_api::arrival::OnArrivalView> {
+    shared
+        .keevoro
+        .on_arrival(&open_backup(&shared)?, source, on)
+        .map_err(say)
+}
+
+/// The person pressed Done on "While you were away".
+#[tauri::command]
+pub fn away_seen(shared: State<'_, Shared>) {
+    shared.desk.away_seen(shared.keevoro.now().as_second());
 }
 
 /// The person is using the window: a backup by itself waits until they
@@ -1132,13 +1184,48 @@ pub async fn prepare_report<R: Runtime>(
 }
 
 /// Sends a report exactly as it was prepared and shown. It waits on the
-/// network, so never on the window's thread.
+/// network, so never on the window's thread. Not sent, it says whether
+/// the service could not be reached at all, so the window can send it
+/// itself, and why in plain words.
 #[tauri::command]
-pub async fn send_report<R: Runtime>(app: AppHandle<R>, prepared: String) -> Said<keevoro_api::reports::Sent> {
-    tauri::async_runtime::spawn_blocking(move || app.state::<Shared>().keevoro.send_report(&prepared))
+pub async fn send_report<R: Runtime>(
+    app: AppHandle<R>,
+    prepared: String,
+) -> Result<keevoro_api::reports::Sent, keevoro_api::reports::NotSent> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<Shared>().keevoro.send_report_saying_why(&prepared))
         .await
-        .map_err(say)?
-        .map_err(say)
+        .map_err(|e| keevoro_api::reports::NotSent {
+            error: keevoro_api::Error {
+                kind: keevoro_api::Kind::Failed,
+                message: say(e),
+            },
+            cause: None,
+        })?
+}
+
+/// Keeps a report the window sent itself, with the service's answer.
+#[tauri::command]
+pub fn note_report(
+    shared: State<'_, Shared>,
+    request: keevoro_api::reports::NoteReportRequest,
+) -> Said<keevoro_api::reports::Sent> {
+    shared.keevoro.note_report(&request).map_err(say)
+}
+
+/// Where reports go, and the newest with their tokens, for the window to
+/// ask after them itself when Keevoro cannot.
+#[tauri::command]
+pub fn reports_asking(shared: State<'_, Shared>) -> keevoro_api::reports::Asking {
+    shared.keevoro.reports_asking()
+}
+
+/// Notes how reports are getting on, as the window heard.
+#[tauri::command]
+pub fn reports_heard(
+    shared: State<'_, Shared>,
+    request: keevoro_api::reports::HeardRequest,
+) -> keevoro_api::reports::ReportsView {
+    shared.keevoro.reports_heard(&request)
 }
 
 /// The reports sent from this computer, as last heard of.

@@ -177,6 +177,7 @@ pub fn found_in_listing(place: &BucketPlace, listed: &[Listed], kinds: &Kinds, s
             width: None,
             height: None,
             junk: None,
+            modified: None,
         });
     }
     items.sort_by(|a, b| a.path.cmp(&b.path));

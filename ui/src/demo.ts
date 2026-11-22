@@ -49,9 +49,12 @@ import type {
   ScheduleChoice,
   ScheduleView,
   ReportListed,
+  AwayView,
+  MannersView,
 } from './backend'
 import { count, size } from './format'
 import { PictureQueue, fileKey } from './pictureQueue'
+import { ReportNotSent } from './reportsWindow'
 
 const SCENES: [string, string, string][] = [
   ['#7ec8e3', '#f6d365', '#2e7d6b'], // beach
@@ -280,6 +283,8 @@ export function demoBackend(): Backend {
     setAsideSaid?: string
   }[] =
     collections.length > 0 ? [{ id: 1, name: 'Family hard drive', root: 'E:\\', items: 240, bytes: 1.4 * 1024 ** 3 }] : []
+  // The sources backed up by themselves whenever they are plugged in.
+  const onArrival = new Set<number>()
   // The files inside each collection are made up the first time it is opened.
   const inside = new Map<string, PhotoChoice[]>()
   const filesOf = (c: Collection) => {
@@ -747,6 +752,57 @@ export function demoBackend(): Backend {
         },
       ]
     : []
+  // "While you were away": `?away` opens with two backups that ran by
+  // themselves while the window was closed, one catching up a night the
+  // computer was off, one that could not reach its drive, and something
+  // waiting for the person's say.
+  let awayView: AwayView = new URLSearchParams(window.location.search).has('away')
+    ? {
+        since: hoursAgo(60),
+        backups: [
+          {
+            backup: 'Family photos',
+            id: 'backup-1',
+            runs: [
+              {
+                at: hoursAgo(30),
+                when: 'Yesterday at 08:05',
+                outcome: 'worked',
+                said: 'Safely backed up 23 files (96.0 MB).',
+                caughtUp: 'This caught up a run that was missed, perhaps because the computer was off or asleep.',
+              },
+              { at: hoursAgo(6), when: 'Today at 02:31', outcome: 'worked', said: 'Nothing new to back up.' },
+            ],
+          },
+          {
+            backup: 'Holiday videos',
+            id: 'backup-2',
+            runs: [
+              {
+                at: hoursAgo(54),
+                when: 'Tuesday at 02:30',
+                outcome: 'unreachable',
+                said: "Keevoro can't find the folder F:\\Family Backup. Is it plugged in?",
+              },
+            ],
+            missed: "The run due today at 02:30 didn't happen, perhaps because the computer was off or asleep. It will run once, in a few minutes.",
+          },
+        ],
+        waiting: [
+          {
+            backup: 'Family photos',
+            id: 'backup-1',
+            said: '4 new pictures were set aside as probably not photos, and not backed up. Look at them in Keevoro to keep any.',
+          },
+        ],
+      }
+    : { since: hoursAgo(1), backups: [], waiting: [] }
+  // How a backup by itself waits; `?waiting` opens with the run due
+  // waiting while the computer is on battery.
+  let manners: MannersView = { waitOnBattery: true, waitOnMetered: true, meteredKnown: true }
+  let waitingNow: string | null = new URLSearchParams(window.location.search).has('waiting')
+    ? 'Waiting while this computer is on battery'
+    : null
   const ordinalOf = (n: number) =>
     `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : n % 10 === 1 ? 'st' : n % 10 === 2 ? 'nd' : n % 10 === 3 ? 'rd' : 'th'}`
   const DAYS: Record<string, string> = { mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday' }
@@ -767,6 +823,7 @@ export function demoBackend(): Backend {
       paused: c.paused,
       ...(c.paused ? {} : { next, nextAt: hoursAgo(-8) }),
       skipping: skippingNext && !c.paused,
+      ...(waitingNow && !c.paused ? { waiting: waitingNow } : {}),
       last: scheduleLast,
     }
   }
@@ -857,6 +914,8 @@ export function demoBackend(): Backend {
   const later = (ms: number) => new Promise((done) => setTimeout(done, ms))
   // Reports sent from this computer, newest first: two from before.
   let reportRefused = false
+  // The tokens the window was given for reports it sent itself.
+  const tokens = new Map<string, string>()
   const reportsSent: ReportListed[] = [
     {
       reference: 'K-1041',
@@ -989,6 +1048,7 @@ export function demoBackend(): Backend {
         leftOut: [...leftOutFolders].filter((f) => within(f, s.root) || within(s.root, f)),
         ...(sourceArranges.has(s.id) ? { arrange: sourceArranges.get(s.id) } : {}),
         ...(arrangementOf(s.id) === 'folders' ? { keptAs: topOf(s) } : {}),
+        ...(onArrival.has(s.id) ? { onArrival: true } : {}),
       })),
       destinations: dests.map((d) => {
         const all = kept.reduce((n, c) => n + c.photos + c.videos, 0) + keptOthers.length
@@ -1617,7 +1677,10 @@ export function demoBackend(): Backend {
     openLog: async () => {},
     // Reports to Keevoro's maker. `?reportFails` refuses the first one sent,
     // as the service does when too many come from one computer, and
-    // `?reportsOffline` cannot ask after them.
+    // `?reportsOffline` cannot ask after them. `?reportUnreachable` cannot
+    // reach the service at all, as on a work computer whose proxy Keevoro
+    // cannot use, so the window sends it and asks after them itself (the UI
+    // test stands in for the service; nothing is sent anywhere real).
     async prepareReport(request) {
       const message = request.message.trim()
       if (!message) throw new Error(request.kind === 'problem' ? 'Say what went wrong first.' : 'Say what your idea is first.')
@@ -1640,10 +1703,17 @@ export function demoBackend(): Backend {
         logTail: request.withLog ? log : undefined,
         contact,
       }
-      return { body: JSON.stringify(report, null, 2) }
+      return { body: JSON.stringify(report, null, 2), sendTo: 'https://reports.keevoro.com' }
     },
     async sendReport(prepared) {
       await later(300 * pace)
+      if (opening.has('reportUnreachable')) {
+        throw new ReportNotSent(
+          'Couldn’t reach Keevoro’s reports service just now. Check this computer is online, then try again.',
+          true,
+          'This computer’s network would not let Keevoro connect securely, as some work and school networks do.',
+        )
+      }
       if (opening.has('reportFails') && !reportRefused) {
         reportRefused = true
         throw new Error('That’s a lot of reports from one computer today. Please try again tomorrow.')
@@ -1660,9 +1730,44 @@ export function demoBackend(): Backend {
       })
       return { reference, said: `Thank you. Your reference is ${reference}.` }
     },
+    async noteReport(prepared, reference, token) {
+      if (!/^K-\d{1,12}$/.test(reference) || !/^[0-9a-f]{40}$/.test(token)) {
+        throw new Error('That isn’t an answer from Keevoro’s reports service, so the report isn’t noted.')
+      }
+      const report = JSON.parse(prepared) as { kind: 'problem' | 'idea'; message: string }
+      reportsSent.unshift({
+        reference,
+        kind: report.kind,
+        firstLine: report.message.split('\n')[0].slice(0, 80),
+        sentAt: Math.floor(Date.now() / 1000),
+        status: 'new',
+        statusSaid: 'Received',
+      })
+      tokens.set(reference, token)
+      return { reference, said: `Thank you. Your reference is ${reference}.` }
+    },
+    reportsAsking: async () => ({
+      sendTo: 'https://reports.keevoro.com',
+      reports: opening.has('reportUnreachable')
+        ? reportsSent.filter((r) => tokens.has(r.reference)).map((r) => ({ reference: r.reference, token: tokens.get(r.reference) ?? '' }))
+        : [],
+    }),
+    async reportsHeard(heard, all) {
+      for (const { reference, answer } of heard) {
+        const said = answer as { ok?: boolean; reference?: string; status?: string; shippedIn?: string; note?: string }
+        const kept = reportsSent.find((r) => r.reference === reference)
+        if (!kept || said.ok !== true || (said.reference && said.reference !== reference)) continue
+        kept.status = said.status ?? kept.status
+        kept.shippedIn = said.shippedIn
+        kept.note = said.note
+        kept.statusSaid =
+          said.status === 'shipped' ? `Done in version ${said.shippedIn ?? ''}`.trim() : said.status === 'new' ? 'Received' : 'Being worked on'
+      }
+      return all ? { reports: reportsSent.slice(), checked: true } : { reports: reportsSent.slice(), checked: false, said: 'Couldn’t check just now.' }
+    },
     reports: async () => ({ reports: reportsSent.slice(), checked: false }),
     refreshReports: async () =>
-      opening.has('reportsOffline')
+      opening.has('reportsOffline') || opening.has('reportUnreachable')
         ? { reports: reportsSent.slice(), checked: false, said: 'Couldn’t check just now.' }
         : { reports: reportsSent.slice(), checked: true },
     checkUpdate: async () =>
@@ -1751,6 +1856,11 @@ export function demoBackend(): Backend {
       return wantsView(wants, undefined, true)
     },
     sourceWants: async (id) => sourceView(id),
+    setSourceOnArrival: async (source, on) => {
+      if (on) onArrival.add(source)
+      else onArrival.delete(source)
+      return { source, on }
+    },
     setSourceWants: async (id, wants) => {
       if (wants === 'backup') sourceChoices.delete(id)
       else sourceChoices.set(id, wants)
@@ -1947,10 +2057,22 @@ export function demoBackend(): Backend {
       return scheduleView()
     },
     async runScheduledNow() {
+      waitingNow = null
       scheduleLast.unshift({ at: hoursAgo(0), why: 'when you pressed Run now', outcome: 'worked', said: 'Safely backed up 12 files (41.0 MB).' })
       await this.send()
     },
+    backgroundSettings: async (request) => {
+      if (request?.waitOnBattery !== undefined) manners.waitOnBattery = request.waitOnBattery
+      if (request?.waitOnMetered !== undefined) manners.waitOnMetered = request.waitOnMetered
+      if (request?.between) manners = { ...manners, between: request.between, betweenSaid: `between ${request.between.from} and ${request.between.to}` }
+      if (request?.anyHour) manners = { ...manners, between: undefined, betweenSaid: undefined }
+      return { ...manners }
+    },
     windowUsed: async () => {},
+    away: async () => awayView,
+    awaySeen: async () => {
+      awayView = { since: hoursAgo(0), backups: [], waiting: [] }
+    },
     async send() {
       const kept = collections.filter((c) => c.kept)
       const keptOthers = otherFolders().flatMap((f) => otherRowsIn(f.key)).filter((r) => r.kept)

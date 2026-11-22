@@ -893,6 +893,92 @@ fn a_different_card_at_a_sources_place_never_replaces_what_was_found_on_the_sour
     assert_eq!((now.root.as_str(), now.items), (card_a.root.as_str(), 1));
 }
 
+/// A source's name is the person's (one an older Keevoro kept, say), and is
+/// never swapped for its folder's by looking through it again, however that
+/// comes about: Look again, adding its place again, a backup on its
+/// schedule (which looks quickly), one started by plugging it in, or being
+/// set aside for another card and brought back.
+#[test]
+fn a_sources_own_name_is_kept_by_every_way_of_looking_through_it_again() {
+    use keevoro_core::recognise::Mark;
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro(dir.path()).with_signals(plugged_in_and_quiet());
+    let named = keevoro.start_backup("Family photos").unwrap();
+    let card = card_in(dir.path());
+    let catalog = || Catalog::open_in_library(&named.home).unwrap();
+    keevoro_engine::scan_into(&mut catalog(), &card, Some("Mum's card"), &mut |_| {}).unwrap();
+    let sources = || Backup::open(&named.home).unwrap().sources().unwrap();
+    let names = || sources().into_iter().map(|s| s.name).collect::<Vec<_>>();
+
+    let last = last_scan(&keevoro, &keevoro.look_again(&named, None, None, None).unwrap());
+    assert_eq!(
+        (last.name.as_str(), names()),
+        ("Mum's card", vec!["Mum's card".to_string()])
+    );
+    let id = sources()[0].id;
+    let last = last_scan(&keevoro, &keevoro.look_again(&named, Some(id), None, None).unwrap());
+    assert_eq!(
+        (last.name.as_str(), names()),
+        ("Mum's card", vec!["Mum's card".to_string()])
+    );
+    let last = last_scan(&keevoro, &keevoro.look(&named, &card, None).unwrap());
+    assert_eq!(
+        (last.name.as_str(), names()),
+        ("Mum's card", vec!["Mum's card".to_string()])
+    );
+
+    // By itself, on its schedule and when plugged in.
+    keevoro
+        .add_destination(&Backup::open(&named.home).unwrap(), &folder(&dir.path().join("USB")))
+        .unwrap();
+    catalog().set_arrange(keevoro_core::Arrange::ByDate).unwrap();
+    let last = by_itself(&keevoro, &named);
+    assert_eq!(last.outcome, Some(Outcome::Worked), "{last:?}");
+    assert_eq!(last_by_itself(&named).looked_again, ["Mum's card"]);
+    assert!(keevoro.log().tail(400).contains("quickly"), "a quick look");
+    assert_eq!(names(), ["Mum's card"]);
+    let job = keevoro.run_by_itself_for_source(&named, sources()[0].id, 0).unwrap();
+    keevoro.wait(job.id);
+    keevoro.wait_for_jobs();
+    assert_eq!(last_by_itself(&named).looked_again, ["Mum's card"]);
+    assert_eq!(names(), ["Mum's card"]);
+
+    // Another card in the reader, added as a new source: the card is set
+    // aside under its own name, and brought back under it.
+    let root = std::fs::canonicalize(&card).unwrap();
+    let mark = catalog().source_mark(&root).unwrap().unwrap();
+    let elsewhere = Mark {
+        volume: Some("another drive".into()),
+        ..mark
+    };
+    catalog().set_source_mark(&root, &elsewhere).unwrap();
+    let in_a_drawer = dir.path().join("Mum's card, in a drawer");
+    std::fs::rename(&card, &in_a_drawer).unwrap();
+    std::fs::create_dir_all(card.join("DCIM")).unwrap();
+    std::fs::write(card.join("DCIM/IMG_20210101_120000.jpg"), large_photo(60)).unwrap();
+    let id = sources()[0].id;
+    last_scan(
+        &keevoro,
+        &keevoro
+            .look_again(&named, Some(id), Some(OtherDrive::AddAsNew), None)
+            .unwrap(),
+    );
+    let aside = sources().into_iter().find(|s| s.id == id).unwrap();
+    assert_eq!(
+        (aside.name.as_str(), aside.set_aside_from.is_some()),
+        ("Mum's card", true)
+    );
+    std::fs::rename(&card, dir.path().join("The other card")).unwrap();
+    std::fs::rename(&in_a_drawer, &card).unwrap();
+    last_scan(&keevoro, &keevoro.look_again(&named, None, None, None).unwrap());
+    let back = sources().into_iter().find(|s| s.set_aside_from.is_none()).unwrap();
+    assert_eq!(
+        (back.name.as_str(), back.root.as_str()),
+        ("Mum's card", aside.set_aside_from.as_deref().unwrap())
+    );
+}
+
 #[test]
 fn the_check_after_an_agents_search_reads_only_the_folders_that_agent_may_look_in() {
     let _turn = one_at_a_time();
@@ -2961,4 +3047,128 @@ fn what_check_they_all_arrived_finds_wrong_one_press_puts_right_and_the_screen_a
     assert!(usb.join(keevoro_core::SET_ASIDE_FOLDER).is_dir());
     // An agent may not do it.
     assert!(crate::call_for_agent(&keevoro, Op::BackupPutRight, None, json!({})).is_err());
+}
+
+/// A clock a test moves by hand.
+#[derive(Clone)]
+struct HandClock(Arc<Mutex<jiff::Timestamp>>);
+
+impl crate::schedule::Clock for HandClock {
+    fn now(&self) -> jiff::Timestamp {
+        *lock(&self.0)
+    }
+    fn zone(&self) -> jiff::tz::TimeZone {
+        jiff::tz::TimeZone::UTC
+    }
+}
+
+#[test]
+fn a_backup_by_itself_looks_again_quickly_and_reads_every_file_again_once_a_month() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let clock = HandClock(Arc::new(Mutex::new(
+        jiff::Timestamp::from_second(1_780_000_000).unwrap(),
+    )));
+    let keevoro = keevoro(dir.path())
+        .with_signals(plugged_in_and_quiet())
+        .with_clock(clock.clone());
+    let (named, card, _usb) = card_going_to_usb(dir.path(), &keevoro);
+    Catalog::open_in_library(&named.home)
+        .unwrap()
+        .set_arrange(keevoro_core::Arrange::ByDate)
+        .unwrap();
+    let photo = card.join("DCIM/100CANON/IMG_20120304_153012.jpg");
+    let hash_now = || {
+        Catalog::open_in_library(&named.home)
+            .unwrap()
+            .load_reports_as_found()
+            .unwrap()
+            .into_iter()
+            .flat_map(|r| r.items)
+            .find(|i| i.path.ends_with("IMG_20120304_153012.jpg"))
+            .unwrap()
+            .blake3
+    };
+    // Other bytes, the same length and the same modified time: only a
+    // look that opens the file can tell.
+    let change_inside_only = || {
+        let when = std::fs::metadata(&photo).unwrap().modified().unwrap();
+        let mut bytes = std::fs::read(&photo).unwrap();
+        let middle = bytes.len() / 2;
+        bytes[middle] = bytes[middle].wrapping_add(1);
+        std::fs::write(&photo, bytes).unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&photo)
+            .unwrap()
+            .set_modified(when)
+            .unwrap();
+    };
+
+    // Never read in full by a backup by itself: every file is read.
+    change_inside_only();
+    let before = hash_now();
+    by_itself(&keevoro, &named);
+    let first = hash_now();
+    assert_ne!(first, before, "read in full");
+
+    // A week later: the quick look takes it as it was found, unopened.
+    change_inside_only();
+    *lock(&clock.0) = jiff::Timestamp::from_second(1_780_000_000 + 7 * 86_400).unwrap();
+    by_itself(&keevoro, &named);
+    assert_eq!(hash_now(), first, "taken as found");
+    let log = keevoro.log().tail(400);
+    assert!(log.contains("quickly: 5 files were the same size"), "{log}");
+
+    // A month after every file was read: every file is read again.
+    *lock(&clock.0) = jiff::Timestamp::from_second(1_780_000_000 + 31 * 86_400).unwrap();
+    by_itself(&keevoro, &named);
+    assert_ne!(hash_now(), first, "read again in full");
+}
+
+#[test]
+fn back_up_now_anyway_starts_on_battery_and_outside_the_hours_chosen() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro(dir.path()).with_signals(on_battery());
+    let (named, _card, usb) = card_going_to_usb(dir.path(), &keevoro);
+    Catalog::open_in_library(&named.home)
+        .unwrap()
+        .set_arrange(keevoro_core::Arrange::ByDate)
+        .unwrap();
+    // As it comes, it waits on battery.
+    let waited = by_itself(&keevoro, &named);
+    assert_eq!(
+        waited.not_now.as_deref(),
+        Some("Waiting while this computer is on battery")
+    );
+    // Allowed on battery, it runs; asked anyway, it runs whatever.
+    keevoro
+        .background_settings(&crate::manners::MannersRequest {
+            wait_on_battery: Some(false),
+            ..Default::default()
+        })
+        .unwrap();
+    let ran = by_itself(&keevoro, &named);
+    assert_eq!(ran.not_now, None, "{ran:?}");
+    keevoro
+        .background_settings(&crate::manners::MannersRequest {
+            wait_on_battery: Some(true),
+            ..Default::default()
+        })
+        .unwrap();
+    std::fs::write(
+        walk_files(&dir.path().join("Card"))[0].with_file_name("IMG_20240601_100000.jpg"),
+        large_photo(30),
+    )
+    .unwrap();
+    let job = keevoro
+        .run_by_itself_anyway(&named, keevoro_core::unattended::Occasion::RunNow)
+        .unwrap();
+    let Some(Said::Send(last)) = keevoro.wait(job.id) else {
+        panic!("a backup ends with how it went")
+    };
+    keevoro.wait_for_jobs();
+    assert_eq!((last.not_now, last.outcome), (None, Some(Outcome::Worked)));
+    assert!(usb.join("originals").is_dir());
 }

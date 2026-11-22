@@ -11,6 +11,13 @@
 //!
 //! Problems never stop a scan. Unreadable files and folders are reported so
 //! the user can try again later.
+//!
+//! Looking again can be quick ([`Known`]): a file still at the same place,
+//! the same size and with the same modified time as the last look found it
+//! is taken as it was found then, without being opened. Anything else (a
+//! new file, one whose size or time changed, one the last look knew only by
+//! a quick fingerprint when a whole one is wanted) is opened and read as
+//! ever.
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
@@ -60,6 +67,58 @@ pub struct ScanOptions {
     /// How a file only in online storage is told apart, so it is never
     /// opened. The file's own attributes unless told otherwise.
     pub online: Arc<dyn OnlineCheck>,
+    /// What the last look through this place found, for looking again
+    /// quickly. `None` reads every file.
+    pub known: Option<Arc<Known>>,
+}
+
+/// What the last look through a place found, by where each file is, for
+/// looking again without opening a file that has not changed.
+#[derive(Debug, Clone, Default)]
+pub struct Known(std::collections::HashMap<PathBuf, FoundItem>);
+
+impl Known {
+    /// From what the last look found. A file whose modified time was not
+    /// kept (found by a version before it was) is not known, so it is read.
+    pub fn from_items(items: impl IntoIterator<Item = FoundItem>) -> Self {
+        Self(
+            items
+                .into_iter()
+                .filter(|item| item.modified.is_some())
+                .map(|item| (item.path.clone(), item))
+                .collect(),
+        )
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// The file as the last look found it, when what the folder listing says
+    /// of it now (its size and modified time) is exactly what it said then,
+    /// and what was found then is all a look now would want: of the same
+    /// sort (a photo or video, or another file a person asked for), and
+    /// with a fingerprint as full as this look asks for.
+    fn unchanged(&self, path: &Path, listing: &std::fs::Metadata, opts: &ScanOptions) -> Option<FoundItem> {
+        let before = self.0.get(path)?;
+        let ending = path.extension().map(|e| e.to_string_lossy()).unwrap_or_default();
+        let same_sort = opts.kinds.is_other(&ending) == (before.kind == MediaKind::Other);
+        let full_enough = before.blake3.is_some() && (before.hashed || opts.quick);
+        let same =
+            listing.len() == before.bytes && modified_of(listing).is_some() && modified_of(listing) == before.modified;
+        (same && same_sort && full_enough && opts.hash).then(|| before.clone())
+    }
+}
+
+/// When a file last changed, in nanoseconds since 1970, as its listing
+/// says. `None` where the system cannot say.
+pub fn modified_of(listing: &std::fs::Metadata) -> Option<i64> {
+    let since = listing.modified().ok()?.duration_since(UNIX_EPOCH).ok()?;
+    i64::try_from(since.as_nanos()).ok()
 }
 
 impl ScanOptions {
@@ -77,6 +136,7 @@ impl Default for ScanOptions {
             stop: None,
             kinds: Kinds::default(),
             online: Arc::new(ByAttributes),
+            known: None,
         }
     }
 }
@@ -103,6 +163,11 @@ pub struct FoundItem {
     /// Set when the file is probably not a memory (an app icon, a web page
     /// leftover). It is still listed, just left unticked.
     pub junk: Option<JunkReason>,
+    /// When the file last changed, in nanoseconds since 1970, as its
+    /// listing said when it was found: what tells a quick look again that
+    /// it has not changed. `None` when not known.
+    #[serde(skip)]
+    pub modified: Option<i64>,
 }
 
 impl FoundItem {
@@ -152,6 +217,10 @@ pub struct ScanReport {
     /// could not be read once it had gone are not counted as unreadable.
     #[serde(skip)]
     pub gone: bool,
+    /// How many files were taken as the last look found them, unopened,
+    /// because nothing about them had changed (see [`Known`]).
+    #[serde(skip)]
+    pub unchanged: u64,
 }
 
 /// Live counts for a progress display, and where the search has got to.
@@ -177,6 +246,8 @@ const WORTH_ANNOUNCING: u64 = 64 * 1024 * 1024;
 /// What became of one thing the walk came across.
 enum Looked {
     Media(Box<FoundItem>),
+    /// As the last look found it: not opened.
+    Unchanged(Box<FoundItem>),
     Other,
     /// Only in online storage: not opened. Its size, from the listing.
     OnlineOnly(u64),
@@ -270,6 +341,7 @@ pub fn scan(root: &Path, opts: &ScanOptions, on_progress: &mut dyn FnMut(&ScanPr
         threads.spawn(move || walk(root, opts, &to_read, &done, has_gone));
 
         for (order, path, looked) in results {
+            let was_unchanged = matches!(looked, Looked::Unchanged(_));
             if progress.reading.as_ref().is_some_and(|(reading, _)| *reading == path) {
                 progress.reading = None;
             }
@@ -297,7 +369,10 @@ pub fn scan(root: &Path, opts: &ScanOptions, on_progress: &mut dyn FnMut(&ScanPr
                 )),
                 Looked::Other => report.other_files += 1,
                 Looked::OnlineOnly(bytes) => online.push((order, path.clone(), bytes)),
-                Looked::Media(item) => {
+                Looked::Media(item) | Looked::Unchanged(item) => {
+                    if was_unchanged {
+                        report.unchanged += 1;
+                    }
                     match item.kind {
                         MediaKind::Photo => progress.photos += 1,
                         MediaKind::Video => progress.videos += 1,
@@ -405,17 +480,19 @@ fn walk(
         });
         // Only in online storage: opening it would download it. Asked of
         // what the listing says, and only of files that could be photos.
-        let online = if passed_over {
-            None
-        } else {
-            entry
-                .metadata()
-                .ok()
-                .filter(|listing| opts.online.online_only(entry.path(), listing))
-                .map(|listing| listing.len())
+        let listing = if passed_over { None } else { entry.metadata().ok() };
+        let online = listing
+            .as_ref()
+            .filter(|listing| opts.online.online_only(entry.path(), listing))
+            .map(std::fs::Metadata::len);
+        let unchanged = match (&opts.known, &listing) {
+            (Some(known), Some(listing)) if online.is_none() => known.unchanged(entry.path(), listing, opts),
+            _ => None,
         };
         let path = entry.into_path();
-        let sent = if passed_over {
+        let sent = if let Some(item) = unchanged {
+            done.send((order, path, Looked::Unchanged(Box::new(item)))).is_ok()
+        } else if passed_over {
             // Programs, documents and music, and kinds the person switched
             // off, are not opened at all.
             done.send((order, path, Looked::Other)).is_ok()
@@ -558,6 +635,7 @@ fn examine(root: &Path, path: &Path, opts: &ScanOptions) -> std::io::Result<Opti
         folder,
         width: size.map(|s| s.0),
         height: size.map(|s| s.1),
+        modified: modified_of(&meta),
     }))
 }
 
@@ -615,6 +693,7 @@ fn examine_other(root: &Path, path: &Path, opts: &ScanOptions) -> std::io::Resul
         width: None,
         height: None,
         junk: None,
+        modified: modified_of(&meta),
     })
 }
 

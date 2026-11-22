@@ -1364,6 +1364,75 @@ pub fn last_word(io: &mut Io<'_>, last: Option<&Said>) -> std::io::Result<()> {
 }
 
 /// When a backup backs up by itself, when next, and its last few runs.
+/// `keevoro background`: how a backup by itself waits for a good moment.
+pub fn background(io: &mut Io<'_>, _: &ArgMatches, view: &Value) -> Said_ {
+    let on = |name: &str| view.get(name).and_then(Value::as_bool) == Some(true);
+    writeln!(
+        io.out,
+        "{}",
+        if on("waitOnBattery") {
+            "Waits while this computer is on battery and less than half charged."
+        } else {
+            "Runs on battery too."
+        }
+    )?;
+    let metered = match (on("meteredKnown"), on("waitOnMetered")) {
+        (false, _) => "This computer can't say whether its connection is metered, so a backup to cloud storage doesn't wait for one.",
+        (true, true) => "A backup to cloud storage waits while the connection is metered.",
+        (true, false) => "A backup to cloud storage runs on a metered connection too.",
+    };
+    writeln!(io.out, "{metered}")?;
+    match view.get("betweenSaid").and_then(Value::as_str) {
+        Some(hours) => writeln!(io.out, "Starts by itself only {hours}.")?,
+        None => writeln!(io.out, "Starts by itself at any hour.")?,
+    }
+    Ok(Code::Worked)
+}
+
+/// `keevoro sources on-arrival`.
+pub fn on_arrival(io: &mut Io<'_>, _: &ArgMatches, view: &Value) -> Said_ {
+    if view.get("on").and_then(Value::as_bool) == Some(true) {
+        writeln!(
+            io.out,
+            "Backed up by itself whenever it is plugged in, while the Keevoro app is running."
+        )?;
+    } else {
+        writeln!(io.out, "Not backed up by itself when it is plugged in.")?;
+    }
+    Ok(Code::Worked)
+}
+
+/// `keevoro away`: what every backup did by itself, as "While you were
+/// away" says it.
+pub fn away(io: &mut Io<'_>, _: &ArgMatches, view: &Value) -> Said_ {
+    let list = |name: &str| view.get(name).and_then(Value::as_array).cloned().unwrap_or_default();
+    let words = |v: &Value, name: &str| v.get(name).and_then(Value::as_str).unwrap_or_default().to_string();
+    let (backups, waiting) = (list("backups"), list("waiting"));
+    if backups.is_empty() && waiting.is_empty() {
+        writeln!(io.out, "Nothing ran by itself in that time.")?;
+        return Ok(Code::Worked);
+    }
+    for backup in &backups {
+        writeln!(io.out, "{}", words(backup, "backup"))?;
+        for run in backup.get("runs").and_then(Value::as_array).into_iter().flatten() {
+            writeln!(io.out, "  {}: {}", words(run, "when"), words(run, "said"))?;
+            if let Some(caught_up) = run.get("caughtUp").and_then(Value::as_str) {
+                writeln!(io.out, "    {caught_up}")?;
+            }
+        }
+        if let Some(missed) = backup.get("missed").and_then(Value::as_str) {
+            writeln!(io.out, "  {missed}")?;
+        }
+    }
+    if !waiting.is_empty() {
+        writeln!(io.out, "Waiting for your say:")?;
+        for wait in &waiting {
+            writeln!(io.out, "  {}: {}", words(wait, "backup"), words(wait, "said"))?;
+        }
+    }
+    Ok(Code::Worked)
+}
+
 pub fn schedule(io: &mut Io<'_>, _: &ArgMatches, view: &Value) -> Said_ {
     let Some(every) = view.get("every").and_then(Value::as_str) else {
         if view.get("unreadable").and_then(Value::as_bool) == Some(true) {

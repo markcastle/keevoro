@@ -29,6 +29,7 @@
 pub mod activity;
 pub mod agents;
 pub mod arrange;
+pub mod arrival;
 pub mod backup;
 pub mod backups;
 pub mod bucket_sources;
@@ -42,6 +43,7 @@ pub mod jobs;
 pub mod keevoro;
 pub mod leave_out;
 pub mod log;
+pub mod manners;
 pub mod picture;
 pub mod places;
 mod rates;
@@ -239,6 +241,10 @@ pub struct RunByItselfRequest {
     /// and the Keevoro app never both run it.
     #[serde(default)]
     pub if_due: bool,
+    /// Start now, without waiting for a good moment: not on battery, a
+    /// metered connection, a busy computer or the hours chosen.
+    #[serde(default)]
+    pub anyway: bool,
 }
 
 /// `jobs.follow`, `jobs.stop`: one job by its id, or every one running on
@@ -531,6 +537,14 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
                 None => answer(backup.source_arrangement(r.source)?),
             }
         }
+        Op::BackgroundSettings => {
+            let r: manners::MannersRequest = read(request)?;
+            answer(keevoro.background_settings(&r)?)
+        }
+        Op::SourcesOnArrival => {
+            let r: arrival::OnArrivalRequest = read(request)?;
+            answer(keevoro.on_arrival(&named()?, r.source, r.on)?)
+        }
         Op::SourcesWants => {
             let r: wants::SourceWantsRequest = read(request)?;
             let backup = open()?;
@@ -574,6 +588,18 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
         Op::ReportsRefresh => {
             read::<Nothing>(request)?;
             answer(keevoro.refresh_reports())
+        }
+        Op::ReportsNote => {
+            let r: reports::NoteReportRequest = read(request)?;
+            answer(keevoro.note_report(&r)?)
+        }
+        Op::ReportsAsking => {
+            read::<Nothing>(request)?;
+            answer(keevoro.reports_asking())
+        }
+        Op::ReportsHeard => {
+            let r: reports::HeardRequest = read(request)?;
+            answer(keevoro.reports_heard(&r))
         }
         Op::KeevoroSettings => {
             let r: SettingsRequest = read(request)?;
@@ -650,13 +676,22 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
         }
         Op::ScheduleRun => {
             let r: RunByItselfRequest = read(request)?;
-            answer(keevoro.run_by_itself_if_due(
-                &named()?,
-                keevoro_core::unattended::Occasion::CommandLine,
-                r.wait_minutes.unwrap_or(0),
-                r.if_due,
-                None,
-            )?)
+            let named = named()?;
+            if r.anyway {
+                answer(keevoro.run_by_itself_anyway(&named, keevoro_core::unattended::Occasion::CommandLine)?)
+            } else {
+                answer(keevoro.run_by_itself_if_due(
+                    &named,
+                    keevoro_core::unattended::Occasion::CommandLine,
+                    r.wait_minutes.unwrap_or(0),
+                    r.if_due,
+                    None,
+                )?)
+            }
+        }
+        Op::ScheduleAway => {
+            let r: schedule::AwayRequest = read(request)?;
+            answer(keevoro.away(&r))
         }
         Op::ScheduleShow => {
             read::<Nothing>(request)?;

@@ -20,8 +20,10 @@
 import { DifferentDriveAsked, PassedOver } from './differentDrive'
 import { ByItselfDetail } from './byItself'
 import { ScheduleCard, useNoteWindowUse } from './schedule'
+import { AwayPanel } from './away'
+import { OnArrival } from './onArrival'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
+import type { ReactNode, RefObject } from 'react'
 
 import { backend } from './backend'
 import { scrollerOf } from './scroller'
@@ -64,6 +66,8 @@ import lockupShadowUrl from './assets/keevoro-lockup-shadow.png'
 import lockupDarkUrl from './assets/keevoro-lockup-reversed.png'
 import lockupUrl from './assets/keevoro-lockup.png'
 import { ClearUnfinished } from './tidy'
+import { MoreMenu } from './moreMenu'
+import type { MenuChoice } from './moreMenu'
 import { FoundPicture, Viewer } from './pictures'
 import { LookInside } from './inside'
 import { SpaceScreen } from './map'
@@ -79,7 +83,7 @@ import { PutRight } from './putRight'
 import { ManageBackups } from './manageBackups'
 import { CheckLine, CheckStopped } from './checking'
 import { WindowAsks } from './tray'
-import { certain, mainButtonWords, outOfReachLine } from './thereWords'
+import { certain, mainButtonWords, needingAttention, outOfReachLine } from './thereWords'
 import { SyncedCard } from './synced'
 import { GoogleClassNote, StorageFields } from './storageForm'
 import { CompareStorage } from './compare'
@@ -740,7 +744,6 @@ export function App() {
                 back={() => go('choose')}
                 say={safe > 0 && waiting === 0 ? 'That’s everything. Have more photos somewhere else?' : undefined}
                 button={safe > 0 && waiting === 0 ? 'Add another source' : undefined}
-                quiet
                 onClick={() => go('find')}
               />
             }
@@ -762,10 +765,14 @@ function nextToDo(found: Discover, sendingTo: string | null): Step {
 /**
  * The bar at the foot of every screen: where you can go back to, one
  * sentence about where things stand, and the one button that moves on.
+ * One filled button per screen: when the screen above already shows one
+ * (Back up again, say, or a question's answer), this one is quiet.
  */
-function Next(props: { back?: () => void; say?: ReactNode; button?: string; onClick?: () => void; quiet?: boolean }) {
+function Next(props: { back?: () => void; say?: ReactNode; button?: string; onClick?: () => void }) {
+  const bar = useRef<HTMLDivElement>(null)
+  const quiet = useFilledAbove(bar)
   return (
-    <div className="next">
+    <div className="next" ref={bar}>
       {props.back && (
         <button className="link" onClick={props.back}>
           ‹ Back
@@ -773,12 +780,32 @@ function Next(props: { back?: () => void; say?: ReactNode; button?: string; onCl
       )}
       <span className="say">{props.say}</span>
       {props.button && (
-        <button className={props.quiet ? 'primary' : 'primary big'} onClick={props.onClick}>
+        <button className={quiet ? 'button big' : 'primary big'} onClick={props.onClick}>
           {props.button}
         </button>
       )}
     </div>
   )
+}
+
+/**
+ * Whether the screen holding `bar` shows a filled button outside it. The
+ * screen changes by itself (a question opens, a backup ends), so it is
+ * watched rather than told.
+ */
+function useFilledAbove(bar: RefObject<HTMLElement | null>): boolean {
+  const [filled, setFilled] = useState(false)
+  useLayoutEffect(() => {
+    const screen = bar.current?.closest('main')
+    if (!screen) return
+    const look = () =>
+      setFilled([...screen.querySelectorAll('.primary')].some((button) => !bar.current?.contains(button)))
+    look()
+    const watch = new MutationObserver(look)
+    watch.observe(screen, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] })
+    return () => watch.disconnect()
+  }, [bar])
+  return filled
 }
 
 function Welcome(props: { onStart: (name: string) => void; problem: string | null }) {
@@ -1273,13 +1300,14 @@ function FindScreen(props: {
             Not sure where your photos are? Keevoro can find the folders that hold them first. That takes seconds, not
             hours, because it only reads the list of what is in each folder and opens nothing.
           </p>
-          <p className="choices">
+          <p className="choices whole-disk">
             <button className="primary" onClick={() => findFolders(asking)}>
               Find the folders with photos
             </button>
             <button onClick={pick}>Choose a folder inside it</button>
             <button onClick={() => start(asking.path)}>Look through all of it</button>
-            <button className="button" onClick={() => setAsking(null)}>
+            {/* Quiet, so it sits on the same row as the choices. */}
+            <button className="link cancel" onClick={() => setAsking(null)}>
               Cancel
             </button>
           </p>
@@ -1491,6 +1519,9 @@ function FindScreen(props: {
                   <p className="kept-as small">
                     Kept in its own folders, starting with “{s.keptAs}”.{s.sharedSaid && ` ${s.sharedSaid}`}
                   </p>
+                )}
+                {!s.bucket && !s.setAsideFrom && wholePlace(s.root) && removing !== s.id && (
+                  <OnArrival api={api} source={s} onChanged={props.onChanged} onProblem={onProblem} />
                 )}
                 <LeftOutByYou
                   api={api}
@@ -2218,6 +2249,7 @@ function SendScreen(props: {
           never replaces a file that is already there. Your sources are not changed.
         </p>
       </header>
+      <AwayPanel api={props.api} onProblem={props.onProblem} />
       {props.found && <Tally found={props.found} onDuplicates={props.onDuplicates} />}
       {props.found && props.arrange && (
         <p className="quiet small arranged">
@@ -2278,6 +2310,8 @@ function SendPanel(props: {
   const [stopping, setStopping] = useState(false)
   // True while a further destination is being chosen for a backup that has one.
   const [adding, setAdding] = useState(false)
+  // Clearing unfinished copies, once chosen from More, until its question is put away.
+  const [clearing, setClearing] = useState(false)
   const { destinations } = props
   // Whether this backup also makes previews, or sends the originals alone.
   const [previews, setPreviews] = useState(true)
@@ -2451,6 +2485,36 @@ function SendPanel(props: {
       onProblem(error)
     })
   }
+
+  // One filled button on the screen, the thing most people want next:
+  // putting the backup right when it needs it (its own button says so),
+  // else checking when the last backup advised it, else backing up.
+  const filled = needingAttention(destinations) > 0 ? null : said?.checkAdvised && props.waiting === 0 ? 'check' : 'send'
+
+  // What the row of buttons keeps behind More: wanted now and then, never
+  // after every backup. With several places, each has its own in the list.
+  const rarerChoices: MenuChoice[] = [
+    ...(destinations.length <= 1 && destinations[0]?.folder
+      ? [
+          {
+            label: 'Clear unfinished copies…',
+            title:
+              'Clears the working files a backup that was stopped part-way left behind. Nothing that was backed up is touched. Keevoro says how much first.',
+            onChoose: () => setClearing(true),
+          },
+        ]
+      : []),
+    { label: 'Add another destination', onChoose: () => setAdding(true) },
+    ...(destinations.length <= 1
+      ? [
+          {
+            label: 'Back up somewhere else',
+            title: 'Stops backing up here, so you can choose somewhere else. Nothing backed up there is deleted.',
+            onChoose: () => void remove(),
+          },
+        ]
+      : []),
+  ]
 
   if (where === undefined || !asked) return null
   return (
@@ -2722,16 +2786,16 @@ function SendPanel(props: {
               </button>
             </p>
             <CloudCost said={room?.cost ?? []} />
-            <div className="choices">
+            <div className="choices actions">
               <button
-                className={said?.checkAdvised && props.waiting === 0 ? 'button' : 'primary'}
+                className={filled === 'send' ? 'primary' : 'button'}
                 onClick={() => start('Starting…', api.send)}
                 disabled={props.waiting + props.safe === 0 || (room !== null && !room.enough)}
               >
                 {mainButtonWords(props.waiting, said?.missed ?? 0)}
               </button>
               <button
-                className={said?.checkAdvised && props.waiting === 0 ? 'primary' : 'button'}
+                className={filled === 'check' ? 'primary' : 'button'}
                 onClick={() => start('Checking…', api.checkArrived)}
                 disabled={props.safe === 0 && !destinations.some((d) => d.there > 0)}
               >
@@ -2742,27 +2806,19 @@ function SendPanel(props: {
                   Show me the folder
                 </button>
               )}
-              {destinations.length <= 1 && destinations[0]?.folder && (
-                <ClearUnfinished
-                  api={api}
-                  folder={destinations[0].folder}
-                  label="Clear unfinished copies…"
-                  onProblem={onProblem}
-                />
-              )}
-              <button className="button" onClick={() => setAdding(true)}>
-                Add another destination
-              </button>
-              {destinations.length <= 1 && (
-                <button
-                  className="button"
-                  onClick={() => remove()}
-                  title="Stops backing up here, so you can choose somewhere else. Nothing backed up there is deleted."
-                >
-                  Back up somewhere else
-                </button>
-              )}
+              {/* The rest are wanted now and then, so they wait behind More. */}
+              <MoreMenu choices={rarerChoices} />
             </div>
+            {clearing && destinations[0]?.folder && (
+              <ClearUnfinished
+                api={api}
+                folder={destinations[0].folder}
+                label="Clear unfinished copies…"
+                asked
+                onClosed={() => setClearing(false)}
+                onProblem={onProblem}
+              />
+            )}
             </>
           )}
           {/* What the last backup said is about that one, so it steps aside while another runs. */}
@@ -3369,8 +3425,18 @@ function SurveyResult(props: {
                 />
                 <span className="where">{hint.folder}</span>
               </label>
-              <span className="quiet small">
-                {files(hint.photos, hint.videos, hint.others ?? 0)} · {size(hint.bytes)}
+              {/* What is in it, and what is known of it, together before its buttons. */}
+              <span className="about">
+                <span className="quiet small">
+                  {files(hint.photos, hint.videos, hint.others ?? 0)} · {size(hint.bytes)}
+                </span>
+                {outNow.has(hint.folder) && <span className="badge">Left out of this backup</span>}
+                {hint.alreadyASource && <span className="badge">Already a source</span>}
+                {!hint.likelyPhotos && !hint.alreadyASource && (
+                  <span className="badge" title="The pictures here are very small and there are no videos">
+                    Small pictures, probably not photos
+                  </span>
+                )}
               </span>
               <button
                 className="button small"
@@ -3398,13 +3464,6 @@ function SurveyResult(props: {
                   }}
                   onProblem={props.onProblem}
                 />
-              )}
-              {outNow.has(hint.folder) && <span className="badge">Left out of this backup</span>}
-              {hint.alreadyASource && <span className="badge">Already a source</span>}
-              {!hint.likelyPhotos && !hint.alreadyASource && (
-                <span className="badge" title="The pictures here are very small and there are no videos">
-                  Small pictures, probably not photos
-                </span>
               )}
               {hint.onlineOnlySaid && <p className="online-only small">{hint.onlineOnlySaid}</p>}
             </li>

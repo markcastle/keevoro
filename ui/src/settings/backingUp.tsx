@@ -9,8 +9,8 @@
 // is set, with the same dialog.
 
 import { useEffect, useState } from 'react'
-import type { Backend, KeepRunningChange, KeepRunningView, ScheduleView, SetSchedule } from '../backend'
-import { ScheduleDialog } from '../schedule'
+import type { Backend, KeepRunningChange, KeepRunningView, MannersChange, MannersView, ScheduleView, SetSchedule } from '../backend'
+import { ScheduleDialog, TIMES } from '../schedule'
 import { Group, Row, RowButton, RowSwitch } from './parts'
 
 export function BackingUpSection(props: { api: Backend; name: string; onProblem: (error: unknown) => void }) {
@@ -18,10 +18,13 @@ export function BackingUpSection(props: { api: Backend; name: string; onProblem:
   const [schedule, setSchedule] = useState<ScheduleView | null>(null)
   const [choosing, setChoosing] = useState(false)
   const [view, setView] = useState<KeepRunningView | null>(null)
+  const [manners, setManners] = useState<MannersView | null>(null)
   useEffect(() => {
     api.schedule().then(setSchedule).catch(onProblem)
     api.keepRunning().then(setView).catch(onProblem)
+    api.backgroundSettings().then(setManners).catch(onProblem)
   }, [api, onProblem])
+  const mind = (asked: MannersChange) => api.backgroundSettings(asked).then(setManners).catch(onProblem)
 
   const change = (asked: KeepRunningChange) => api.setKeepRunning(asked).then(setView).catch(onProblem)
   const save = (request: SetSchedule) =>
@@ -55,6 +58,76 @@ export function BackingUpSection(props: { api: Backend; name: string; onProblem:
             below={
               choosing && (
                 <ScheduleDialog name={props.name} view={schedule} onSave={save} onCancel={() => setChoosing(false)} />
+              )
+            }
+          />
+        </Group>
+      )}
+
+      {manners && (
+        <Group
+          title="Waiting for a good moment"
+          footnote="A backup you start yourself, or Back up now anyway, never waits."
+        >
+          <Row
+            id="waitOnBattery"
+            about="While this computer is on battery and less than half charged, a backup by itself waits for it to be plugged in."
+            control={<RowSwitch on={manners.waitOnBattery} onChange={(on) => mind({ waitOnBattery: on })} />}
+          />
+          <Row
+            id="waitOnMetered"
+            about={
+              manners.meteredKnown
+                ? 'A backup to or from cloud storage waits while the connection is metered, such as a phone’s hotspot.'
+                : 'This computer can’t say whether its connection is metered, so a backup to cloud storage doesn’t wait for one.'
+            }
+            control={
+              <RowSwitch
+                on={manners.meteredKnown && manners.waitOnMetered}
+                disabled={!manners.meteredKnown}
+                onChange={(on) => mind({ waitOnMetered: on })}
+              />
+            }
+          />
+          <Row
+            id="between"
+            about={
+              manners.between
+                ? `A run that comes round by itself starts only ${manners.betweenSaid}, in this computer’s own time.`
+                : 'A run that comes round by itself starts at any hour.'
+            }
+            control={
+              <RowSwitch
+                on={!!manners.between}
+                onChange={(on) => mind(on ? { between: { from: '22:00', to: '07:00' } } : { anyHour: true })}
+              />
+            }
+            below={
+              manners.between && (
+                <div className="between-times">
+                  <label>
+                    From{' '}
+                    <select
+                      value={manners.between.from}
+                      onChange={(e) => mind({ between: { from: e.target.value, to: manners.between?.to ?? '07:00' } })}
+                    >
+                      {TIMES.map((t) => (
+                        <option key={t}>{t}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    until{' '}
+                    <select
+                      value={manners.between.to}
+                      onChange={(e) => mind({ between: { from: manners.between?.from ?? '22:00', to: e.target.value } })}
+                    >
+                      {TIMES.map((t) => (
+                        <option key={t}>{t}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
               )
             }
           />

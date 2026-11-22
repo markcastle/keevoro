@@ -7,10 +7,16 @@
 // to reach them. "See exactly what will be sent" shows the report as
 // Keevoro made it, and that same text is what is sent. If sending fails,
 // their words stay, with why and Try again.
+//
+// When Keevoro cannot reach the reports service at all (a work computer's
+// proxy, say), the window sends the same text itself, through the
+// system's own network settings, and Keevoro keeps the answer; it asks
+// after reports the same way.
 
 import { useCallback, useEffect, useId, useState } from 'react'
 import type { Backend, ReportKind, ReportRequest, ReportsView, SentReport } from '../backend'
 import { Toggle } from '../toggle'
+import { askThroughWindow, ReportNotSent, sendThroughWindow } from '../reportsWindow'
 import { Group, Intro } from './parts'
 
 /** What was being written, kept while Keevoro is open so leaving the page loses nothing. */
@@ -52,7 +58,9 @@ export function ReportPage(props: {
 
   // The report as Keevoro made it, for the request it was made from.
   const [seeing, setSeeing] = useState(false)
-  const [prepared, setPrepared] = useState<{ asked: string; body: string } | { asked: string; why: string } | null>(null)
+  const [prepared, setPrepared] = useState<
+    { asked: string; body: string; sendTo: string } | { asked: string; why: string } | null
+  >(null)
   useEffect(() => {
     if (!seeing) return
     let open = true
@@ -61,7 +69,7 @@ export function ReportPage(props: {
       () =>
         api
           .prepareReport(JSON.parse(asked) as ReportRequest)
-          .then((p) => open && setPrepared({ asked, body: p.body }))
+          .then((p) => open && setPrepared({ asked, body: p.body, sendTo: p.sendTo }))
           .catch((e) => open && setPrepared({ asked, why: sentence(e) })),
       prepared === null ? 0 : 250,
     )
@@ -74,7 +82,9 @@ export function ReportPage(props: {
   }, [api, asked, seeing])
 
   const [sending, setSending] = useState(false)
-  const [failed, setFailed] = useState<string | null>(null)
+  // Why it was not sent, and, when the service could not be reached at
+  // all either way, why not in plain words if that is known.
+  const [failed, setFailed] = useState<{ said: string; why?: string } | null>(null)
   const [sent, setSent] = useState<SentReport | null>(null)
   const [reports, setReports] = useState<ReportsView | null>(null)
 
@@ -84,10 +94,22 @@ export function ReportPage(props: {
       .reports()
       .then((r) => open && setReports((was) => was ?? r))
       .catch(() => {})
+    const couldNot = () => open && setReports((was) => (was ? { ...was, checked: false, said: 'Couldn’t check just now.' } : was))
     api
       .refreshReports()
-      .then((r) => open && setReports(r))
-      .catch(() => open && setReports((was) => (was ? { ...was, checked: false, said: 'Couldn’t check just now.' } : was)))
+      .then(async (r) => {
+        if (!open) return
+        setReports(r)
+        if (r.checked) return
+        // Keevoro could not ask: the window asks itself.
+        const asking = await api.reportsAsking()
+        if (asking.reports.length === 0) return
+        const { heard, all } = await askThroughWindow(asking.sendTo, asking.reports)
+        if (heard.length === 0 && !all) return
+        const view = await api.reportsHeard(heard, all)
+        if (open) setReports(view)
+      })
+      .catch(couldNot)
     return () => {
       open = false
     }
@@ -100,13 +122,13 @@ export function ReportPage(props: {
     try {
       // What is shown is what goes: the report on screen, if it is for
       // these words; otherwise made now, and shown if it is open.
-      let body = prepared && 'body' in prepared && prepared.asked === asked ? prepared.body : null
-      if (body === null) {
-        const made = await api.prepareReport(request)
-        body = made.body
-        setPrepared({ asked, body })
+      let made = prepared && 'body' in prepared && prepared.asked === asked ? prepared : null
+      if (made === null) {
+        const fresh = await api.prepareReport(request)
+        made = { asked, body: fresh.body, sendTo: fresh.sendTo }
+        setPrepared(made)
       }
-      const done = await api.sendReport(body)
+      const done = await sendEitherWay(made.body, made.sendTo)
       setSent(done)
       kept = { kind, message: '', withLog: false, withContact, contact }
       setMessage('')
@@ -115,9 +137,23 @@ export function ReportPage(props: {
       setPrepared(null)
       api.reports().then(setReports, () => {})
     } catch (e) {
-      setFailed(sentence(e))
+      setFailed(e instanceof ReportNotSent && e.unreachable ? { said: e.message, why: e.why } : { said: sentence(e) })
     } finally {
       setSending(false)
+    }
+  }
+
+  // Keevoro sends it; when it cannot reach the service at all, the window
+  // sends the very same text, and Keevoro keeps the answer.
+  const sendEitherWay = async (body: string, sendTo: string): Promise<SentReport> => {
+    try {
+      return await api.sendReport(body)
+    } catch (e) {
+      if (!(e instanceof ReportNotSent) || !e.unreachable) throw e
+      const answer = await sendThroughWindow(sendTo, body)
+      if (answer === null) throw e
+      if ('why' in answer) throw new Error(answer.why)
+      return api.noteReport(body, answer.reference, answer.token)
     }
   }
 
@@ -234,7 +270,8 @@ export function ReportPage(props: {
 
           {failed && (
             <div className="report-failed" role="alert">
-              <p>Your report wasn’t sent. {failed}</p>
+              <p>Your report wasn’t sent. {failed.said}</p>
+              {failed.why && <p className="quiet small report-why">{failed.why}</p>}
               <p className="quiet small">Your words are still here.</p>
             </div>
           )}

@@ -1137,3 +1137,149 @@ fn a_drive_unplugged_part_way_stops_the_search_and_is_not_taken_for_unreadable_f
     assert!(!whole.gone);
     assert_eq!(whole.items.len(), 2000);
 }
+
+mod looking_again_quickly {
+    use super::*;
+
+    fn again(t: &Tree, before: &ScanReport) -> ScanReport {
+        scan(
+            t.root(),
+            &ScanOptions {
+                known: Some(Arc::new(Known::from_items(before.items.clone()))),
+                ..ScanOptions::default()
+            },
+            &mut |_| {},
+        )
+    }
+
+    /// Writes other bytes of the same length, and puts its modified time
+    /// back as it was: only a look that opens it can tell.
+    fn change_inside_only(path: &Path, fill: u8) {
+        let when = fs::metadata(path).unwrap().modified().unwrap();
+        fs::write(path, plain_jpeg(fill)).unwrap();
+        fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(when)
+            .unwrap();
+    }
+
+    #[test]
+    fn a_file_with_the_same_size_and_time_is_taken_as_found_without_being_opened() {
+        let t = Tree::new();
+        let photo = t.add("DCIM/IMG_0048.jpg", &plain_jpeg(1));
+        t.add("DCIM/IMG_0049.jpg", &plain_jpeg(2));
+        let first = scan(t.root(), &ScanOptions::default(), &mut |_| {});
+        assert!(item(&first, "IMG_0048.jpg").modified.is_some());
+        assert_eq!(first.unchanged, 0);
+
+        change_inside_only(&photo, 9);
+        let quick = again(&t, &first);
+        assert_eq!(quick.unchanged, 2);
+        assert_eq!(
+            item(&quick, "IMG_0048.jpg").blake3,
+            item(&first, "IMG_0048.jpg").blake3,
+            "not opened, so taken as it was found"
+        );
+        let full = scan(t.root(), &ScanOptions::default(), &mut |_| {});
+        assert_ne!(item(&full, "IMG_0048.jpg").blake3, item(&first, "IMG_0048.jpg").blake3);
+    }
+
+    #[test]
+    fn a_file_whose_size_or_time_changed_or_that_is_new_is_read() {
+        let t = Tree::new();
+        let bigger = t.add("DCIM/IMG_0048.jpg", &plain_jpeg(1));
+        let touched = t.add("DCIM/IMG_0049.jpg", &plain_jpeg(2));
+        let first = scan(t.root(), &ScanOptions::default(), &mut |_| {});
+
+        let mut more = plain_jpeg(3);
+        more.extend_from_slice(&[0; 10]);
+        let when = fs::metadata(&bigger).unwrap().modified().unwrap();
+        fs::write(&bigger, more).unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&bigger)
+            .unwrap()
+            .set_modified(when)
+            .unwrap();
+        let later = fs::metadata(&touched).unwrap().modified().unwrap() + std::time::Duration::from_secs(7);
+        fs::write(&touched, plain_jpeg(4)).unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&touched)
+            .unwrap()
+            .set_modified(later)
+            .unwrap();
+        t.add("DCIM/IMG_0050.jpg", &plain_jpeg(5));
+
+        let quick = again(&t, &first);
+        assert_eq!(quick.unchanged, 0);
+        assert_eq!(quick.items.len(), 3);
+        for name in ["IMG_0048.jpg", "IMG_0049.jpg"] {
+            assert_ne!(item(&quick, name).blake3, item(&first, name).blake3, "{name}");
+        }
+    }
+
+    #[test]
+    fn what_cannot_be_sure_is_read_a_file_with_no_time_kept_or_known_only_by_a_quick_fingerprint() {
+        let t = Tree::new();
+        let photo = t.add("DCIM/IMG_0048.jpg", &big_photo(400_000, 1));
+        let first = scan(t.root(), &quick(), &mut |_| {});
+        assert!(!item(&first, "IMG_0048.jpg").hashed);
+        change_inside_only_big(&photo);
+
+        // Whole fingerprints wanted: a quick one is not enough.
+        let whole = again(&t, &first);
+        assert_eq!(whole.unchanged, 0);
+        assert!(item(&whole, "IMG_0048.jpg").hashed);
+
+        // Found by a version that kept no time: read.
+        let mut no_time = first.clone();
+        no_time.items[0].modified = None;
+        let read = scan(
+            t.root(),
+            &ScanOptions {
+                known: Some(Arc::new(Known::from_items(no_time.items))),
+                ..quick()
+            },
+            &mut |_| {},
+        );
+        assert_eq!(read.unchanged, 0);
+        assert_ne!(item(&read, "IMG_0048.jpg").blake3, item(&first, "IMG_0048.jpg").blake3);
+    }
+
+    fn change_inside_only_big(path: &Path) {
+        let when = fs::metadata(path).unwrap().modified().unwrap();
+        fs::write(path, big_photo(400_000, 2)).unwrap();
+        fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(when)
+            .unwrap();
+    }
+
+    #[test]
+    fn a_kind_switched_off_since_is_still_passed_over() {
+        let t = Tree::new();
+        t.add("DCIM/IMG_0048.jpg", &plain_jpeg(1));
+        let first = scan(t.root(), &ScanOptions::default(), &mut |_| {});
+        let mut kinds = keevoro_core::FileKinds::default();
+        let off = keevoro_core::KindChange {
+            on: Some(false),
+            ..Default::default()
+        };
+        kinds.change("jpg", &off).unwrap();
+        let quick = scan(
+            t.root(),
+            &ScanOptions {
+                known: Some(Arc::new(Known::from_items(first.items.clone()))),
+                kinds: kinds.lookup(),
+                ..ScanOptions::default()
+            },
+            &mut |_| {},
+        );
+        assert!(quick.items.is_empty());
+    }
+}

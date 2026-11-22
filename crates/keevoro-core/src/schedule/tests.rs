@@ -420,3 +420,27 @@ fn a_schedule_is_kept_and_read_back_and_anything_else_is_no_schedule() {
         assert_eq!(Schedule::from_stored(&read), None, "{bad}");
     }
 }
+
+#[test]
+fn when_something_happened_is_said_the_way_a_person_says_it() {
+    let zone = london();
+    let now = at(&zone, "2026-06-11T09:00");
+    assert_eq!(when_words(at(&zone, "2026-06-11T02:31"), now, &zone), "Today at 02:31");
+    assert_eq!(
+        when_words(at(&zone, "2026-06-10T23:59"), now, &zone),
+        "Yesterday at 23:59"
+    );
+    assert_eq!(
+        when_words(at(&zone, "2026-06-09T02:30"), now, &zone),
+        "Tuesday at 02:30"
+    );
+    assert_eq!(
+        when_words(at(&zone, "2026-06-03T02:30"), now, &zone),
+        "On 3 June at 02:30"
+    );
+    assert_eq!(caught_up_words(0), None);
+    assert_eq!(
+        caught_up_words(2).as_deref(),
+        Some("This caught up 2 runs that were missed, perhaps because the computer was off or asleep.")
+    );
+}

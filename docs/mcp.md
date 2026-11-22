@@ -30,7 +30,7 @@ Whatever you allow, an agent can never:
 - look in, or back up to, a folder you have not named. A path written to dodge the rule, with `..`, a shortcut (a symbolic link) or another spelling of the same Windows path, is judged by where it really leads, and refused. A folder it may use is then worked on where it really leads, so a shortcut changed after Keevoro checked it is not followed;
 - read back a storage key. An agent can give Keevoro a key when it adds cloud storage, and the key goes straight into your computer's keychain. No answer, error or line of the log ever contains it;
 - remove a backup (or put back or clear away one removed), forget the remembered maps, reset Keevoro, change its settings (the kinds of file Keevoro looks for among them; it can read that list), or install an update. Those are for you;
-- set, skip or pause a backup's schedule, or start a backup by itself. A schedule runs long after the conversation has ended, with nobody watching, so only you make that promise. An agent can read when a backup runs by itself, when next and how its last few runs went (`backup_schedule`);
+- set, skip or pause a backup's schedule, or start a backup by itself. A schedule runs long after the conversation has ended, with nobody watching, so only you make that promise. An agent can read when a backup runs by itself, when next and how its last few runs went (`backup_schedule`), and what every backup did by itself while you were away (`while_you_were_away`);
 - report a problem or an idea to Keevoro's maker, or read the reports you sent. A report is in your own words, so only you make and send one;
 - change what it is allowed to do. It can ask what it may do, and nothing more.
 

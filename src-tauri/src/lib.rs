@@ -44,6 +44,10 @@ use tauri::{Emitter, Manager, Runtime};
 /// says so; it carries nothing, and the first screen lists the drives again.
 pub const DRIVES: &str = "drives";
 
+/// How often, in seconds, Keevoro looks whether a source asked to be
+/// backed up when it is plugged in has been.
+const ARRIVALS_LOOK_EVERY: u64 = 3;
+
 /// What the running app holds in memory.
 pub struct Shared {
     /// Keevoro itself: its backups, settings, log, keychain and jobs,
@@ -242,6 +246,27 @@ fn app<R: Runtime>(
                         relaunch::if_updated(&scheduler);
                     }
                 })?;
+            // Sources the person asked to be backed up whenever they are
+            // plugged in: a look every few seconds at whether each one's
+            // place is there, which costs next to nothing, and a notice for
+            // each backup it starts (see `keevoro_api::arrival`).
+            let watcher = app.handle().clone();
+            std::thread::Builder::new()
+                .name("keevoro arrivals".into())
+                .spawn(move || {
+                    let keevoro = &watcher.state::<Shared>().keevoro;
+                    loop {
+                        std::thread::sleep(std::time::Duration::from_secs(ARRIVALS_LOOK_EVERY));
+                        for arrived in keevoro.notice_arrivals() {
+                            notices::tell(
+                                &watcher,
+                                &arrived.backup.id,
+                                &notices::plugged_in(&arrived.source, &arrived.backup.name),
+                            );
+                            tray::nudge(&watcher);
+                        }
+                    }
+                })?;
             // Backups removed over a week ago are cleared away for good,
             // quietly, off the thread that opens the window.
             let handle = app.handle().clone();
@@ -300,6 +325,10 @@ fn app<R: Runtime>(
             commands::skip_next_run,
             commands::run_scheduled_now,
             commands::window_used,
+            commands::away,
+            commands::away_seen,
+            commands::source_on_arrival,
+            commands::background_settings,
             commands::stop_scanning,
             commands::survey_place,
             commands::stop_survey,
@@ -316,6 +345,9 @@ fn app<R: Runtime>(
             commands::send_report,
             commands::reports,
             commands::refresh_reports,
+            commands::note_report,
+            commands::reports_asking,
+            commands::reports_heard,
             commands::open_release_page,
             commands::open_web_page,
             commands::install_update,

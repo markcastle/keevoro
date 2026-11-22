@@ -11,6 +11,7 @@
 
 import { demoBackend } from './demo'
 import { PictureQueue, fileKey, photoKey } from './pictureQueue'
+import { notSent } from './reportsWindow'
 
 export type Photo = {
   id: string
@@ -211,6 +212,8 @@ export type Source = {
   /** Set aside when a different drive was plugged in at its place: that place, and this in words. Everything found on it is kept. */
   setAsideFrom?: string
   setAsideSaid?: string
+  /** True when it is backed up by itself whenever it is plugged in. */
+  onArrival?: boolean
 }
 
 /** How photos and videos are arranged in a backup. */
@@ -445,6 +448,72 @@ export type ScheduleAttempt = {
   why: string
   outcome: 'worked' | 'someFiles' | 'unreachable' | 'refused' | 'stopped' | 'heldBack' | 'notNow' | 'skipped'
   said: string
+  /** How many runs due before it were missed and caught up. */
+  missed?: number
+}
+
+/** "While you were away": what every backup did by itself since the window was last seen. */
+export type AwayView = {
+  since: number
+  backups: AwayBackup[]
+  /** What waits for the person's say, a sentence each. */
+  waiting: AwayWaiting[]
+}
+
+/** One backup, in "While you were away". */
+export type AwayBackup = {
+  backup: string
+  id: string
+  /** Its runs since then, oldest first. */
+  runs: AwayRun[]
+  /** A run due that has not happened yet, and that it will run once, soon. */
+  missed?: string
+}
+
+/** One run by itself, in "While you were away". */
+export type AwayRun = {
+  at: number
+  /** "Yesterday at 02:31" */
+  when: string
+  outcome: ScheduleAttempt['outcome']
+  said: string
+  /** What it caught up, when it caught up runs that were missed. */
+  caughtUp?: string
+}
+
+/** Hours of the day, "22:00" until "07:00"; across midnight when `to` comes first. */
+export type Between = {
+  from: string
+  to: string
+}
+
+/** How a backup by itself waits for a good moment. */
+export type MannersView = {
+  waitOnBattery: boolean
+  waitOnMetered: boolean
+  /** False where this computer cannot say whether its connection is metered. */
+  meteredKnown: boolean
+  between?: Between
+  /** "between 22:00 and 07:00" */
+  betweenSaid?: string
+}
+
+/** What to change in how a backup by itself waits; each part left out stays. */
+export type MannersChange = {
+  waitOnBattery?: boolean
+  waitOnMetered?: boolean
+  between?: Between
+  anyHour?: boolean
+}
+
+/** Whether a source is backed up by itself whenever it is plugged in. */
+export type OnArrivalView = { source: number; on: boolean }
+
+/** One thing waiting for the person's say. */
+export type AwayWaiting = {
+  backup: string
+  id: string
+  said: string
 }
 
 /** When a backup backs up by itself, when next, and its last few runs. */
@@ -457,6 +526,8 @@ export type ScheduleView = {
   next?: string
   nextAt?: number
   skipping: boolean
+  /** A run due that is waiting for a good moment, and why. */
+  waiting?: string
   last: ScheduleAttempt[]
   /** A schedule this version could not read: it is kept, and counts as none. */
   unreadable?: boolean
@@ -1027,8 +1098,11 @@ export type ReportRequest = {
   screen: string
 }
 
-/** A report made and not yet sent: `body` is exactly what will go. */
-export type PreparedReport = { body: string }
+/** A report made and not yet sent: `body` is exactly what will go, and `sendTo` where. */
+export type PreparedReport = { body: string; sendTo: string }
+
+/** For the window alone: where reports go, and the newest with what lets it ask after them. */
+export type ReportsAsking = { sendTo: string; reports: { reference: string; token: string }[] }
 
 /** A report sent: its reference, and the thank you to say. */
 export type SentReport = { reference: string; said: string }
@@ -1158,10 +1232,18 @@ export interface Backend {
   schedule(): Promise<ScheduleView>
   setSchedule(request: SetSchedule): Promise<ScheduleView>
   skipNextRun(undo: boolean): Promise<ScheduleView>
-  /** Runs it now as its schedule does; heard as `send` events. */
-  runScheduledNow(): Promise<void>
+  /** Runs it now as its schedule does; heard as `send` events. With `anyway`, without waiting for a good moment. */
+  runScheduledNow(anyway?: boolean): Promise<void>
+  /** How a backup by itself waits for a good moment, and changing it. */
+  backgroundSettings(request?: MannersChange): Promise<MannersView>
   /** The person is using the window, so a backup by itself waits until they have finished. */
   windowUsed(): Promise<void>
+  /** "While you were away": what every backup did by itself since the window was last seen. */
+  away(): Promise<AwayView>
+  /** Whether a source is backed up by itself whenever it is plugged in, and changing it. */
+  setSourceOnArrival(source: number, on: boolean): Promise<OnArrivalView>
+  /** The person has read "While you were away". */
+  awaySeen(): Promise<void>
   /** Looks through one source again, or every one; a source not plugged in is passed over and said, and `differentDrive` answers the question about one. */
   lookAgain(source?: number, differentDrive?: OtherDrive): Promise<void>
   /**
@@ -1180,8 +1262,18 @@ export interface Backend {
   openLog(): Promise<void>
   /** A report of a problem or an idea, made exactly as it would be sent. Nothing is sent. */
   prepareReport(request: ReportRequest): Promise<PreparedReport>
-  /** Sends a report exactly as `prepareReport` made it. */
+  /**
+   * Sends a report exactly as `prepareReport` made it. Not sent, it fails
+   * with a `ReportNotSent`, which says whether the service could not be
+   * reached at all, and why.
+   */
   sendReport(prepared: string): Promise<SentReport>
+  /** Keeps a report the window sent itself, with the service's answer, as one sent from here. */
+  noteReport(prepared: string, reference: string, token: string): Promise<SentReport>
+  /** For the window to ask after reports itself when Keevoro cannot. */
+  reportsAsking(): Promise<ReportsAsking>
+  /** Notes what the window heard of each report; `all` when every one asked about answered. */
+  reportsHeard(heard: { reference: string; answer: unknown }[], all: boolean): Promise<ReportsView>
   /** The reports sent from this computer, as last heard of. Nothing is asked. */
   reports(): Promise<ReportsView>
   /** Asks how each report sent from this computer is getting on. */
@@ -1362,15 +1454,25 @@ async function tauriBackend(): Promise<Backend> {
     schedule: () => invoke('schedule'),
     setSchedule: (request) => invoke('set_schedule', { request }),
     skipNextRun: (undo) => invoke('skip_next_run', { undo }),
-    runScheduledNow: () => invoke('run_scheduled_now'),
+    runScheduledNow: (anyway) => invoke('run_scheduled_now', { anyway }),
+    backgroundSettings: (request) => invoke('background_settings', { request }),
     windowUsed: () => invoke('window_used'),
+    away: () => invoke('away'),
+    setSourceOnArrival: (source, on) => invoke('source_on_arrival', { source, on }),
+    awaySeen: () => invoke('away_seen'),
     surveyPlace: (path) => invoke('survey_place', { path }),
     stopSurvey: () => invoke('stop_survey'),
     onSurvey: (listener) => subscribe('survey', listener),
     logTail: () => invoke('log_tail'),
     openLog: () => invoke('open_log'),
     prepareReport: (request) => invoke('prepare_report', { request }),
-    sendReport: (prepared) => invoke('send_report', { prepared }),
+    sendReport: (prepared) =>
+      invoke<SentReport>('send_report', { prepared }).catch((said: unknown) => {
+        throw notSent(said)
+      }),
+    noteReport: (prepared, reference, token) => invoke('note_report', { request: { prepared, reference, token } }),
+    reportsAsking: () => invoke('reports_asking'),
+    reportsHeard: (heard, all) => invoke('reports_heard', { request: { heard, all } }),
     reports: () => invoke('reports'),
     refreshReports: () => invoke('refresh_reports'),
     checkUpdate: () => invoke('check_update'),

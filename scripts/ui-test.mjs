@@ -56,6 +56,22 @@ await page.route(STRATUS, (route) => {
   if (stratusOffline) return route.abort('internetdisconnected')
   return route.fulfill({ status: 200, contentType: 'text/html', body: fakeStratus })
 })
+// Keevoro's reports service is never reached for real either. A stand-in
+// answers at its address as `reportsService` says, as the real one does to
+// the window (any origin may ask), and otherwise the address does not
+// answer at all. What the window asked of it is noted.
+const REPORTS = /^https:\/\/reports\.keevoro\.com\//
+const reportsAsked = []
+let reportsService = null
+await page.route(REPORTS, (route) => {
+  const request = route.request()
+  const open = { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET, POST, OPTIONS', 'access-control-allow-headers': 'content-type' }
+  if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: open })
+  reportsAsked.push({ method: request.method(), url: request.url(), body: request.postData(), cookie: request.headers().cookie })
+  if (!reportsService) return route.abort('internetdisconnected')
+  const { status, answer } = reportsService(request)
+  return route.fulfill({ status, headers: { ...open, 'content-type': 'application/json' }, body: JSON.stringify(answer) })
+})
 const problems = []
 page.on('pageerror', (error) => problems.push(String(error)))
 page.on('console', (message) => message.type() === 'error' && problems.push(message.text()))
@@ -157,6 +173,12 @@ const narrowShots = async (name, part) => {
   await shot(`${name}-400-dark`)
   await page.emulateMedia({ colorScheme: 'light' })
   await page.setViewportSize({ width: 1440, height: 900 })
+}
+// The backup screen's choices wanted now and then wait behind More, a menu
+// beside the few buttons used most. Chooses one of them, as a person would.
+const moreChoice = async (label) => {
+  await page.locator('.panel.send .choices.actions').getByRole('button', { name: 'More' }).click()
+  await page.getByRole('menu', { name: 'More' }).getByRole('menuitem', { name: label, exact: true }).click()
 }
 // A switch's words sit beside it, centred on it, never above or below.
 const centredOnSwitch = (switches) =>
@@ -535,13 +557,13 @@ try {
   await details.click()
   await page.getByText(/^Everything you are keeping is there: [\d,]+ files\.$/).waitFor()
   assert.ok(await page.getByRole('button', { name: 'Show me the folder' }).isVisible())
-  // Beside it, clearing what a stopped backup left there: said first, cleared on a yes.
-  await page.getByRole('button', { name: 'Clear unfinished copies…' }).click()
+  // Behind More, clearing what a stopped backup left there: said first, cleared on a yes.
+  await moreChoice('Clear unfinished copies…')
   const unfinished = page.getByRole('group', { name: 'Unfinished copies in F:\\Family Backup' })
   assert.match(await unfinished.innerText(), /^There are 320\.4 MB of unfinished copies \(12 files\) in F:\\Family Backup/)
   await unfinished.getByRole('button', { name: 'Cancel' }).click()
   assert.equal(await unfinished.count(), 0, 'cancelling clears nothing and puts the question away')
-  await page.getByRole('button', { name: 'Clear unfinished copies…' }).click()
+  await moreChoice('Clear unfinished copies…')
   await unfinished.getByRole('button', { name: 'Clear them' }).click()
   await unfinished.getByText(/^Cleared 320\.4 MB of unfinished copies \(12 files\) from F:\\Family Backup\./).waitFor()
   await unfinished.getByRole('button', { name: 'Done' }).click()
@@ -552,7 +574,7 @@ try {
   await shot('9-sent')
   // --- A backup can go to more than one place. A second destination is
   // added beside the first, starts empty, and catches up on the next backup.
-  await page.getByRole('button', { name: 'Add another destination' }).click()
+  await moreChoice('Add another destination')
   await page.getByRole('heading', { name: 'Add another destination' }).waitFor()
   assert.match(await text('.send .adding'), /as well as the folder F:\\Family Backup\. It starts empty/)
   await page.getByRole('button', { name: /Cloudflare R2/ }).click()
@@ -629,7 +651,14 @@ try {
   await page.getByRole('button', { name: /Windows \(C:\)/ }).click()
   await page.getByRole('heading', { name: 'Look through all of Windows (C:)?' }).waitFor()
   assert.match(await text('.asking'), /whole disk \(512 GB\).*a few minutes to an hour or more/s)
+  // Its choices sit on one row, Cancel a quiet link at the end of it.
+  const wholeDisk = page.locator('.asking .choices')
+  const tops = await wholeDisk.getByRole('button').evaluateAll((all) => all.map((b) => Math.round(b.getBoundingClientRect().top + b.getBoundingClientRect().height / 2)))
+  assert.equal(new Set(tops).size, 1, `one row: ${tops}`)
+  assert.equal(await wholeDisk.getByRole('button', { name: 'Cancel' }).getAttribute('class'), 'link cancel')
   await shot('9d-whole-disk')
+  await fitsNarrow('The question about a whole disk')
+  await narrowShots('9d-whole-disk', page.locator('.asking'))
   await page.getByRole('button', { name: 'Cancel' }).click()
   assert.equal(await page.locator('.asking').count(), 0, 'cancelling goes back to the choices')
   assert.equal(await page.locator('.searching').count(), 0, 'and nothing was started')
@@ -652,7 +681,16 @@ try {
     'real photos are ticked to begin with; probable icons are not',
   )
   assert.match(await page.locator('.survey .hints li').last().innerText(), /Small pictures, probably not photos/)
+  // Its note sits with the row's description, before the buttons, as the
+  // other rows have theirs.
+  const note = await page.locator('.survey .hints li').last().evaluate((li) => {
+    const said = li.querySelector('.badge').getBoundingClientRect()
+    const look = [...li.querySelectorAll('button')].find((b) => b.textContent === 'Look inside').getBoundingClientRect()
+    return { before: said.right <= look.left, inAbout: li.querySelector('.about .badge') !== null }
+  })
+  assert.deepEqual(note, { before: true, inAbout: true })
   await shot('9q-survey')
+  await narrowShots('9q-survey', page.locator('.survey .hints li').last())
   // Files only in OneDrive are never opened, and never left out silently: each suggestion says so.
   const onlineSaid = /^412 files here are in OneDrive only, not on this computer, so Keevoro did not open them\. To include them, make them available offline in OneDrive first, then look again\.$/
   assert.match(await page.locator('.survey .hints li').nth(1).locator('.online-only').innerText(), onlineSaid)
@@ -910,7 +948,7 @@ try {
   const row = (ending) => kindsTable.getByRole('row').filter({ has: page.getByRole('cell', { name: ending, exact: true }) })
   assert.match(await row('.jpg').innerText(), /Photo\s+Built in/)
   assert.match(await row('.insp').innerText(), /Photo\s+Yours/)
-  assert.equal(await row('.jpg').getByRole('button', { name: 'Remove .jpg' }).count(), 0, 'a built-in kind cannot be removed')
+  assert.equal(await row('.jpg').getByRole('button', { name: 'Remove .jpg…' }).count(), 0, 'a built-in kind cannot be removed')
   // Switching one off says when it counts, and offers the way to the sources.
   const avi = page.getByRole('switch', { name: 'Look for .avi files' })
   const tableAt = await kindsTable.boundingBox()
@@ -934,7 +972,7 @@ try {
   assert.equal(await editing.getByLabel('Ending').isDisabled(), true, 'a built-in ending cannot be renamed')
   await editing.getByRole('button', { name: 'Cancel' }).click()
   // Removing one of your own is asked about on the page, never in a pop-up.
-  await page.getByRole('button', { name: 'Remove .insp' }).click()
+  await page.getByRole('button', { name: 'Remove .insp…' }).click()
   await page.getByRole('alertdialog', { name: 'Remove .insp?' }).waitFor()
   await row('.lrv').scrollIntoViewIfNeeded()
   await shot('9t-settings-kinds-of-file')
@@ -1095,6 +1133,146 @@ try {
   await page.getByText(/^Everything you are keeping was there when Keevoro last looked, 2 days ago: [\d,]+ files\.$/).waitFor()
   await shot('9y-backup-folder-unplugged')
 
+  // --- One filled button per screen, the thing most people want next: the
+  // foot's button is quiet while the screen above shows a filled one.
+  await page.goto(`${base}/?fast`)
+  await page.locator('.steps button').nth(0).click()
+  await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
+  const footFilled = (words) => page.locator('.next .primary.big', { hasText: words })
+  const footQuiet = (words) => page.locator('.next .button.big', { hasText: words })
+  await footFilled('See what was found').waitFor()
+  await page.getByRole('button', { name: /Windows \(C:\)/ }).click()
+  await page.getByRole('heading', { name: 'Look through all of Windows (C:)?' }).waitFor()
+  await footQuiet('See what was found').waitFor()
+  assert.equal(await page.locator('main .primary').count(), 1, 'only the question’s own answer is filled')
+  await page.getByRole('button', { name: 'Cancel' }).click()
+  await footFilled('See what was found').waitFor()
+
+  // --- The backup screen keeps the few buttons used most in its row, Back
+  // up again the one filled, and the rest behind More: a menu, used with
+  // the keyboard as well as the pointer, never cut off, and each of its
+  // items doing what its button did.
+  await page.goto(`${base}/?fast`)
+  await page.getByRole('button', { name: 'Choose where they go' }).click()
+  await page.getByRole('button', { name: /^A folder/ }).click()
+  await page.getByRole('button', { name: 'Back up now' }).click()
+  await page.getByText(/^Everything you are keeping is there: [\d,]+ files\.$/).waitFor()
+  const actions = page.locator('.panel.send .choices.actions')
+  assert.deepEqual(
+    await actions.getByRole('button').evaluateAll((all) => all.map((b) => b.childNodes[0].textContent)),
+    ['Back up again', 'Check they all arrived', 'Show me the folder', 'More'],
+  )
+  assert.deepEqual(await actions.locator('.primary').allInnerTexts(), ['Back up again'], 'one filled button')
+  await footQuiet('Add another source').waitFor()
+  assert.equal(await page.locator('main .primary').count(), 1, 'Add another source at the foot is quiet')
+  const more = actions.getByRole('button', { name: 'More' })
+  const menu = page.getByRole('menu', { name: 'More' })
+  const items = menu.getByRole('menuitem')
+  const focused = () => page.evaluate(() => document.activeElement?.textContent)
+  assert.equal(await more.getAttribute('aria-haspopup'), 'menu')
+  assert.equal(await more.getAttribute('aria-expanded'), 'false')
+  await fitsNarrow('The backup screen with More')
+  await more.click()
+  await menu.waitFor()
+  assert.equal(await more.getAttribute('aria-expanded'), 'true')
+  assert.equal(await more.getAttribute('aria-controls'), await menu.getAttribute('id'))
+  assert.deepEqual(await items.allInnerTexts(), ['Clear unfinished copies…', 'Add another destination', 'Back up somewhere else'])
+  assert.equal(await focused(), 'Clear unfinished copies…', 'the focus goes to the first item')
+  for (const [key, then] of [
+    ['ArrowDown', 'Add another destination'],
+    ['ArrowDown', 'Back up somewhere else'],
+    ['ArrowDown', 'Clear unfinished copies…'],
+    ['ArrowUp', 'Back up somewhere else'],
+    ['Home', 'Clear unfinished copies…'],
+    ['End', 'Back up somewhere else'],
+  ]) {
+    await page.keyboard.press(key)
+    assert.equal(await focused(), then, `${key} goes to ${then}`)
+  }
+  await shot('9-more-menu')
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await shot('9-more-menu-dark')
+  await page.emulateMedia({ colorScheme: 'light' })
+  // Escape closes it and puts the focus back on its button.
+  await page.keyboard.press('Escape')
+  await menu.waitFor({ state: 'detached' })
+  assert.equal(await more.getAttribute('aria-expanded'), 'false')
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-haspopup')), 'menu', 'the focus is back on More')
+  // Opened from the keyboard: down to the first item, up to the last.
+  await page.keyboard.press('ArrowUp')
+  await menu.waitFor()
+  assert.equal(await focused(), 'Back up somewhere else')
+  await page.keyboard.press('Tab')
+  await menu.waitFor({ state: 'detached' })
+  await page.keyboard.press('ArrowDown')
+  assert.equal(await focused(), 'Clear unfinished copies…')
+  // A click anywhere else closes it.
+  await page.getByRole('heading', { name: 'Where should they go?', level: 1 }).click()
+  await menu.waitFor({ state: 'detached' })
+  // Never cut off, by the window or by anything it sits in, and in a narrow
+  // window too.
+  const wholly = () =>
+    menu.evaluate((el) => {
+      const box = el.getBoundingClientRect()
+      const there = document.elementFromPoint(box.left + box.width / 2, box.bottom - 4)
+      return box.left >= 16 && box.right <= window.innerWidth - 16 && box.top >= 0 && box.bottom <= window.innerHeight && el.contains(there)
+    })
+  await more.click()
+  assert.ok(await wholly(), 'the menu is wholly in the window, on top')
+  await page.keyboard.press('Escape')
+  await page.setViewportSize({ width: 400, height: 800 })
+  await more.scrollIntoViewIfNeeded()
+  await more.click()
+  assert.ok(await wholly(), 'at 400 pixels wide too')
+  await shot('9-more-menu-400')
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await shot('9-more-menu-400-dark')
+  await page.emulateMedia({ colorScheme: 'light' })
+  await page.keyboard.press('Escape')
+  await page.setViewportSize({ width: 1440, height: 900 })
+  // Each item does what its button did. Clearing unfinished copies, chosen
+  // from the keyboard, asks first, with the focus on its question.
+  await more.focus()
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('Enter')
+  const clearing = page.getByRole('group', { name: 'Unfinished copies in F:\\Family Backup' })
+  await clearing.waitFor()
+  assert.equal(await focused(), 'Clear them', 'the focus goes to the question')
+  await page.keyboard.press('Enter')
+  await clearing.getByText(/^Cleared 320\.4 MB of unfinished copies \(12 files\) from F:\\Family Backup\./).waitFor()
+  await clearing.getByRole('button', { name: 'Done' }).click()
+  assert.equal(await clearing.count(), 0)
+  // Adding another destination opens its choices, and Not now goes back.
+  await moreChoice('Add another destination')
+  await page.getByRole('heading', { name: 'Add another destination' }).waitFor()
+  await page.getByRole('button', { name: 'Not now' }).click()
+  await more.waitFor()
+  // Backing up somewhere else takes this one off, deleting nothing, and
+  // asks where instead.
+  await more.click()
+  assert.equal(
+    await menu.getByRole('menuitem', { name: 'Back up somewhere else' }).getAttribute('title'),
+    'Stops backing up here, so you can choose somewhere else. Nothing backed up there is deleted.',
+  )
+  await menu.getByRole('menuitem', { name: 'Back up somewhere else' }).click()
+  await page.getByRole('button', { name: /^A folder/ }).waitFor()
+  assert.equal(await page.getByRole('heading', { name: /^Backing up to/ }).count(), 0)
+  // With several places, each has its own Clear and Remove in the list, so
+  // More keeps only Add another destination.
+  await page.getByRole('button', { name: /^A folder/ }).click()
+  await page.getByRole('heading', { name: 'Backing up to the folder F:\\Family Backup' }).waitFor()
+  await moreChoice('Add another destination')
+  await page.getByRole('button', { name: /Cloudflare R2/ }).click()
+  await page.getByLabel('Cloudflare account ID').fill('0123456789abcdef0123456789abcdef')
+  await page.getByLabel('Bucket name').fill('family-photos')
+  await page.getByLabel('Access key ID').fill('key')
+  await page.getByLabel('Secret access key').fill('secret')
+  await page.locator('.send form button[type=submit]').click()
+  await page.getByRole('heading', { name: 'Backing up to 2 places' }).waitFor()
+  await more.click()
+  assert.deepEqual(await items.allInnerTexts(), ['Add another destination'])
+  await page.keyboard.press('Escape')
+
   // --- A share that drops out during a backup: one grouped sentence, said
   // as the destination's, an account that adds up, and the main button
   // saying what it will do next.
@@ -1132,6 +1310,11 @@ try {
   await damaged.getByText(/under the names Keevoro gave them, but not the sizes they were backed up at/).waitFor()
   await page.getByText(/^[\d,]+ of your [\d,]+ files are safely there\. 5 need attention\.$/).waitFor()
   assert.equal(await page.getByText(/^Everything you are keeping is there/).count(), 0, 'never everything beside files that are not')
+  assert.deepEqual(
+    await page.locator('main .primary').allInnerTexts(),
+    ['Put this backup right…'],
+    'putting it right is the one filled button; Back up again is quiet beside it',
+  )
   await shot('9z1-backup-needs-putting-right')
   await fitsNarrow('A backup that needs putting right')
   await page.getByRole('button', { name: 'Put this backup right…' }).click()
@@ -1295,6 +1478,55 @@ try {
   await scheduleCard.getByRole('button', { name: 'Carry on' }).click()
   await scheduleCard.getByText(/^Next: tonight at 02:30/).waitFor()
 
+  // --- While you were away: back after the window was closed, the backup
+  // screen says what each backup did by itself, what was missed and
+  // caught up, and what waits; Done puts it away.
+  await page.goto(`${base}/?byitself&away&fast`)
+  const away = page.locator('.away')
+  await away.getByRole('heading', { name: 'While you were away', level: 2 }).waitFor()
+  assert.deepEqual(await away.locator('h3').allInnerTexts(), ['Family photos', 'Holiday videos', 'Waiting for your say'])
+  assert.deepEqual(await away.locator('.away-runs .mark').allInnerTexts(), ['Done.', 'Done.', 'Couldn’t reach it.'])
+  await away.getByText('This caught up a run that was missed, perhaps because the computer was off or asleep.').waitFor()
+  await away.getByText(/^The run due today at 02:30 didn't happen/).waitFor()
+  await away.getByText(/^4 new pictures were set aside/).waitFor()
+  await shot('9x2a-while-you-were-away')
+  await fitsNarrow('While you were away')
+  await narrowShots('9x2a-while-you-were-away', away)
+  await away.getByRole('button', { name: 'Done' }).click()
+  await away.waitFor({ state: 'detached' })
+  await page.goto(`${base}/?byitself&fast`)
+  await page.getByRole('heading', { name: 'Where should they go?', level: 1 }).waitFor()
+  await settled()
+  assert.equal(await page.locator('.away').count(), 0, 'nothing to say, nothing shown')
+
+  // --- A run due that waits for a good moment says why, with Back up now
+  // anyway beside it; Settings says what it waits for, and the hours.
+  await page.goto(`${base}/?byitself&schedule&waiting&fast`)
+  const waitingCard = page.locator('.schedule-card')
+  await waitingCard.getByText('Waiting while this computer is on battery. The run due will start by itself once it can.').waitFor()
+  await waitingCard.scrollIntoViewIfNeeded()
+  await shot('9x2b-waiting-back-up-anyway')
+  await fitsNarrow('A run waiting for a good moment')
+  await narrowShots('9x2b-waiting-back-up-anyway', waitingCard)
+  await waitingCard.getByRole('button', { name: 'Back up now anyway' }).click()
+  await waitingCard.locator('.schedule-last li').first().getByText('Safely backed up 12 files (41.0 MB).').waitFor()
+  await waitingCard.getByText(/^Waiting while this computer is on battery/).waitFor({ state: 'detached' })
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Backing up by itself' }).click()
+  const waits = page.getByRole('group', { name: 'Waiting for a good moment' })
+  assert.equal(await waits.getByRole('switch', { name: 'Wait while on battery' }).getAttribute('aria-checked'), 'true')
+  assert.equal(await waits.getByRole('switch', { name: 'Wait on a metered connection' }).getAttribute('aria-checked'), 'true')
+  await waits.getByRole('switch', { name: 'Only between these hours' }).click()
+  await waits.getByText('A run that comes round by itself starts only between 22:00 and 07:00, in this computer’s own time.').waitFor()
+  await waits.locator('.between-times select').first().selectOption('23:00')
+  await waits.getByText(/starts only between 23:00 and 07:00/).waitFor()
+  await waits.scrollIntoViewIfNeeded()
+  await shot('9x4b-settings-waiting-for-a-good-moment')
+  await fitsNarrow('Settings, waiting for a good moment')
+  await narrowShots('9x4b-settings-waiting-for-a-good-moment', waits)
+  await waits.getByRole('switch', { name: 'Only between these hours' }).click()
+  await waits.getByText('A run that comes round by itself starts at any hour.').waitFor()
+
   // --- Keevoro by the clock. The first time the window is closed, it says
   // Keevoro keeps running, and where its icon is; starting with the
   // computer is never ticked for the person.
@@ -1345,6 +1577,24 @@ try {
   await shot('9x5-quit-asks-first')
   await quitAsked.getByRole('button', { name: 'Keep it running' }).click()
   await quitAsked.waitFor({ state: 'detached' })
+
+  // --- A drive can be backed up by itself whenever it is plugged in: off
+  // unless the person turns it on, its words beside its switch.
+  await page.goto(`${base}/?fast`)
+  await page.getByRole('button', { name: /^Find your photos/ }).click()
+  await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
+  const whenPluggedIn = page.getByRole('switch', { name: /^Back up .* when it is plugged in$/ })
+  assert.equal(await whenPluggedIn.getAttribute('aria-checked'), 'false', 'off unless asked')
+  await whenPluggedIn.click()
+  await page.getByText('A few seconds after it is plugged in, Keevoro backs it up by itself and tells you, while Keevoro is running.').waitFor()
+  assert.equal(await whenPluggedIn.getAttribute('aria-checked'), 'true')
+  assert.deepEqual(await centredOnSwitch(whenPluggedIn), [], 'its words beside the switch, with no box around them')
+  await page.locator('.kept li.source').first().scrollIntoViewIfNeeded()
+  await shot('3d-back-up-when-plugged-in')
+  await fitsNarrow('A source backed up when it is plugged in')
+  await narrowShots('3d-back-up-when-plugged-in', page.locator('.on-arrival'))
+  await whenPluggedIn.click()
+  await page.getByText('A few seconds after it is plugged in').waitFor({ state: 'detached' })
 
   // --- Looking again with a source's card in a drawer passes it over and
   // says so: what was found on it is kept.
@@ -2218,7 +2468,7 @@ try {
   await page.getByRole('heading', { name: /^Backing up to the folder/ }).waitFor()
   await page.getByText('How earlier backups went').click()
   await page.getByText('What is in the backup', { exact: true }).click()
-  await page.getByRole('button', { name: 'Clear unfinished copies…' }).click()
+  await moreChoice('Clear unfinished copies…')
   await page.getByRole('group', { name: /^Unfinished copies in/ }).waitFor()
   await fitsNarrow('Backing up')
   await page.setViewportSize({ width: 400, height: 800 })
@@ -2482,6 +2732,62 @@ try {
   await page.getByLabel('Search Settings').fill('feedback')
   assert.match(await page.getByRole('list', { name: 'Settings found' }).locator('li').first().innerText(), /^Report a problem or suggest an idea\s+Help$/)
   await page.getByLabel('Search Settings').fill('')
+
+  // --- On a work computer whose proxy Keevoro cannot use, Keevoro cannot
+  // reach the reports service, so the window sends the very same text
+  // itself, through the system's own network settings, and Keevoro keeps
+  // the reference as if it had sent it. It asks after reports the same way.
+  const WINDOW_TOKEN = '89abcdef0123456789abcdef0123456789abcdef'
+  reportsService = (request) =>
+    request.method() === 'POST'
+      ? { status: 201, answer: { ok: true, reference: 'K-2001', token: WINDOW_TOKEN } }
+      : { status: 200, answer: { ok: true, reference: 'K-2001', status: 'started' } }
+  await page.goto(`${base}/?fast&reportUnreachable&page=settings/help`)
+  await page.getByRole('button', { name: 'Report a problem or suggest an idea' }).click()
+  await page.getByLabel('What happened?').fill('Sending a report sat on Sending.')
+  await page.getByText('See exactly what will be sent').click()
+  await page.waitForFunction(() => document.querySelector('.report-preview pre')?.textContent.includes('Sending a report'))
+  const shownThroughWindow = await sentText()
+  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await page.getByText('Thank you. Your reference is K-2001.').waitFor()
+  const posted = reportsAsked.filter((r) => r.method === 'POST')
+  assert.equal(posted.length, 1)
+  assert.equal(posted[0].url, 'https://reports.keevoro.com/v1/reports')
+  assert.equal(posted[0].body, shownThroughWindow, 'exactly what was shown')
+  assert.equal(posted[0].cookie, undefined, 'nothing of the window’s own')
+  await page.waitForFunction(() => /K-2001/.test(document.querySelector('#setting-yourReports')?.textContent ?? ''))
+  await shot('13-report-sent-through-the-window')
+  // Asked after through the window too, next time the page opens.
+  await page.getByRole('button', { name: '‹ Back', exact: true }).click()
+  await page.getByRole('button', { name: 'Report a problem or idea' }).click()
+  await page.locator('#setting-yourReports li', { hasText: 'K-2001' }).getByText('Being worked on').waitFor()
+  assert.ok(
+    reportsAsked.some((r) => r.method === 'GET' && r.url === `https://reports.keevoro.com/v1/reports/K-2001?token=${WINDOW_TOKEN}`),
+    'asked after with its token',
+  )
+  // Keevoro said it couldn't check; once the window has, it no longer says so.
+  await page.getByText('Couldn’t check just now.').waitFor({ state: 'detached' })
+
+  // Neither way reaches it: the words stay, with why in plain words.
+  reportsService = null
+  const beforeOffline = problems.length
+  await page.goto(`${base}/?fast&reportUnreachable&page=settings/help`)
+  await page.getByRole('button', { name: 'Report a problem or suggest an idea' }).click()
+  await page.getByLabel('What happened?').fill('Sending a report sat on Sending.')
+  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  const unreached = page.getByRole('alert').filter({ hasText: 'Your report wasn’t sent.' })
+  await unreached.waitFor()
+  assert.match(await unreached.innerText(), /Couldn’t reach Keevoro’s reports service just now\. Check this computer is online, then try again\./)
+  assert.equal(
+    await unreached.locator('.report-why').innerText(),
+    'This computer’s network would not let Keevoro connect securely, as some work and school networks do.',
+  )
+  assert.equal(await page.getByLabel('What happened?').inputValue(), 'Sending a report sat on Sending.', 'their words are kept')
+  await page.getByRole('button', { name: 'Try again' }).waitFor()
+  await shot('13-report-unreachable')
+  await fitsNarrow('A report that could not be sent either way')
+  // The browser notes the address that did not answer; that was the point.
+  problems.splice(beforeOffline, problems.length - beforeOffline, ...problems.slice(beforeOffline).filter((p) => !/ERR_INTERNET_DISCONNECTED|Failed to load resource|reports\.keevoro\.com/.test(p)))
 
   assert.deepEqual(problems, [], 'the browser reported no errors')
   console.log(`UI test passed. Screenshots are in ${shots}`)

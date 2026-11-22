@@ -400,6 +400,35 @@ pub fn next_words(next: Timestamp, now: Timestamp, zone: &TimeZone) -> String {
     }
 }
 
+/// When something already happened, as a person says it: "Today at
+/// 02:31", "Yesterday at 02:31", "Tuesday at 02:31", "On 3 June at 02:31".
+pub fn when_words(then: Timestamp, now: Timestamp, zone: &TimeZone) -> String {
+    let (then, now) = (then.to_zoned(zone.clone()), now.to_zoned(zone.clone()));
+    let at = time_words(then.time());
+    match (now.date() - then.date()).get_days() {
+        0 => format!("Today at {at}"),
+        1 => format!("Yesterday at {at}"),
+        2..=6 => format!("{} at {at}", weekday_words(then.weekday())),
+        _ => format!(
+            "On {} {} at {at}",
+            then.day(),
+            MONTHS[usize::try_from(then.month() - 1).unwrap_or(0)]
+        ),
+    }
+}
+
+/// What a run that caught up says of what it caught up, for "While you
+/// were away".
+pub fn caught_up_words(missed: usize) -> Option<String> {
+    match missed {
+        0 => None,
+        1 => Some("This caught up a run that was missed, perhaps because the computer was off or asleep.".into()),
+        n => Some(format!(
+            "This caught up {n} runs that were missed, perhaps because the computer was off or asleep."
+        )),
+    }
+}
+
 const MONTHS: [&str; 12] = [
     "January",
     "February",

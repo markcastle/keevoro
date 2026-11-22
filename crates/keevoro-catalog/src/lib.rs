@@ -196,6 +196,12 @@ const MIGRATIONS: &[&str] = &[
     // what lets it carry on without reading again what it has proved.
     // Nothing recorded before was proved this way, so it starts empty.
     "ALTER TABLE uploaded ADD COLUMN proved_at INTEGER;",
+    // 16: when each file found last changed, in nanoseconds since 1970, as
+    // the folder listing said when it was found. Looking again quickly
+    // takes a file whose size and time are both unchanged as it was found,
+    // without opening it. Files found before this have none, so the next
+    // look reads them as ever, and fills it in.
+    "ALTER TABLE items ADD COLUMN modified INTEGER;",
 ];
 
 /// What a look at a destination found of a file Keevoro sent there.
@@ -472,7 +478,8 @@ impl Catalog {
 
     /// Records the result of scanning one source. Scanning the same place
     /// again replaces what was known about it; the user's keep choices are
-    /// untouched because they belong to the files, not the scan.
+    /// untouched because they belong to the files, not the scan. `name` is
+    /// for a place not yet a source: one already a source keeps its own.
     pub fn save_scan(&mut self, name: &str, report: &ScanReport, scanned_at: i64) -> Result<i64> {
         let tx = self.conn.transaction()?;
         let root = path_text(&report.root);
@@ -481,6 +488,10 @@ impl Catalog {
         // still at the same place with the same quick fingerprint has not
         // changed.
         let mut known: std::collections::HashMap<(String, String), String> = std::collections::HashMap::new();
+        // And the other way: a file taken as it was found by a quick look
+        // again comes with its whole fingerprint, and keeps the quick one
+        // it was known by beside it.
+        let mut quick_of: std::collections::HashMap<(String, String), String> = std::collections::HashMap::new();
         {
             let mut q = tx.prepare(
                 "SELECT i.path, i.quick, i.blake3 FROM items i JOIN sources s ON s.id = i.source_id
@@ -488,17 +499,21 @@ impl Catalog {
             )?;
             let mut rows = q.query([&root])?;
             while let Some(r) = rows.next()? {
-                known.insert((r.get(0)?, r.get(1)?), r.get(2)?);
+                let (path, quick, whole): (String, String, String) = (r.get(0)?, r.get(1)?, r.get(2)?);
+                quick_of.insert((path.clone(), whole.clone()), quick.clone());
+                known.insert((path, quick), whole);
             }
         }
-        // What kind of source it is, and where a bucket is, belong to the
-        // source, not to what was found, so they carry over.
-        let (kind, place): (String, Option<String>) = tx
-            .query_row("SELECT kind, place FROM sources WHERE root = ?1", [&root], |r| {
-                Ok((r.get(0)?, r.get(1)?))
+        // What it is called, what kind of source it is, and where a bucket
+        // is, belong to the source, not to what was found, so they carry
+        // over. A name the person gave is never swapped for one worked out
+        // again from its folder.
+        let (name, kind, place): (String, String, Option<String>) = tx
+            .query_row("SELECT name, kind, place FROM sources WHERE root = ?1", [&root], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
             })
             .optional()?
-            .unwrap_or_else(|| ("folder".to_string(), None));
+            .unwrap_or_else(|| (name.to_string(), "folder".to_string(), None));
         tx.execute("DELETE FROM sources WHERE root = ?1", [&root])?;
         tx.execute("DELETE FROM settings WHERE key = ?1", [online_only_key(&root)])?;
         if !report.online_only.is_empty() {
@@ -515,16 +530,23 @@ impl Catalog {
         {
             let mut insert = tx.prepare(
                 "INSERT INTO items (source_id, path, kind, mime, bytes, blake3, date, date_source,
-                                    album, folder_date, width, height, junk, hashed, quick)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+                                    album, folder_date, width, height, junk, hashed, quick, modified)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             )?;
             for i in &report.items {
                 let path = path_text(&i.path);
                 // A quick fingerprint is remembered beside the whole one, so
                 // the next search of this source can recognise the file.
-                let quick = if i.hashed { None } else { i.blake3.clone() };
+                let quick = if i.hashed {
+                    i.blake3
+                        .as_ref()
+                        .and_then(|whole| quick_of.get(&(path.clone(), whole.clone())).cloned())
+                } else {
+                    i.blake3.clone()
+                };
                 let whole = quick
                     .as_ref()
+                    .filter(|_| !i.hashed)
                     .and_then(|q| known.get(&(path.clone(), q.clone())).cloned());
                 let hashed = i.hashed || whole.is_some();
                 insert.execute(params![
@@ -543,6 +565,7 @@ impl Catalog {
                     i.junk.map(JunkReason::as_str),
                     hashed,
                     quick,
+                    i.modified,
                 ])?;
             }
             let mut skipped = tx.prepare("INSERT INTO skipped (source_id, path, reason) VALUES (?1, ?2, ?3)")?;
@@ -1200,6 +1223,7 @@ impl Catalog {
                     online_only_bytes: Vec::new(),
                     stopped: false,
                     gone: false,
+                    unchanged: 0,
                 })
             })
             .collect()
@@ -1214,7 +1238,7 @@ impl Catalog {
     fn items_of(&self, source: i64) -> Result<Vec<FoundItem>> {
         let mut q = self.conn.prepare(
             "SELECT path, kind, mime, bytes, blake3, date, date_source, album, folder_date, width, height, junk,
-                    hashed
+                    hashed, modified
              FROM items WHERE source_id = ?1 ORDER BY id",
         )?;
         let mut rows = q.query([source])?;
@@ -1253,9 +1277,26 @@ impl Catalog {
                     Some(j) => Some(JunkReason::parse(&j).ok_or_else(|| damaged(format!("junk reason {j}")))?),
                     None => None,
                 },
+                modified: r.get(13)?,
             });
         }
         Ok(items)
+    }
+
+    /// Every file the last look through the source at `root` found, exactly
+    /// as it was found (whatever has been chosen since), for looking again
+    /// quickly. Empty when there is no source there.
+    pub fn found_at(&self, root: &Path) -> Result<Vec<FoundItem>> {
+        let id: Option<i64> = self
+            .conn
+            .query_row("SELECT id FROM sources WHERE root = ?1", [path_text(root)], |r| {
+                r.get(0)
+            })
+            .optional()?;
+        match id {
+            Some(id) => self.items_of(id),
+            None => Ok(Vec::new()),
+        }
     }
 
     fn skipped_of(&self, source: i64) -> Result<Vec<SkippedFolder>> {

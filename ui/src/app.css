@@ -1504,7 +1504,8 @@ h3 + .small {
   filter: none;
 }
 
-.primary.big {
+.primary.big,
+.button.big {
   height: 48px;
   padding: 0 var(--space-5);
   font-size: 16px;
@@ -3481,7 +3482,8 @@ fieldset.wants {
     flex: 1 1 12em;
   }
 
-  .next .primary {
+  .next .primary,
+  .next .button {
     max-width: 100%;
   }
 
@@ -4995,7 +4997,104 @@ tr[aria-selected='true'] .share-bar .carried {
   color: var(--ink-muted);
 }
 
+/* Back up when this is plugged in, under a drive's source (ui/src/onArrival.tsx). */
+.on-arrival {
+  grid-column: 1 / -1;
+  margin-top: var(--space-2);
+}
+
+.kept li.source .on-arrival p {
+  margin: var(--space-1) 0 0;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+/* While you were away, at the top of the backup screen (ui/src/away.tsx). */
+.away {
+  margin: var(--space-5) 0;
+  padding: var(--space-4) var(--space-5);
+  max-width: 860px;
+  border-radius: var(--radius-md);
+  background: var(--surface-raised, var(--surface, transparent));
+  border: 1px solid var(--line);
+}
+
+.away h2 {
+  margin: 0 0 var(--space-3);
+  font-size: 1.15rem;
+}
+
+.away h3 {
+  margin: var(--space-3) 0 var(--space-1);
+  font-size: 1rem;
+}
+
+.away-runs {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.away-runs li {
+  display: grid;
+  grid-template-columns: minmax(9rem, auto) 1fr;
+  gap: var(--space-1) var(--space-4);
+  padding: var(--space-1) 0;
+}
+
+.away-runs .when {
+  color: var(--ink-muted);
+}
+
+.away-runs .said {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.away-runs .mark {
+  font-weight: 500;
+}
+
+.away-runs li.loud .mark,
+.away-runs li.loud .when {
+  color: var(--sun-ink);
+}
+
+.away-missed {
+  margin: var(--space-1) 0 0;
+}
+
+.away .away-done {
+  margin-top: var(--space-4);
+}
+
+@media (max-width: 600px) {
+  .away {
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .away-runs li {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Backing up by itself, on the backup screen (ui/src/schedule.tsx). */
+.schedule-card .schedule-waiting {
+  margin: var(--space-2) 0;
+}
+
+/* Only between these hours, in Settings (ui/src/settings/backingUp.tsx). */
+.between-times {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+}
+
+.between-times select {
+  margin-left: var(--space-1);
+}
+
 .schedule-card {
   margin: var(--space-5) 0;
   padding: var(--space-4) var(--space-5);
@@ -6046,5 +6145,92 @@ h3.kv-group-title {
 
   .compare-sheet .panel {
     padding: var(--space-4);
+  }
+}
+
+/* ---------- More: the choices wanted now and then ---------- */
+
+/* Its button is a quiet one, with a small mark that it opens a menu. */
+.button.more span {
+  font-size: 11px;
+  color: var(--ink-muted);
+}
+
+/* Fixed to the window beside its button, so nothing that scrolls or clips
+   what is inside it can cut it off. Placed by moreMenu.tsx. */
+.more-menu {
+  position: fixed;
+  z-index: 50;
+  display: grid;
+  gap: 2px;
+  min-width: 220px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  padding: var(--space-2);
+  background: var(--surface-raised);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+
+.more-menu [role='menuitem'] {
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.more-menu [role='menuitem']:hover,
+.more-menu [role='menuitem']:focus {
+  background: var(--surface-sunken);
+}
+
+.panel.send .tidying {
+  margin-top: var(--space-3);
+}
+
+/* In a narrow window the backup's few buttons share the rows evenly,
+   rather than each sitting at its own width. */
+@media (max-width: 560px) {
+  .panel.send .choices.actions {
+    gap: var(--space-3);
+  }
+
+  .panel.send .choices.actions > button {
+    flex: 1 1 40%;
+  }
+}
+
+/* "Look through all of …?": the choices on one row, Cancel a quiet link at
+   its end; in a narrow window the buttons stack, Cancel under them. */
+.panel.asking .choices.whole-disk {
+  max-width: none;
+  gap: var(--space-3) var(--space-4);
+}
+
+@media (max-width: 560px) {
+  .panel.asking .choices.whole-disk > button:not(.link) {
+    flex: 1 1 100%;
+  }
+}
+
+/* A suggested folder's description: what is in it, and any note on it,
+   together, before its buttons. */
+.panel.survey .hints .about {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  min-width: 0;
+}
+
+/* In a narrow window each suggestion reads the same way down: the folder,
+   its description, then its buttons on a row of their own. */
+@media (max-width: 560px) {
+  .panel.survey .hints .about {
+    flex: 1 1 100%;
   }
 }

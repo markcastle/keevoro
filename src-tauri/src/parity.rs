@@ -70,6 +70,10 @@ const BACKED: &[(&str, &[Op])] = &[
     ("send_report", &[Op::ReportsSend]),
     ("reports", &[Op::ReportsList]),
     ("refresh_reports", &[Op::ReportsRefresh]),
+    // When Keevoro cannot reach the reports service, the window does.
+    ("note_report", &[Op::ReportsNote]),
+    ("reports_asking", &[Op::ReportsAsking]),
+    ("reports_heard", &[Op::ReportsHeard]),
     ("acceleration", &[Op::KeevoroSettings]),
     ("set_acceleration", &[Op::KeevoroSettings]),
     // What an AI agent may do: for the person, never the agent.
@@ -113,6 +117,9 @@ const BACKED: &[(&str, &[Op])] = &[
     ("look_again", &[Op::SourcesLookAgain]),
     // Backing up by itself.
     ("schedule", &[Op::ScheduleShow]),
+    ("away", &[Op::ScheduleAway]),
+    ("source_on_arrival", &[Op::SourcesOnArrival]),
+    ("background_settings", &[Op::BackgroundSettings]),
     ("set_schedule", &[Op::ScheduleSet]),
     ("skip_next_run", &[Op::ScheduleSkipNext]),
     ("run_scheduled_now", &[Op::ScheduleRun]),
@@ -140,6 +147,9 @@ const WINDOW_ONLY: &[&str] = &[
     // The person is using the window, so a backup by itself waits until
     // they have finished. Only a window has a person in it.
     "window_used",
+    // The person has read "While you were away": when the window last
+    // showed it is the window's own to remember.
+    "away_seen",
     // Which backup the window shows. The API keeps the choice in the
     // settings file, but it is not an operation: the command line and an
     // agent name the backup they mean each time.

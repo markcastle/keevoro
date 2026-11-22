@@ -22,6 +22,7 @@ use std::path::Path;
 pub mod drives;
 #[cfg(target_os = "macos")]
 mod macos;
+pub mod network;
 #[cfg(windows)]
 mod photo_windows;
 pub mod quiet;

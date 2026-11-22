@@ -53,6 +53,15 @@ pub fn notice(name: &str, last: &SendEvent) -> Option<Notice> {
     Some(Notice { title, body })
 }
 
+/// What to tell the person when a source they asked to be backed up
+/// whenever it is plugged in has been, and its backup has started. Pure.
+pub fn plugged_in(source: &str, backup: &str) -> Notice {
+    Notice {
+        title: source.to_string(),
+        body: format!("Plugged in, so Keevoro is backing it up to \"{backup}\" now. It will say when it is done."),
+    }
+}
+
 /// The backups notices were about, by the notice's number, so a click
 /// opens the right one.
 #[derive(Default)]
@@ -119,6 +128,19 @@ pub fn listen<R: Runtime>(app: &AppHandle<R>) {
         }
         crate::window::show(&handle, Some("send"));
     });
+}
+
+#[cfg(test)]
+mod plugged_in_tests {
+    #[test]
+    fn a_source_plugged_in_is_said_by_its_name_with_the_backup_it_goes_to() {
+        let said = super::plugged_in("Mum's card", "Family photos");
+        assert_eq!(said.title, "Mum's card");
+        assert_eq!(
+            said.body,
+            "Plugged in, so Keevoro is backing it up to \"Family photos\" now. It will say when it is done."
+        );
+    }
 }
 
 #[cfg(test)]
