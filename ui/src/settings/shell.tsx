@@ -77,6 +77,8 @@ export function PlaceScreen(props: {
   onProblem: (error: unknown) => void
   /** The bars that can show on any page: an update ready, a problem. */
   banner: ReactNode
+  /** The foot of the side band, as on every other screen. */
+  foot?: ReactNode
   /** The screen the person was on, when they came here to report something. */
   reportFrom?: string | null
 }) {
@@ -336,6 +338,7 @@ export function PlaceScreen(props: {
               </ul>
             </nav>
           )}
+          {props.foot}
         </div>
 
         <div className="kv-page">

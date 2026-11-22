@@ -486,63 +486,8 @@ export function App() {
     if (going.step === 'send' && going.adding) setSendAsk({ adding: true })
   }
 
-  if (overlay === 'settings' || overlay === 'help') {
-    return (
-      <div className="app settings-open">
-        {asks}
-        <PlaceScreen
-          // Settings and Help are each arrived at afresh, focus and all.
-          key={overlay}
-          api={api}
-          state={state}
-          sendingTo={sendingTo ?? null}
-          update={update}
-          onUpdate={setUpdate}
-          onLibrary={(s) => {
-            setState(s)
-            void refresh(api)
-          }}
-          onArranged={setArranged}
-          onSend={() => go('send')}
-          onSources={() => go('find')}
-          onBackups={() => {
-            setBackupsFromSettings(true)
-            setOverlay('backups')
-          }}
-          onGo={goTo}
-          keptBytes={found?.bytes ?? 0}
-          onSetUp={
-            state.backup
-              ? (setUp) => {
-                  go('send')
-                  setSendAsk({ setUp })
-                }
-              : undefined
-          }
-          onReset={(s) => {
-            setOverlay(null)
-            setFound(null)
-            setSendingTo(null)
-            setJustFound(null)
-            setStep('find')
-            setState(s)
-          }}
-          place={placesAt[overlay]}
-          onPlace={(at) => {
-            setPlace(at)
-            // A search in one place can find something in the other.
-            if (at.where !== overlay) setOverlay(at.where)
-          }}
-          onBack={() => setOverlay(null)}
-          onProblem={report}
-          banner={banner}
-          reportFrom={reportFrom}
-        />
-      </div>
-    )
-  }
-
-  // The foot of the side band, the same on every screen: what Keevoro is
+  // The foot of the side band, the same on every screen, Settings and
+  // Help included: what Keevoro is
   // doing, with its line, then Settings, then Help.
   const foot = (
     <div className="foot">
@@ -597,6 +542,63 @@ export function App() {
       </button>
     </div>
   )
+
+  if (overlay === 'settings' || overlay === 'help') {
+    return (
+      <div className="app settings-open">
+        {asks}
+        <PlaceScreen
+          // Settings and Help are each arrived at afresh, focus and all.
+          key={overlay}
+          api={api}
+          state={state}
+          sendingTo={sendingTo ?? null}
+          update={update}
+          onUpdate={setUpdate}
+          onLibrary={(s) => {
+            setState(s)
+            void refresh(api)
+          }}
+          onArranged={setArranged}
+          onSend={() => go('send')}
+          onSources={() => go('find')}
+          onBackups={() => {
+            setBackupsFromSettings(true)
+            setOverlay('backups')
+          }}
+          onGo={goTo}
+          keptBytes={found?.bytes ?? 0}
+          onSetUp={
+            state.backup
+              ? (setUp) => {
+                  go('send')
+                  setSendAsk({ setUp })
+                }
+              : undefined
+          }
+          onReset={(s) => {
+            setOverlay(null)
+            setFound(null)
+            setSendingTo(null)
+            setJustFound(null)
+            setStep('find')
+            setState(s)
+          }}
+          place={placesAt[overlay]}
+          onPlace={(at) => {
+            setPlace(at)
+            // A search in one place can find something in the other.
+            if (at.where !== overlay) setOverlay(at.where)
+          }}
+          onBack={() => setOverlay(null)}
+          onProblem={report}
+          banner={banner}
+          foot={foot}
+          reportFrom={reportFrom}
+        />
+      </div>
+    )
+  }
 
   const activity = (
     <ActivityScreen

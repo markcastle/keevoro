@@ -187,15 +187,15 @@ const narrowShots = async (name, part) => {
 // place: what Keevoro is doing (with its line), then Settings, then Help,
 // and nothing else. In a narrow window the band is a strip across the top,
 // with the foot in it all the same.
-const footHere = async (where) => {
-  const foot = page.locator('.sidebar .foot')
+const footHere = async (where, band = '.sidebar') => {
+  const foot = page.locator(`${band} .foot`)
   assert.equal(await foot.count(), 1, `${where}: the side band has its foot`)
   assert.ok(await foot.isVisible(), `${where}: the foot can be seen`)
   const links = await foot.locator(':scope > button.link').evaluateAll((all) => all.map((b) => b.firstChild?.textContent?.trim()))
   assert.deepEqual(links, ['What Keevoro is doing', 'Settings', 'Help'], `${where}: the foot holds what Keevoro is doing, Settings and Help`)
-  const band = await page.locator('.sidebar').boundingBox()
+  const side = await page.locator(band).boundingBox()
   const box = await foot.boundingBox()
-  assert.ok(band && box && box.x >= band.x && box.x + box.width <= band.x + band.width + 1, `${where}: the foot is inside the side band`)
+  assert.ok(side && box && box.x >= side.x && box.x + box.width <= side.x + side.width + 1, `${where}: the foot is inside the side band`)
 }
 // The backup screen's choices wanted now and then wait behind More, a menu
 // beside the few buttons used most. Chooses one of them, as a person would.
@@ -867,6 +867,8 @@ try {
   assert.match(await page.locator('#setting-howNewComputer').innerText(), /Install Keevoro on the new computer and choose Manage backups, then “Open a backup that is already somewhere”\./)
   assert.equal(await page.locator('#setting-howNewComputer').getByRole('button').innerText(), 'Open a backup that is already somewhere')
   assert.equal(await page.locator('.kv-page .primary').count(), 0, 'no filled button among the answers')
+  // Help keeps the same foot as every other screen.
+  await footHere('Help', '.kv-side')
   await shot('9q-help')
   await narrowShots('9q-help', page.locator('.kv-side'))
   const helpSection = async (name) => {
@@ -990,6 +992,8 @@ try {
   assert.equal(await sections.getByRole('button', { name: 'This backup' }).getAttribute('aria-current'), 'page', 'it opens on the first section')
   await page.getByRole('heading', { name: 'This backup', level: 2 }).waitFor()
   assert.equal(await page.locator('.steps').count(), 0, 'the list of sections takes the side bar’s place, never beside it')
+  // So does Settings.
+  await footHere('Settings', '.kv-side')
   await shot('9e-settings')
   // Up and down move through the sections, and the page follows.
   await sections.getByRole('button', { name: 'This backup' }).focus()

@@ -15,6 +15,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 - **"Put back the built-in list" is now "Undo my changes…", and says what it will do first.** It appears only when you have changed something. Pressing it lists exactly what will be undone (the kinds you added that will be taken off, the kinds you switched off that will be switched back on, and so on), says that nothing already found or backed up is touched, and waits for "Undo my changes" or "Cancel". Afterwards "Put my changes back" brings them all back while the page is open.
 - **Searches ask less of each file.** Deciding whether a file is a photo or video by its ending now takes one quick look however long the list is, so a search of a big drive is a little quicker than before even with more than twice the kinds.
+- **Settings and Help keep the foot of the side band too.** "What Keevoro is doing", Settings and Help are now at the bottom of the side on every screen, with no exceptions.
 - **Two more buttons say what they do.** "Put back" beside a folder you left out is now "Include again", and beside a backup you removed it is "Bring it back".
 
 ### Fixed
