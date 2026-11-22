@@ -18,7 +18,9 @@ use keevoro_storage::{
     ObjectKey, ObjectStore, PartReceipt, PutOptions, PutReceipt, Step, StorageError, UploadId,
 };
 
+mod aside;
 mod files;
+pub use aside::{note_words, set_aside, set_aside_folder};
 pub use files::{Files, RealFiles, Written};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -1085,11 +1087,18 @@ mod tests {
         let started = std::time::Instant::now();
         for (i, (p, hash)) in sources.iter().enumerate() {
             let key = ObjectKey::new(format!("originals/{i}.jpg")).unwrap();
-            let opts = PutOptions { create_only: true, expect_blake3: Some(hash.clone()), ..Default::default() };
+            let opts = PutOptions {
+                create_only: true,
+                expect_blake3: Some(hash.clone()),
+                ..Default::default()
+            };
             store.put(&key, ByteSource::File(p.clone()), &opts).await.unwrap();
         }
         let took = started.elapsed();
-        println!("200 photos of 3 MB: {took:?}, {:.0} MB a second", 600.0 / took.as_secs_f64());
+        println!(
+            "200 photos of 3 MB: {took:?}, {:.0} MB a second",
+            600.0 / took.as_secs_f64()
+        );
     }
 
     #[tokio::test]

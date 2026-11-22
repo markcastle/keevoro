@@ -189,6 +189,13 @@ const MIGRATIONS: &[&str] = &[
     // JSON with nothing secret in it (the keys are in the keychain).
     "ALTER TABLE sources ADD COLUMN kind TEXT NOT NULL DEFAULT 'folder';
      ALTER TABLE sources ADD COLUMN place TEXT;",
+    // 15: when each copy at a destination was last read back in full and
+    // found to match its original, in seconds since 1970. Putting a backup
+    // right reads every copy back, which over a network share takes hours
+    // and may be stopped or cut short by the share dropping out; this is
+    // what lets it carry on without reading again what it has proved.
+    // Nothing recorded before was proved this way, so it starts empty.
+    "ALTER TABLE uploaded ADD COLUMN proved_at INTEGER;",
 ];
 
 /// What a look at a destination found of a file Keevoro sent there.
@@ -1693,6 +1700,30 @@ impl Catalog {
         }
         tx.commit()?;
         Ok(())
+    }
+
+    /// Notes that each of `keys` at `target` was read back in full at `at`
+    /// (seconds since 1970) and matched its original, and so is there.
+    pub fn set_proved(&self, target: &str, keys: &[String], at: i64) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        {
+            let mut q = tx.prepare("UPDATE uploaded SET proved_at = ?3, gone = 0 WHERE target = ?1 AND key = ?2")?;
+            for key in keys {
+                q.execute(params![target, key, at])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// The files at `target` read back in full and proved at or after
+    /// `since` (seconds since 1970).
+    pub fn proved_since(&self, target: &str, since: i64) -> Result<std::collections::HashSet<String>> {
+        let mut q = self
+            .conn
+            .prepare("SELECT key FROM uploaded WHERE target = ?1 AND proved_at >= ?2")?;
+        let rows = q.query_map(params![target, since], |r| r.get::<_, String>(0))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     /// Forgets what was uploaded to a target, so everything is checked

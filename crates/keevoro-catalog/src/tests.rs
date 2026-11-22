@@ -879,7 +879,8 @@ fn raw_files_wrongly_set_aside_by_an_earlier_version_are_put_back() {
         c.conn
             .execute_batch(
                 "ALTER TABLE uploaded DROP COLUMN gone; DROP TABLE online_only;
-                 ALTER TABLE sources DROP COLUMN kind; ALTER TABLE sources DROP COLUMN place;",
+                 ALTER TABLE sources DROP COLUMN kind; ALTER TABLE sources DROP COLUMN place;
+                 ALTER TABLE uploaded DROP COLUMN proved_at;",
             )
             .unwrap();
         c.conn.pragma_update(None, "user_version", 6).unwrap();
@@ -1270,4 +1271,29 @@ fn a_path_moved_under_a_new_place_keeps_the_separators_it_was_written_with() {
         "/media/card2/a.jpg",
         "a neighbour with a like name is not under it"
     );
+}
+
+#[test]
+fn a_copy_proved_by_reading_it_back_is_written_down_and_sending_it_again_forgets_that() {
+    let c = Catalog::in_memory().unwrap();
+    c.mark_uploaded("t", "originals/a.jpg", 10).unwrap();
+    c.mark_uploaded("t", "originals/b.jpg", 10).unwrap();
+    c.set_seen("t", &[("originals/a.jpg".to_string(), Seen::NotAsSent)])
+        .unwrap();
+    assert!(c.proved_since("t", 0).unwrap().is_empty());
+    c.set_proved("t", &["originals/a.jpg".to_string()], 100).unwrap();
+    // Proved is there, whatever a look said before.
+    assert!(c.is_uploaded("t", "originals/a.jpg").unwrap());
+    assert_eq!(c.proved_since("t", 100).unwrap().len(), 1);
+    assert!(
+        c.proved_since("t", 101).unwrap().is_empty(),
+        "only from when it was asked"
+    );
+    assert!(
+        c.proved_since("other", 0).unwrap().is_empty(),
+        "only at that destination"
+    );
+    // A copy sent again has not been proved by this.
+    c.mark_uploaded("t", "originals/a.jpg", 10).unwrap();
+    assert!(c.proved_since("t", 0).unwrap().is_empty());
 }

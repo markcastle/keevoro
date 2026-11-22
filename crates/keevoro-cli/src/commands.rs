@@ -858,6 +858,24 @@ pub static ROWS: &[Row] = &[
         show: show::nothing_more,
     },
     Row {
+        words: &["repair"],
+        ops: &[Op::BackupPutRight],
+        about: Some(
+            "Puts this backup right, as the app's \"Put this backup right\" does: reads back every file at each destination, moves any damaged copy aside there into \"Set aside by Keevoro\" (never deleting anything), sends those and any missing again, and proves each. Over a network share this can take hours; it can be stopped and run again, and carries on from where it was. With --quick, only what a look or a check already found wrong is put right. To see what it would do first: keevoro repair plan.",
+        ),
+        args: |c| c.arg(flag("quick", "Only put right what Keevoro already knows is wrong, which takes minutes")),
+        ask: |_, m, _| Ok((Op::BackupPutRight, json!({ "thorough": !m.get_flag("quick") }))),
+        show: show::nothing_more,
+    },
+    Row {
+        words: &["repair", "plan"],
+        ops: &[Op::BackupPutRightPlan],
+        about: None,
+        args: none,
+        ask: |c, m, io| nothing(c, m, io, Op::BackupPutRightPlan),
+        show: show::put_right_plan,
+    },
+    Row {
         words: &["schedule"],
         ops: &[Op::ScheduleShow],
         about: None,

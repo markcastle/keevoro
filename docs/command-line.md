@@ -188,6 +188,28 @@ keevoro check
 Your backup: all 359 originals are there.
 ```
 
+### Put it right
+
+If a check or a backup finds files missing, short or not the same as they were sent (a network share that dropped out part-way can leave them so), Keevoro puts it right itself. First see what it would do and about how long:
+
+```sh
+keevoro repair plan
+```
+
+```text
+First, Keevoro puts right the 79 files it already knows are wrong at the folder Y:\personal, which should take about 5 minutes.
+Then it reads back in full each of the 72,024 files you are keeping there and compares it with its original: 480.9 GB, which should take about 16 hours over this connection. It works in the background, so you can use the rest of Keevoro meanwhile, and you can stop it and carry on later.
+Any copy that is short, the wrong size or not the same as its original is moved aside there, into a folder called "Set aside by Keevoro", with a note saying what it is. Nothing is deleted or replaced. Then the original is sent again and its new copy read back.
+```
+
+Then:
+
+```sh
+keevoro repair
+```
+
+It reads every copy back in full, moves any damaged one aside into `Set aside by Keevoro/<date>/` at the destination (keeping the folders it was in, with a note; nothing is ever deleted or replaced), sends those and anything missing again, proves each new copy, and ends by saying that everything is there and proved, or exactly which files are not and why. Stopped, or cut short by the share dropping out, it carries on from where it was the next time, without reading again what it proved. `keevoro repair --quick` puts right only what is already known to be wrong, in minutes. In cloud storage nothing is moved aside, since that would mean copying and deleting: a damaged copy is said, with what you can do. An AI agent cannot run it.
+
 `keevoro history` lists how earlier backups went, numbered from the newest, and `keevoro history 1` shows everything recorded about one of them: each stage with how long it took and how fast it went, what each destination was sent, already had or could not be sent and why, the previews, and what it said at the end. `keevoro last-backup` repeats what the last one said.
 
 ## Running in the background
@@ -411,6 +433,8 @@ A collection is named by its whole name, such as "Holidays / Cornwall", or by it
 | `keevoro schedule skip [--undo]` | Skips the next run by itself, or stops skipping it. |
 | `keevoro run --unattended [--if-due] [--wait MINUTES]` | Backs up by itself, as a schedule does, for a system scheduler: waits while the computer is on battery or busy, looks through the sources again, holds back what needs your say, and sends what is new. See [For a system scheduler](#for-a-system-scheduler). |
 | `keevoro check` | Confirms what is at each destination. |
+| `keevoro repair plan` | What putting the backup right would do at each destination, and about how long it would take. Changes nothing. |
+| `keevoro repair [--quick]` | Puts the backup right: reads every copy back in full, moves damaged ones aside without deleting anything, sends them and anything missing again, and proves each. `--quick` does only what is already known to be wrong. See [Put it right](#put-it-right). |
 | `keevoro history` | How earlier backups went: when, where, how much, how long, numbered from the newest. |
 | `keevoro history N` | Everything recorded about one of them, by its number. |
 | `keevoro last-backup` | What the last backup said when it ended. |
@@ -418,7 +442,7 @@ A collection is named by its whole name, such as "Holidays / Cornwall", or by it
 | `keevoro wants [KINDS]` | What the backup is for: one or more of `photos`, `videos` and `others` (other files, once a kind of them is on the list), as words of their own or with commas. It counts at once on what was found; nothing already backed up is touched. |
 | `keevoro previews [on or off]` | Whether the backup also makes previews for a gallery, or sends the originals alone. |
 
-`look`, `survey`, `run` and `check` each take `--detach`.
+`look`, `survey`, `run`, `check` and `repair` each take `--detach`.
 
 ### Jobs
 

@@ -35,11 +35,11 @@ use std::sync::atomic::Ordering;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// A kept file, its place, and the previews made of it.
-struct Kept<'a> {
-    item: &'a FoundItem,
-    hash: &'a str,
+pub(crate) struct Kept<'a> {
+    pub(crate) item: &'a FoundItem,
+    pub(crate) hash: &'a str,
     /// The original's place in a backup, which is also its storage key.
-    path: String,
+    pub(crate) path: String,
     preview: Option<RenditionState>,
     video: Option<VideoState>,
 }
@@ -839,7 +839,7 @@ pub type Stop = std::sync::Arc<std::sync::atomic::AtomicBool>;
 
 /// Everything being kept that has a place agreed for it, as the catalog
 /// stands at this moment.
-fn kept_now<'a>(catalog: &Catalog, reports: &'a [keevoro_scan::ScanReport]) -> Result<Vec<Kept<'a>>> {
+pub(crate) fn kept_now<'a>(catalog: &Catalog, reports: &'a [keevoro_scan::ScanReport]) -> Result<Vec<Kept<'a>>> {
     let (unique, _) = summary::unique_items(reports);
     let mut kept = Vec::new();
     for item in unique {
@@ -1249,7 +1249,12 @@ pub fn check(
 
 /// What one pass sends: the originals, or the previews. They are never
 /// sent together, so no preview can hold up an original.
-fn uploads_for(home: &Path, kept: &[Kept<'_>], sending: Kind, buckets: &crate::bucket::Buckets) -> Result<Vec<Upload>> {
+pub(crate) fn uploads_for(
+    home: &Path,
+    kept: &[Kept<'_>],
+    sending: Kind,
+    buckets: &crate::bucket::Buckets,
+) -> Result<Vec<Upload>> {
     let local = |relative: &str| relative.split('/').fold(home.to_path_buf(), |p, s| p.join(s));
     let mut uploads = Vec::new();
     if sending == Kind::SendingPreviews {

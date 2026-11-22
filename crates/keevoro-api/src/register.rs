@@ -225,6 +225,12 @@ register! {
     BackupCheck = "backup.check",
         "Confirms what is at each destination",
         changes: Never, job: true, command_line: true, agents: Agents::Yes, implemented: true;
+    BackupPutRight = "backup.put_right",
+        "Puts a backup right: proves every copy, moves damaged ones aside, sends them again",
+        changes: Always, job: true, command_line: true, agents: Agents::No, implemented: true;
+    BackupPutRightPlan = "backup.put_right_plan",
+        "What putting a backup right would do, and about how long it would take. Changes nothing",
+        changes: Never, job: false, command_line: true, agents: Agents::No, implemented: true;
     BackupHistory = "backup.history",
         "How earlier backups went, each in full: stages, speeds, files sent and not, previews",
         changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
@@ -452,6 +458,7 @@ impl Op {
             Op::KeevoroSettings => schema::<SettingsRequest>(),
             Op::AgentsAccess => schema::<Agents>(),
             Op::BackupHistory => schema::<HistoryRequest>(),
+            Op::BackupPutRight => schema::<crate::PutRightRequest>(),
             Op::ScheduleRun => schema::<crate::RunByItselfRequest>(),
             Op::ScheduleSet => schema::<crate::schedule::SetScheduleRequest>(),
             Op::ScheduleSkipNext => schema::<crate::schedule::SkipNextRequest>(),
@@ -476,6 +483,7 @@ impl Op {
             | Op::BackupRehearse
             | Op::BackupRun
             | Op::BackupCheck
+            | Op::BackupPutRightPlan
             | Op::ScheduleShow
             | Op::BackupLastSummary
             | Op::DuplicatesCheck
@@ -796,6 +804,8 @@ impl Op {
                  nobody watching, so only the person sets one up. Changes nothing.",
             ),
             Op::DuplicatesCheck
+            | Op::BackupPutRight
+            | Op::BackupPutRightPlan
             | Op::ScheduleRun
             | Op::ScheduleSet
             | Op::ScheduleSkipNext
@@ -863,7 +873,7 @@ mod tests {
 
     #[test]
     fn the_register_has_every_operation_in_the_plan() {
-        assert_eq!(Op::ALL.len(), 66);
+        assert_eq!(Op::ALL.len(), 68);
         // Each entry is the one for its own operation.
         for op in Op::ALL {
             assert_eq!(op.entry().op, *op);
@@ -928,6 +938,10 @@ mod tests {
             Op::BackupsPutBack,
             Op::BackupsClearAway,
             Op::DuplicatesCheck,
+            // Putting a backup right moves damaged copies aside at a
+            // destination: the person's say, not an agent's.
+            Op::BackupPutRight,
+            Op::BackupPutRightPlan,
             Op::KeevoroSettings,
             Op::KeevoroUpdate,
             Op::KeevoroReset,
@@ -985,6 +999,7 @@ mod tests {
             "backup.run",
             "schedule.run",
             "backup.check",
+            "backup.put_right",
             "duplicates.check",
         ]
         .into();

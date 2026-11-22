@@ -411,9 +411,10 @@ impl Walk<'_> {
         // What Keevoro made is never a source. Looked at closely only when
         // one of the names it leaves is there, so a survey stays quick.
         if !p.passed_by {
-            let telltale = entries
-                .iter()
-                .any(|e| e.file_name() == ".keevoro" || e.file_name() == keevoro_core::BACKUP_GUIDE);
+            let telltale = entries.iter().any(|e| {
+                let name = e.file_name();
+                name == ".keevoro" || name == keevoro_core::BACKUP_GUIDE || name == keevoro_core::SET_ASIDE_NOTE
+            });
             if let Some(reason) = telltale
                 .then(|| keevoro_core::folder_made_by_keevoro(&p.folder))
                 .flatten()

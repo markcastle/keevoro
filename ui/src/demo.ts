@@ -353,6 +353,8 @@ export function demoBackend(): Backend {
     there: number
     /** Files a look found gone from it, until a backup sends them again. */
     gone?: number
+    /** Files a look found there at another size than they were sent at. */
+    notAsSent?: number
     /** The last look could not reach it. */
     outOfReach?: boolean
     /** The last look found its folder on another disk and empty: the drive left it behind. */
@@ -370,6 +372,9 @@ export function demoBackend(): Backend {
   }
   byHand.keevoroEmptyTheFolder = () => (emptyOnLook = true)
   byHand.keevoroUnplugTheFolder = () => (unplugOnLook = true)
+  // As the owner's network share was left: some files gone, some cut short.
+  let damageOnLook = false
+  ;(window as unknown as { keevoroDamageTheShare: () => void }).keevoroDamageTheShare = () => (damageOnLook = true)
   // On a Mac or Linux an unplugged drive can leave the folder it was
   // mounted on behind, empty, on the computer's own disk.
   byHand.keevoroUnplugLeavingTheFolder = () => (leaveEmptyOnLook = true)
@@ -405,19 +410,22 @@ export function demoBackend(): Backend {
       }
     }
     const gone = d.gone ?? 0
+    const notAsSent = d.notAsSent ?? 0
     const name = d.name.charAt(0).toUpperCase() + d.name.slice(1)
-    return {
-      at: now,
-      lastReached: now,
-      fresh: true,
-      reached: true,
-      gone,
-      notAsSent: 0,
-      said:
-        gone > 0
-          ? [`${name} looks emptied or replaced: it no longer holds any of the ${gone.toLocaleString('en-GB')} files Keevoro backed up there. They will be sent again.`]
-          : [],
+    const sent = d.there + gone + notAsSent
+    const n = (x: number) => x.toLocaleString('en-GB')
+    const said: string[] = []
+    if (gone > 0 && d.there === 0 && notAsSent === 0) {
+      said.push(`${name} looks emptied or replaced: it no longer holds any of the ${n(gone)} files Keevoro backed up there. They will be sent again.`)
+    } else if (gone > 0) {
+      said.push(`${name} no longer holds ${n(gone)} of the ${n(sent)} files Keevoro backed up there. ${gone === 1 ? 'It' : 'They'} will be sent again.`)
     }
+    if (notAsSent > 0) {
+      said.push(
+        `${name} has ${n(notAsSent)} files under the names Keevoro gave them, but not the sizes they were backed up at, so they are not counted as safe. Keevoro never replaces a file in a backup: "Put this backup right" moves those copies aside there, into a folder of their own, then sends them again and proves each one.`,
+      )
+    }
+    return { at: now, lastReached: now, fresh: true, reached: true, gone, notAsSent, said }
   }
   let dests: Place[] = []
   let sendingTo: string | null = null
@@ -1339,6 +1347,19 @@ export function demoBackend(): Backend {
         collections.forEach((c) => (c.gathered = 0))
         otherSent.clear()
       }
+      if (first && first.there > 5 && damageOnLook) {
+        damageOnLook = false
+        first.gone = 2
+        first.notAsSent = 3
+        first.there -= 5
+        sentSoFar -= 5
+        let left = 5
+        for (const c of collections) {
+          const take = Math.min(left, c.gathered)
+          c.gathered -= take
+          left -= take
+        }
+      }
       if (first && first.there > 0 && unplugOnLook) {
         unplugOnLook = false
         first.outOfReach = true
@@ -1891,8 +1912,68 @@ export function demoBackend(): Backend {
                 ? `Safely backed up ${fresh.toLocaleString('en-GB')} files.`
                 : `${total.toLocaleString('en-GB')} files already there.`,
               ...(restored > 0 ? [`Restored ${restored.toLocaleString('en-GB')} files that had gone from there.`] : []),
+              `All ${total.toLocaleString('en-GB')} files you are keeping are safely at ${to}.`,
               ...(fresh > 0 ? [`Previews added: ${(fresh * 2).toLocaleString('en-GB')} files.`] : []),
               ...(fresh > 0 ? ['That took about 2 minutes: 1.2 GB at an average of 12.8 MB a second.'] : []),
+            ],
+          }),
+        )
+      })()
+    },
+    putRightPlan: async () => {
+      const first = dests[0]
+      const known = (first?.gone ?? 0) + (first?.notAsSent ?? 0)
+      const files = sentSoFar + known
+      const bytes = files * 3.2 * MB
+      const place = {
+        to: first?.name ?? '',
+        known,
+        knownBytes: known * 3.2 * MB,
+        files,
+        bytes,
+        provedAlready: 0,
+        quickSeconds: 120,
+        thoroughSeconds: 4 * 3600,
+        setsAside: first?.kind === 'folder',
+        said: [
+          `First, Keevoro puts right the ${known} files it already knows are wrong at ${first?.name}, which should take about 5 minutes.`,
+          `Then it reads back in full each of the ${files.toLocaleString('en-GB')} files you are keeping there and compares it with its original: ${(bytes / GB).toFixed(1)} GB, which should take about 4 hours over this connection. It works in the background, so you can use the rest of Keevoro meanwhile, and you can stop it and carry on later.`,
+          'Any copy that is short, the wrong size or not the same as its original is moved aside there, into a folder called "Set aside by Keevoro", with a note saying what it is. Nothing is deleted or replaced. Then the original is sent again and its new copy read back.',
+        ],
+      }
+      return { places: [place], known, quickSeconds: 120, thoroughSeconds: 4 * 3600, quickSaid: 'about 5 minutes', thoroughSaid: 'about 4 hours' }
+    },
+    async putRight(thorough) {
+      void (async () => {
+        const first = dests[0]
+        if (!first) return
+        const moved = first.notAsSent ?? 0
+        const sentAgain = moved + (first.gone ?? 0)
+        const total = sentSoFar + sentAgain
+        for (let step = 1; step <= 4; step++) {
+          await later(150 * pace)
+          sendListeners.forEach((l) =>
+            l({ line: `Reading back and checking ${Math.round((total * step) / 4).toLocaleString('en-GB')} of ${total.toLocaleString('en-GB')}`, finished: false }),
+          )
+        }
+        first.there += sentAgain
+        first.gone = 0
+        first.notAsSent = 0
+        sentSoFar = total
+        collections.filter((c) => c.kept).forEach((c) => (c.gathered = c.photos + c.videos))
+        const n = total.toLocaleString('en-GB')
+        sendListeners.forEach((l) =>
+          l({
+            finished: true,
+            outcome: 'worked',
+            summary: [
+              ...(moved > 0
+                ? [`Moved ${moved} damaged copies aside into "Set aside by Keevoro/2026-11-22" at ${first.name}, with a note saying what they are. Nothing was deleted; you can delete that folder once you are happy.`]
+                : []),
+              ...(sentAgain > 0 ? [`Sent ${sentAgain} files again, and read each one back: they match.`] : []),
+              thorough
+                ? `Your backup at ${first.name} is right: all ${n} files you are keeping are there, and every one was read back in full and matches its original.`
+                : `All ${n} files you are keeping are at ${first.name}: ${sentAgain} read back in full and they match, and ${(total - sentAgain).toLocaleString('en-GB')} were the right size when Keevoro last looked.`,
             ],
           }),
         )

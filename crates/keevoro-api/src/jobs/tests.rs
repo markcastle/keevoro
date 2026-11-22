@@ -2858,3 +2858,58 @@ fn walk_files(folder: &Path) -> Vec<PathBuf> {
     }
     found
 }
+
+#[test]
+fn what_check_they_all_arrived_finds_wrong_one_press_puts_right_and_the_screen_agrees() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro(dir.path());
+    let (named, _card, usb) = card_going_to_usb(dir.path(), &keevoro);
+    run_to_its_end(&keevoro, &named);
+    let all = there(&named);
+    let mut originals = Vec::new();
+    let mut stack = vec![usb.join("originals")];
+    while let Some(at) = stack.pop() {
+        for entry in std::fs::read_dir(at).unwrap().filter_map(|e| e.ok()) {
+            if entry.path().is_dir() {
+                stack.push(entry.path());
+            } else {
+                originals.push(entry.path());
+            }
+        }
+    }
+    originals.sort();
+    let good = std::fs::read(&originals[0]).unwrap();
+    std::fs::write(&originals[0], &good[..good.len() / 2]).unwrap();
+    let check = keevoro.check_backup(&named, None).unwrap();
+    keevoro.wait(check.id);
+    keevoro.wait_for_jobs();
+    assert_eq!(there(&named), all - 1);
+
+    // The plan is said first and changes nothing.
+    let plan = call(&keevoro, Op::BackupPutRightPlan, Some(&named.name), Value::Null).unwrap();
+    assert_eq!(plan["known"], 1, "{plan}");
+    assert_eq!(there(&named), all - 1);
+
+    // One press, as the person's: a check to every other program.
+    let job = call(&keevoro, Op::BackupPutRight, Some(&named.name), json!({})).unwrap();
+    assert_eq!(job["job"], "check");
+    assert_eq!(job["op"], "backup.put_right");
+    let Some(Said::Send(done)) = keevoro.wait(serde_json::from_value(job["id"].clone()).unwrap()) else {
+        panic!("it says how it ended")
+    };
+    keevoro.wait_for_jobs();
+    assert_eq!(done.outcome, Some(Outcome::Worked), "{done:?}");
+    assert!(
+        done.summary
+            .iter()
+            .any(|l| l.contains("is right: all") && l.contains("read back in full")),
+        "{:?}",
+        done.summary
+    );
+    assert_eq!(std::fs::read(&originals[0]).unwrap(), good, "a good copy in its place");
+    assert_eq!(there(&named), all);
+    assert!(usb.join(keevoro_core::SET_ASIDE_FOLDER).is_dir());
+    // An agent may not do it.
+    assert!(crate::call_for_agent(&keevoro, Op::BackupPutRight, None, json!({})).is_err());
+}

@@ -25,6 +25,7 @@ pub mod history;
 pub mod layout;
 pub mod look;
 pub mod preview;
+pub mod put_right;
 pub mod reach;
 pub mod room;
 pub mod send;

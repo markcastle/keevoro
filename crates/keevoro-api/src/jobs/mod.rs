@@ -47,6 +47,7 @@ mod by_itself;
 mod duplicates;
 mod looking;
 pub mod own;
+mod putting_right;
 pub mod said;
 mod surveying;
 #[cfg(test)]
@@ -589,7 +590,20 @@ impl Jobs {
     /// Registers a new job, unless another already holds the slot it needs
     /// on that backup, here or in another program.
     fn begin(self: &Arc<Self>, kind: JobKind, backup: Option<&Named>, listener: Option<Listener>) -> Result<Arc<Job>> {
-        self.begin_unless(kind, backup, listener, false, None)
+        self.begin_unless(kind, backup, listener, false, None, None)
+    }
+
+    /// As [`Jobs::begin`], for a job of `kind` that `op` starts: putting a
+    /// backup right is a check, to every other program, started by its own
+    /// operation.
+    fn begin_as(
+        self: &Arc<Self>,
+        kind: JobKind,
+        op: Op,
+        backup: &Named,
+        listener: Option<Listener>,
+    ) -> Result<Arc<Job>> {
+        self.begin_unless(kind, Some(backup), listener, false, None, Some(op))
     }
 
     /// Registers a backup that runs by itself, which looks through the
@@ -600,7 +614,7 @@ impl Jobs {
         occasion: keevoro_core::unattended::Occasion,
         listener: Option<Listener>,
     ) -> Result<Arc<Job>> {
-        self.begin_unless(JobKind::BackUp, Some(backup), listener, false, Some(occasion))
+        self.begin_unless(JobKind::BackUp, Some(backup), listener, false, Some(occasion), None)
     }
 
     /// As [`Jobs::begin`]; with `only_one`, refused too while another job
@@ -612,6 +626,7 @@ impl Jobs {
         listener: Option<Listener>,
         only_one: bool,
         by_itself: Option<keevoro_core::unattended::Occasion>,
+        op: Option<Op>,
     ) -> Result<Arc<Job>> {
         let _starting = lock(&self.starting);
         {
@@ -666,9 +681,10 @@ impl Jobs {
             handle: JobHandle {
                 id: JobId::next(),
                 job: kind,
-                op: match by_itself {
-                    Some(_) => Some(Op::ScheduleRun.name()),
-                    None => kind.op().map(Op::name),
+                op: match (op, by_itself) {
+                    (Some(op), _) => Some(op.name()),
+                    (None, Some(_)) => Some(Op::ScheduleRun.name()),
+                    (None, None) => kind.op().map(Op::name),
                 },
                 by_itself,
                 backup: backup.map(|b| JobBackup {
@@ -698,7 +714,7 @@ impl Jobs {
     /// Registers the background check, unless one is running already, or
     /// another program is working on that backup.
     fn begin_only_one(self: &Arc<Self>, kind: JobKind, backup: &Named) -> Option<Arc<Job>> {
-        self.begin_unless(kind, Some(backup), None, true, None).ok()
+        self.begin_unless(kind, Some(backup), None, true, None, None).ok()
     }
 
     /// Writes what this program's jobs on `job`'s backup are doing for
@@ -1502,6 +1518,16 @@ impl Keevoro {
     /// `backup.check`: confirms what is at each destination.
     pub fn check_backup(&self, backup: &Named, listener: Option<Listener>) -> Result<JobHandle> {
         backing_up::start(&self.context(), backup, JobKind::Check, listener)
+    }
+
+    /// `backup.put_right`: puts each destination right, reading copies
+    /// back, moving damaged ones aside and sending them again. A check, to
+    /// every other program.
+    pub fn put_right(&self, backup: &Named, thorough: bool, listener: Option<Listener>) -> Result<JobHandle> {
+        // The day, in this computer's own time, names the folder damaged
+        // copies are moved into.
+        let today = self.clock.now().to_zoned(self.clock.zone()).date().to_string();
+        putting_right::start(&self.context(), backup, thorough, today, listener)
     }
 
     /// Carries on, in the background, reading in full the files a quick

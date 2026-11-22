@@ -984,7 +984,10 @@ pub fn send(shared: State<'_, Shared>) -> Said<()> {
 #[tauri::command]
 pub fn stop_sending(shared: State<'_, Shared>) {
     if let Ok(open) = open_backup(&shared) {
-        shared.keevoro.stop(Which::KindsOn(&[JobKind::BackUp], &open.id));
+        // A check, and putting a backup right, which is one, stop the same way.
+        shared
+            .keevoro
+            .stop(Which::KindsOn(&[JobKind::BackUp, JobKind::Check], &open.id));
     }
 }
 
@@ -994,6 +997,23 @@ pub fn stop_sending(shared: State<'_, Shared>) {
 pub fn check_arrived(shared: State<'_, Shared>) -> Said<()> {
     let open = open_backup(&shared)?;
     shared.keevoro.check_backup(&open, None).map_err(say)?;
+    Ok(())
+}
+
+/// What "Put this backup right" would do at each destination, and about
+/// how long it would take, for the screen to say before anything is done.
+#[tauri::command]
+pub fn put_right_plan(shared: State<'_, Shared>) -> Said<keevoro_api::destinations::PutRightPlan> {
+    backup(&shared)?.put_right_plan().map_err(say)
+}
+
+/// Starts putting this backup right: reading back, moving damaged copies
+/// aside, sending them again. Returns at once; progress and what it did
+/// arrive as `send` events.
+#[tauri::command]
+pub fn put_right(shared: State<'_, Shared>, thorough: bool) -> Said<()> {
+    let open = open_backup(&shared)?;
+    shared.keevoro.put_right(&open, thorough, None).map_err(say)?;
     Ok(())
 }
 

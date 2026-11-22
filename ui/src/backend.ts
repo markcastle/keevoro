@@ -279,6 +279,30 @@ export type Destination = {
 }
 
 /** What the last look at a destination found, as keevoro_engine::confirm::LookedView says it. */
+/** What putting a backup right would do at one destination (keevoro_engine::put_right::Plan). */
+export type PutRightPlace = {
+  to: string
+  known: number
+  knownBytes: number
+  files: number
+  bytes: number
+  provedAlready: number
+  quickSeconds: number
+  thoroughSeconds: number
+  setsAside: boolean
+  said: string[]
+}
+
+/** `backup.put_right_plan`: what "Put this backup right" would do, and about how long. */
+export type PutRightPlan = {
+  places: PutRightPlace[]
+  known: number
+  quickSeconds: number
+  thoroughSeconds: number
+  quickSaid: string
+  thoroughSaid: string
+}
+
 export type Looked = {
   /** When Keevoro last looked, in seconds since 1970. */
   at: number
@@ -1138,6 +1162,10 @@ export interface Backend {
   disconnectDestination(at?: number): Promise<void>
   send(): Promise<void>
   checkArrived(): Promise<void>
+  /** What "Put this backup right" would do, and about how long. Changes nothing. */
+  putRightPlan(): Promise<PutRightPlan>
+  /** Puts this backup right: progress and what it did arrive as send events. */
+  putRight(thorough: boolean): Promise<void>
   onSend(listener: (event: SendEvent) => void): () => void
   onScan(listener: (event: ScanEvent) => void): () => void
   /** Carries on with any background checking left over from last time, unless it was stopped; says how it stands. */
@@ -1269,6 +1297,8 @@ async function tauriBackend(): Promise<Backend> {
     disconnectDestination: (at) => invoke('disconnect_destination', { at: at ?? null }),
     send: () => invoke('send'),
     checkArrived: () => invoke('check_arrived'),
+    putRightPlan: () => invoke('put_right_plan'),
+    putRight: (thorough) => invoke('put_right', { thorough }),
     onSend: (listener) => subscribe('send', listener),
     onScan: (listener) => subscribe('scan', listener),
     keepChecking: () => invoke('keep_checking'),

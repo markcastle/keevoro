@@ -10,6 +10,7 @@ repository.workspace = true
 [dependencies]
 async-trait.workspace = true
 keevoro-storage.workspace = true
+keevoro-core.workspace = true
 blake3.workspace = true
 tokio.workspace = true
 
