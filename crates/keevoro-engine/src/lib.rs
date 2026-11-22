@@ -107,7 +107,7 @@ pub fn scan_into_with(
     // A source that is not there now (a card in a drawer) is not looked
     // through: a look would find nothing, and saving nothing would forget
     // everything found on it. It is said as a drive gone, which keeps all.
-    if !root.is_dir() && catalog.sources()?.iter().any(|s| s.root == root || s.root == source) {
+    if !reach::is_there(&root) && catalog.sources()?.iter().any(|s| s.root == root || s.root == source) {
         return Ok(ScanReport {
             root,
             gone: true,

@@ -1552,6 +1552,14 @@ impl Keevoro {
         {
             return Err(Error::busy(why));
         }
+        // With everything left on sources not plugged in, there is nothing
+        // it could read now, and it says why.
+        if let Some(catalog) = crate::backup::existing_catalog(&backup.home) {
+            let (waits, there) = duplicates::waiting_for_sources(&catalog);
+            if there == 0 && !waits.is_empty() {
+                return Err(Error::unreachable(waits.join(" ")));
+            }
+        }
         duplicates::start(&self.context(), backup, None, duplicates::Why::Asked)
             .ok_or_else(|| Error::busy("Keevoro is checking for duplicates already."))
     }

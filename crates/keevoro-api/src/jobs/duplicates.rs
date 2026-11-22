@@ -107,16 +107,57 @@ impl DuplicatesLeft {
     pub(crate) fn of(catalog: &Catalog) -> Self {
         let left = catalog.unhashed_count().unwrap_or(0);
         let stopped = stopped_by_person(catalog);
-        Self {
-            left,
-            stopped,
-            said: if stopped && left > 0 {
-                crate::words::check_stopped(left)
-            } else {
-                Vec::new()
-            },
+        let mut said = if stopped && left > 0 {
+            crate::words::check_stopped(left)
+        } else {
+            Vec::new()
+        };
+        if left > 0 {
+            said.extend(waiting_for_sources(catalog).0);
         }
+        Self { left, stopped, said }
     }
+}
+
+/// Each source with files not yet checked that is not plugged in now, by
+/// the one rule a search and a backup use, said as a sentence each; and
+/// how many files not yet checked are on sources that are there.
+pub(crate) fn waiting_for_sources(catalog: &Catalog) -> (Vec<String>, usize) {
+    let mut on = std::collections::BTreeMap::<std::path::PathBuf, usize>::new();
+    for file in catalog.unhashed().unwrap_or_default() {
+        *on.entry(file.source).or_default() += 1;
+    }
+    let mut there = 0;
+    let gone: Vec<keevoro_engine::deep::Gone> = on
+        .into_iter()
+        .filter_map(|(source, left)| {
+            if keevoro_engine::reach::is_there(&source) {
+                there += left;
+                None
+            } else {
+                Some(keevoro_engine::deep::Gone { source, left })
+            }
+        })
+        .collect();
+    (gone_words(catalog, &gone), there)
+}
+
+/// What the check says of the sources it could not reach: "KINGSTON (E:)
+/// is not plugged in, so its 1,315 files not yet checked for duplicates
+/// will be checked when it is back."
+fn gone_words(catalog: &Catalog, gone: &[keevoro_engine::deep::Gone]) -> Vec<String> {
+    let sources = catalog.sources().unwrap_or_default();
+    gone.iter()
+        .map(|g| {
+            let (name, drive) = match sources.iter().find(|s| s.root == g.source) {
+                Some(source) => {
+                    super::looking::called(source, catalog.source_mark(&source.root).ok().flatten().as_ref())
+                }
+                None => (friendly_path(&g.source), false),
+            };
+            crate::words::check_waits_for(&name, drive, g.left)
+        })
+        .collect()
 }
 
 /// Starts the check on this backup, unless one is running already, or the
@@ -250,6 +291,17 @@ pub(crate) fn start(ctx: &Context, backup: &Named, within: Option<AgentAccess>, 
                 0
             }
         };
+        // Sources not plugged in were passed over whole, not tried file by
+        // file; what waits for them is said, and the check ends.
+        let waits = match &result {
+            Ok(report) if !report.gone.is_empty() => Catalog::open_in_library(&home)
+                .map(|catalog| gone_words(&catalog, &report.gone))
+                .unwrap_or_default(),
+            _ => Vec::new(),
+        };
+        for said in &waits {
+            log.say(said);
+        }
         // Stopped by a person, it is noted with the backup, so it does not
         // start again by itself until the next search or backup, and what
         // that means is said.
@@ -267,9 +319,9 @@ pub(crate) fn start(ctx: &Context, backup: &Named, within: Option<AgentAccess>, 
             stopped: by_person,
             left,
             said: if by_person {
-                crate::words::check_stopped(left)
+                crate::words::check_stopped(left).into_iter().chain(waits).collect()
             } else {
-                Vec::new()
+                waits
             },
         });
         ctx.jobs.heard(job, last.clone(), true);
