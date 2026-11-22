@@ -197,6 +197,8 @@ export type Source = {
   onlineOnlyBytes?: number
   /** Where it is in words, when it is cloud storage: "the Amazon S3 bucket family-photos". */
   bucket?: string
+  /** For cloud storage, its files in Google's colder classes (Nearline, Coldline, Archive), which cost more to read, in words. */
+  colderSaid?: string
   /** Folders left out of this backup that are in it, or that it is in. */
   leftOut?: string[]
   /** Its own way of arranging its photos and videos; left out when it follows the backup. */
@@ -525,8 +527,8 @@ export type SendEvent = {
 
 /** What the "connect" form collects. Keys go to the system keychain. */
 export type ConnectRequest = {
-  kind: 'folder' | 'r2' | 's3' | 'endpoint'
-  /** The folder, Cloudflare account ID, Amazon region or server address. */
+  kind: 'folder' | 'r2' | 's3' | 'gcs' | 'endpoint'
+  /** The folder, Cloudflare account ID, Amazon region or server address; empty for Google Cloud Storage, which Keevoro fills in. */
   place: string
   bucket?: string
   accessKeyId?: string
@@ -549,8 +551,8 @@ export type Room = {
 
 /** What the form for cloud storage as a source sends. The keys go to the keychain and are never given back. */
 export type BucketSourceRequest = {
-  kind: 'r2' | 's3' | 'endpoint'
-  /** The Cloudflare account ID, Amazon region or server address. */
+  kind: 'r2' | 's3' | 'gcs' | 'endpoint'
+  /** The Cloudflare account ID, Amazon region or server address; empty for Google Cloud Storage, which Keevoro fills in. */
   place: string
   bucket?: string
   /** A folder in the bucket; the whole bucket when empty. */

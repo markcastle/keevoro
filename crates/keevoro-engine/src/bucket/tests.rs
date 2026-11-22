@@ -365,6 +365,58 @@ fn what_is_in_archive_storage_is_said_and_never_read() {
 }
 
 #[test]
+fn what_is_in_googles_colder_classes_is_counted_said_and_still_backed_up() {
+    let mut b = Bench::new(&[("Photos/IMG_1.jpg", photo(10))]);
+    let listed = |key: &str, bytes: u64, class: &str| keevoro_scan::bucket::Listed {
+        key: key.into(),
+        bytes,
+        modified: None,
+        etag: None,
+        class: Some(class.into()),
+        label: None,
+    };
+    // As a listing of Google Cloud Storage would give it.
+    let listing = [
+        listed("Photos/IMG_2.jpg", 9_000_000, "COLDLINE"),
+        listed("Photos/IMG_3.jpg", 1_000, "ARCHIVE"),
+        listed("Photos/IMG_4.jpg", 5_000, "STANDARD"),
+        listed("Photos/notes.txt", 5_000, "NEARLINE"),
+    ];
+    let report = keevoro_scan::bucket::found_in_listing(
+        &b.place,
+        &listing,
+        &keevoro_core::Kinds::default(),
+        &keevoro_core::SkipRules::default(),
+    );
+    assert_eq!(report.items.len(), 3, "read at once, so found, not passed over");
+    assert!(report.online_only.is_empty());
+    let (n, bytes) = in_colder_classes(&b.place, &report, &listing);
+    assert_eq!((n, bytes), (2, 9_001_000), "only the photos and videos found count");
+    b.catalog.save_scan("Photos", &report, 1).unwrap();
+    let said = |b: &Bench| {
+        crate::discover(&b.home, &b.catalog)
+            .unwrap()
+            .sources
+            .remove(0)
+            .colder_said
+    };
+    assert_eq!(said(&b), None, "nothing is said before it is counted");
+    b.catalog
+        .set_setting(&colder_key(&b.place.root()), &format!("{n} {bytes}"))
+        .unwrap();
+    assert_eq!(
+        said(&b).as_deref(),
+        Some(
+            "2 files, 8.6 MB, are in Google’s Nearline, Coldline or Archive storage, which costs more to read \
+             out. Keevoro backs them up all the same."
+        )
+    );
+    // A look that finds none says nothing.
+    b.look();
+    assert_eq!(said(&b), None);
+}
+
+#[test]
 fn a_look_that_is_stopped_remembers_nothing_new() {
     let mut b = Bench::new(&[("Photos/IMG_1.jpg", photo(10))]);
     let report = look_through(

@@ -177,9 +177,10 @@ pub fn environment_keys_used(saved: &Saved) -> String {
 /// A backup destination as it is remembered. Holds nothing secret.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Saved {
-    /// `folder`, `r2`, `s3` or `endpoint`.
+    /// `folder`, `r2`, `s3`, `gcs` or `endpoint`.
     pub kind: String,
-    /// The folder, Cloudflare account ID, Amazon region or server address.
+    /// The folder, Cloudflare account ID, Amazon region or server address;
+    /// for Google Cloud Storage, always `storage.googleapis.com`.
     pub place: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bucket: Option<String>,
@@ -206,6 +207,8 @@ pub struct Flags {
     pub to_folder: Option<PathBuf>,
     pub to_r2: Option<String>,
     pub to_s3: Option<String>,
+    /// Google Cloud Storage, which needs no place: only the bucket.
+    pub to_gcs: bool,
     pub to_endpoint: Option<String>,
     pub bucket: Option<String>,
     pub base_url: Option<String>,
@@ -220,6 +223,8 @@ impl Saved {
             ("r2", account.trim().to_string())
         } else if let Some(region) = &flags.to_s3 {
             ("s3", region.trim().to_string())
+        } else if flags.to_gcs {
+            ("gcs", keevoro_core::bucket::GOOGLE_PLACE.to_string())
         } else {
             ("endpoint", flags.to_endpoint.as_ref()?.trim().to_string())
         };
@@ -256,6 +261,7 @@ impl Saved {
             "folder" => format!("the folder {}", self.place),
             "r2" => format!("the Cloudflare R2 bucket {bucket}"),
             "s3" => format!("the Amazon S3 bucket {bucket} ({})", self.place),
+            "gcs" => format!("the Google Cloud Storage bucket {bucket}"),
             _ => format!("the bucket {bucket} at {}", self.place),
         }
     }
@@ -268,6 +274,7 @@ impl Saved {
             "s3" => Some(Preset::AmazonS3 {
                 region: self.place.clone(),
             }),
+            "gcs" => Some(Preset::GoogleCloud),
             "endpoint" => Some(Preset::Custom {
                 endpoint: self.place.clone(),
                 region: None,
@@ -275,6 +282,20 @@ impl Saved {
             }),
             _ => None,
         }
+    }
+
+    /// A destination that is not cloud storage Keevoro knows, as the folder
+    /// it is. A kind a later Keevoro added is refused, never taken for a
+    /// folder named after its place.
+    fn as_folder(&self) -> Result<Destination> {
+        if self.kind != "folder" {
+            bail!(
+                "{} was added by a newer version of Keevoro, which knows a kind of storage this one doesn't. \
+                 Update Keevoro to back up there.",
+                capitalised(&self.describe())
+            );
+        }
+        Ok(Destination::Folder(PathBuf::from(&self.place)))
     }
 
     /// The keychain entry for this destination's keys: one per bucket, so
@@ -293,7 +314,7 @@ impl Saved {
     /// those set in the environment, which is then said to `out`.
     pub fn open(&self, out: &mut dyn Write, world: &World<'_>) -> Result<Destination> {
         let Some(preset) = self.preset() else {
-            return Ok(Destination::Folder(PathBuf::from(&self.place)));
+            return self.as_folder();
         };
         let saved = world.secrets.get(&self.secret_name())?.as_deref().and_then(split_keys);
         let Some((keys, from)) = keys_to_use(saved, KeysFrom::Keychain, world.environment) else {
@@ -313,6 +334,15 @@ impl Saved {
             secret_access_key: keys.secret,
         })
     }
+}
+
+/// The words with their first letter a capital, for the start of a sentence.
+fn capitalised(words: &str) -> String {
+    let mut letters = words.chars();
+    letters
+        .next()
+        .map(|first| first.to_uppercase().chain(letters).collect())
+        .unwrap_or_default()
 }
 
 /// The two keys are kept as one keychain entry, one per line.
@@ -430,7 +460,7 @@ fn prove_and_remember(
     world: &World<'_>,
 ) -> Result<KeysFrom> {
     let (destination, keys) = match saved.preset() {
-        None => (Destination::Folder(PathBuf::from(&saved.place)), None),
+        None => (saved.as_folder()?, None),
         Some(preset) => {
             let Some((keys, from)) = keys_to_use(given, KeysFrom::Given, world.environment) else {
                 bail!("Enter both keys for the storage.");
@@ -625,6 +655,45 @@ mod tests {
         .unwrap();
         assert_eq!(nas.describe(), "the bucket b at https://nas.local:9000");
         assert_ne!(s3.secret_name(), nas.secret_name());
+
+        let google = Saved::from_flags(&Flags {
+            to_gcs: true,
+            bucket: Some("family-archive".into()),
+            ..flags()
+        })
+        .unwrap();
+        assert_eq!(
+            (google.kind.as_str(), google.place.as_str()),
+            ("gcs", "storage.googleapis.com")
+        );
+        assert_eq!(google.describe(), "the Google Cloud Storage bucket family-archive");
+        assert_eq!(google.preset(), Some(Preset::GoogleCloud));
+        assert_eq!(google.secret_name(), "gcs:storage.googleapis.com/family-archive");
+    }
+
+    #[test]
+    fn a_kind_of_storage_from_a_newer_keevoro_is_refused_never_taken_for_a_folder() {
+        let later = Saved {
+            kind: "tape".into(),
+            place: "storage.example.com".into(),
+            bucket: Some("family".into()),
+            base_url: None,
+            target: None,
+            volume: None,
+        };
+        let world = World {
+            secrets: &MemorySecrets::default(),
+            environment: &no_environment,
+        };
+        let Err(refused) = later.open(&mut Vec::new(), &world) else {
+            panic!("a kind this version doesn't know was opened");
+        };
+        let refused = refused.to_string();
+        assert!(refused.contains("newer version of Keevoro"), "{refused}");
+        assert!(
+            refused.starts_with("The bucket family at storage.example.com"),
+            "{refused}"
+        );
     }
 
     #[test]

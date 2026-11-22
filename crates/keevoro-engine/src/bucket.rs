@@ -25,7 +25,7 @@ use crate::connect::{keys_to_use, Keys, KeysFrom, Saved, World};
 use crate::send::{ACCESS_KEY_VAR, SECRET_KEY_VAR};
 use anyhow::{bail, Result};
 use keevoro_catalog::Catalog;
-use keevoro_core::bucket::{inside_originals, label, BucketPlace};
+use keevoro_core::bucket::{costs_more_to_read, inside_originals, label, BucketPlace};
 use keevoro_publish::{Fetch, Fetched};
 use keevoro_scan::{ScanProgress, ScanReport};
 use keevoro_storage::{ObjectKey, ReadOnly, StorageError};
@@ -242,7 +242,40 @@ pub fn look_through(
     }
     on_progress(&progress);
     catalog.save_scan(name, &report, crate::confirm::now())?;
+    let (colder, colder_bytes) = in_colder_classes(place, &report, &listed);
+    catalog.set_setting(&colder_key(&place.root()), &format!("{colder} {colder_bytes}"))?;
     Ok(report)
+}
+
+/// The setting that says how many of a bucket source's files, and how many
+/// bytes, are in a colder class of storage, as its last look found.
+fn colder_key(root: &str) -> String {
+    format!("colder:{root}")
+}
+
+/// How many of the files found are kept in a colder class of storage, and
+/// how big they are together.
+fn in_colder_classes(place: &BucketPlace, report: &ScanReport, listed: &[keevoro_scan::bucket::Listed]) -> (u64, u64) {
+    let classes: std::collections::HashMap<&str, Option<&str>> =
+        listed.iter().map(|o| (o.key.as_str(), o.class.as_deref())).collect();
+    report
+        .items
+        .iter()
+        .filter(|item| {
+            place
+                .key_of(&item.path)
+                .is_some_and(|key| costs_more_to_read(classes.get(key.as_str()).copied().flatten()))
+        })
+        .fold((0, 0), |(n, bytes), item| (n + 1, bytes + item.bytes))
+}
+
+/// What a bucket source's last look found in a colder class of storage,
+/// in words; nothing when there was none, or it has not been looked
+/// through since this was counted.
+pub fn colder_said(catalog: &Catalog, place: &BucketPlace) -> Option<String> {
+    let kept = catalog.setting(&colder_key(&place.root())).ok().flatten()?;
+    let (n, bytes) = kept.split_once(' ')?;
+    crate::summary::colder(n.parse().ok()?, bytes.parse().ok()?)
 }
 
 /// The labels of the objects at `wanted` in `listed`, a few at a time.

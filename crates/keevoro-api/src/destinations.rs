@@ -79,6 +79,9 @@ pub enum DestinationKind {
     R2,
     /// An Amazon S3 bucket; the place is the region.
     S3,
+    /// A Google Cloud Storage bucket, with HMAC keys (made under Cloud
+    /// Storage, Settings, Interoperability); no place is needed.
+    Gcs,
     /// Any other S3-compatible storage; the place is its address.
     Endpoint,
 }
@@ -89,6 +92,8 @@ pub enum DestinationKind {
 pub struct AddDestinationRequest {
     pub kind: DestinationKind,
     /// The folder, Cloudflare account ID, Amazon region or server address.
+    /// Not needed for Google Cloud Storage, which has one address.
+    #[serde(default)]
     pub place: String,
     /// The bucket, for cloud storage.
     #[serde(default)]
@@ -138,7 +143,7 @@ pub struct RemoveDestinationRequest {
 pub struct WaitingAt {
     /// In words: "the folder F:\\Family Backup".
     pub name: String,
-    /// `folder`, `r2`, `s3` or `endpoint`.
+    /// `folder`, `r2`, `s3`, `gcs` or `endpoint`.
     pub kind: String,
     /// The folder, when it is one.
     pub folder: Option<String>,
@@ -281,6 +286,7 @@ impl Backup {
             DestinationKind::Folder => flags.to_folder = place.map(Into::into),
             DestinationKind::R2 => flags.to_r2 = place,
             DestinationKind::S3 => flags.to_s3 = place,
+            DestinationKind::Gcs => flags.to_gcs = true,
             DestinationKind::Endpoint => flags.to_endpoint = place,
         }
         let saved = Saved::from_flags(&flags).ok_or_else(|| Error::failed("Say where to back up to first.".into()))?;
@@ -745,5 +751,17 @@ mod tests {
         .unwrap_err();
         assert!(!e.to_string().contains("987654321"), "{e}");
         assert!(e.to_string().contains("must be written as text"), "{e}");
+    }
+
+    #[test]
+    fn google_cloud_storage_is_asked_for_with_a_bucket_and_keys_and_no_place() {
+        let request = serde_json::from_value::<AddDestinationRequest>(serde_json::json!({
+            "kind": "gcs", "bucket": "family-archive",
+            "accessKeyId": "GOOGMARKER1234567890AB", "secretAccessKey": "s3cr3tMARKER"
+        }))
+        .unwrap();
+        assert_eq!((request.kind, request.place.as_str()), (DestinationKind::Gcs, ""));
+        let said = format!("{request:?}");
+        assert!(!said.contains("GOOGMARKER") && !said.contains("s3cr3tMARKER"), "{said}");
     }
 }

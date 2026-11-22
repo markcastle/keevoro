@@ -257,7 +257,7 @@ fn hide_secrets(text: &str) -> String {
         )
     });
     // The shape of an Amazon access key id.
-    static KEY_ID: LazyLock<Regex> = LazyLock::new(|| re(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b"));
+    static KEY_ID: LazyLock<Regex> = LazyLock::new(|| re(r"\b(?:(?:AKIA|ASIA)[A-Z0-9]{16}|GOOG[A-Z0-9]{16,})\b"));
     let text = SCHEME.replace_all(text, format!("$1 {HIDDEN}").as_str());
     let text = LABELLED.replace_all(&text, format!("${{1}}{HIDDEN}").as_str());
     let text = KEY_ID.replace_all(&text, HIDDEN);
@@ -516,6 +516,12 @@ mod tests {
                 "hash •••",
             ),
             ("r2 key 0123456789abcdef0123456789abcdef", "r2 key •••"),
+            // Google's HMAC access keys, for a person and for a service account.
+            ("key GOOGEXAMPLE1234567890AB used", "key ••• used"),
+            (
+                "key GOOG1EEXAMPLEEXAMPLEEXAMPLEEXAMPLEEXAMPLEEXAMPLE0123456789 used",
+                "key ••• used",
+            ),
         ];
         for (log, scrubbed) in cases {
             assert_eq!(scrub(log, None, &none), scrubbed, "{log}");

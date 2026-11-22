@@ -597,11 +597,11 @@ Google Cloud Storage
 
 Asked for by Adam. Google's storage answers the same requests as Amazon S3 at `storage.googleapis.com` when given a pair of keys Google calls HMAC keys, so most of what Keevoro needs is already there.
 
-- [ ] "Google Cloud Storage" as a named choice beside Cloudflare R2 and Amazon S3, as a source and as a destination, with its address filled in and plain steps for making the keys
-- [ ] Prove against the real service, or say plainly what is not proved: listing, reading, writing, large files sent in parts, the label Keevoro writes with a file's fingerprint, and dates
-- [ ] What reading out of Google Cloud Storage costs, in the table of prices said before a backup from cloud storage starts
-- [ ] Its colder kinds of storage (Nearline, Coldline, Archive), which cost extra to read early: counted and said, as archive storage is for Amazon
-- [ ] Keys kept in the keychain and never shown, as for the others
+- [x] "Google Cloud Storage" as a named choice beside Cloudflare R2 and Amazon S3, as a source and as a destination, with its address filled in and plain steps for making the keys
+- [ ] Prove against the real service, or say plainly what is not proved: listing, reading, writing, large files sent in parts, the label Keevoro writes with a file's fingerprint, and dates. Not proved yet (only against a stand-in that records each request): that Google honours `x-goog-if-generation-match: 0` on a plain upload and on starting and finishing one in parts, that it takes and gives back the `x-amz-meta-blake3` label, that a request signed for region `auto` with the SDK's own headers is accepted, the storage class and dates in its listings, and a large video through staging
+- [x] What reading out of Google Cloud Storage costs, in the table of prices said before a backup from cloud storage starts
+- [x] Its colder kinds of storage (Nearline, Coldline, Archive), which cost extra to read early: counted and said, as archive storage is for Amazon
+- [x] Keys kept in the keychain and never shown, as for the others
 
 Report a problem or suggest something, from inside the app
 

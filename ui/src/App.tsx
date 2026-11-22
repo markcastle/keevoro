@@ -81,7 +81,7 @@ import { CheckLine, CheckStopped } from './checking'
 import { WindowAsks } from './tray'
 import { certain, mainButtonWords, outOfReachLine } from './thereWords'
 import { SyncedCard } from './synced'
-import { StorageFields } from './storageForm'
+import { GoogleClassNote, StorageFields } from './storageForm'
 import { AddBucketSource, CloudCost, CloudSourceIcon } from './bucketSource'
 import { Explained } from './explained'
 import { SettingsScreen } from './settings/shell'
@@ -1485,6 +1485,7 @@ function FindScreen(props: {
                   </span>
                 )}
                 {s.onlineOnlySaid && <p className="online-only small">{s.onlineOnlySaid}</p>}
+                {s.colderSaid && <p className="online-only small">{s.colderSaid}</p>}
                 {s.keptAs && (
                   <p className="kept-as small">
                     Kept in its own folders, starting with “{s.keptAs}”.{s.sharedSaid && ` ${s.sharedSaid}`}
@@ -1841,7 +1842,7 @@ function AboutScreen(props: { api: Backend; version: string; onBack: () => void;
             Every file is fingerprinted from its whole contents. An original written to a folder or a drive is read
             back from its place in the backup and compared with that fingerprint before Keevoro calls it safe, and
             one that does not match is never counted, and is said so. If a file of the same name is already there, it is fingerprinted too, and
-            counted only if it is the same file. An original sent to Cloudflare R2 or Amazon S3 travels over an
+            counted only if it is the same file. An original sent to Cloudflare R2, Amazon S3 or Google Cloud Storage travels over an
             encrypted, error-checked connection, and “Check they all arrived” confirms each one is there and the
             right size.
           </dd>
@@ -2503,6 +2504,11 @@ function SendPanel(props: {
                 <b>Amazon S3</b>
                 <span>Cloud storage of your own</span>
               </button>
+              <button className="place" onClick={() => setForm({ kind: 'gcs', place: '', bucket: '' })} disabled={connecting}>
+                <CloudIcon />
+                <b>Google Cloud Storage</b>
+                <span>Cloud storage of your own</span>
+              </button>
               <button
                 className="place"
                 onClick={() => setForm({ kind: 'endpoint', place: '', bucket: '' })}
@@ -2529,6 +2535,7 @@ function SendPanel(props: {
                 Use a key that can read and write this one bucket only. It is kept in your computer’s keychain, not in
                 your library.
               </p>
+              <GoogleClassNote kind={form.kind} />
               {refused && (
                 <p className="refused" role="alert">
                   {refused}

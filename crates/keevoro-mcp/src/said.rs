@@ -42,11 +42,11 @@ pub fn summary(op: Op, answer: &Value) -> String {
         ),
         Op::BackupsRename => format!("It is now called \"{}\".", s(answer, "name")),
         Op::SourcesList => listed(answer, "source", |source| {
-            let online = source
-                .get("onlineOnlySaid")
-                .and_then(Value::as_str)
+            let online: String = ["onlineOnlySaid", "colderSaid"]
+                .iter()
+                .filter_map(|field| source.get(*field).and_then(Value::as_str))
                 .map(|said| format!(" {said}"))
-                .unwrap_or_default();
+                .collect();
             format!(
                 "{} (id {}, {}): {} files.{online}",
                 s(source, "name"),

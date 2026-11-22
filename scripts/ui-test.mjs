@@ -354,7 +354,7 @@ try {
   await page.getByRole('button', { name: 'Choose where they go' }).click()
   await page.getByRole('heading', { name: 'Where should they go?', level: 1 }).waitFor()
   const kinds = page.locator('.destinations .place b')
-  assert.deepEqual(await kinds.allInnerTexts(), ['A folder', 'Cloudflare R2', 'Amazon S3', 'Other storage'])
+  assert.deepEqual(await kinds.allInnerTexts(), ['A folder', 'Cloudflare R2', 'Amazon S3', 'Google Cloud Storage', 'Other storage'])
   // It says how much room the files will need before a place is chosen.
   assert.match(await text('.send .needs'), /^You are backing up [\d,]+ files, about [\d.]+ (MB|GB)\. Wherever you choose needs at least that much free\.$/)
   await shot('7-where-should-they-go')
@@ -364,6 +364,24 @@ try {
   assert.equal(await page.getByLabel('Secret access key').getAttribute('type'), 'password', 'the secret is hidden')
   await shot('8-cloud-form')
   await page.getByRole('button', { name: 'Cancel' }).click()
+  // Google Cloud Storage asks only for the bucket and its keys: Keevoro
+  // fills in Google's address, and says where in Google's console the keys
+  // are made, and which class to keep the bucket in.
+  await page.getByRole('button', { name: /Google Cloud Storage/ }).click()
+  const googleForm = page.locator('form.connect')
+  assert.equal(await googleForm.getByLabel('Storage').inputValue(), 'gcs')
+  for (const asked of ['Cloudflare account ID', 'Region', 'Address']) {
+    assert.equal(await googleForm.getByLabel(asked).count(), 0, `Google Cloud Storage is not asked its ${asked}`)
+  }
+  assert.match(await googleForm.innerText(), /Make the keys in the Google Cloud console under Cloud Storage, Settings, Interoperability/)
+  assert.match(await googleForm.innerText(), /Keep this bucket in Google’s Standard class\. Nearline, Coldline and Archive charge each time Keevoro reads a file back to check it/)
+  assert.equal(await googleForm.getByLabel('Access key ID').getAttribute('placeholder'), 'GOOG…')
+  assert.equal(await googleForm.getByLabel('Secret access key').getAttribute('type'), 'password', 'the secret is hidden')
+  await googleForm.scrollIntoViewIfNeeded()
+  await shot('8b-google-cloud-form')
+  await fitsNarrow('The Google Cloud Storage form')
+  await narrowShots('8b-google-cloud-form', googleForm)
+  await googleForm.getByRole('button', { name: 'Cancel' }).click()
   // A folder is one click, then one button sends everything.
   await page.getByRole('button', { name: /^A folder/ }).click()
   await page.getByRole('heading', { name: 'Backing up to the folder F:\\Family Backup' }).waitFor()
@@ -2056,6 +2074,10 @@ try {
   await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
   await page.getByRole('button', { name: /^Add cloud storage as a source/ }).click()
   const bucketForm = page.getByRole('form', { name: 'Add cloud storage as a source' })
+  // Google Cloud Storage is offered here too, with no place to ask.
+  await bucketForm.getByLabel('Storage').selectOption('gcs')
+  assert.equal(await bucketForm.getByLabel('Region').count(), 0)
+  assert.match(await bucketForm.innerText(), /Cloud Storage, Settings, Interoperability/)
   await bucketForm.getByLabel('Storage').selectOption('s3')
   await bucketForm.getByLabel('Region').fill('eu-west-2')
   await bucketForm.getByLabel('Bucket name').fill('old-family-backup')
@@ -2085,6 +2107,27 @@ try {
   await cloudCost.scrollIntoViewIfNeeded()
   await shot('11c-cloud-cost-before-backing-up')
   await fitsNarrow('What reading from cloud storage costs')
+  // A Google Cloud Storage bucket as a source: asked only its bucket and
+  // keys, its files in colder classes counted and said, and what reading
+  // it costs said with the others.
+  await page.locator('.steps button').nth(0).click()
+  await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
+  await page.getByRole('button', { name: /^Add cloud storage as a source/ }).click()
+  await bucketForm.getByLabel('Storage').selectOption('gcs')
+  await bucketForm.getByLabel('Bucket name').fill('old-scans')
+  await bucketForm.getByLabel('Access key ID').fill('GOOGEXAMPLE1234567890AB')
+  await bucketForm.getByLabel('Secret access key').fill('not-a-real-secret')
+  await bucketForm.getByRole('button', { name: 'Add and look through it' }).click()
+  const googleSource = page.locator('.kept li.source').filter({ hasText: 'old-scans' })
+  await googleSource.waitFor()
+  assert.match(await googleSource.innerText(), /In the Google Cloud Storage bucket old-scans/)
+  assert.match(await googleSource.innerText(), /are in Google’s Nearline, Coldline or Archive storage, which costs more to read out\. Keevoro backs them up all the same\./)
+  await googleSource.scrollIntoViewIfNeeded()
+  await shot('2g-google-cloud-storage-as-a-source')
+  await page.locator('.steps button').nth(2).click()
+  await cloudCost.waitFor()
+  await page.waitForFunction(() => /Google Cloud Storage/.test(document.querySelector('.cloud-cost')?.textContent ?? ''))
+  assert.match(await cloudCost.innerText(), /Reading [\d.]+ (GB|MB) out of Google Cloud Storage costs (about £[\d,]+|under £1) at Google’s usual price; Cloudflare R2 charges nothing for this\. Files kept in Nearline, Coldline or Archive storage cost about 1p to 4p a gigabyte more to read\./)
 
   // --- Every main screen fits a narrow window: the page never scrolls
   // sideways, and wide tables scroll inside their own box.

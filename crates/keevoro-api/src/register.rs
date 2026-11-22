@@ -599,8 +599,9 @@ impl Op {
             Op::SourcesAddBucket => (
                 "add_bucket_source",
                 "Adds cloud storage as a source of a backup: a bucket, or a folder in one (prefix), on Cloudflare \
-                 R2 (kind \"r2\", place the account ID), Amazon S3 (kind \"s3\", place the region) or other \
-                 S3-compatible storage (kind \"endpoint\", place its address), with its keys. The keys are tested \
+                 R2 (kind \"r2\", place the account ID), Amazon S3 (kind \"s3\", place the region), Google Cloud \
+                 Storage (kind \"gcs\", no place, HMAC keys) or other S3-compatible storage (kind \"endpoint\", \
+                 place its address), with its keys. The keys are tested \
                  by listing, which writes nothing, kept in the computer's keychain, and can never be read back. \
                  Nothing in the bucket is ever written. Looking through it and backing up from it are for the \
                  person: the folders an agent is allowed cannot hold a bucket.",
@@ -697,7 +698,8 @@ impl Op {
             Op::DestinationsAdd => (
                 "add_destination",
                 "Adds a place to back up to, after checking it works: a folder (kind \"folder\", place the folder), \
-                 or cloud storage (kind \"r2\", \"s3\" or \"endpoint\", with bucket and keys). Keys are stored in \
+                 or cloud storage (kind \"r2\", \"s3\", \"gcs\" or \"endpoint\", with bucket and keys; \"gcs\" is \
+                 Google Cloud Storage, which needs no place and takes HMAC keys). Keys are stored in \
                  the computer's keychain and can never be read back by anyone. A folder must be one the person has \
                  allowed (see my_access). Nothing already stored there is changed.",
             ),
@@ -1157,14 +1159,15 @@ mod tests {
             }
         }
         let add = Op::DestinationsAdd.request_schema();
-        assert_eq!(add["required"], serde_json::json!(["kind", "place"]));
+        // Google Cloud Storage needs no place, so only the kind is required.
+        assert_eq!(add["required"], serde_json::json!(["kind"]));
         let kinds: Vec<&Value> = add["properties"]["kind"]["oneOf"]
             .as_array()
             .unwrap()
             .iter()
             .map(|kind| &kind["const"])
             .collect();
-        assert_eq!(kinds, ["folder", "r2", "s3", "endpoint"]);
+        assert_eq!(kinds, ["folder", "r2", "s3", "gcs", "endpoint"]);
         assert!(
             !add.to_string().contains("\\n"),
             "a description wrapped in the code is one line here"

@@ -245,6 +245,12 @@ keevoro destinations add --r2 0123456789abcdef0123456789abcdef --bucket family-p
 
 For Amazon S3 use `--s3 eu-west-2`, and for MinIO or a NAS that speaks S3 use `--endpoint https://nas.local:9000`.
 
+For Google Cloud Storage use `--gcs` and the bucket; Keevoro knows Google's address. Its keys are what Google calls HMAC keys: in the Google Cloud console, open Cloud Storage, Settings, Interoperability, and choose Create a key (for a service account that can use only that bucket, if you can). The access key starts with `GOOG`. Keep the bucket in the Standard class: Nearline, Coldline and Archive charge each time a file is read back to check it.
+
+```sh
+keevoro destinations add --gcs --bucket family-archive --keys-from-stdin
+```
+
 Keevoro needs the two keys once. It checks they work, keeps them in your computer's own keychain (Credential Manager on Windows, Keychain on a Mac), and never shows them, writes them down or puts them in its log or its `--json` answers. It takes them, in this order:
 
 - **From standard input,** with `--keys-from-stdin`: the access key ID on one line and the secret on the next. Nothing ends up in your shell's history.
@@ -270,7 +276,7 @@ Its keys are kept in this computer's keychain, and nowhere else.
 Look through it next, which only lists it and downloads nothing: keevoro look --again "Photos"
 ```
 
-The keys are taken the same four ways as above, checked by listing the bucket (which changes nothing), and kept in the keychain under the source's own name. Looking through it reads only the bucket's listing; nothing is downloaded. A source bucket keeps its folders as they are in the backup unless you choose otherwise with `keevoro sources arrange`. When it is backed up, each file is brought through this computer, checked, sent, and removed from this computer again, one or two at a time, and only when there is room for it with 2 GB to spare. `keevoro backup --dry-run` says first about what reading it out will cost, for example "Reading 120 GB out of Amazon S3 costs about £9 at Amazon’s usual price; Cloudflare R2 charges nothing for this." Files in Amazon's archive storage are said, with how much they come to, and are not backed up until they are restored. `keevoro sources forget` takes it off the backup and its keys out of the keychain; nothing in the bucket is touched.
+The keys are taken the same four ways as above, checked by listing the bucket (which changes nothing), and kept in the keychain under the source's own name. Looking through it reads only the bucket's listing; nothing is downloaded. A source bucket keeps its folders as they are in the backup unless you choose otherwise with `keevoro sources arrange`. When it is backed up, each file is brought through this computer, checked, sent, and removed from this computer again, one or two at a time, and only when there is room for it with 2 GB to spare. `keevoro backup --dry-run` says first about what reading it out will cost, for example "Reading 120 GB out of Amazon S3 costs about £9 at Amazon’s usual price; Cloudflare R2 charges nothing for this." Files in Amazon's archive storage are said, with how much they come to, and are not backed up until they are restored. Files in Google's Nearline, Coldline or Archive storage are said too, as they cost more to read, and are backed up all the same. For Google Cloud Storage use `--gcs` instead of a place. `keevoro sources forget` takes it off the backup and its keys out of the keychain; nothing in the bucket is touched.
 
 ## For scripts
 
@@ -362,7 +368,7 @@ The words each command shows in `keevoro --help` come from the same list the app
 | `keevoro look PLACE` | Looks through a drive or folder and adds it as a source. |
 | `keevoro look --again [SOURCE]` | Looks through one source, or all of them, for what is new. A source that is not plugged in is passed over and said ("KINGSTON (E:) is not plugged in, so it was not looked through. What was found on it before is kept."). A source whose place holds a different drive from the one looked through there before (another card in the same reader) is passed over and said too, never replaced. |
 | `keevoro look --again SOURCE --different-drive anyway\|new` | Answers for that source: `anyway` looks through the drive there as the source, replacing what was found on it; `new` keeps the source as it was, set aside until its own drive is plugged in again, and adds the drive there as a new source. |
-| `keevoro sources add-bucket --r2 ID\|--s3 REGION\|--endpoint URL --bucket NAME [--prefix FOLDER] [--name NAME]` | Adds cloud storage as a source, after checking its keys can read it. Nothing in it is ever changed. Then `keevoro look --again NAME` lists it. |
+| `keevoro sources add-bucket --r2 ID\|--s3 REGION\|--gcs\|--endpoint URL --bucket NAME [--prefix FOLDER] [--name NAME]` | Adds cloud storage as a source, after checking its keys can read it. Nothing in it is ever changed. Then `keevoro look --again NAME` lists it. |
 | `keevoro sources` | The backup's sources, each with its number. |
 | `keevoro sources forget SOURCE` | Takes a source off the backup. Nothing on it is touched. |
 | `keevoro sources types SOURCE` | The kinds of file on a source, and which are included. |
@@ -417,7 +423,7 @@ A collection is named by its whole name, such as "Holidays / Cornwall", or by it
 | --- | --- |
 | `keevoro destinations` | Where the backup goes, numbered, and what has reached each place. |
 | `keevoro destinations add --folder FOLDER` | Checks a folder works, then adds it. |
-| `keevoro destinations add --r2 ACCOUNT --bucket NAME` | The same for cloud storage, with `--s3 REGION` or `--endpoint URL` for others. |
+| `keevoro destinations add --r2 ACCOUNT --bucket NAME` | The same for cloud storage, with `--s3 REGION`, `--gcs` (Google Cloud Storage) or `--endpoint URL` for others. |
 | `keevoro destinations remove DESTINATION` | Stops backing up there, by its number, folder or name; `--all` for every one. Nothing backed up there is touched; Keevoro's own unfinished copies there are cleared. |
 | `keevoro room` | What is waiting for each place, and whether it has the room. |
 | `keevoro tidy FOLDER [--dry-run]` | Clears away the unfinished copies a stopped backup left in a backup folder's working folder (`.keevoro-uploads`), whether or not a backup still goes there, and says what was cleared and what was left and why. Nothing that was backed up is touched; anything written to in the last hour is left, in case it is in use. `--dry-run` only says what it would clear. The app has the same as a button beside a folder destination, and in Settings, Advanced, "Unfinished copies in a folder". |

@@ -4,7 +4,8 @@ import { StorageFields } from './storageForm'
 
 /**
  * "Add cloud storage as a source…": a bucket, or a folder in one, on
- * Cloudflare R2, Amazon S3 or another S3-compatible service, with the same
+ * Cloudflare R2, Amazon S3, Google Cloud Storage or another S3-compatible
+ * service, with the same
  * questions as adding somewhere to back up to, and one more, the folder.
  * Keevoro checks the keys by listing the bucket, which changes nothing,
  * keeps them in the computer's keychain, and then looks through it, which
@@ -19,7 +20,7 @@ export function AddBucketSource(props: { api: Backend; onAdded: (root: string) =
       <button className="place" onClick={() => setForm({ kind: 'r2', place: '', bucket: '', prefix: '' })}>
         <CloudSourceIcon />
         <b>Add cloud storage as a source…</b>
-        <span>A bucket on Cloudflare R2, Amazon S3 or similar, to move or merge an old cloud backup</span>
+        <span>A bucket on Cloudflare R2, Amazon S3, Google Cloud Storage or similar, to move or merge an old cloud backup</span>
       </button>
     )
   }

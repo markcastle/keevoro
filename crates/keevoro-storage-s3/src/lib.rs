@@ -1,7 +1,7 @@
 //! Storage in an S3-compatible bucket.
 //!
-//! One adapter covers Cloudflare R2, Amazon S3, MinIO and the many other
-//! services that speak the same protocol. What differs between them (the
+//! One adapter covers Cloudflare R2, Amazon S3, Google Cloud Storage, MinIO
+//! and the many other services that speak the same protocol. What differs between them (the
 //! address, the region, how the bucket name is put into the address) is
 //! captured by a [`Preset`], so the user picks a provider and pastes two
 //! keys, and never meets the word "endpoint".
@@ -10,10 +10,20 @@
 //!
 //! - **Write-once is enforced by the server.** `create_only` sends
 //!   `If-None-Match: *`, so the bucket itself refuses to replace an
-//!   original even if two computers upload at once.
+//!   original even if two computers upload at once. Google Cloud Storage
+//!   is asked the same in its own words, `x-goog-if-generation-match: 0`
+//!   ("only if there is no object here yet"), which its S3-compatible
+//!   (XML) API documents; see [`GOOGLE_WRITE_ONCE`].
 //! - **Extra checksums are off unless required.** Newer AWS SDKs add
-//!   checksum headers by default, and several S3-compatible servers reject
-//!   them. Keevoro verifies content itself with BLAKE3.
+//!   checksum headers by default (`x-amz-checksum-*`, sent as a trailer
+//!   with `aws-chunked` encoding), and several S3-compatible servers,
+//!   R2 once and Google Cloud Storage still, reject them. Keevoro verifies
+//!   content itself with BLAKE3. Every kind is sent the same plain
+//!   requests, which `tests.rs` checks byte for byte against a stand-in.
+//! - **No batch deletes.** Google Cloud Storage's XML API has no
+//!   `DeleteObjects`, so nothing here uses it: one object is deleted at a
+//!   time (only Keevoro's own probe in [`ObjectStore::check_connection`],
+//!   and an upload given up).
 //! - **An upload id here is more than S3's id.** S3 needs the object key
 //!   with every multipart call, but the storage trait passes only the id,
 //!   so the key (and whether the upload is write-once) is packed into it.
@@ -51,6 +61,11 @@ pub enum Preset {
     CloudflareR2 { account_id: String },
     /// Amazon S3, in a region such as `eu-west-2`.
     AmazonS3 { region: String },
+    /// Google Cloud Storage, through its S3-compatible (XML) API with HMAC
+    /// keys (an access key starting `GOOG`, and a secret) made under Cloud
+    /// Storage, Settings, Interoperability. It has one address for every
+    /// bucket and no region to ask for.
+    GoogleCloud,
     /// MinIO, a NAS, or any other S3-compatible server at a known address.
     Custom {
         endpoint: String,
@@ -76,7 +91,18 @@ struct Resolved {
     endpoint: Option<String>,
     region: String,
     path_style: bool,
+    /// Google Cloud Storage, which is asked for write-once in its own words.
+    google: bool,
 }
+
+/// Google Cloud Storage's one address for its S3-compatible API.
+pub const GOOGLE_ENDPOINT: &str = "https://storage.googleapis.com";
+
+/// How Google Cloud Storage is told not to replace an object: write only
+/// if the object's generation is 0, which is to say there is none yet. It
+/// answers 412 Precondition Failed otherwise, as S3 does to
+/// `If-None-Match: *`.
+pub const GOOGLE_WRITE_ONCE: (&str, &str) = ("x-goog-if-generation-match", "0");
 
 impl Preset {
     fn resolve(&self) -> Result<Resolved, StorageError> {
@@ -93,6 +119,7 @@ impl Preset {
                     endpoint: Some(format!("https://{id}.r2.cloudflarestorage.com")),
                     region: "auto".into(),
                     path_style: false,
+                    google: false,
                 })
             }
             Self::AmazonS3 { region } => {
@@ -104,8 +131,17 @@ impl Preset {
                     endpoint: None,
                     region,
                     path_style: false,
+                    google: false,
                 })
             }
+            // The bucket goes in the path: a bucket name with a dot in it
+            // cannot be part of Google's host name over https.
+            Self::GoogleCloud => Ok(Resolved {
+                endpoint: Some(GOOGLE_ENDPOINT.into()),
+                region: "auto".into(),
+                path_style: true,
+                google: true,
+            }),
             Self::Custom {
                 endpoint,
                 region,
@@ -122,6 +158,7 @@ impl Preset {
                         .filter(|r| !r.trim().is_empty())
                         .unwrap_or_else(|| "us-east-1".into()),
                     path_style: *path_style,
+                    google: false,
                 })
             }
         }
@@ -135,6 +172,9 @@ pub struct S3Store {
     bucket: String,
     name: String,
     caps: Capabilities,
+    /// Google Cloud Storage: write-once is asked for with
+    /// [`GOOGLE_WRITE_ONCE`] instead of `If-None-Match`.
+    google: bool,
 }
 
 impl S3Store {
@@ -142,7 +182,10 @@ impl S3Store {
     /// call [`ObjectStore::check_connection`] to find out whether the keys
     /// work.
     pub fn connect(settings: &S3Settings) -> Result<Self, StorageError> {
-        let resolved = settings.preset.resolve()?;
+        Self::connect_resolved(&settings.preset.resolve()?, settings)
+    }
+
+    fn connect_resolved(resolved: &Resolved, settings: &S3Settings) -> Result<Self, StorageError> {
         let bucket = settings.bucket.trim().to_string();
         if bucket.is_empty() || bucket.contains('/') || bucket.contains(char::is_whitespace) {
             return Err(StorageError::Provider(
@@ -192,6 +235,7 @@ impl S3Store {
                 whole_files_preferred: false,
                 counts_its_own_bytes: false,
             },
+            google: resolved.google,
         })
     }
 
@@ -289,6 +333,12 @@ async fn body_of(source: ByteSource) -> Result<(ByteStream, u64), StorageError> 
             Ok((stream, len))
         }
     }
+}
+
+/// Asks Google Cloud Storage not to replace an object, just before the
+/// request is signed, so the header is signed with the rest.
+fn google_write_once(request: &mut aws_sdk_s3::config::http::HttpRequest) {
+    request.headers_mut().insert(GOOGLE_WRITE_ONCE.0, GOOGLE_WRITE_ONCE.1);
 }
 
 fn to_u64(n: Option<i64>) -> u64 {
@@ -405,10 +455,16 @@ impl ObjectStore for S3Store {
             .body(stream)
             .set_content_type(opts.content_type.clone())
             .set_metadata(Some(opts.metadata.clone().into_iter().collect()));
-        if opts.create_only {
+        let google_once = opts.create_only && self.google;
+        if opts.create_only && !self.google {
             request = request.if_none_match("*");
         }
-        let done = request.send().await.map_err(|e| map_err(e, key.as_str()))?;
+        let done = if google_once {
+            request.customize().mutate_request(google_write_once).send().await
+        } else {
+            request.send().await
+        }
+        .map_err(|e| map_err(e, key.as_str()))?;
         Ok(PutReceipt {
             key: key.clone(),
             bytes,
@@ -503,16 +559,21 @@ impl ObjectStore for S3Store {
 #[async_trait]
 impl MultipartStore for S3Store {
     async fn start(&self, key: &ObjectKey, opts: &PutOptions) -> Result<UploadId, StorageError> {
-        let started = self
+        let request = self
             .client
             .create_multipart_upload()
             .bucket(&self.bucket)
             .key(key.as_str())
             .set_content_type(opts.content_type.clone())
-            .set_metadata(Some(opts.metadata.clone().into_iter().collect()))
-            .send()
-            .await
-            .map_err(|e| map_err(e, key.as_str()))?;
+            .set_metadata(Some(opts.metadata.clone().into_iter().collect()));
+        // Google is told at the start as well as the end, so an object
+        // already there is refused before any part is sent.
+        let started = if opts.create_only && self.google {
+            request.customize().mutate_request(google_write_once).send().await
+        } else {
+            request.send().await
+        }
+        .map_err(|e| map_err(e, key.as_str()))?;
         let upload_id = started
             .upload_id()
             .ok_or_else(|| StorageError::Provider("the storage did not return an upload id".into()))?;
@@ -567,10 +628,15 @@ impl MultipartStore for S3Store {
             .key(&packed.key)
             .upload_id(&packed.upload_id)
             .multipart_upload(CompletedMultipartUpload::builder().set_parts(Some(list)).build());
-        if packed.create_only {
+        if packed.create_only && !self.google {
             request = request.if_none_match("*");
         }
-        let done = request.send().await.map_err(|e| map_err(e, &packed.key))?;
+        let done = if packed.create_only && self.google {
+            request.customize().mutate_request(google_write_once).send().await
+        } else {
+            request.send().await
+        }
+        .map_err(|e| map_err(e, &packed.key))?;
         Ok(PutReceipt {
             key: ObjectKey::new(packed.key)?,
             bytes: parts.iter().map(|p| p.bytes).sum(),

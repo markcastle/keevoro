@@ -20,16 +20,35 @@ use std::path::Path;
 
 /// The schemes a bucket source's root starts with, one for each kind of
 /// cloud storage a destination can be.
-const SCHEMES: [&str; 3] = ["r2://", "s3://", "endpoint://"];
+const SCHEMES: [&str; 4] = ["r2://", "s3://", "gcs://", "endpoint://"];
+
+/// The kinds of cloud storage Keevoro knows, as they are kept.
+pub const KINDS: [&str; 4] = ["r2", "s3", "gcs", "endpoint"];
+
+/// Google Cloud Storage's place. It has one address for every bucket, and
+/// no account or region to ask for, so Keevoro fills this in itself and
+/// the person is asked only for the bucket and the keys.
+pub const GOOGLE_PLACE: &str = "storage.googleapis.com";
+
+/// The place a kind of storage is kept with: what was asked for, tidied,
+/// or for Google Cloud Storage, its one address whatever was given.
+pub fn place_for(kind: &str, asked: &str) -> String {
+    if kind == "gcs" {
+        GOOGLE_PLACE.to_string()
+    } else {
+        asked.trim().to_string()
+    }
+}
 
 /// Where a bucket source is. Holds nothing secret: the keys are in the
 /// computer's keychain, under [`BucketPlace::secret_name`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BucketPlace {
-    /// `r2`, `s3` or `endpoint`, as for a destination.
+    /// `r2`, `s3`, `gcs` or `endpoint`, as for a destination.
     pub kind: String,
-    /// The Cloudflare account ID, Amazon region or server address.
+    /// The Cloudflare account ID, Amazon region or server address; for
+    /// Google Cloud Storage, always [`GOOGLE_PLACE`].
     pub place: String,
     pub bucket: String,
     /// The folder in the bucket, without a `/` at either end; empty for
@@ -41,13 +60,14 @@ pub struct BucketPlace {
 impl BucketPlace {
     /// A place as it is asked for, tidied: the prefix without slashes at
     /// either end. `None` when the kind is not one Keevoro knows, or the
-    /// place or bucket is empty.
+    /// place or bucket is empty. Google Cloud Storage needs no place: it is
+    /// filled in.
     pub fn new(kind: &str, place: &str, bucket: &str, prefix: &str) -> Option<Self> {
-        let (place, bucket) = (place.trim(), bucket.trim());
-        let known = ["r2", "s3", "endpoint"].contains(&kind);
+        let (place, bucket) = (place_for(kind, place), bucket.trim());
+        let known = KINDS.contains(&kind);
         (known && !place.is_empty() && !bucket.is_empty()).then(|| Self {
             kind: kind.to_string(),
-            place: place.to_string(),
+            place,
             bucket: bucket.to_string(),
             prefix: prefix
                 .trim()
@@ -83,6 +103,7 @@ impl BucketPlace {
         match self.kind.as_str() {
             "r2" => "Cloudflare R2",
             "s3" => "Amazon S3",
+            "gcs" => "Google Cloud Storage",
             _ => "cloud storage",
         }
     }
@@ -91,7 +112,7 @@ impl BucketPlace {
     /// in the Cloudflare R2 bucket old-backup".
     pub fn describe(&self) -> String {
         let bucket = match self.kind.as_str() {
-            "r2" | "s3" => format!("the {} bucket {}", self.provider(), self.bucket),
+            "r2" | "s3" | "gcs" => format!("the {} bucket {}", self.provider(), self.bucket),
             _ => format!("the bucket {} at {}", self.bucket, self.place),
         };
         if self.prefix.is_empty() {
@@ -148,14 +169,16 @@ pub fn is_bucket_path(path: &Path) -> bool {
 }
 
 /// The service a file in a bucket source is kept by, from its path, as a
-/// person knows it: "Amazon S3", "Cloudflare R2", or for any other, "the
-/// storage". `None` for a file on a disk.
+/// person knows it: "Amazon S3", "Cloudflare R2", "Google Cloud Storage",
+/// or for any other, "the storage". `None` for a file on a disk.
 pub fn provider_of(path: &Path) -> Option<&'static str> {
     let text = path.to_string_lossy();
     if text.starts_with("r2://") {
         Some("Cloudflare R2")
     } else if text.starts_with("s3://") {
         Some("Amazon S3")
+    } else if text.starts_with("gcs://") {
+        Some("Google Cloud Storage")
     } else if text.starts_with("endpoint://") {
         Some("the storage")
     } else {
@@ -189,9 +212,19 @@ pub fn quick_fingerprint(root: &str, key: &str, bytes: u64, etag: Option<&str>, 
 
 /// True for a storage class whose objects cannot be read until they are
 /// restored (Amazon's Glacier Flexible Retrieval and Deep Archive). Glacier
-/// Instant Retrieval, and R2's Infrequent Access, can be read as they are.
+/// Instant Retrieval, R2's Infrequent Access, and Google's Nearline,
+/// Coldline and Archive can be read as they are, at a charge for each
+/// gigabyte read, which [`crate::egress`] says.
 pub fn needs_restoring(class: Option<&str>) -> bool {
     matches!(class, Some("GLACIER" | "DEEP_ARCHIVE"))
+}
+
+/// True for one of Google Cloud Storage's colder classes (Nearline, Coldline
+/// and Archive), which are read at once like any other, but at a charge
+/// for each gigabyte read. Files in them are counted and said, as files in
+/// Amazon's archive storage are, and backed up all the same.
+pub fn costs_more_to_read(class: Option<&str>) -> bool {
+    matches!(class, Some("NEARLINE" | "COLDLINE" | "ARCHIVE"))
 }
 
 /// A whole fingerprint Keevoro itself wrote on an object it backed up
@@ -253,6 +286,30 @@ mod tests {
     }
 
     #[test]
+    fn google_cloud_storage_needs_only_a_bucket_and_fills_in_its_own_place() {
+        for asked in ["", "  ", "anything typed"] {
+            let p = BucketPlace::new("gcs", asked, "family-archive", "Scans").unwrap();
+            assert_eq!(p.place, GOOGLE_PLACE, "{asked:?}");
+        }
+        let p = BucketPlace::new("gcs", "", "family-archive", "").unwrap();
+        assert_eq!(p.root(), "gcs://family-archive");
+        assert_eq!(p.provider(), "Google Cloud Storage");
+        assert_eq!(p.describe(), "the Google Cloud Storage bucket family-archive");
+        assert!(is_bucket_path(Path::new("gcs://family-archive/a.jpg")));
+        assert_eq!(
+            provider_of(Path::new("gcs://family-archive/a.jpg")),
+            Some("Google Cloud Storage")
+        );
+        assert_eq!(
+            p.secret_name(),
+            "source:gcs/storage.googleapis.com/gcs://family-archive"
+        );
+        assert!(p.overlaps_a_backup_at("gcs", GOOGLE_PLACE, "family-archive"));
+        assert!(!p.overlaps_a_backup_at("s3", GOOGLE_PLACE, "family-archive"));
+        assert_eq!(place_for("s3", " eu-west-2 "), "eu-west-2");
+    }
+
+    #[test]
     fn a_file_is_known_by_its_key_and_its_key_by_its_path() {
         let p = photos();
         let path = p.path_of("Photos/2019/Spain/IMG_1.jpg").unwrap();
@@ -305,8 +362,18 @@ mod tests {
             Some("GLACIER_IR"),
             Some("STANDARD_IA"),
             Some("INTELLIGENT_TIERING"),
+            // Google's colder classes are read at once, at a charge.
+            Some("NEARLINE"),
+            Some("COLDLINE"),
+            Some("ARCHIVE"),
         ] {
             assert!(!needs_restoring(readable), "{readable:?}");
+        }
+        for colder in ["NEARLINE", "COLDLINE", "ARCHIVE"] {
+            assert!(costs_more_to_read(Some(colder)), "{colder}");
+        }
+        for plain in [None, Some("STANDARD"), Some("GLACIER"), Some("REGIONAL")] {
+            assert!(!costs_more_to_read(plain), "{plain:?}");
         }
     }
 

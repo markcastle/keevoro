@@ -859,9 +859,11 @@ pub fn open_place<R: Runtime>(app: AppHandle<R>, shared: State<'_, Shared>, path
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectRequest {
-    /// `folder`, `r2`, `s3` or `endpoint`.
+    /// `folder`, `r2`, `s3`, `gcs` or `endpoint`.
     kind: String,
-    /// The folder, Cloudflare account ID, Amazon region or server address.
+    /// The folder, Cloudflare account ID, Amazon region or server address;
+    /// none for Google Cloud Storage.
+    #[serde(default)]
     place: String,
     #[serde(default)]
     bucket: Option<String>,
@@ -879,6 +881,7 @@ impl From<ConnectRequest> for keevoro_api::AddDestinationRequest {
                 "folder" => DestinationKind::Folder,
                 "r2" => DestinationKind::R2,
                 "s3" => DestinationKind::S3,
+                "gcs" => DestinationKind::Gcs,
                 _ => DestinationKind::Endpoint,
             },
             place: form.place,
@@ -915,9 +918,11 @@ pub async fn connect_destination<R: Runtime>(
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BucketSourceRequest {
-    /// `r2`, `s3` or `endpoint`.
+    /// `r2`, `s3`, `gcs` or `endpoint`.
     kind: String,
-    /// The Cloudflare account ID, Amazon region or server address.
+    /// The Cloudflare account ID, Amazon region or server address; none
+    /// for Google Cloud Storage.
+    #[serde(default)]
     place: String,
     bucket: String,
     #[serde(default)]
@@ -942,6 +947,7 @@ pub async fn add_bucket_source<R: Runtime>(
         kind: match request.kind.as_str() {
             "r2" => BucketKind::R2,
             "s3" => BucketKind::S3,
+            "gcs" => BucketKind::Gcs,
             _ => BucketKind::Endpoint,
         },
         place: request.place,

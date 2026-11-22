@@ -28,6 +28,9 @@ pub enum BucketKind {
     R2,
     /// Amazon S3; the place is the region.
     S3,
+    /// Google Cloud Storage, with HMAC keys (made under Cloud Storage,
+    /// Settings, Interoperability); no place is needed.
+    Gcs,
     /// Any other S3-compatible storage; the place is its address.
     Endpoint,
 }
@@ -37,6 +40,7 @@ impl BucketKind {
         match self {
             Self::R2 => "r2",
             Self::S3 => "s3",
+            Self::Gcs => "gcs",
             Self::Endpoint => "endpoint",
         }
     }
@@ -47,7 +51,9 @@ impl BucketKind {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AddBucketRequest {
     pub kind: BucketKind,
-    /// The Cloudflare account ID, Amazon region or server address.
+    /// The Cloudflare account ID, Amazon region or server address. Not
+    /// needed for Google Cloud Storage, which has one address.
+    #[serde(default)]
     pub place: String,
     pub bucket: String,
     /// A folder in the bucket to read from, such as `Photos/2019`; the

@@ -80,7 +80,7 @@ A Rust workspace of small crates. The core has no I/O, and storage sits behind n
 | `keevoro-collect` | Built | Agrees each kept file's place in a backup and makes its previews (`fs4` for the free-space check). Rendering itself is in `keevoro-media`. |
 | `keevoro-media` | Part built | Thumbnails and display copies as WebP (`image`, `webp`), blurhash, rotation baked in, no metadata carried over. Video posters from the computer's own decoder, or the computer's own ffmpeg as a separate program. The MP4 conversion once here was removed with the library model; git history has it. HEIC and RAW previews to come. |
 | `keevoro-publish` | Built | The upload engine: write-once originals, resumable multipart, retries. Depends only on the storage traits. |
-| `keevoro-storage-s3` | Built | One S3-compatible adapter (`aws-sdk-s3`) with presets for R2, AWS S3 and any custom endpoint. Checked against MinIO in CI. B2 and Wasabi presets to come. |
+| `keevoro-storage-s3` | Built | One S3-compatible adapter (`aws-sdk-s3`) with presets for R2, AWS S3, Google Cloud Storage and any custom endpoint. Checked against MinIO in CI. B2 and Wasabi presets to come. |
 | `keevoro-index` | Built | v2 index writer, its JSON Schema (`schemars`), and v1 gallery.json export. |
 | `keevoro-platform` | Planned | Drive events, volume ids, keychain, per-OS differences. |
 | `keevoro-engine` | Built | What Keevoro does as plain function calls: scan into a backup, the Discover view, keep or skip, previews, backing up. `keevoro-api` sits on it. |
@@ -129,7 +129,7 @@ Every upload writes a v2 JSON index under an unguessable name (`index/<128-bit r
 
 People use Keevoro for separate jobs: family photos to a folder, drone footage to cloud storage, perhaps a client's work somewhere else. A **backup** is one of those jobs. It has a name, its own sources, its own choices about what to keep and its own destination, and it is remembered, so the same job can be run again next month and only what is new is sent.
 
-A **destination** is anywhere files can be sent: a folder (on this computer, another disk, a network drive) or storage that speaks S3 (Cloudflare R2, Amazon S3 and others). They are the same kind of thing. A file's place (its folder and name) is agreed once and is the same in every destination, and files go straight from the source to the destination. There is no library on this computer that everything must pass through.
+A **destination** is anywhere files can be sent: a folder (on this computer, another disk, a network drive) or storage that speaks S3 (Cloudflare R2, Amazon S3, Google Cloud Storage and others). They are the same kind of thing. A file's place (its folder and name) is agreed once and is the same in every destination, and files go straight from the source to the destination. There is no library on this computer that everything must pass through.
 
 How it is built:
 
