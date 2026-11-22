@@ -44,6 +44,13 @@ pub const BACKBLAZE_B2: Price = Price::FreeUpTo {
 };
 /// Wasabi: no charge for downloading, within fair use.
 pub const WASABI: Price = Price::Free;
+/// Google Cloud Storage: about 12 US cents a gigabyte out to the internet,
+/// for the first terabyte a month, at its usual (premium) rate.
+pub const GOOGLE_CLOUD: Price = Price::PerGigabyte(0.12);
+/// What Google adds for each gigabyte read out of its colder classes, in
+/// dollars: from Nearline (the least) to Archive (the most). Those classes
+/// also charge for a minimum time kept (30, 90 and 365 days).
+pub const GOOGLE_COLD_READING: (f64, f64) = (0.01, 0.05);
 
 /// Which provider, and its price, for a kind of storage and its place (the
 /// account, region or address). Storage at another address is known by
@@ -53,6 +60,8 @@ pub fn provider(kind: &str, place: &str) -> (&'static str, Price) {
     match kind {
         "s3" => ("Amazon S3", AMAZON_S3),
         "r2" => ("Cloudflare R2", CLOUDFLARE_R2),
+        "gcs" => ("Google Cloud Storage", GOOGLE_CLOUD),
+        _ if host.contains("storage.googleapis.com") => ("Google Cloud Storage", GOOGLE_CLOUD),
         _ if host.contains("backblazeb2.com") => ("Backblaze B2", BACKBLAZE_B2),
         _ if host.contains("wasabisys.com") => ("Wasabi", WASABI),
         _ if host.contains("r2.cloudflarestorage.com") => ("Cloudflare R2", CLOUDFLARE_R2),
@@ -96,6 +105,15 @@ pub fn cost_said(kind: &str, place: &str, bytes: u64, size: &str) -> String {
                 said.push_str(&format!(
                     " Amazon lets each account download about {AMAZON_FREE_EACH_MONTH} GB a month free, which may \
                      make it less."
+                ));
+            }
+            if name == "Google Cloud Storage" {
+                let pence = |dollars: f64| (dollars * POUNDS_PER_DOLLAR * 100.0).round().max(1.0);
+                said.push_str(&format!(
+                    " Files kept in Nearline, Coldline or Archive storage cost about {}p to {}p a gigabyte more to \
+                     read.",
+                    pence(GOOGLE_COLD_READING.0),
+                    pence(GOOGLE_COLD_READING.1)
                 ));
             }
             said
@@ -174,10 +192,26 @@ mod tests {
     }
 
     #[test]
+    fn reading_out_of_google_says_its_colder_classes_cost_more_to_read() {
+        assert_eq!(
+            cost_said("gcs", "storage.googleapis.com", 100 * GB, "100 GB"),
+            "Reading 100 GB out of Google Cloud Storage costs about £9 at Google’s usual price; Cloudflare R2 \
+             charges nothing for this. Files kept in Nearline, Coldline or Archive storage cost about 1p to 4p a \
+             gigabyte more to read."
+        );
+        assert_eq!(
+            provider("endpoint", "https://storage.googleapis.com").0,
+            "Google Cloud Storage"
+        );
+        assert!((estimated_pounds("gcs", "storage.googleapis.com", 100 * GB) - 9.48).abs() < 0.01);
+    }
+
+    #[test]
     fn every_provider_is_said_with_about() {
         for (kind, place) in [
             ("r2", "0123"),
             ("s3", "eu-west-2"),
+            ("gcs", "storage.googleapis.com"),
             ("endpoint", "https://s3.eu-central-003.backblazeb2.com"),
             ("endpoint", "https://s3.wasabisys.com"),
             ("endpoint", "https://nas.local:9000"),

@@ -152,6 +152,11 @@ const cloudCost = (source: { root: string }, bytes: number) => {
   const gb = bytes / 1024 ** 3
   const size = gb >= 1 ? `${gb.toFixed(1)} GB` : `${(bytes / 1024 ** 2).toFixed(1)} MB`
   if (source.root.startsWith('r2://')) return `Reading ${size} out of Cloudflare R2 costs about nothing: Cloudflare R2 doesn’t charge for downloading.`
+  if (source.root.startsWith('gcs://')) {
+    const pounds = gb * 0.12 * 0.79
+    const said = pounds < 1 ? 'under £1' : `about £${Math.round(pounds).toLocaleString('en-GB')}`
+    return `Reading ${size} out of Google Cloud Storage costs ${said} at Google’s usual price; Cloudflare R2 charges nothing for this. Files kept in Nearline, Coldline or Archive storage cost about 1p to 4p a gigabyte more to read.`
+  }
   if (source.root.startsWith('s3://')) {
     const pounds = gb * 0.09 * 0.79
     const said = pounds < 1 ? 'under £1' : `about £${Math.round(pounds).toLocaleString('en-GB')}`
@@ -1066,7 +1071,12 @@ export function demoBackend(): Backend {
           : {}
         // Cloud storage added as a source is said by where it is.
         const inCloud = bucketPlaces.get(root)
-        const cloud = inCloud ? { bucket: inCloud.place } : {}
+        // Some of an old Google Cloud Storage backup is kept in its colder classes.
+        const colder =
+          inCloud?.kind === 'gcs'
+            ? { colderSaid: '96 files, 1.4 GB, are in Google’s Nearline, Coldline or Archive storage, which costs more to read out. Keevoro backs them up all the same.' }
+            : {}
+        const cloud = inCloud ? { bucket: inCloud.place, ...colder } : {}
         const entry = { id: known >= 0 ? sources[known].id : Date.now(), name: known >= 0 ? sources[known].name : inCloud ? root.split('/').pop() ?? name : name, root, items: photos + videos, bytes: (photos * 3.2 + videos * 48) * 1024 * 1024, ...online, ...cloud }
         if (known >= 0) sources[known] = entry
         else sources.push(entry)
@@ -1439,7 +1449,14 @@ export function demoBackend(): Backend {
       const prefix = (request.prefix ?? '').replace(/^\/+|\/+$/g, '')
       const bucket = (request.bucket ?? '').trim()
       const root = `${request.kind}://${bucket}${prefix ? `/${prefix}` : ''}`
-      const provider = request.kind === 'r2' ? 'Cloudflare R2' : request.kind === 's3' ? 'Amazon S3' : 'cloud storage'
+      const provider =
+        request.kind === 'r2'
+          ? 'Cloudflare R2'
+          : request.kind === 's3'
+            ? 'Amazon S3'
+            : request.kind === 'gcs'
+              ? 'Google Cloud Storage'
+              : 'cloud storage'
       const where = `the ${provider} bucket ${bucket}`
       const place = prefix ? `the folder ${prefix} in ${where}` : where
       bucketPlaces.set(root, { place, kind: request.kind })
@@ -1664,6 +1681,11 @@ export function demoBackend(): Backend {
       return {}
     },
     openReleasePage: async () => {},
+    // Remembered, so a test can see which page would have opened in the browser.
+    openWebPage: async (page) => {
+      const opened = window as unknown as { keevoroOpenedPages?: string[] }
+      opened.keevoroOpenedPages = [...(opened.keevoroOpenedPages ?? []), page]
+    },
     async keepCollection(key, keep) {
       otherRowsIn(key).forEach((row) => (row.kept = keep))
       const found = collections.find((c) => c.key === key)
@@ -1883,7 +1905,9 @@ export function demoBackend(): Backend {
           ? `the folder ${request.place}`
           : request.kind === 'r2'
             ? `the Cloudflare R2 bucket ${request.bucket}`
-            : `the bucket ${request.bucket}`
+            : request.kind === 'gcs'
+              ? `the Google Cloud Storage bucket ${request.bucket}`
+              : `the bucket ${request.bucket}`
       // Added to the list; a new place has nothing in it yet, so nothing
       // is safe until it has caught up.
       const already = dests.find((d) => d.name === name)

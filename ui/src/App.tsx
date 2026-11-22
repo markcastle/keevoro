@@ -81,7 +81,8 @@ import { CheckLine, CheckStopped } from './checking'
 import { WindowAsks } from './tray'
 import { certain, mainButtonWords, outOfReachLine } from './thereWords'
 import { SyncedCard } from './synced'
-import { StorageFields } from './storageForm'
+import { GoogleClassNote, StorageFields } from './storageForm'
+import { CompareStorage } from './compare'
 import { AddBucketSource, CloudCost, CloudSourceIcon } from './bucketSource'
 import { Explained } from './explained'
 import { SettingsScreen } from './settings/shell'
@@ -1485,6 +1486,7 @@ function FindScreen(props: {
                   </span>
                 )}
                 {s.onlineOnlySaid && <p className="online-only small">{s.onlineOnlySaid}</p>}
+                {s.colderSaid && <p className="online-only small">{s.colderSaid}</p>}
                 {s.keptAs && (
                   <p className="kept-as small">
                     Kept in its own folders, starting with “{s.keptAs}”.{s.sharedSaid && ` ${s.sharedSaid}`}
@@ -1841,7 +1843,7 @@ function AboutScreen(props: { api: Backend; version: string; onBack: () => void;
             Every file is fingerprinted from its whole contents. An original written to a folder or a drive is read
             back from its place in the backup and compared with that fingerprint before Keevoro calls it safe, and
             one that does not match is never counted, and is said so. If a file of the same name is already there, it is fingerprinted too, and
-            counted only if it is the same file. An original sent to Cloudflare R2 or Amazon S3 travels over an
+            counted only if it is the same file. An original sent to Cloudflare R2, Amazon S3 or Google Cloud Storage travels over an
             encrypted, error-checked connection, and “Check they all arrived” confirms each one is there and the
             right size.
           </dd>
@@ -1872,7 +1874,9 @@ function AboutScreen(props: { api: Backend; version: string; onBack: () => void;
           <dd>
             There is no Keevoro account and no Keevoro server. Your files go from your source to the destination you
             chose and nowhere else. Storage keys are kept in this computer’s own keychain. The only thing Keevoro
-            contacts by itself is GitHub, to see whether there is a newer version. A report of a problem or an idea
+            contacts by itself is GitHub, to see whether there is a newer version. If you choose Compare providers
+            while choosing where to back up to, it shows Stratus, a comparison of cloud storage prices on the
+            internet, and tells it only the size of the backup and your currency. A report of a problem or an idea
             goes to Keevoro’s maker only when you send one, and you see exactly what it holds first. On this computer
             it keeps only its working notes: a list of what it found, small previews, and a log of what it did.
           </dd>
@@ -2234,6 +2238,7 @@ function SendScreen(props: {
         onWhere={props.onSendingTo}
         onSent={props.onSent}
         onSettings={props.onSettings}
+        keptBytes={props.found?.bytes ?? 0}
       />
       {props.next}
     </section>
@@ -2260,6 +2265,8 @@ function SendPanel(props: {
   onSent: () => void
   /** Opens Settings at a row. */
   onSettings: (row: string) => void
+  /** What is being kept, in bytes, for comparing what cloud storage of that size costs. */
+  keptBytes: number
 }) {
   const { api, onProblem, onWhere, onSent } = props
   const [where, setWhere] = useState<string | null | undefined>(undefined)
@@ -2503,6 +2510,11 @@ function SendPanel(props: {
                 <b>Amazon S3</b>
                 <span>Cloud storage of your own</span>
               </button>
+              <button className="place" onClick={() => setForm({ kind: 'gcs', place: '', bucket: '' })} disabled={connecting}>
+                <CloudIcon />
+                <b>Google Cloud Storage</b>
+                <span>Cloud storage of your own</span>
+              </button>
               <button
                 className="place"
                 onClick={() => setForm({ kind: 'endpoint', place: '', bucket: '' })}
@@ -2513,6 +2525,17 @@ function SendPanel(props: {
                 <span>Anything that works like S3</span>
               </button>
             </div>
+          )}
+          {!form && (
+            <CompareStorage
+              api={api}
+              keptBytes={props.keptBytes}
+              onSetUp={(setUp) => {
+                setRefused(null)
+                setForm({ kind: setUp.kind, place: setUp.place, bucket: '' })
+              }}
+              onProblem={onProblem}
+            />
           )}
           {form && (
             <form
@@ -2529,6 +2552,7 @@ function SendPanel(props: {
                 Use a key that can read and write this one bucket only. It is kept in your computer’s keychain, not in
                 your library.
               </p>
+              <GoogleClassNote kind={form.kind} />
               {refused && (
                 <p className="refused" role="alert">
                   {refused}

@@ -152,6 +152,10 @@ const WINDOW_ONLY: &[&str] = &[
     "open_log",
     // Opens one of Keevoro's own web pages in the browser.
     "open_release_page",
+    // Opens the comparison of cloud storage, or a provider's page it
+    // named, in the browser. The command line and an agent have a browser
+    // of their own.
+    "open_web_page",
     // Downloads and starts the app's own installer, then closes the window.
     "install_update",
     // Keeping Keevoro running by the clock when its window is closed, and

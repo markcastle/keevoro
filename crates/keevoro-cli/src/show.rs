@@ -181,6 +181,9 @@ pub fn sources(io: &mut Io<'_>, _: &ArgMatches, list: &Value) -> Said_ {
         if let Some(online) = source.get("onlineOnlySaid").and_then(Value::as_str) {
             writeln!(io.out, "   {online}")?;
         }
+        if let Some(colder) = source.get("colderSaid").and_then(Value::as_str) {
+            writeln!(io.out, "   {colder}")?;
+        }
         for folder in each(source.get("leftOut").unwrap_or(&Value::Null)).filter_map(Value::as_str) {
             writeln!(
                 io.out,

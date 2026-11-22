@@ -146,7 +146,7 @@ fn allowed(keevoro: &Keevoro, op: Op, backup: Option<&str>, mut request: Value) 
             }
         }
         Op::DestinationsAdd => match text(&request, "kind") {
-            "r2" | "s3" | "endpoint" => {}
+            "r2" | "s3" | "gcs" | "endpoint" => {}
             // A folder, or a kind not understood, which the operation will
             // refuse: either way the place is judged as a folder first.
             _ => {

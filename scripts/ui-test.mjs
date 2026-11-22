@@ -31,6 +31,31 @@ const base = `http://127.0.0.1:${server.address().port}`
 
 const browser = await chromium.launch()
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } })
+// Stratus, the comparison of cloud storage, is never reached for real: a
+// stand-in answers at its address. Like the real page in its embed mode,
+// it says it is ready, shows what it was told, and says what was picked.
+// Set `stratusOffline` to have the address not answer at all.
+const STRATUS = /^https:\/\/stratus\.adam-sparshott\.workers\.dev(\/|$)/
+const stratusAsked = []
+let stratusOffline = false
+const fakeStratus = `<!doctype html><meta charset="utf-8"><title>Stratus stand-in</title>
+<p id="told">Not told anything yet</p>
+<button id="r2">Pick R2 Standard</button> <button id="icloud">Pick iCloud+ 2TB</button>
+<script>
+  const pick = (option) => parent.postMessage({ stratus: 'select', option }, '*')
+  addEventListener('message', (e) => {
+    if (e.data && e.data.stratus === 'set') document.getElementById('told').textContent =
+      'keys=' + Object.keys(e.data).sort().join(',') + ' need=' + e.data.need + ' currency=' + e.data.currency + ' kind=' + e.data.kind + ' from=' + e.origin
+  })
+  document.getElementById('r2').onclick = () => pick({ id: 'r2-standard', provider: 'cloudflare-r2', providerName: 'Cloudflare R2', name: 'R2 Standard', kind: 'object', monthly: 1.5, url: 'https://developers.cloudflare.com/r2/pricing/' })
+  document.getElementById('icloud').onclick = () => pick({ id: 'icloud-2tb', provider: 'apple', providerName: 'Apple iCloud+', name: 'iCloud+ 2TB', kind: 'consumer', monthly: 8.99, url: 'https://support.apple.com/en-us/108047' })
+  parent.postMessage({ stratus: 'ready', version: 'stand-in' }, '*')
+</script>`
+await page.route(STRATUS, (route) => {
+  stratusAsked.push(route.request().url())
+  if (stratusOffline) return route.abort('internetdisconnected')
+  return route.fulfill({ status: 200, contentType: 'text/html', body: fakeStratus })
+})
 const problems = []
 page.on('pageerror', (error) => problems.push(String(error)))
 page.on('console', (message) => message.type() === 'error' && problems.push(message.text()))
@@ -354,16 +379,84 @@ try {
   await page.getByRole('button', { name: 'Choose where they go' }).click()
   await page.getByRole('heading', { name: 'Where should they go?', level: 1 }).waitFor()
   const kinds = page.locator('.destinations .place b')
-  assert.deepEqual(await kinds.allInnerTexts(), ['A folder', 'Cloudflare R2', 'Amazon S3', 'Other storage'])
+  assert.deepEqual(await kinds.allInnerTexts(), ['A folder', 'Cloudflare R2', 'Amazon S3', 'Google Cloud Storage', 'Other storage'])
   // It says how much room the files will need before a place is chosen.
   assert.match(await text('.send .needs'), /^You are backing up [\d,]+ files, about [\d.]+ (MB|GB)\. Wherever you choose needs at least that much free\.$/)
   await shot('7-where-should-they-go')
+  // Not sure where to buy cloud storage? One quiet line, and nothing is
+  // loaded from the internet until it is chosen.
+  assert.equal(await text('.compare-line'), 'Not sure where to buy cloud storage? Compare providers')
+  assert.deepEqual(stratusAsked, [], 'nothing is asked of Stratus before the person opens it')
+  await page.getByRole('button', { name: 'Compare providers' }).click()
+  const compare = page.getByRole('dialog', { name: 'Compare cloud storage' })
+  await compare.waitFor()
+  assert.match(await compare.innerText(), /This loads a comparison page from the internet\. Keevoro tells it only the size of this backup, about [\d,]+ GB, and your currency\. The prices are Stratus’s, not Keevoro’s/)
+  assert.match(await compare.innerText(), /Comparison by Stratus, made by Adam Sparshott\./)
+  const frame = compare.locator('iframe')
+  assert.equal(await frame.getAttribute('sandbox'), 'allow-scripts allow-same-origin', 'no popups, no moving the app away, no forms')
+  assert.equal(await frame.getAttribute('referrerpolicy'), 'no-referrer')
+  // Told the size of this backup and a currency, and nothing else.
+  const told = page.frameLocator('.compare-sheet iframe').locator('#told')
+  await told.filter({ hasText: /^keys=/ }).waitFor()
+  assert.match(await told.innerText(), /^keys=currency,kind,need,stratus need=\d+ currency=(GBP|USD|EUR) kind=object from=http:\/\/127\.0\.0\.1:\d+$/)
+  assert.ok(stratusAsked.length > 0 && stratusAsked.every((url) => STRATUS.test(url)))
+  await shot('7b-compare-storage')
+  await fitsNarrow('Comparing cloud storage')
+  await narrowShots('7b-compare-storage', compare)
+  // Picking something Keevoro backs up to offers its form, ready to fill in.
+  await page.frameLocator('.compare-sheet iframe').getByRole('button', { name: 'Pick R2 Standard' }).click()
+  const setUp = compare.getByRole('button', { name: 'Set up Cloudflare R2 in Keevoro' })
+  await setUp.waitFor()
+  assert.match(await compare.locator('.compare-choice').innerText(), /You chose R2 Standard\. Once you have a bucket and its keys, Keevoro can back up there\./)
+  await shot('7c-compare-storage-chosen')
+  await setUp.click()
+  await compare.waitFor({ state: 'detached' })
+  assert.equal(await page.locator('form.connect').getByLabel('Storage').inputValue(), 'r2')
+  await page.locator('form.connect').getByLabel('Cloudflare account ID').waitFor()
+  await page.locator('form.connect').getByRole('button', { name: 'Cancel' }).click()
+  // Something Keevoro can't back up to directly is named, with its page.
+  await page.getByRole('button', { name: 'Compare providers' }).click()
+  await page.frameLocator('.compare-sheet iframe').getByRole('button', { name: 'Pick iCloud+ 2TB' }).click()
+  await compare.getByText('Keevoro can’t back up to Apple iCloud+ directly', { exact: false }).waitFor()
+  assert.equal(await compare.getByRole('button', { name: /^Set up / }).count(), 0)
+  await compare.getByRole('button', { name: 'Open Apple iCloud+’s page' }).click()
+  await page.waitForFunction(() => (window.keevoroOpenedPages ?? []).includes('https://support.apple.com/en-us/108047'))
+  await compare.getByRole('button', { name: 'Close' }).click()
+  await compare.waitFor({ state: 'detached' })
+  // With no connection, it says so after a short wait, and offers the browser.
+  stratusOffline = true
+  await page.getByRole('button', { name: 'Compare providers' }).click()
+  await compare.getByText('Couldn’t load the comparison just now.', { exact: false }).waitFor({ timeout: 30_000 })
+  await shot('7d-compare-storage-offline')
+  await compare.locator('.compare-failed').getByRole('button', { name: 'Open Stratus in your browser' }).click()
+  await page.waitForFunction(() => (window.keevoroOpenedPages ?? []).includes('https://stratus.adam-sparshott.workers.dev/'))
+  await page.keyboard.press('Escape')
+  await compare.waitFor({ state: 'detached' })
+  stratusOffline = false
   // Cloud storage asks only what it needs, and hides the secret.
   await page.getByRole('button', { name: /Cloudflare R2/ }).click()
   await page.getByLabel('Cloudflare account ID').fill('0123456789abcdef0123456789abcdef')
   assert.equal(await page.getByLabel('Secret access key').getAttribute('type'), 'password', 'the secret is hidden')
   await shot('8-cloud-form')
   await page.getByRole('button', { name: 'Cancel' }).click()
+  // Google Cloud Storage asks only for the bucket and its keys: Keevoro
+  // fills in Google's address, and says where in Google's console the keys
+  // are made, and which class to keep the bucket in.
+  await page.getByRole('button', { name: /Google Cloud Storage/ }).click()
+  const googleForm = page.locator('form.connect')
+  assert.equal(await googleForm.getByLabel('Storage').inputValue(), 'gcs')
+  for (const asked of ['Cloudflare account ID', 'Region', 'Address']) {
+    assert.equal(await googleForm.getByLabel(asked).count(), 0, `Google Cloud Storage is not asked its ${asked}`)
+  }
+  assert.match(await googleForm.innerText(), /Make the keys in the Google Cloud console under Cloud Storage, Settings, Interoperability/)
+  assert.match(await googleForm.innerText(), /Keep this bucket in Google’s Standard class\. Nearline, Coldline and Archive charge each time Keevoro reads a file back to check it/)
+  assert.equal(await googleForm.getByLabel('Access key ID').getAttribute('placeholder'), 'GOOG…')
+  assert.equal(await googleForm.getByLabel('Secret access key').getAttribute('type'), 'password', 'the secret is hidden')
+  await googleForm.scrollIntoViewIfNeeded()
+  await shot('8b-google-cloud-form')
+  await fitsNarrow('The Google Cloud Storage form')
+  await narrowShots('8b-google-cloud-form', googleForm)
+  await googleForm.getByRole('button', { name: 'Cancel' }).click()
   // A folder is one click, then one button sends everything.
   await page.getByRole('button', { name: /^A folder/ }).click()
   await page.getByRole('heading', { name: 'Backing up to the folder F:\\Family Backup' }).waitFor()
@@ -2056,6 +2149,10 @@ try {
   await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
   await page.getByRole('button', { name: /^Add cloud storage as a source/ }).click()
   const bucketForm = page.getByRole('form', { name: 'Add cloud storage as a source' })
+  // Google Cloud Storage is offered here too, with no place to ask.
+  await bucketForm.getByLabel('Storage').selectOption('gcs')
+  assert.equal(await bucketForm.getByLabel('Region').count(), 0)
+  assert.match(await bucketForm.innerText(), /Cloud Storage, Settings, Interoperability/)
   await bucketForm.getByLabel('Storage').selectOption('s3')
   await bucketForm.getByLabel('Region').fill('eu-west-2')
   await bucketForm.getByLabel('Bucket name').fill('old-family-backup')
@@ -2085,6 +2182,27 @@ try {
   await cloudCost.scrollIntoViewIfNeeded()
   await shot('11c-cloud-cost-before-backing-up')
   await fitsNarrow('What reading from cloud storage costs')
+  // A Google Cloud Storage bucket as a source: asked only its bucket and
+  // keys, its files in colder classes counted and said, and what reading
+  // it costs said with the others.
+  await page.locator('.steps button').nth(0).click()
+  await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
+  await page.getByRole('button', { name: /^Add cloud storage as a source/ }).click()
+  await bucketForm.getByLabel('Storage').selectOption('gcs')
+  await bucketForm.getByLabel('Bucket name').fill('old-scans')
+  await bucketForm.getByLabel('Access key ID').fill('GOOGEXAMPLE1234567890AB')
+  await bucketForm.getByLabel('Secret access key').fill('not-a-real-secret')
+  await bucketForm.getByRole('button', { name: 'Add and look through it' }).click()
+  const googleSource = page.locator('.kept li.source').filter({ hasText: 'old-scans' })
+  await googleSource.waitFor()
+  assert.match(await googleSource.innerText(), /In the Google Cloud Storage bucket old-scans/)
+  assert.match(await googleSource.innerText(), /are in Google’s Nearline, Coldline or Archive storage, which costs more to read out\. Keevoro backs them up all the same\./)
+  await googleSource.scrollIntoViewIfNeeded()
+  await shot('2g-google-cloud-storage-as-a-source')
+  await page.locator('.steps button').nth(2).click()
+  await cloudCost.waitFor()
+  await page.waitForFunction(() => /Google Cloud Storage/.test(document.querySelector('.cloud-cost')?.textContent ?? ''))
+  assert.match(await cloudCost.innerText(), /Reading [\d.]+ (GB|MB) out of Google Cloud Storage costs (about £[\d,]+|under £1) at Google’s usual price; Cloudflare R2 charges nothing for this\. Files kept in Nearline, Coldline or Archive storage cost about 1p to 4p a gigabyte more to read\./)
 
   // --- Every main screen fits a narrow window: the page never scrolls
   // sideways, and wide tables scroll inside their own box.

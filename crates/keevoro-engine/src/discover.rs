@@ -50,6 +50,10 @@ pub struct SourceView {
     /// bucket family-photos". Left out for a folder.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bucket: Option<String>,
+    /// For cloud storage, its files in a colder class of storage (Google's
+    /// Nearline, Coldline or Archive), which cost more to read, in words.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub colder_said: Option<String>,
     /// Folders left out of this backup that are in it, or that it is in,
     /// as a person would write them, each with Put back beside it.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -553,6 +557,8 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
                     &s.root,
                 ),
                 online_only_bytes: s.online_only_bytes,
+                colder_said: crate::bucket::place_of(s.bucket.as_deref())
+                    .and_then(|p| crate::bucket::colder_said(catalog, &p)),
                 bucket: crate::bucket::place_of(s.bucket.as_deref()).map(|p| p.describe()),
             }
         })

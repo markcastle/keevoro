@@ -384,6 +384,21 @@ fn archived(n: usize, bytes: u64, provider: &str) -> Option<String> {
     })
 }
 
+/// What is said of files in a bucket source kept in one of Google's colder
+/// classes (Nearline, Coldline or Archive), which can be read at once but
+/// cost more to read. They are backed up all the same.
+pub fn colder(n: usize, bytes: u64) -> Option<String> {
+    let (are, them) = if n == 1 { ("is", "it") } else { ("are", "them") };
+    (n > 0).then(|| {
+        format!(
+            "{}, {}, {are} in Google’s Nearline, Coldline or Archive storage, which costs more to read out. \
+             Keevoro backs {them} up all the same.",
+            count(n, "file"),
+            self::bytes(bytes)
+        )
+    })
+}
+
 /// Sizes the way Windows Explorer and Finder users read them.
 pub fn bytes(b: u64) -> String {
     const UNITS: [&str; 5] = ["bytes", "KB", "MB", "GB", "TB"];

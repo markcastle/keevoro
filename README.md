@@ -40,7 +40,7 @@ Three words you will see:
 
 - A **source** is anywhere Keevoro looks for photos: a drive, a USB stick, a memory card, a folder.
 - A **backup** is a named job, such as "Family photos" or "Drone footage". Each remembers its own sources, choices and destination, so you can come back later and it sends only what is new.
-- A **destination** is where a backup goes: a folder, an external or network drive, Cloudflare R2, Amazon S3, or anything else that speaks S3. A backup can have several, and a photo counts as safe only once it is at all of them.
+- A **destination** is where a backup goes: a folder, an external or network drive, Cloudflare R2, Amazon S3, Google Cloud Storage, or anything else that speaks S3. A backup can have several, and a photo counts as safe only once it is at all of them.
 
 ## 🧭 How it works
 
@@ -71,7 +71,7 @@ Choose a destination and press **Back up now**. Files go straight from the sourc
 These are rules the code is built around and automated tests guard, not hopes.
 
 - **Your sources are only ever read.** Keevoro never edits, moves, renames or deletes anything on a source. Removing a source from a backup only takes it off a list.
-- **A copy counts only when it is proved exact.** Every file is fingerprinted from its full contents. An original written to a folder or drive is read back from its place in the backup and compared with that fingerprint before it is called safe, and one that does not match is never counted, and is said so. A copy found damaged later is never deleted: "Put this backup right" moves it aside into a folder of its own there, with a note, and sends the file again. A file of the same name already there is fingerprinted too, and counted only if it is the same file. An original sent to Cloudflare R2 or Amazon S3 travels over an encrypted, error-checked connection, and "Check they all arrived" confirms each one is there and the right size.
+- **A copy counts only when it is proved exact.** Every file is fingerprinted from its full contents. An original written to a folder or drive is read back from its place in the backup and compared with that fingerprint before it is called safe, and one that does not match is never counted, and is said so. A copy found damaged later is never deleted: "Put this backup right" moves it aside into a folder of its own there, with a note, and sends the file again. A file of the same name already there is fingerprinted too, and counted only if it is the same file. An original sent to Cloudflare R2, Amazon S3 or Google Cloud Storage travels over an encrypted, error-checked connection, and "Check they all arrived" confirms each one is there and the right size.
 - **No original in a backup is ever replaced or removed.** Originals are written once. Two different photos called `IMG_0001.jpg` both survive. Only what Keevoro makes itself, the previews and the list of contents, is ever rewritten.
 - **Duplicates are exact, never guesses.** Two files are the same only when every byte matches. Same name, size or date is never enough, and photos that merely look alike are both kept.
 - **Nothing is hidden without saying so.** Pictures set aside as junk are listed with the reason and can be brought back. Files that could not be read are counted on screen and listed by name in the log, and files that could not be backed up are named when the backup ends.
@@ -80,14 +80,14 @@ These are rules the code is built around and automated tests guard, not hopes.
 
 ## ✨ What it can do
 
-- 📂 **Sources:** drives, USB sticks, memory cards, folders, network shares, the folders OneDrive, Dropbox, Google Drive and iCloud Drive keep on your computer, offered by name, and cloud storage (Cloudflare R2, Amazon S3 or anything S3-compatible), only ever read, with what reading it out would cost said first. Several per backup, with duplicates across all of them counted once.
+- 📂 **Sources:** drives, USB sticks, memory cards, folders, network shares, the folders OneDrive, Dropbox, Google Drive and iCloud Drive keep on your computer, offered by name, and cloud storage (Cloudflare R2, Amazon S3, Google Cloud Storage or anything S3-compatible), only ever read, with what reading it out would cost said first. Several per backup, with duplicates across all of them counted once.
 - ⚡ **Quick survey:** find the folders with photos on a whole disk in seconds, opening no file.
 - 🖼️ **Formats:** JPEG, PNG, HEIC, TIFF, WebP, camera raw (DNG, CR2, CR3, NEF, ARW and more), and MP4, MOV, AVI, MTS and other video. Add any other ending your camera uses, or switch one off, in Settings, Advanced, Kinds of file (or `keevoro kinds`); a kind Keevoro cannot open is still backed up exactly.
 - 🎵 **Other files, if you want them:** add an ending as "other files" (music, documents, project files) and Keevoro carries them along, backed up and checked exactly like your photos, listed by the folders they came from. It never shows them or groups them by date, and nothing of the sort is taken until you ask.
 - 🧹 **Tidying:** app icons, tiny images and leftovers are set aside with a reason. Per source, you can include or leave out whole kinds of file.
 - 🗂️ **Collections:** named after your own folders, or by date, with dates read from the camera data, the file name or the folder.
 - 👯 **Duplicates:** found by full-content fingerprint, with a screen showing which copy is kept and which are left out.
-- ☁️ **Destinations:** a folder or drive, Cloudflare R2, Amazon S3, MinIO or any S3-compatible storage. Keys live in the computer's own keychain.
+- ☁️ **Destinations:** a folder or drive, Cloudflare R2, Amazon S3, Google Cloud Storage, MinIO or any S3-compatible storage. Keys live in the computer's own keychain.
 - 🖥️ **Previews without extra software:** photos and video stills are decoded by the computer's own codecs on Windows and macOS.
 - 📈 **A good guest on your computer:** a page saying what Keevoro is doing and why, with graphs of its own processor, disk, network and memory use, and one button to pause everything.
 - 🔁 **Incremental:** open a backup again later and it sends only what is new.
@@ -235,7 +235,7 @@ npm run ui:dev
 | `keevoro-catalog` | Remembers what was found on each drive and what you chose to keep, in a small SQLite file in the backup's own folder. |
 | `keevoro-storage` | The plug-in interface every storage provider implements, and the tests they must all pass. |
 | `keevoro-storage-folder` | Stores a backup on a local disk, external drive or NAS, reading each copy back to prove it exact. |
-| `keevoro-storage-s3` | Stores it in Cloudflare R2, Amazon S3 or anything else that speaks S3. |
+| `keevoro-storage-s3` | Stores it in Cloudflare R2, Amazon S3, Google Cloud Storage or anything else that speaks S3. |
 | `keevoro-update` | Finds, checks and installs a newer version. |
 | `keevoro-engine` | What Keevoro does, as plain function calls. |
 | `keevoro-api` | Everything Keevoro can do, listed once, so the app, the command line and an AI agent can all do the same things. |

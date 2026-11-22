@@ -40,6 +40,12 @@ pub fn args(command: Command) -> Command {
             "Cloudflare R2, by your Cloudflare account ID",
         ))
         .arg(place("s3", "REGION", "Amazon S3, by its region, such as eu-west-2"))
+        .arg(
+            Arg::new("gcs")
+                .long("gcs")
+                .action(ArgAction::SetTrue)
+                .help("Google Cloud Storage, with HMAC keys made under Cloud Storage, Settings, Interoperability"),
+        )
         .arg(place(
             "endpoint",
             "URL",
@@ -47,7 +53,7 @@ pub fn args(command: Command) -> Command {
         ))
         .group(
             ArgGroup::new("where")
-                .args(["folder", "r2", "s3", "endpoint"])
+                .args(["folder", "r2", "s3", "gcs", "endpoint"])
                 .required(true),
         )
         .arg(
@@ -72,12 +78,22 @@ pub fn bucket_args(command: Command) -> Command {
             "Cloudflare R2, by your Cloudflare account ID",
         ))
         .arg(place("s3", "REGION", "Amazon S3, by its region, such as eu-west-2"))
+        .arg(
+            Arg::new("gcs")
+                .long("gcs")
+                .action(ArgAction::SetTrue)
+                .help("Google Cloud Storage, with HMAC keys made under Cloud Storage, Settings, Interoperability"),
+        )
         .arg(place(
             "endpoint",
             "URL",
             "Other storage that speaks S3 (MinIO, a NAS), by its address",
         ))
-        .group(ArgGroup::new("where").args(["r2", "s3", "endpoint"]).required(true))
+        .group(
+            ArgGroup::new("where")
+                .args(["r2", "s3", "gcs", "endpoint"])
+                .required(true),
+        )
         .arg(place("bucket", "NAME", "The bucket to read from").required(true))
         .arg(place(
             "prefix",
@@ -98,6 +114,7 @@ pub fn bucket_request(m: &ArgMatches, io: &mut Io<'_>) -> Result<Value, Failure>
     let (kind, place) = ["r2", "s3", "endpoint"]
         .into_iter()
         .find_map(|kind| given(kind).map(|place| (kind, place)))
+        .or_else(|| m.get_flag("gcs").then(|| ("gcs", String::new())))
         .unwrap_or_default();
     let mut request = json!({ "kind": kind, "place": place, "bucket": given("bucket").unwrap_or_default() });
     for (field, name) in [("prefix", "prefix"), ("name", "name")] {
@@ -153,6 +170,8 @@ pub fn request(m: &ArgMatches, io: &mut Io<'_>) -> Result<Value, Failure> {
     ]
     .into_iter()
     .find_map(|(flag, kind)| given(flag).map(|place| (kind, place)))
+    // Google Cloud Storage has one address, so it is said without one.
+    .or_else(|| m.get_flag("gcs").then(|| ("gcs", String::new())))
     .unwrap_or_default();
     if kind == "folder" {
         return Ok(json!({ "kind": kind, "place": place }));
@@ -248,7 +267,13 @@ mod tests {
     /// The request `keevoro destinations add` makes, given what was typed
     /// and what is set in the environment.
     fn asked(typed: &[&str], env: &[(&str, &str)]) -> Result<Value, Failure> {
-        let mut all = vec!["add", "--endpoint", "http://127.0.0.1:9", "--bucket", "family"];
+        asked_for(&["--endpoint", "http://127.0.0.1:9"], typed, env)
+    }
+
+    fn asked_for(place: &[&str], typed: &[&str], env: &[(&str, &str)]) -> Result<Value, Failure> {
+        let mut all = vec!["add"];
+        all.extend(place);
+        all.extend(["--bucket", "family"]);
         all.extend(typed);
         let m = args(Command::new("add")).try_get_matches_from(all).unwrap();
         let (mut out, mut err) = (Vec::new(), Vec::new());
@@ -283,5 +308,34 @@ mod tests {
         assert!(half.message.contains("both keys"), "{}", half.message);
         let none = asked(&[], &[]).unwrap_err();
         assert!(none.message.contains("--keys-from-stdin"), "{}", none.message);
+    }
+
+    #[test]
+    fn google_cloud_storage_is_named_without_a_place() {
+        let env = [(ACCESS_VAR, "GOOGEXAMPLE1234567890AB"), (SECRET_VAR, "secret-from-env")];
+        let request = asked_for(&["--gcs"], &[], &env).unwrap();
+        assert_eq!(request, json!({ "kind": "gcs", "place": "", "bucket": "family" }));
+        let both = args(Command::new("add")).try_get_matches_from(["add", "--gcs", "--s3", "eu-west-2"]);
+        assert!(both.is_err(), "one place at a time");
+
+        let m = bucket_args(Command::new("add-bucket"))
+            .try_get_matches_from(["add-bucket", "--gcs", "--bucket", "old-scans"])
+            .unwrap();
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let mut input = std::io::Cursor::new(Vec::new());
+        let lookup = move |name: &str| env.iter().find(|(n, _)| *n == name).map(|(_, v)| (*v).to_string());
+        let mut io = Io {
+            out: &mut out,
+            err: &mut err,
+            input: &mut input,
+            env: &lookup,
+            watched: false,
+            keyboard: false,
+            ask_hidden: &|_| None,
+        };
+        assert_eq!(
+            bucket_request(&m, &mut io).unwrap(),
+            json!({ "kind": "gcs", "place": "", "bucket": "old-scans" })
+        );
     }
 }

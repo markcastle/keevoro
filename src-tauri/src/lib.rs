@@ -317,6 +317,7 @@ fn app<R: Runtime>(
             commands::reports,
             commands::refresh_reports,
             commands::open_release_page,
+            commands::open_web_page,
             commands::install_update,
             commands::keep_collection,
             commands::collection_photos,
