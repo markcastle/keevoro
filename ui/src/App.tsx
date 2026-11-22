@@ -17,6 +17,7 @@
 // back. Wording follows the house rules: plain English, no jargon, and
 // progress in human terms ("3,412 of 9,870 safely backed up").
 
+import { DifferentDriveAsked, PassedOver } from './differentDrive'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
@@ -121,7 +122,33 @@ export function App() {
   const [problem, setProblem] = useState<string | null>(null)
   // A newer Keevoro, and how far along installing it is.
   const [update, setUpdate] = useState<Update | null>(null)
-  const [updating, setUpdating] = useState<'no' | 'downloading' | 'opened'>('no')
+  const [updating, setUpdating] = useState<'no' | 'waiting' | 'downloading' | 'opened'>('no')
+  // While an update waits for the work in hand, what is said, and it is
+  // asked again every few seconds until nothing is in hand.
+  const [updateWaits, setUpdateWaits] = useState<string | null>(null)
+  // Updating closes Keevoro, so it never happens while work is in hand: the
+  // app answers that it waits, and it is asked again until it goes ahead.
+  const installUpdate = (stopFirst: boolean) => {
+    if (!api) return
+    if (updating !== 'waiting' || stopFirst) setUpdating('downloading')
+    api
+      .installUpdate(stopFirst)
+      .then((started) => {
+        setUpdateWaits(started.waiting ?? null)
+        setUpdating(started.waiting ? 'waiting' : 'opened')
+      })
+      .catch((e) => {
+        setUpdating('no')
+        report(e)
+      })
+  }
+  useEffect(() => {
+    if (updating !== 'waiting') return
+    const timer = window.setTimeout(() => installUpdate(false), UPDATE_ASKED_AGAIN_EVERY)
+    return () => window.clearTimeout(timer)
+    // Asked again only while it waits.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [updating, updateWaits])
   // Where the library is backed up to; undefined until asked.
   const [sendingTo, setSendingTo] = useState<string | null | undefined>(undefined)
 
@@ -395,21 +422,17 @@ export function App() {
                     What’s new
                   </button>
                   <button onClick={() => setUpdate(null)}>Later</button>
-                  <button
-                    className="primary"
-                    onClick={() => {
-                      setUpdating('downloading')
-                      api
-                        .installUpdate()
-                        .then(() => setUpdating('opened'))
-                        .catch((e) => {
-                          setUpdating('no')
-                          report(e)
-                        })
-                    }}
-                  >
+                  <button className="primary" onClick={() => installUpdate(false)}>
                     Update now
                   </button>
+                </span>
+              </>
+            )}
+            {updating === 'waiting' && (
+              <>
+                <span>{updateWaits}</span>
+                <span className="actions">
+                  <button onClick={() => installUpdate(true)}>Stop it and update now</button>
                 </span>
               </>
             )}
@@ -920,11 +943,12 @@ function FindScreen(props: {
   }, [searching])
   // Looks through every source again, one after another, to pick up
   // anything added since. What is already backed up is not sent again.
+  // A source that is not plugged in is passed over, and one whose place
+  // holds a different drive is asked about, so nothing found is forgotten.
   const lookAgain = () => {
-    const [first, ...rest] = (found?.sources ?? []).map((s) => s.root)
-    if (first === undefined) return
-    setQueue(rest)
-    start(first)
+    setStopping(false)
+    props.onStarted()
+    api.lookAgain().catch(onProblem)
   }
   const lookThroughChosen = () => {
     if (!survey?.found) return
@@ -1161,6 +1185,15 @@ function FindScreen(props: {
       ) : (
         <>
           {justFound && (
+            <DifferentDriveAsked
+              key={justFound.differentDrive?.map((d) => d.source).join(',')}
+              api={api}
+              drives={justFound.differentDrive}
+              onStarted={props.onStarted}
+              onProblem={onProblem}
+            />
+          )}
+          {justFound && !onlyAsked(justFound) && (
             <div className={justFound.stopped || justFound.unplugged ? 'panel' : 'panel found-it'} role="status">
               {justFound.unplugged ? (
                 <>
@@ -1200,6 +1233,7 @@ function FindScreen(props: {
                     </p>
                   )}
                   {justFound.onlineOnlySaid && <p className="online-only">{justFound.onlineOnlySaid}</p>}
+                  <PassedOver said={justFound.passedOver} />
                   <LeftOutNote api={api} leftOut={justFound.leftOut} onProblem={onProblem} />
                   <LeftOutByYou
                     api={api}
@@ -1277,7 +1311,9 @@ function FindScreen(props: {
                 </span>
                 <div className="what">
                   <b>{sourceTitle(s, places)}</b>
-                  {s.bucket ? (
+                  {s.setAsideSaid ? (
+                    <span className="quiet small set-aside">{s.setAsideSaid}</span>
+                  ) : s.bucket ? (
                     <span className="folder bucket">{s.bucket.replace(/^the /, 'In the ')}</span>
                   ) : (
                     <FolderLink api={api} path={s.root} onProblem={onProblem} />
@@ -1302,7 +1338,7 @@ function FindScreen(props: {
                   </span>
                 ) : (
                   <span className="row-actions">
-                    {!s.bucket && (
+                    {!s.bucket && !s.setAsideFrom && (
                     <>
                     <button
                       className="button small"
@@ -4035,3 +4071,11 @@ const icon = (path: string, large = false) => (
 const FolderIcon = (props: { large?: boolean }) => icon('M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z', props.large)
 const CloudIcon = () => icon('M7 18a4 4 0 0 1-.6-7.96A5.5 5.5 0 0 1 17 9.5a4.25 4.25 0 0 1 .5 8.5z', true)
 const DriveIcon = (props: { large?: boolean }) => icon('M4 14l2.5-8h11L20 14M4 14h16v5H4zM16.5 16.5h.01', props.large)
+
+/** True for the last word of looking again that only asks about a different drive, having looked through nothing. */
+function onlyAsked(e: ScanEvent): boolean {
+  return (e.differentDrive?.length ?? 0) > 0 && !e.files && !e.photos && !e.videos && !e.problem
+}
+
+/** How often an update waiting for the work in hand asks again. */
+const UPDATE_ASKED_AGAIN_EVERY = 5000

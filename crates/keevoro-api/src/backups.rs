@@ -57,7 +57,25 @@ pub struct Settings {
     /// while the list is as it came.
     #[serde(default, skip_serializing_if = "keevoro_core::FileKinds::is_built_in")]
     pub file_kinds: keevoro_core::FileKinds,
+    /// Whatever a later version wrote that this one does not know, kept as
+    /// it was and written back, so changing a setting here never loses it.
+    /// (An older version than this one still drops such parts, which is why
+    /// nothing new goes in this file lightly: see `docs/developing.md`.)
+    #[serde(flatten)]
+    pub later: serde_json::Map<String, serde_json::Value>,
 }
+
+/// The parts of the settings file this version knows, including those it
+/// reads from earlier versions and does not write again.
+const KNOWN_PARTS: &[&str] = &[
+    "backups",
+    "sessions",
+    "library",
+    "current",
+    "plain_decoding",
+    "agents",
+    "file_kinds",
+];
 
 /// Keeps a settings file that could not all be understood, beside it, the
 /// first time, before anything is written over it: whatever a person set
@@ -160,6 +178,13 @@ impl Settings {
         settings.plain_decoding = one(part("plain_decoding"), &mut whole);
         settings.agents = one(part("agents"), &mut whole);
         settings.file_kinds = one(part("file_kinds"), &mut whole);
+        if let Some(all) = value.as_object() {
+            settings.later = all
+                .iter()
+                .filter(|(key, _)| !KNOWN_PARTS.contains(&key.as_str()))
+                .map(|(key, v)| (key.clone(), v.clone()))
+                .collect();
+        }
         (settings, whole)
     }
 
@@ -561,6 +586,64 @@ mod tests {
         assert!(!old.exists());
         assert!(young.exists(), "perhaps another program's, this moment");
         assert!(dir.path().join("notes.part").exists());
+    }
+
+    /// An older Keevoro (an older `keevoro` command beside a newer app, or
+    /// a release rolled back) reads this file part by part and writes back
+    /// only the parts it knows, so anything new here is lost the first time
+    /// it changes a setting. Nothing for backing up by itself (a schedule,
+    /// what happened, the computer-wide choices) belongs here: it goes in
+    /// each backup's catalog, or in a file of its own that no older version
+    /// ever writes. This fails to build, or fails, when a part is added, so
+    /// whoever adds one reads why first (docs/developing.md, "When what
+    /// Keevoro keeps changes").
+    #[test]
+    fn nothing_new_goes_in_the_settings_file_without_knowing_older_versions_drop_it() {
+        let Settings {
+            backups: _,
+            current: _,
+            plain_decoding: _,
+            agents: _,
+            file_kinds: _,
+            later: _,
+        } = Settings::default();
+        assert_eq!(
+            KNOWN_PARTS,
+            [
+                "backups",
+                "sessions",
+                "library",
+                "current",
+                "plain_decoding",
+                "agents",
+                "file_kinds"
+            ],
+            "the parts 0.41 knows"
+        );
+        for word in ["schedule", "background", "unattended", "away", "tray"] {
+            assert!(KNOWN_PARTS.iter().all(|part| !part.contains(word)), "{word}");
+        }
+    }
+
+    #[test]
+    fn parts_a_later_version_wrote_are_kept_when_a_setting_is_changed() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join(FILE),
+            r#"{"backups":[],"theme":"dark","later":{"a":[1,2]},"library":null}"#,
+        )
+        .unwrap();
+        let backups = Backups::load(dir.path(), &dir.path().join("data"));
+        backups.start("Family").unwrap();
+        let written: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.path().join(FILE)).unwrap()).unwrap();
+        assert_eq!(written["theme"], "dark");
+        assert_eq!(written["later"]["a"][1], 2);
+        assert!(
+            written.get("library").is_none(),
+            "an old part read is not written again"
+        );
+        assert_eq!(written["backups"][0]["name"], "Family");
     }
 
     #[test]

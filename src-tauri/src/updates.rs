@@ -25,6 +25,32 @@ pub fn fetch(current: &str, os: &str, into: &Path) -> Result<PathBuf, UpdateErro
     Ok(file)
 }
 
+/// What pressing Update does, given whether this app is in the middle of a
+/// search, a backup or a check, and whether the person asked to stop it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Install {
+    /// Nothing is in hand: update now.
+    Now,
+    /// Stop what is in hand after the file in hand, then update.
+    StopFirst,
+    /// Wait for what is in hand to finish. Updating closes the app, which
+    /// would cut it short.
+    Wait,
+}
+
+/// What is said while an update waits for the work in hand.
+pub const WAITING: &str =
+    "Keevoro will update once the work in hand finishes, so nothing is cut short. You can stop it and update now instead.";
+
+/// Pure: whether to update now.
+pub fn may_install(busy: bool, stop_first: bool) -> Install {
+    match (busy, stop_first) {
+        (false, _) => Install::Now,
+        (true, true) => Install::StopFirst,
+        (true, false) => Install::Wait,
+    }
+}
+
 /// How to run a downloaded installer: the program and what to pass it.
 ///
 /// On Windows the installer runs without questions and reopens Keevoro when
@@ -46,6 +72,14 @@ mod tests {
         let (program, args) = launch_plan("windows", Path::new("C:/Temp/Keevoro-windows-x64-setup.exe")).unwrap();
         assert_eq!(program, Path::new("C:/Temp/Keevoro-windows-x64-setup.exe"));
         assert_eq!(args, ["/P", "/R"]);
+    }
+
+    #[test]
+    fn an_update_never_cuts_short_the_work_in_hand() {
+        assert_eq!(may_install(false, false), Install::Now);
+        assert_eq!(may_install(false, true), Install::Now);
+        assert_eq!(may_install(true, false), Install::Wait);
+        assert_eq!(may_install(true, true), Install::StopFirst);
     }
 
     #[test]

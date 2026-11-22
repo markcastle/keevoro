@@ -150,6 +150,7 @@ fn app<R: Runtime>(
             commands::tidy_folder,
             commands::discover,
             commands::scan_place,
+            commands::look_again,
             commands::stop_scanning,
             commands::survey_place,
             commands::stop_survey,

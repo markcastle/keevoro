@@ -508,3 +508,64 @@ fn a_backup_id_never_names_a_folder_outside_its_own() {
     assert_eq!(folder_name(""), "_");
     assert_eq!(folder_name("C:\\Windows"), "C__Windows");
 }
+
+/// `holder.json` and `status.json` are read by older Keevoro programs
+/// running beside a newer one. An older program that meets a word it does
+/// not know in them cannot read the file at all, and a lock it cannot read
+/// is taken over once it is a minute old, so a second backup would run on
+/// the same catalog. So the words in these three never grow: mark anything
+/// new with a new optional field instead, which older programs pass over.
+/// A variant added here fails to build, so whoever adds one reads this
+/// first (docs/developing.md, "Words other programs read").
+#[test]
+fn the_words_older_programs_read_in_shared_files_never_grow() {
+    use crate::jobs::{FrontEnd, JobKind, Outcome};
+    fn front_end(f: FrontEnd) -> &'static str {
+        match f {
+            FrontEnd::App => "app",
+            FrontEnd::CommandLine => "commandLine",
+            FrontEnd::Agent => "agent",
+        }
+    }
+    fn job(k: JobKind) -> &'static str {
+        match k {
+            JobKind::Survey => "survey",
+            JobKind::Look => "look",
+            JobKind::LookAgain => "lookAgain",
+            JobKind::BackUp => "backUp",
+            JobKind::Check => "check",
+            JobKind::Duplicates => "duplicates",
+        }
+    }
+    fn outcome(o: Outcome) -> &'static str {
+        match o {
+            Outcome::Worked => "worked",
+            Outcome::SomeFiles => "someFiles",
+            Outcome::Unreachable => "unreachable",
+            Outcome::Refused => "refused",
+            Outcome::Stopped => "stopped",
+        }
+    }
+    for f in [FrontEnd::App, FrontEnd::CommandLine, FrontEnd::Agent] {
+        assert_eq!(serde_json::to_value(f).unwrap(), front_end(f));
+    }
+    for k in [
+        JobKind::Survey,
+        JobKind::Look,
+        JobKind::LookAgain,
+        JobKind::BackUp,
+        JobKind::Check,
+        JobKind::Duplicates,
+    ] {
+        assert_eq!(serde_json::to_value(k).unwrap(), job(k));
+    }
+    for o in [
+        Outcome::Worked,
+        Outcome::SomeFiles,
+        Outcome::Unreachable,
+        Outcome::Refused,
+        Outcome::Stopped,
+    ] {
+        assert_eq!(serde_json::to_value(o).unwrap(), outcome(o));
+    }
+}

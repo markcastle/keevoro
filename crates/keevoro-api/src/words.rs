@@ -18,6 +18,45 @@ pub fn unplugged_while_looking(name: &str, drive: bool) -> String {
     format!("{what} What was found so far is kept; plug it in and look again to carry on.")
 }
 
+/// A source passed over when looking again, because it is not there: a
+/// card in a drawer, a drive unplugged. `drive` is true when the source is
+/// a whole drive, named as the computer named it when it was last seen.
+pub fn not_plugged_in(name: &str, drive: bool) -> String {
+    if drive {
+        format!("{name} is not plugged in, so it was not looked through. What was found on it before is kept.")
+    } else {
+        format!(
+            "{name} can't be found, so it was not looked through. Is its drive plugged in? What was found in it before is kept."
+        )
+    }
+}
+
+/// Every source passed over, none of them there.
+pub const NONE_PLUGGED_IN: &str =
+    "None of this backup's sources are plugged in, so nothing was looked through. What was found on them before is kept.";
+
+/// The question asked when the drive at a source's place is not the one
+/// looked through there before.
+pub fn different_drive_asked(name: &str) -> String {
+    format!("This looks like a different drive from the one called {name}. Add it as a new source, or look through it as {name} anyway?")
+}
+
+/// The same, said when nobody is there to answer: the source was passed
+/// over and nothing found on it is lost.
+pub fn different_drive_said(name: &str, place: &str) -> String {
+    format!(
+        "A different drive is plugged in where {name} was ({place}), so {name} was not looked through. What was found on it before is kept."
+    )
+}
+
+/// A source set aside because its own drive is back at its place, and the
+/// source that took that place meanwhile is not.
+pub fn set_aside_for(other: &str, name: &str, place: &str) -> String {
+    format!(
+        "{name} is plugged in at {place} again, so {other} was set aside. What was found on {other} is kept for when its drive is plugged in."
+    )
+}
+
 /// The background check for duplicates, running: what it is doing, said
 /// so that nothing reads as an instruction.
 pub fn checking(done: usize, total: usize) -> String {

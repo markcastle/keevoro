@@ -471,11 +471,27 @@ pub static ROWS: &[Row] = &[
         args: |c| {
             c.arg(arg("place", "A drive or folder; with --again, one of the sources").required_unless_present("again"))
                 .arg(flag("again", "Look through the sources again for what is new"))
+                .arg(
+                    arg(
+                        "different-drive",
+                        "When the drive at a source's place is not the one looked through there before: anyway, to look through it as that source, or new, to keep the source as it was and add the drive as a new source",
+                    )
+                    .long("different-drive")
+                    .value_parser(["anyway", "new"])
+                    .requires("place")
+                    .requires("again"),
+                )
         },
         ask: |c, m, _| {
             if m.get_flag("again") {
                 let source = text(m, "place").map(|typed| source(c, &typed)).transpose()?;
-                Ok((Op::SourcesLookAgain, json!({ "source": source })))
+                let mut ask = json!({ "source": source });
+                match text(m, "different-drive").as_deref() {
+                    Some("anyway") => ask["differentDrive"] = json!("lookAnyway"),
+                    Some("new") => ask["differentDrive"] = json!("addAsNew"),
+                    _ => {}
+                }
+                Ok((Op::SourcesLookAgain, ask))
             } else {
                 Ok((Op::SourcesLook, json!({ "place": required(m, "place") })))
             }

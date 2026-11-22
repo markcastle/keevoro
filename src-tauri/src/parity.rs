@@ -105,6 +105,7 @@ const BACKED: &[(&str, &[Op])] = &[
     ("survey_place", &[Op::PlacesSurvey]),
     ("stop_survey", &[Op::JobsStop]),
     ("scan_place", &[Op::SourcesLook]),
+    ("look_again", &[Op::SourcesLookAgain]),
     ("stop_scanning", &[Op::JobsStop]),
     // The second half of looking through a source: reading in full, in the
     // background, what the quick search only sampled. The API starts it

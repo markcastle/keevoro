@@ -199,6 +199,14 @@ pub struct LookAgainRequest {
     /// source is looked through again.
     #[serde(default)]
     pub source: Option<i64>,
+    /// For the one source named, when the drive at its place is not the
+    /// one looked through there before: `lookAnyway` replaces what was
+    /// found on it with what is there now; `addAsNew` keeps the source as
+    /// it was, set aside until its own drive is back, and adds the drive
+    /// there as a new source. Left out, such a source is passed over and
+    /// asked about.
+    #[serde(default)]
+    pub different_drive: Option<crate::jobs::OtherDrive>,
 }
 
 /// `jobs.follow`, `jobs.stop`: one job by its id, or every one running on
@@ -586,7 +594,7 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
         }
         Op::SourcesLookAgain => {
             let r: LookAgainRequest = read(request)?;
-            answer(keevoro.look_again(&named()?, r.source, None)?)
+            answer(keevoro.look_again(&named()?, r.source, r.different_drive, None)?)
         }
         Op::BackupRun => {
             read::<Nothing>(request)?;

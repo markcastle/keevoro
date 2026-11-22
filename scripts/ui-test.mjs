@@ -931,6 +931,49 @@ try {
   assert.equal(await page.locator('.kept li.source').count(), 1, 'what was found so far is kept')
   await shot('9j1-search-drive-unplugged')
 
+  // --- Looking again with a source's card in a drawer passes it over and
+  // says so: what was found on it is kept.
+  await page.goto(`${base}/?drives=away&fast`)
+  await page.getByRole('button', { name: /^Find your photos/ }).click()
+  await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
+  await page.getByRole('button', { name: 'Look again for new photos' }).click()
+  await page.locator('.passed-over').waitFor()
+  assert.equal(
+    await text('.passed-over'),
+    'KINGSTON (E:) is not plugged in, so it was not looked through. What was found on it before is kept.',
+  )
+  await page.locator('.passed-over').scrollIntoViewIfNeeded()
+  await shot('9j2-look-again-not-plugged-in')
+  await fitsNarrow('Looking again with a source not plugged in')
+
+  // --- Another card at a source's place is asked about, never taken for it.
+  await page.goto(`${base}/?drives=different&fast`)
+  await page.getByRole('button', { name: /^Find your photos/ }).click()
+  await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
+  await page.getByRole('button', { name: 'Look again for new photos' }).click()
+  const asked = page.getByRole('alertdialog', { name: 'Is this Family hard drive?' })
+  await asked.waitFor()
+  assert.match(
+    await asked.innerText(),
+    /This looks like a different drive from the one called Family hard drive\. Add it as a new source, or look through it as Family hard drive anyway\?/,
+  )
+  assert.deepEqual(await asked.getByRole('button').allInnerTexts(), [
+    'Add it as a new source',
+    'Look through it as Family hard drive anyway',
+    'Not now',
+  ])
+  assert.equal(await page.locator('.panel.found-it').count(), 0, 'nothing was looked through, so nothing is said to be found')
+  await shot('9j3-a-different-drive-asked')
+  await fitsNarrow('The question about a different drive')
+  await asked.getByRole('button', { name: 'Add it as a new source' }).click()
+  await page.getByRole('heading', { name: /^Found .* on KINGSTON \(E:\)$/ }).waitFor()
+  const aside = page.locator('.kept li.source').filter({ hasText: 'Family hard drive' })
+  assert.match(await aside.innerText(), /Set aside when a different drive was plugged in at E:\\\. Everything found on it is kept/)
+  assert.equal(await page.locator('.kept li.source').count(), 2, 'the new drive is a source of its own beside it')
+  await aside.scrollIntoViewIfNeeded()
+  await shot('9j4-a-source-set-aside')
+  await fitsNarrow('A source set aside')
+
   // --- The check for duplicates that follows a stopped search says what it
   // is doing, has its own Pause and Stop, and offers to be stopped too.
   await page.goto(`${base}/?slow&slowcheck`)
@@ -1164,6 +1207,15 @@ try {
   assert.match(await text('.update'), /A new version of Keevoro is ready \(9\.9\.0\)/)
   await shot('9c-update-ready')
   await page.getByRole('button', { name: 'Update now' }).click()
+  await page.getByText(/has been downloaded and opened/).waitFor()
+  // While a backup is in hand the update waits for it, rather than closing
+  // Keevoro part-way, and offers to stop it instead.
+  await page.goto(`${base}/?fast&update&busy`)
+  await page.getByRole('button', { name: 'Update now' }).click()
+  await page.getByText(/^Keevoro will update once the work in hand finishes, so nothing is cut short\./).waitFor()
+  await shot('9c2-update-waits-for-the-backup')
+  await fitsNarrow('An update waiting for the backup in hand')
+  await page.getByRole('button', { name: 'Stop it and update now' }).click()
   await page.getByText(/has been downloaded and opened/).waitFor()
   await page.goto(`${base}/?fast&update`)
   await page.getByRole('button', { name: 'Later' }).click()

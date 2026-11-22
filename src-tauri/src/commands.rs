@@ -706,6 +706,24 @@ pub fn scan_place(shared: State<'_, Shared>, path: String) -> Said<()> {
     Ok(())
 }
 
+/// Looks through one source again, or every one. A source that is not
+/// plugged in is passed over and said; one whose place holds a different
+/// drive is asked about, and `different_drive` is the person's answer for
+/// the one source named.
+#[tauri::command]
+pub fn look_again(
+    shared: State<'_, Shared>,
+    source: Option<i64>,
+    different_drive: Option<keevoro_api::jobs::OtherDrive>,
+) -> Said<()> {
+    let open = open_backup(&shared)?;
+    shared
+        .keevoro
+        .look_again(&open, source, different_drive, None)
+        .map_err(say)?;
+    Ok(())
+}
+
 /// Where this backup goes, in words, or `None` if nowhere yet.
 /// Quick: the places are named without counting what has reached them.
 #[tauri::command]
@@ -1004,10 +1022,48 @@ pub async fn check_update<R: Runtime>(app: AppHandle<R>) -> Said<Option<keevoro_
         .map_err(say)
 }
 
+/// What pressing Update did: started installing, or is waiting for the
+/// work in hand to finish, said in `waiting`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateStarted {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub waiting: Option<String>,
+}
+
 /// Downloads the newer Keevoro, checks it, and starts installing it. On
-/// Windows the app then closes so the installer can replace it.
+/// Windows the app then closes so the installer can replace it, so it never
+/// does while a search, a backup or a check is in hand: it answers that it
+/// is waiting, and the window asks again once the work is done. With
+/// `stop_first`, the work in hand is stopped after the file in hand (nothing
+/// is lost) and the update goes ahead.
 #[tauri::command]
-pub async fn install_update<R: Runtime>(app: AppHandle<R>) -> Said<()> {
+pub async fn install_update<R: Runtime>(app: AppHandle<R>, stop_first: Option<bool>) -> Said<UpdateStarted> {
+    let waiting = || UpdateStarted {
+        waiting: Some(crate::updates::WAITING.to_string()),
+    };
+    let busy = || app.state::<Shared>().keevoro.busy_here();
+    match crate::updates::may_install(busy(), stop_first.unwrap_or(false)) {
+        crate::updates::Install::Wait => return Ok(waiting()),
+        crate::updates::Install::StopFirst => {
+            let handle = app.clone();
+            let stopped = tauri::async_runtime::spawn_blocking(move || {
+                handle
+                    .state::<Shared>()
+                    .keevoro
+                    .stop_here_and_wait(std::time::Duration::from_secs(60))
+            })
+            .await
+            .map_err(say)?;
+            if !stopped {
+                return Err(
+                    "Keevoro couldn't stop the work in hand in time, so it hasn't updated yet. Try again in a moment."
+                        .into(),
+                );
+            }
+        }
+        crate::updates::Install::Now => {}
+    }
     let os = std::env::consts::OS;
     let into = app.path().app_cache_dir().map_err(say)?.join("update");
     let installer =
@@ -1015,6 +1071,10 @@ pub async fn install_update<R: Runtime>(app: AppHandle<R>) -> Said<()> {
             .await
             .map_err(say)?
             .map_err(|e| format!("Keevoro couldn't update itself: {e}."))?;
+    // Something may have started while it downloaded.
+    if busy() {
+        return Ok(waiting());
+    }
     let (program, args) = crate::updates::launch_plan(os, &installer)
         .ok_or_else(|| "Keevoro can't update itself on this kind of computer yet.".to_string())?;
     std::process::Command::new(program)
@@ -1024,7 +1084,7 @@ pub async fn install_update<R: Runtime>(app: AppHandle<R>) -> Said<()> {
     if os == "windows" {
         app.exit(0);
     }
-    Ok(())
+    Ok(UpdateStarted { waiting: None })
 }
 
 #[cfg(test)]

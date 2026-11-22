@@ -398,6 +398,10 @@ fn the_screens_commands_start_the_apis_jobs_and_their_events_reach_the_window() 
     // held before its first file by pausing, which stopping lifts.
     invoke(&window, "pause_work", json!({ "paused": true })).unwrap();
     invoke(&window, "scan_place", json!({ "path": card_path })).unwrap();
+    // Updating would close the app and cut the search short, so it waits.
+    let update = invoke(&window, "install_update", json!({})).unwrap();
+    fits(&update, "UpdateStarted");
+    assert_eq!(update["waiting"].as_str(), Some(crate::updates::WAITING));
     invoke(&window, "stop_scanning", json!({})).unwrap();
     let stopped = heard.wait_for("scan", |e| e["finished"] == true);
     assert_eq!(stopped["stopped"], true, "{stopped}");
@@ -412,6 +416,22 @@ fn the_screens_commands_start_the_apis_jobs_and_their_events_reach_the_window() 
     assert_eq!((found["photos"].as_u64(), found["problem"].as_str()), (Some(1), None));
     // The background check for duplicates that a search starts is heard too.
     heard.wait_for_nth("check", 1, |e| e["finished"] == true);
+    keevoro();
+    let discover = invoke(&window, "discover", json!({})).unwrap();
+    assert_eq!(discover["photos"], 1, "{discover}");
+    // Looking again with the card in a drawer passes it over, says so, and
+    // forgets nothing found on it.
+    let drawer = dir.path().join("In a drawer");
+    fs::rename(&card, &drawer).unwrap();
+    let refused = invoke(&window, "look_again", json!({})).unwrap_err();
+    assert!(
+        refused.as_str().is_some_and(|said| said.contains("plugged in")),
+        "{refused}"
+    );
+    fs::rename(&drawer, &card).unwrap();
+    invoke(&window, "look_again", json!({ "source": discover["sources"][0]["id"] })).unwrap();
+    let again = heard.wait_for_nth("scan", 2, |e| e["finished"] == true);
+    fits(&again, "ScanEvent");
     keevoro();
     let discover = invoke(&window, "discover", json!({})).unwrap();
     assert_eq!(discover["photos"], 1, "{discover}");

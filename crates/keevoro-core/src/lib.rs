@@ -23,6 +23,7 @@ pub mod media;
 pub mod meter;
 pub mod pause;
 pub mod places;
+pub mod recognise;
 pub mod skip;
 pub mod synced;
 pub mod wants;

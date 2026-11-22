@@ -206,6 +206,9 @@ export type Source = {
   /** Other sources whose folders go into that same folder, and that in words. */
   sharesFolderWith?: string[]
   sharedSaid?: string
+  /** Set aside when a different drive was plugged in at its place: that place, and this in words. Everything found on it is kept. */
+  setAsideFrom?: string
+  setAsideSaid?: string
 }
 
 /** How photos and videos are arranged in a backup. */
@@ -390,7 +393,28 @@ export type ScanEvent = {
   onlineOnlySaid?: string
   /** On the last event: the drive was unplugged part-way, in a sentence. What was found so far is kept. */
   unplugged?: string
+  /** On the last event of looking again: sources not looked through, as they are not plugged in or were set aside, each in a sentence. */
+  passedOver?: string[]
+  /** On the last event: sources whose place holds a different drive now, so they were not looked through, each with the question to ask. */
+  differentDrive?: DifferentDrive[]
 }
+
+/** What pressing Update did: started installing, or waits for the work in hand to finish, said in `waiting`. */
+export type UpdateStarted = { waiting?: string }
+
+/** A source whose place holds a different drive from the one looked through there before. */
+export type DifferentDrive = {
+  source: number
+  name: string
+  place: string
+  /** "This looks like a different drive from the one called Card. Add it as a new source, or look through it as Card anyway?" */
+  asked: string
+  /** What happened, said when nobody answers: it was passed over and nothing found on it is lost. */
+  said: string
+}
+
+/** The answer to that question. */
+export type OtherDrive = 'lookAnyway' | 'addAsNew'
 
 /** Sent while files a quick search only sampled are read in the background. */
 export type CheckEvent = {
@@ -962,6 +986,8 @@ export interface Backend {
   onDrives(listener: () => void): () => void
   /** Starts looking through the drive or folder at this path. */
   scanPlace(path: string): Promise<void>
+  /** Looks through one source again, or every one; a source not plugged in is passed over and said, and `differentDrive` answers the question about one. */
+  lookAgain(source?: number, differentDrive?: OtherDrive): Promise<void>
   /**
    * Finds which folders in a drive hold photos and videos, by reading
    * folder listings only. Quick, and no file is opened.
@@ -979,7 +1005,8 @@ export interface Backend {
   /** A newer Keevoro this computer can install, or null. */
   checkUpdate(): Promise<Update | null>
   /** Downloads, checks and starts the update. On Windows the app then closes. */
-  installUpdate(): Promise<void>
+  /** Installs the update, unless work is in hand: then it answers `waiting`, unless `stopFirst` stops that work first. */
+  installUpdate(stopFirst?: boolean): Promise<UpdateStarted>
   /** Opens a release's "What's new" page in the browser. */
   openReleasePage(page: string): Promise<void>
   keepCollection(key: string, keep: boolean): Promise<void>
@@ -1130,13 +1157,14 @@ async function tauriBackend(): Promise<Backend> {
     placesIfChanged: (known, asked) => invoke('places_if_changed', { known, asked }),
     onDrives: (listener) => subscribe('drives', () => listener()),
     scanPlace: (path) => invoke('scan_place', { path }),
+    lookAgain: (source, differentDrive) => invoke('look_again', { source, differentDrive }),
     surveyPlace: (path) => invoke('survey_place', { path }),
     stopSurvey: () => invoke('stop_survey'),
     onSurvey: (listener) => subscribe('survey', listener),
     logTail: () => invoke('log_tail'),
     openLog: () => invoke('open_log'),
     checkUpdate: () => invoke('check_update'),
-    installUpdate: () => invoke('install_update'),
+    installUpdate: (stopFirst) => invoke('install_update', { stopFirst }),
     openReleasePage: (page) => invoke('open_release_page', { page }),
     pickPlace: () => pickFolder('Choose a source: a drive or folder to look through'),
     keepCollection: (key, keep) => invoke('keep_collection', { key, keep }),

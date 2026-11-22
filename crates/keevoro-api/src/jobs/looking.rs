@@ -5,44 +5,266 @@
 //! sampled is read in full afterwards, in the background, by the check
 //! for duplicates, which this starts again when it ends.
 
-use super::{spawn, Context, Every, Job, JobHandle, JobKind, Listener, Said, ScanEvent};
+use super::{spawn, Context, DifferentDrive, Every, Job, JobHandle, JobKind, Listener, Said, ScanEvent};
 use crate::agents::AgentAccess;
 use crate::backups::Named;
 use crate::error::{Error, Result};
 use keevoro_catalog::Catalog;
+use keevoro_core::recognise::{Mark, Recognised};
 use keevoro_core::Kinds;
 use keevoro_engine::friendly_path;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
-/// The places `sources.look_again` looks through: the one source asked
-/// for, or every one, in the order they were added. A source the person
-/// left out (or one inside a folder left out) is passed by, so what was
-/// found there is kept for when it is put back.
-pub(super) fn sources_to_look_again(backup: &Named, source: Option<i64>) -> Result<Vec<PathBuf>> {
+/// How the person answered the question asked when the drive at a source's
+/// place is not the one looked through there before.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum OtherDrive {
+    /// Look through it as the source anyway, replacing what was found on
+    /// it with what is there now.
+    LookAnyway,
+    /// Keep the source as it was, set aside for when its drive is plugged
+    /// in again, and add the drive there now as a new source.
+    AddAsNew,
+}
+
+/// One thing a search does, in turn.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum Step {
+    /// Looks through a place: a source, or a new one.
+    Look(PathBuf),
+    /// Sets the source with this id aside, keeping everything found on it,
+    /// then looks through its place as a new source.
+    SetAsideAndLook { id: i64, place: PathBuf },
+    /// Brings a source that was set aside back to its place, setting aside
+    /// whatever source is there meanwhile, then looks through it.
+    BringBack { id: i64, place: PathBuf },
+}
+
+/// What a search will do, and what it passes over and why.
+#[derive(Debug, Default)]
+pub(super) struct ToLook {
+    pub(super) steps: Vec<Step>,
+    /// Sentences: sources not there, so not looked through.
+    pub(super) passed_over: Vec<String>,
+    /// Sources whose place holds another drive now.
+    pub(super) different: Vec<DifferentDrive>,
+}
+
+impl ToLook {
+    pub(super) fn one(place: PathBuf) -> Self {
+        Self {
+            steps: vec![Step::Look(place)],
+            ..Self::default()
+        }
+    }
+
+    /// The place the first step looks through, if any.
+    fn first_place(&self) -> Option<&Path> {
+        self.steps.first().map(|step| match step {
+            Step::Look(place) | Step::SetAsideAndLook { place, .. } | Step::BringBack { place, .. } => place.as_path(),
+        })
+    }
+}
+
+/// Where a source set aside is kept in the catalog: a place inside the
+/// backup's own folder that is never made, so it is never looked through
+/// and never mistaken for a real one.
+fn set_aside_place(home: &Path, id: i64) -> PathBuf {
+    home.join(".keevoro").join("set aside").join(id.to_string())
+}
+
+/// What a source is called when it is not there: the drive's name as the
+/// computer gave it at the last look, for a whole drive, else its own.
+fn called(source: &keevoro_catalog::Source, mark: Option<&Mark>) -> (String, bool) {
+    match mark.and_then(|m| m.drive.clone()) {
+        Some(drive) => (drive, true),
+        None if source.root.parent().is_none() => (source.name.clone(), true),
+        None => (friendly_path(&source.root), false),
+    }
+}
+
+/// Whether the drive at `place` now is `source`, which was last looked
+/// through at its own root: by its volume, and when that differs, by a few
+/// of the files found on it.
+fn recognised_at(catalog: &Catalog, source: &keevoro_catalog::Source, mark: Option<&Mark>, place: &Path) -> Recognised {
+    let now = keevoro_engine::reach::volume_of(place);
+    keevoro_core::recognise::recognise(mark.and_then(|m| m.volume.as_deref()), now.as_deref(), || {
+        let files = catalog.some_files_of(source.id).unwrap_or_default();
+        let there = files
+            .iter()
+            .filter(|(path, bytes)| {
+                let at = path
+                    .strip_prefix(&source.root)
+                    .map_or_else(|_| path.clone(), |rest| place.join(rest));
+                std::fs::metadata(at).is_ok_and(|m| m.is_file() && m.len() == *bytes)
+            })
+            .count();
+        (files.len(), there)
+    })
+}
+
+/// The question about a source whose place holds another drive.
+fn different(source: &keevoro_catalog::Source) -> DifferentDrive {
+    let place = friendly_path(&source.root);
+    DifferentDrive {
+        source: source.id,
+        name: source.name.clone(),
+        asked: crate::words::different_drive_asked(&source.name),
+        said: crate::words::different_drive_said(&source.name, &place),
+        place,
+    }
+}
+
+/// What `sources.look_again` does: the one source asked for, or every
+/// one, in the order they were added. Passed over, so that what was found
+/// on each is kept:
+///
+/// - a source the person left out (or one inside a folder left out), for
+///   when it is put back;
+/// - a source that is not there (a card in a drawer), said;
+/// - a source whose place holds a different drive now, asked about, unless
+///   `answer` says what to do with the one source asked for.
+///
+/// A source set aside before is brought back once its own drive is at its
+/// place again.
+pub(super) fn sources_to_look_again(backup: &Named, source: Option<i64>, answer: Option<OtherDrive>) -> Result<ToLook> {
     let catalog = Catalog::open_in_library(&backup.home)?;
     let sources = catalog.sources()?;
     let choices = catalog.choices()?;
-    let asked: Vec<PathBuf> = sources
-        .iter()
-        .filter(|s| source.is_none_or(|id| s.id == id))
-        .map(|s| s.root.clone())
-        .collect();
+    let asked: Vec<&keevoro_catalog::Source> = sources.iter().filter(|s| source.is_none_or(|id| s.id == id)).collect();
     let left_out = asked
         .iter()
-        .find_map(|root| choices.left_out_folder(root).map(friendly_path));
-    let places: Vec<PathBuf> = asked
-        .into_iter()
-        .filter(|root| choices.left_out_folder(root).is_none())
-        .collect();
-    match (places.is_empty(), source, left_out) {
-        (true, _, Some(folder)) => Err(Error::refused(left_out_said(&folder))),
-        (true, Some(_), None) => Err(Error::not_found("That source isn't part of this backup.")),
-        (true, None, None) => Err(Error::refused(
-            "This backup has no sources to look through again. Add one first.",
-        )),
-        (false, _, _) => Ok(places),
+        .find_map(|s| choices.left_out_folder(&s.root).map(friendly_path));
+    let mut to_look = ToLook::default();
+    let mut coming_back: Vec<PathBuf> = Vec::new();
+    for s in asked.iter().filter(|s| choices.left_out_folder(&s.root).is_none()) {
+        if keevoro_core::bucket::is_bucket_path(&s.root) {
+            to_look.steps.push(Step::Look(s.root.clone()));
+            continue;
+        }
+        let mark = catalog.source_mark(&s.root)?;
+        if let Some(was_at) = mark.as_ref().and_then(|m| m.was_at.clone()).map(PathBuf::from) {
+            if was_at.is_dir() && recognised_at(&catalog, s, mark.as_ref(), &was_at) != Recognised::Different {
+                coming_back.push(was_at.clone());
+                to_look.steps.push(Step::BringBack {
+                    id: s.id,
+                    place: was_at,
+                });
+            } else {
+                let (name, drive) = called(s, mark.as_ref());
+                to_look.passed_over.push(crate::words::not_plugged_in(&name, drive));
+            }
+            continue;
+        }
+        if !s.root.is_dir() {
+            let (name, drive) = called(s, mark.as_ref());
+            to_look.passed_over.push(crate::words::not_plugged_in(&name, drive));
+            continue;
+        }
+        match (
+            recognised_at(&catalog, s, mark.as_ref(), &s.root),
+            answer.filter(|_| source.is_some()),
+        ) {
+            (Recognised::Different, Some(OtherDrive::AddAsNew)) => to_look.steps.push(Step::SetAsideAndLook {
+                id: s.id,
+                place: s.root.clone(),
+            }),
+            (Recognised::Different, None) => to_look.different.push(different(s)),
+            _ => to_look.steps.push(Step::Look(s.root.clone())),
+        }
+    }
+    // A source whose place its own drive comes back to is set aside by
+    // that step, so it is not asked about.
+    to_look
+        .different
+        .retain(|d| !coming_back.iter().any(|p| friendly_path(p) == d.place));
+    if to_look.steps.is_empty() && to_look.different.is_empty() {
+        return match (source, left_out, to_look.passed_over.len()) {
+            (_, Some(folder), 0) => Err(Error::refused(left_out_said(&folder))),
+            (Some(_), _, 1) => Err(Error::unreachable(to_look.passed_over.remove(0))),
+            (None, _, n) if n > 0 => Err(Error::unreachable(crate::words::NONE_PLUGGED_IN.to_string())),
+            (Some(_), _, _) => Err(Error::not_found("That source isn't part of this backup.")),
+            (None, _, _) => Err(Error::refused(
+                "This backup has no sources to look through again. Add one first.",
+            )),
+        };
+    }
+    Ok(to_look)
+}
+
+/// What `sources.look` of `place` does: looks through it, unless it is a
+/// source already and the drive there is not the one looked through there
+/// before, which is asked about rather than replaced.
+pub(super) fn place_to_look(backup: &Named, place: &Path) -> Result<ToLook> {
+    let real = std::fs::canonicalize(place).unwrap_or_else(|_| place.to_path_buf());
+    let catalog = Catalog::open_in_library(&backup.home)?;
+    let Some(source) = catalog.sources()?.into_iter().find(|s| s.root == real) else {
+        return Ok(ToLook::one(place.to_path_buf()));
+    };
+    let mark = catalog.source_mark(&source.root)?;
+    Ok(match recognised_at(&catalog, &source, mark.as_ref(), &source.root) {
+        Recognised::Different => ToLook {
+            different: vec![different(&source)],
+            ..ToLook::default()
+        },
+        _ => ToLook::one(place.to_path_buf()),
+    })
+}
+
+/// Sets the source with this id aside, keeping all of it, remembering the
+/// place it was at so it can be brought back.
+fn set_aside(catalog: &mut Catalog, home: &Path, id: i64, place: &Path) -> Result<()> {
+    let mut mark = catalog.source_mark(place)?.unwrap_or_default();
+    mark.was_at = Some(place.to_string_lossy().into_owned());
+    let away = set_aside_place(home, id);
+    catalog.move_source(id, &away)?;
+    catalog.set_source_mark(&away, &mark)?;
+    Ok(())
+}
+
+/// Does what a step must before its place is looked through, and says it
+/// in the log. Gives what to say on the screen, if anything.
+fn get_ready(ctx: &Context, home: &Path, step: &Step) -> Result<Option<String>> {
+    let mut catalog = Catalog::open_in_library(home)?;
+    match step {
+        Step::Look(_) => Ok(None),
+        Step::SetAsideAndLook { id, place } => {
+            set_aside(&mut catalog, home, *id, place)?;
+            ctx.log.say(&format!(
+                "Set the source at {} aside, as a different drive is there now, keeping everything found on it; looking through the drive there as a new source",
+                friendly_path(place)
+            ));
+            Ok(None)
+        }
+        Step::BringBack { id, place } => {
+            let sources = catalog.sources()?;
+            let name = sources
+                .iter()
+                .find(|s| s.id == *id)
+                .map(|s| s.name.clone())
+                .unwrap_or_default();
+            let mut said = None;
+            if let Some(other) = sources.iter().find(|s| s.root == *place && s.id != *id) {
+                set_aside(&mut catalog, home, other.id, place)?;
+                said = Some(crate::words::set_aside_for(&other.name, &name, &friendly_path(place)));
+            }
+            let away = set_aside_place(home, *id);
+            let mut mark = catalog.source_mark(&away)?.unwrap_or_default();
+            catalog.move_source(*id, place)?;
+            mark.was_at = None;
+            catalog.set_source_mark(place, &mark)?;
+            ctx.log.say(&format!(
+                "{name} is plugged in at {} again, so it is looked through there",
+                friendly_path(place)
+            ));
+            if let Some(said) = &said {
+                ctx.log.say(said);
+            }
+            Ok(said)
+        }
     }
 }
 
@@ -72,11 +294,11 @@ pub(super) struct HowToLook {
     pub(super) for_agent: Option<AgentAccess>,
 }
 
-/// Starts looking through `places`, one after another.
+/// Starts looking through what `to_look` says, one place after another.
 pub(super) fn start(
     ctx: &Context,
     backup: &Named,
-    places: Vec<PathBuf>,
+    to_look: ToLook,
     kind: JobKind,
     how: HowToLook,
     listener: Option<Listener>,
@@ -85,29 +307,64 @@ pub(super) fn start(
     let job = ctx.jobs.begin(kind, Some(backup), listener)?;
     let handle = job.handle.clone();
     // Said at once, so anyone who asks straight away hears it.
-    if let Some(first) = places.first() {
+    if let Some(first) = to_look.first_place() {
         job.note_line(&format!("Looking through {}", name_of(first)));
+    }
+    for said in to_look
+        .passed_over
+        .iter()
+        .chain(to_look.different.iter().map(|d| &d.said))
+    {
+        ctx.log.say(said);
     }
     let backup = backup.clone();
     spawn(ctx, &job, move |ctx, job, ending| {
+        let ToLook {
+            steps,
+            mut passed_over,
+            different,
+        } = to_look;
         let mut last = None;
-        for (n, place) in places.iter().enumerate() {
-            let said = look_through(ctx, job, &backup.home, place, &kinds, &skip);
-            // A remembered map of anywhere this search covers may now be
-            // out of date, so it is surveyed again the next time it opens.
-            let real = std::fs::canonicalize(place).unwrap_or_else(|_| place.clone());
-            keevoro_engine::surveys::mark_out_of_date(&ctx.cache, &real);
+        for (n, step) in steps.iter().enumerate() {
+            let said = match get_ready(ctx, &backup.home, step) {
+                Ok(said) => {
+                    passed_over.extend(said);
+                    let (Step::Look(place) | Step::SetAsideAndLook { place, .. } | Step::BringBack { place, .. }) =
+                        step;
+                    let said = look_through(ctx, job, &backup.home, place, &kinds, &skip);
+                    // A remembered map of anywhere this search covers may
+                    // now be out of date, so it is surveyed again the next
+                    // time it opens.
+                    let real = std::fs::canonicalize(place).unwrap_or_else(|_| place.clone());
+                    keevoro_engine::surveys::mark_out_of_date(&ctx.cache, &real);
+                    said
+                }
+                Err(e) => ScanEvent {
+                    finished: true,
+                    problem: Some(e.message),
+                    ..ScanEvent::default()
+                },
+            };
             // A search that was stopped stops the rest too.
-            let more = n + 1 < places.len() && !said.stopped && !job.stopped();
+            let more = n + 1 < steps.len() && !said.stopped && !job.stopped();
             if !more {
                 last = Some(said);
                 break;
             }
             ctx.jobs.heard(job, Said::Scan(said), true);
         }
+        // What was passed over is said with the last word, so whoever hears
+        // only that hears it too.
+        let mut last = last.unwrap_or_else(|| ScanEvent {
+            name: backup.name.clone(),
+            finished: true,
+            ..ScanEvent::default()
+        });
+        last.passed_over = passed_over;
+        last.different_drive = different;
         // Another search may start the moment this one is heard to end.
         ctx.jobs.release(job);
-        let last = last.map(Said::Scan);
+        let last = Some(Said::Scan(last));
         if let Some(said) = &last {
             ctx.jobs.heard(job, said.clone(), true);
         }
@@ -239,6 +496,23 @@ fn look_through(
             latest.2
         )),
         Ok(report) => {
+            // What its drive is, so another drive at the same place is
+            // never taken for it. Not after a look cut short by the drive
+            // going, which may have left another in its place.
+            if !report.gone {
+                let mark = Mark {
+                    volume: keevoro_engine::reach::volume_of(&report.root),
+                    drive: drive.clone(),
+                    was_at: None,
+                };
+                let kept = Catalog::open_in_library(home).and_then(|c| c.set_source_mark(&report.root, &mark));
+                if let Err(e) = kept {
+                    log.say(&format!(
+                        "Couldn't remember which drive {} is on: {e}",
+                        friendly_path(source)
+                    ));
+                }
+            }
             let of = |kind| report.items.iter().filter(|i| i.kind == kind).count();
             let carried = of(keevoro_core::MediaKind::Other);
             // Said as ever, unless other files were carried along too.
@@ -304,6 +578,7 @@ fn look_through(
         online_only_said: result.as_ref().ok().and_then(online_only_said),
         problem: result.err().map(|e| format!("{e:#}")),
         unplugged,
+        ..ScanEvent::default()
     }
 }
 

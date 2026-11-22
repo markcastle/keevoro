@@ -235,7 +235,16 @@ export function demoBackend(): Backend {
   const firstHome = 'C:\\Users\\You\\AppData\\Keevoro\\backups\\s1'
   let library: string | null = mode === 'new' ? null : firstHome
   const collections: Collection[] = mode === 'new' || mode === 'empty' ? [] : FOUND.slice(0, 5).map((make) => make())
-  const sources: { id: number; name: string; root: string; items: number; bytes: number; bucket?: string }[] =
+  const sources: {
+    id: number
+    name: string
+    root: string
+    items: number
+    bytes: number
+    bucket?: string
+    setAsideFrom?: string
+    setAsideSaid?: string
+  }[] =
     collections.length > 0 ? [{ id: 1, name: 'Family hard drive', root: 'E:\\', items: 240, bytes: 1.4 * 1024 ** 3 }] : []
   // The files inside each collection are made up the first time it is opened.
   const inside = new Map<string, PhotoChoice[]>()
@@ -1343,6 +1352,66 @@ export function demoBackend(): Backend {
       surveyListeners.add(listener)
       return () => surveyListeners.delete(listener)
     },
+    // `?drives=away` has a second source whose card is in a drawer, and
+    // `?drives=different` another card at the first source's place.
+    async lookAgain(source, differentDrive) {
+      const drives = new URLSearchParams(window.location.search).get('drives')
+      const first = sources[0]
+      if (!first) throw new Error('This backup has no sources to look through again. Add one first.')
+      if (drives === 'away') {
+        void later(400 * pace).then(() =>
+          scanListeners.forEach((l) =>
+            l({
+              name: first.name,
+              photos: 240,
+              videos: 0,
+              files: 8880,
+              finished: true,
+              passedOver: ['KINGSTON (E:) is not plugged in, so it was not looked through. What was found on it before is kept.'],
+            }),
+          ),
+        )
+        return
+      }
+      if (drives === 'different' && differentDrive === undefined) {
+        void later(300 * pace).then(() =>
+          scanListeners.forEach((l) =>
+            l({
+              name: 'Card photos',
+              photos: 0,
+              videos: 0,
+              finished: true,
+              differentDrive: [
+                {
+                  source: first.id,
+                  name: first.name,
+                  place: first.root,
+                  asked: `This looks like a different drive from the one called ${first.name}. Add it as a new source, or look through it as ${first.name} anyway?`,
+                  said: `A different drive is plugged in where ${first.name} was (${first.root}), so ${first.name} was not looked through. What was found on it before is kept.`,
+                },
+              ],
+            }),
+          ),
+        )
+        return
+      }
+      if (differentDrive === 'addAsNew') {
+        const at = sources.findIndex((s) => s.id === source)
+        if (at >= 0) {
+          const was = sources[at]
+          sources[at] = {
+            ...was,
+            root: `set aside ${was.id}`,
+            setAsideFrom: was.root,
+            setAsideSaid: `Set aside when a different drive was plugged in at ${was.root}. Everything found on it is kept; plug its own drive in and look again to bring it back.`,
+          }
+          look('KINGSTON (E:)', was.root)
+          return
+        }
+      }
+      const one = sources.find((s) => s.id === source) ?? first
+      look(one.name, one.root)
+    },
     async scanPlace(path) {
       const name = path.startsWith('E')
         ? 'KINGSTON (E:)'
@@ -1367,8 +1436,16 @@ export function demoBackend(): Backend {
       new URLSearchParams(window.location.search).has('update')
         ? { version: '9.9.0', page: 'https://github.com/markcastle/keevoro/releases' }
         : null,
-    installUpdate: async () => {
+    // `?update&busy` has a backup in hand, so the update waits for it.
+    installUpdate: async (stopFirst) => {
+      if (new URLSearchParams(window.location.search).has('busy') && !stopFirst) {
+        return {
+          waiting:
+            'Keevoro will update once the work in hand finishes, so nothing is cut short. You can stop it and update now instead.',
+        }
+      }
       await later(600 * pace)
+      return {}
     },
     openReleasePage: async () => {},
     async keepCollection(key, keep) {

@@ -107,6 +107,14 @@ pub(crate) mod tests {
             online_only: 412,
             online_only_said: Some("412 files here are in OneDrive only.".into()),
             unplugged: Some("KINGSTON (E:) was unplugged.".into()),
+            passed_over: vec!["KINGSTON (E:) is not plugged in, so it was not looked through.".into()],
+            different_drive: vec![keevoro_api::jobs::DifferentDrive {
+                source: 2,
+                name: "Card".into(),
+                place: "F:\\".into(),
+                asked: "This looks like a different drive from the one called Card.".into(),
+                said: "A different drive is plugged in where Card was.".into(),
+            }],
         };
         assert_eq!(keys(&scan), fields_of("ScanEvent"), "every field, filled in");
         let send = SendEvent {

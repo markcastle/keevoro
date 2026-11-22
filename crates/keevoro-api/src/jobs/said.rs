@@ -160,6 +160,32 @@ pub struct ScanEvent {
     /// in a sentence. What was found so far is kept.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unplugged: Option<String>,
+    /// On the last event of looking again: the sources not looked through
+    /// because they are not there, or were set aside, each said in a
+    /// sentence. What was found on them is kept.
+    #[serde(rename = "passedOver", default, skip_serializing_if = "Vec::is_empty")]
+    pub passed_over: Vec<String>,
+    /// On the last event: sources whose place holds a different drive now,
+    /// so they were not looked through, each with the question to ask.
+    #[serde(rename = "differentDrive", default, skip_serializing_if = "Vec::is_empty")]
+    pub different_drive: Vec<DifferentDrive>,
+}
+
+/// A source whose place holds a different drive from the one looked
+/// through there before. Nothing found on it was replaced; the person
+/// answers with `sources.look_again` and `differentDrive`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DifferentDrive {
+    /// The source's id.
+    pub source: i64,
+    /// Its name, such as "Card".
+    pub name: String,
+    /// Its place, as a person writes it.
+    pub place: String,
+    /// The question: add it as a new source, or look through it anyway.
+    pub asked: String,
+    /// What happened, for when nobody is there to answer.
+    pub said: String,
 }
 
 fn is_zero(n: &usize) -> bool {
@@ -381,6 +407,14 @@ mod tests {
                 online_only: 412,
                 online_only_said: keevoro_engine::summary::online_only(412, None, std::path::Path::new("/media/card")),
                 unplugged: Some(crate::words::unplugged_while_looking("KINGSTON (E:)", true)),
+                passed_over: vec![crate::words::not_plugged_in("KINGSTON (E:)", true)],
+                different_drive: vec![DifferentDrive {
+                    source: 2,
+                    name: "Card".into(),
+                    place: "E:\\".into(),
+                    asked: crate::words::different_drive_asked("Card"),
+                    said: crate::words::different_drive_said("Card", "E:\\"),
+                }],
             }),
             Said::Survey(SurveyEvent {
                 folders: 1,

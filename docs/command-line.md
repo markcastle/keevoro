@@ -297,7 +297,8 @@ The words each command shows in `keevoro --help` come from the same list the app
 | `keevoro map PLACE [--folder FOLDER] [--depth N] [--kinds]` | Where the space goes in a surveyed place: every folder and the biggest files, photos or not, by size, or with `--kinds` by ending. Nothing is opened or changed. |
 | `keevoro forget-maps` | Forgets every survey Keevoro remembers, and so every map. Nothing on any drive is touched. |
 | `keevoro look PLACE` | Looks through a drive or folder and adds it as a source. |
-| `keevoro look --again [SOURCE]` | Looks through one source, or all of them, for what is new. |
+| `keevoro look --again [SOURCE]` | Looks through one source, or all of them, for what is new. A source that is not plugged in is passed over and said ("KINGSTON (E:) is not plugged in, so it was not looked through. What was found on it before is kept."). A source whose place holds a different drive from the one looked through there before (another card in the same reader) is passed over and said too, never replaced. |
+| `keevoro look --again SOURCE --different-drive anyway\|new` | Answers for that source: `anyway` looks through the drive there as the source, replacing what was found on it; `new` keeps the source as it was, set aside until its own drive is plugged in again, and adds the drive there as a new source. |
 | `keevoro sources add-bucket --r2 ID\|--s3 REGION\|--endpoint URL --bucket NAME [--prefix FOLDER] [--name NAME]` | Adds cloud storage as a source, after checking its keys can read it. Nothing in it is ever changed. Then `keevoro look --again NAME` lists it. |
 | `keevoro sources` | The backup's sources, each with its number. |
 | `keevoro sources forget SOURCE` | Takes a source off the backup. Nothing on it is touched. |

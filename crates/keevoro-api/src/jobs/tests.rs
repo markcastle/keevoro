@@ -255,10 +255,10 @@ fn a_second_job_that_writes_is_refused_while_the_first_runs() {
     let other = keevoro.start_backup("Drone").unwrap();
 
     keevoro.pause();
-    keevoro.look_again(&named, None, None).unwrap();
+    keevoro.look_again(&named, None, None, None).unwrap();
     for refused in [
         keevoro.look(&named, &card, None),
-        keevoro.look_again(&named, None, None),
+        keevoro.look_again(&named, None, None, None),
     ] {
         let e = refused.unwrap_err();
         assert_eq!(
@@ -636,7 +636,7 @@ fn looking_again_goes_through_every_source_for_what_is_new() {
     let dir = tempfile::tempdir().unwrap();
     let keevoro = keevoro(dir.path());
     let named = keevoro.start_backup("Card photos").unwrap();
-    let e = keevoro.look_again(&named, None, None).unwrap_err();
+    let e = keevoro.look_again(&named, None, None, None).unwrap_err();
     assert_eq!(
         (e.kind, e.message.as_str()),
         (
@@ -656,7 +656,7 @@ fn looking_again_goes_through_every_source_for_what_is_new() {
     std::fs::write(phone.join("IMG_20190102_120000.jpg"), large_photo(110)).unwrap();
 
     let heard = Heard::default();
-    let job = keevoro.look_again(&named, None, heard.listener()).unwrap();
+    let job = keevoro.look_again(&named, None, None, heard.listener()).unwrap();
     assert_eq!(job.op, Some("sources.look_again"));
     keevoro.wait(job.id);
     keevoro.wait_for_jobs();
@@ -672,14 +672,215 @@ fn looking_again_goes_through_every_source_for_what_is_new() {
     assert_eq!(Backup::open(&named.home).unwrap().found().unwrap().photos, 6);
 
     let sources = Backup::open(&named.home).unwrap().sources().unwrap();
-    let one = keevoro.look_again(&named, Some(sources[1].id), None).unwrap();
+    let one = keevoro.look_again(&named, Some(sources[1].id), None, None).unwrap();
     keevoro.wait(one.id);
     keevoro.wait_for_jobs();
-    let e = keevoro.look_again(&named, Some(9999), None).unwrap_err();
+    let e = keevoro.look_again(&named, Some(9999), None, None).unwrap_err();
     assert_eq!(
         (e.kind, e.message.as_str()),
         (Kind::NotFound, "That source isn't part of this backup.")
     );
+}
+
+/// The last word of a search, waited for.
+fn last_scan(keevoro: &Keevoro, job: &JobHandle) -> ScanEvent {
+    let Some(Said::Scan(last)) = keevoro.wait(job.id) else {
+        panic!("a search ends with how it went")
+    };
+    keevoro.wait_for_jobs();
+    last
+}
+
+#[test]
+fn a_source_not_plugged_in_is_passed_over_when_looking_again_and_nothing_found_on_it_is_forgotten() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro(dir.path());
+    let named = keevoro.start_backup("Card photos").unwrap();
+    let card = card_looked_through_into(dir.path(), &named.home);
+    let phone = dir.path().join("Phone");
+    std::fs::create_dir_all(&phone).unwrap();
+    std::fs::write(phone.join("IMG_20190101_120000.jpg"), large_photo(30)).unwrap();
+    last_scan(&keevoro, &keevoro.look(&named, &phone, None).unwrap());
+    let before = Backup::open(&named.home).unwrap().sources().unwrap();
+    let card_before = before.iter().find(|s| s.name == "Card").unwrap().clone();
+
+    // The card is in a drawer.
+    let drawer = dir.path().join("In a drawer");
+    std::fs::rename(&card, &drawer).unwrap();
+    let last = last_scan(&keevoro, &keevoro.look_again(&named, None, None, None).unwrap());
+    assert_eq!(last.name, "Phone", "the phone was looked through");
+    assert_eq!(last.passed_over.len(), 1, "{last:?}");
+    assert!(
+        last.passed_over[0].contains("so it was not looked through")
+            && last.passed_over[0].ends_with("What was found in it before is kept."),
+        "{}",
+        last.passed_over[0]
+    );
+    let after = Backup::open(&named.home).unwrap().sources().unwrap();
+    let card_after = after.iter().find(|s| s.name == "Card").unwrap();
+    assert_eq!(
+        (card_after.id, card_after.items, card_after.bytes),
+        (card_before.id, card_before.items, card_before.bytes),
+        "the same source, with everything found on it"
+    );
+    assert!(card_after.items > 0);
+
+    // Asked for alone, or with nothing at all plugged in, it is said plainly.
+    let e = keevoro.look_again(&named, Some(card_after.id), None, None).unwrap_err();
+    assert_eq!(e.kind, Kind::Unreachable);
+    assert!(e.message.contains("so it was not looked through"), "{}", e.message);
+    std::fs::rename(&phone, dir.path().join("Phone in a pocket")).unwrap();
+    let e = keevoro.look_again(&named, None, None, None).unwrap_err();
+    assert_eq!(
+        (e.kind, e.message.as_str()),
+        (Kind::Unreachable, crate::words::NONE_PLUGGED_IN)
+    );
+    assert_eq!(
+        serde_json::to_value(Backup::open(&named.home).unwrap().sources().unwrap()).unwrap(),
+        serde_json::to_value(&after).unwrap()
+    );
+
+    // Back in, it is looked through as ever.
+    std::fs::rename(&drawer, &card).unwrap();
+    let last = last_scan(
+        &keevoro,
+        &keevoro.look_again(&named, Some(card_after.id), None, None).unwrap(),
+    );
+    assert!(last.passed_over.is_empty() && last.problem.is_none(), "{last:?}");
+}
+
+#[test]
+fn a_different_card_at_a_sources_place_never_replaces_what_was_found_on_the_source() {
+    use keevoro_core::recognise::Mark;
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro(dir.path());
+    let named = keevoro.start_backup("Card photos").unwrap();
+    // Looked through before drives were remembered: as ever, and its drive
+    // is remembered from now on.
+    let card = card_looked_through_into(dir.path(), &named.home);
+    let catalog = || Catalog::open_in_library(&named.home).unwrap();
+    let root = std::fs::canonicalize(&card).unwrap();
+    assert_eq!(catalog().source_mark(&root).unwrap(), None);
+    last_scan(&keevoro, &keevoro.look_again(&named, None, None, None).unwrap());
+    let mark = catalog().source_mark(&root).unwrap().unwrap();
+    assert_eq!(mark.volume, keevoro_engine::reach::volume_of(&root));
+    let source = || {
+        Backup::open(&named.home)
+            .unwrap()
+            .sources()
+            .unwrap()
+            .into_iter()
+            .find(|s| s.name == "Card")
+            .unwrap()
+    };
+    let card_a = source();
+
+    // The same card given a new number by the computer is still the card.
+    let elsewhere = Mark {
+        volume: Some("another drive".into()),
+        ..mark.clone()
+    };
+    catalog().set_source_mark(&root, &elsewhere).unwrap();
+    let last = last_scan(&keevoro, &keevoro.look_again(&named, None, None, None).unwrap());
+    assert!(last.different_drive.is_empty(), "{last:?}");
+    assert_eq!(
+        catalog().source_mark(&root).unwrap().unwrap().volume,
+        mark.volume,
+        "its new number remembered"
+    );
+
+    // Another card in the same reader: nothing of the card is there.
+    catalog().set_source_mark(&root, &elsewhere).unwrap();
+    let card_a_files = dir.path().join("Card A, in a drawer");
+    std::fs::rename(&card, &card_a_files).unwrap();
+    std::fs::create_dir_all(card.join("DCIM")).unwrap();
+    std::fs::write(card.join("DCIM/IMG_20210101_120000.jpg"), large_photo(60)).unwrap();
+    for asked in [
+        keevoro.look_again(&named, None, None, None).unwrap(),
+        keevoro.look(&named, &card, None).unwrap(),
+    ] {
+        let last = last_scan(&keevoro, &asked);
+        assert_eq!(last.different_drive.len(), 1, "{last:?}");
+        let different = &last.different_drive[0];
+        assert_eq!((different.source, different.name.as_str()), (card_a.id, "Card"));
+        assert_eq!(different.asked, crate::words::different_drive_asked("Card"));
+        assert_eq!(
+            different.said,
+            crate::words::different_drive_said("Card", &different.place)
+        );
+        let now = source();
+        assert_eq!(
+            (now.id, now.items, now.bytes),
+            (card_a.id, card_a.items, card_a.bytes),
+            "nothing replaced"
+        );
+    }
+
+    // Added as a new source: the card is set aside with all of it.
+    let last = last_scan(
+        &keevoro,
+        &keevoro
+            .look_again(&named, Some(card_a.id), Some(OtherDrive::AddAsNew), None)
+            .unwrap(),
+    );
+    assert!(last.problem.is_none() && last.different_drive.is_empty(), "{last:?}");
+    let sources = Backup::open(&named.home).unwrap().sources().unwrap();
+    assert_eq!(sources.len(), 2);
+    let aside = sources.iter().find(|s| s.id == card_a.id).unwrap();
+    assert_eq!(
+        (aside.name.as_str(), aside.items, aside.bytes),
+        ("Card", card_a.items, card_a.bytes)
+    );
+    assert_eq!(aside.set_aside_from.as_deref(), Some(card_a.root.as_str()));
+    assert!(aside
+        .set_aside_said
+        .as_deref()
+        .unwrap()
+        .contains("Everything found on it is kept"));
+    let new = sources.iter().find(|s| s.id != card_a.id).unwrap();
+    assert_eq!((new.root.as_str(), new.items), (card_a.root.as_str(), 1));
+    // Looking again passes it over while its drive is away.
+    let last = last_scan(&keevoro, &keevoro.look_again(&named, None, None, None).unwrap());
+    assert_eq!(last.passed_over.len(), 1, "{last:?}");
+
+    // Card A back in the reader: it comes back, and the other is set aside.
+    let card_b_files = dir.path().join("Card B, in a drawer");
+    std::fs::rename(&card, &card_b_files).unwrap();
+    std::fs::rename(&card_a_files, &card).unwrap();
+    let last = last_scan(&keevoro, &keevoro.look_again(&named, None, None, None).unwrap());
+    assert!(last.different_drive.is_empty(), "{last:?}");
+    assert!(
+        last.passed_over.iter().any(|said| said.contains("was set aside")),
+        "{:?}",
+        last.passed_over
+    );
+    let sources = Backup::open(&named.home).unwrap().sources().unwrap();
+    // Looking through a source gives it a new number, as it always has.
+    let back = sources.iter().find(|s| s.set_aside_from.is_none()).unwrap();
+    assert_eq!(
+        (back.root.as_str(), back.items, back.bytes),
+        (card_a.root.as_str(), card_a.items, card_a.bytes)
+    );
+    let other = sources.iter().find(|s| s.set_aside_from.is_some()).unwrap();
+    assert_eq!(other.items, 1);
+    let card_a = back.clone();
+
+    // Looked through as the card anyway: what is there now is the card.
+    catalog().set_source_mark(&root, &elsewhere).unwrap();
+    std::fs::rename(&card, &card_a_files).unwrap();
+    std::fs::rename(&card_b_files, &card).unwrap();
+    let last = last_scan(
+        &keevoro,
+        &keevoro
+            .look_again(&named, Some(card_a.id), Some(OtherDrive::LookAnyway), None)
+            .unwrap(),
+    );
+    assert!(last.different_drive.is_empty() && last.problem.is_none(), "{last:?}");
+    let sources = Backup::open(&named.home).unwrap().sources().unwrap();
+    let now = sources.iter().find(|s| s.set_aside_from.is_none()).unwrap();
+    assert_eq!((now.root.as_str(), now.items), (card_a.root.as_str(), 1));
 }
 
 #[test]
@@ -1270,7 +1471,7 @@ fn work_can_start_again_the_moment_the_last_job_on_a_backup_is_heard_to_end() {
     for _ in 0..10 {
         let job = keevoro.look(&named, &card, None).unwrap();
         keevoro.wait(job.id);
-        let again = keevoro.look_again(&named, None, None).unwrap();
+        let again = keevoro.look_again(&named, None, None, None).unwrap();
         keevoro.wait(again.id);
     }
     keevoro.wait_for_jobs();

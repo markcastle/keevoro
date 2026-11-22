@@ -1198,7 +1198,9 @@ pub fn last_word(io: &mut Io<'_>, last: Option<&Said>) -> std::io::Result<()> {
                     "Stopped. Nothing from this search of {} was kept; what was known before is as it was.",
                     e.name
                 )?;
-            } else if e.problem.is_none() {
+            } else if e.problem.is_none()
+                && !(e.files == 0 && (!e.passed_over.is_empty() || !e.different_drive.is_empty()))
+            {
                 writeln!(
                     io.out,
                     "Looked through {}: found {}.",
@@ -1223,6 +1225,17 @@ pub fn last_word(io: &mut Io<'_>, last: Option<&Said>) -> std::io::Result<()> {
             }
             for left in &e.left_out {
                 writeln!(io.out, "{}", left.said)?;
+            }
+            for passed in &e.passed_over {
+                writeln!(io.out, "{passed}")?;
+            }
+            for different in &e.different_drive {
+                writeln!(io.out, "{}", different.said)?;
+                writeln!(
+                    io.out,
+                    "To look through it as {name} anyway: keevoro look --again \"{name}\" --different-drive anyway. To keep {name} as it was and add the drive there as a new source: --different-drive new.",
+                    name = different.name
+                )?;
             }
             if let Some(problem) = &e.problem {
                 writeln!(io.err, "{problem}")?;

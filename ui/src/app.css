@@ -4978,3 +4978,47 @@ fieldset.wants input[aria-disabled='true'] {
 .space-list tr.within td.name {
   padding-left: var(--space-6);
 }
+
+/* Sources looking again passed over, and the question about a different
+   drive at a source's place (ui/src/differentDrive.tsx). */
+.passed-over {
+  margin: var(--space-2) 0 0;
+  padding: var(--space-2) var(--space-3);
+  max-width: 720px;
+  list-style: none;
+  border-left: 3px solid var(--sun-ink);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--sun-ink) 8%, transparent);
+  color: var(--ink);
+}
+
+.passed-over li + li {
+  margin-top: var(--space-1);
+}
+
+.panel.different-drive {
+  max-width: 720px;
+  margin-bottom: var(--space-4);
+}
+
+.panel.different-drive .choices {
+  margin-top: 18px;
+  flex-wrap: wrap;
+}
+
+.panel.different-drive .choices button:not(.primary):not(.link) {
+  padding: 7px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+}
+
+.kept li.source .what .set-aside {
+  display: block;
+  max-width: 60ch;
+  font-family: inherit;
+  font-size: 13px;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  color: var(--ink-muted);
+}

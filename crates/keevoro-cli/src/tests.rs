@@ -479,6 +479,42 @@ fn json_is_exactly_what_the_api_answers() {
 }
 
 #[test]
+fn a_source_not_plugged_in_is_said_and_kept_when_looking_again() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let card = card(dir.path());
+    let phone = dir.path().join("Phone");
+    std::fs::create_dir_all(&phone).unwrap();
+    std::fs::write(phone.join("IMG_20190101_120000.jpg"), jpeg(30)).unwrap();
+    let at = At::new(dir.path());
+    at.keevoro(&["backups", "start", "Card photos"]);
+    at.keevoro(&["look", &text(&card)]);
+    at.keevoro(&["look", &text(&phone)]);
+    let before = at.keevoro(&["sources", "--json"]).json();
+    std::fs::rename(&card, dir.path().join("Card in a drawer")).unwrap();
+    let ran = at.keevoro(&["look", "--again"]);
+    assert_eq!(ran.code, Code::Worked, "{}", ran.err);
+    assert!(
+        ran.out.contains("can't be found, so it was not looked through. Is its drive plugged in? What was found in it before is kept."),
+        "{}",
+        ran.out
+    );
+    let after = at.keevoro(&["sources", "--json"]).json();
+    let card_of = |v: &Value| {
+        v.as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["name"] == "Card")
+            .cloned()
+            .unwrap()
+    };
+    assert_eq!(card_of(&after)["items"], card_of(&before)["items"]);
+    let alone = at.keevoro(&["look", "--again", "Card"]);
+    assert_eq!(alone.code, Code::Unreachable);
+    assert!(alone.err.contains("so it was not looked through"), "{}", alone.err);
+}
+
+#[test]
 fn exit_codes_say_what_happened_without_reading_the_words() {
     let _turn = one_at_a_time();
     let dir = tempfile::tempdir().unwrap();

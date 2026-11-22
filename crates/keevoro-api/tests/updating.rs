@@ -375,3 +375,57 @@ fn everything_a_person_set_and_keevoro_recorded_in_0_37_1_is_there_after_updatin
         json!(["photos"])
     );
 }
+
+/// 0.42 remembers the drive a source was looked through on, so that
+/// another card at the same place never replaces it. A source 0.37.1
+/// looked through has none: it is looked through as before, and its drive
+/// is remembered from then on. One that is not plugged in is passed over,
+/// and nothing found on it is forgotten.
+#[test]
+fn a_source_0_37_1_looked_through_is_looked_through_as_before_and_its_drive_remembered() {
+    let dir = tempfile::tempdir().unwrap();
+    let (keevoro, places) = as_0_37_1_left_it(dir.path());
+    let family = Some("Family photos");
+    let home = places.folders.data.join("backups").join("backup-1");
+    let mark = || {
+        keevoro_catalog::Catalog::open_in_library(&home)
+            .unwrap()
+            .source_mark(&places.card)
+            .unwrap()
+    };
+    assert_eq!(mark(), None, "0.37.1 remembered no drive");
+    let card_items = || {
+        let sources = ask(&keevoro, Op::SourcesList, family, Value::Null);
+        sources
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["name"] == "Mum's card")
+            .unwrap()["items"]
+            .clone()
+    };
+    let before = card_items();
+    assert!(before.as_u64().unwrap() > 0);
+
+    // Not plugged in: said, and nothing forgotten.
+    let refused = call(&keevoro, Op::SourcesLookAgain, family, json!({ "source": 1 })).unwrap_err();
+    assert!(
+        refused.message.contains("so it was not looked through"),
+        "{}",
+        refused.message
+    );
+    assert_eq!(card_items(), before);
+
+    // Plugged in: looked through as ever, and its drive remembered.
+    std::fs::create_dir_all(places.card.join("DCIM")).unwrap();
+    let job = ask(&keevoro, Op::SourcesLookAgain, family, json!({ "source": 1 }));
+    keevoro.wait(serde_json::from_value(job["id"].clone()).unwrap());
+    keevoro.wait_for_jobs();
+    let card = std::fs::canonicalize(&places.card).unwrap();
+    let remembered = keevoro_catalog::Catalog::open_in_library(&home)
+        .unwrap()
+        .source_mark(&card)
+        .unwrap()
+        .expect("remembered once looked through");
+    assert_eq!(remembered.volume, keevoro_engine::reach::volume_of(&card));
+}

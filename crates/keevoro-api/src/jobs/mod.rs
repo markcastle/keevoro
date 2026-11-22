@@ -67,7 +67,10 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
 pub use duplicates::DuplicatesLeft;
-pub use said::{CheckEvent, HintView, Outcome, Said, ScanEvent, SendEvent, SurveyEvent, SurveyView, TopView};
+pub use looking::OtherDrive;
+pub use said::{
+    CheckEvent, DifferentDrive, HintView, Outcome, Said, ScanEvent, SendEvent, SurveyEvent, SurveyView, TopView,
+};
 
 /// How often a running job says how it is getting on. Often enough to feel
 /// alive, not so often that drawing it slows the job down. What it last
@@ -1392,10 +1395,15 @@ impl Keevoro {
             must_be_there(place)?;
         }
         looking::not_left_out(backup, place)?;
+        let to_look = if keevoro_core::bucket::is_bucket_path(place) {
+            looking::ToLook::one(place.to_path_buf())
+        } else {
+            looking::place_to_look(backup, place)?
+        };
         looking::start(
             &self.context(),
             backup,
-            vec![place.to_path_buf()],
+            to_look,
             JobKind::Look,
             self.how_to_look(backup),
             listener,
@@ -1403,13 +1411,22 @@ impl Keevoro {
     }
 
     /// `sources.look_again`: looks through one source, or every one in
-    /// turn, for what is new.
-    pub fn look_again(&self, backup: &Named, source: Option<i64>, listener: Option<Listener>) -> Result<JobHandle> {
-        let places = looking::sources_to_look_again(backup, source)?;
+    /// turn, for what is new. A source that is not there is passed over,
+    /// and one whose place holds a different drive is asked about, unless
+    /// `other_drive` answers for the one source asked for: nothing found
+    /// on either is forgotten.
+    pub fn look_again(
+        &self,
+        backup: &Named,
+        source: Option<i64>,
+        other_drive: Option<OtherDrive>,
+        listener: Option<Listener>,
+    ) -> Result<JobHandle> {
+        let to_look = looking::sources_to_look_again(backup, source, other_drive)?;
         looking::start(
             &self.context(),
             backup,
-            places,
+            to_look,
             JobKind::LookAgain,
             self.how_to_look(backup),
             listener,
