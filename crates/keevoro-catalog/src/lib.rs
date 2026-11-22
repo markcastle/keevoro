@@ -367,6 +367,32 @@ pub struct Catalog {
     conn: Connection,
 }
 
+/// A path kept under `from`, as it reads once `from` has become `to`.
+/// Anything not under `from` is left as it is. Only the front is swapped,
+/// so the rest keeps exactly the separators it was written with.
+fn moved_under(text: &str, from: &str, to: &str) -> String {
+    let Some(rest) = text.strip_prefix(from) else {
+        return text.to_string();
+    };
+    let from_ends_in_separator = from.ends_with(['/', '\\']);
+    if rest.is_empty() {
+        to.to_string()
+    } else if from_ends_in_separator {
+        // `E:\` and what follows it: keep `to` ending as it does.
+        if to.ends_with(['/', '\\']) {
+            format!("{to}{rest}")
+        } else {
+            let separator = if text.contains('\\') { '\\' } else { '/' };
+            format!("{to}{separator}{rest}")
+        }
+    } else if rest.starts_with(['/', '\\']) {
+        format!("{}{rest}", to.trim_end_matches(['/', '\\']))
+    } else {
+        // `/media/card2` is not under `/media/card`.
+        text.to_string()
+    }
+}
+
 impl Catalog {
     /// Opens the catalog of the library at `library`, creating it if needed.
     pub fn open_in_library(library: &Path) -> Result<Self> {
@@ -750,14 +776,10 @@ impl Catalog {
         if taken.is_some_and(|other| other != id) {
             return Err(CatalogError::Damaged(format!("another source is at {to_text} already")));
         }
-        let from_path = PathBuf::from(&from);
-        let moved = |text: &str| -> String {
-            match Path::new(text).strip_prefix(&from_path) {
-                Ok(rest) if rest.as_os_str().is_empty() => to_text.clone(),
-                Ok(rest) => path_text(&to.join(rest)),
-                Err(_) => text.to_string(),
-            }
-        };
+        // Worked on the text as it is kept, never rebuilt part by part: a
+        // path keeps the separators it was found with, whatever this
+        // computer would use to join one.
+        let moved = |text: &str| -> String { moved_under(text, &from, &to_text) };
         for table in ["items", "skipped", "unreadable", "online_only"] {
             let rows: Vec<(i64, String)> = {
                 let mut q = tx.prepare(&format!("SELECT rowid, path FROM {table} WHERE source_id = ?1"))?;

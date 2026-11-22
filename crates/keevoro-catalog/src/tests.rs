@@ -1247,3 +1247,27 @@ fn a_backup_made_before_the_choice_is_by_date_and_not_asked_and_an_empty_one_is_
         );
     }
 }
+
+#[test]
+fn a_path_moved_under_a_new_place_keeps_the_separators_it_was_written_with() {
+    use super::moved_under;
+    assert_eq!(
+        moved_under("/media/card/DCIM/a.jpg", "/media/card", "/set/aside"),
+        "/set/aside/DCIM/a.jpg"
+    );
+    assert_eq!(
+        moved_under(r"E:\DCIM\a.jpg", r"E:\", r"C:\kept\card"),
+        r"C:\kept\card\DCIM\a.jpg"
+    );
+    assert_eq!(moved_under(r"E:\DCIM\a.jpg", r"E:\", r"F:\"), r"F:\DCIM\a.jpg");
+    assert_eq!(
+        moved_under(r"\\nas\photos\2019\a.jpg", r"\\nas\photos", r"C:\kept"),
+        r"C:\kept\2019\a.jpg"
+    );
+    assert_eq!(moved_under("/media/card", "/media/card", "/set/aside"), "/set/aside");
+    assert_eq!(
+        moved_under("/media/card2/a.jpg", "/media/card", "/set/aside"),
+        "/media/card2/a.jpg",
+        "a neighbour with a like name is not under it"
+    );
+}

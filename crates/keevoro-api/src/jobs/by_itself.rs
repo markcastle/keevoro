@@ -155,7 +155,9 @@ impl Keevoro {
             clock: self.clock.clone(),
         };
         spawn(&ctx, &job, move |ctx, job, ending| {
-            let _lock = lock;
+            // Held for the run and let go before the run is said to be over,
+            // so whoever was waiting for it can start the next at once.
+            let one_at_a_time = lock;
             // A guest's work: everything else on the computer comes first.
             keevoro_frame::quiet::lower_this_threads_priority();
             let (last, slot, ran) = match run.what_to_do(ctx) {
@@ -178,6 +180,7 @@ impl Keevoro {
             if ran {
                 super::duplicates::start(ctx, &run.backup, None, super::duplicates::Why::AfterRunningByItself);
             }
+            drop(one_at_a_time);
             ending.with(Some(last));
         })?;
         Ok(handle)
