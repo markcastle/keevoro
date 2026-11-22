@@ -22,6 +22,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 - **One filled button on each screen.** The button filled in colour is the one most people want next, and now there is only ever one on a screen. When a backup is done, "Add another source" at the foot of the screen is a quiet button under the filled "Back up again"; on the first step, "See what was found" turns quiet while a question with its own filled answer is open, such as "Look through all of Windows (C:)?"; and when a backup needs putting right, "Put this backup right…" is the filled one and "Back up again" is quiet beside it.
 
+- **Smaller tidy-ups to buttons.** "Look through all of Windows (C:)?" keeps its choices on one row, with Cancel a quiet link at its end, and in a narrow window they stack neatly. Among the folders a survey suggests, "Small pictures, probably not photos" now sits with the folder's description rather than after its buttons. In Settings, Kinds of file, "Remove…" says with its "…" that it asks before taking anything off.
+
 - **A different example name for a new backup.** Where Keevoro suggests a name as you start a backup, in the app and in `keevoro backups start --help`, the example is now "Holiday videos".
 
 ### Fixed

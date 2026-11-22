@@ -6203,3 +6203,34 @@ h3.kv-group-title {
     flex: 1 1 40%;
   }
 }
+
+/* "Look through all of …?": the choices on one row, Cancel a quiet link at
+   its end; in a narrow window the buttons stack, Cancel under them. */
+.panel.asking .choices.whole-disk {
+  max-width: none;
+  gap: var(--space-3) var(--space-4);
+}
+
+@media (max-width: 560px) {
+  .panel.asking .choices.whole-disk > button:not(.link) {
+    flex: 1 1 100%;
+  }
+}
+
+/* A suggested folder's description: what is in it, and any note on it,
+   together, before its buttons. */
+.panel.survey .hints .about {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  min-width: 0;
+}
+
+/* In a narrow window each suggestion reads the same way down: the folder,
+   its description, then its buttons on a row of their own. */
+@media (max-width: 560px) {
+  .panel.survey .hints .about {
+    flex: 1 1 100%;
+  }
+}

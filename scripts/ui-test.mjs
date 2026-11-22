@@ -635,7 +635,14 @@ try {
   await page.getByRole('button', { name: /Windows \(C:\)/ }).click()
   await page.getByRole('heading', { name: 'Look through all of Windows (C:)?' }).waitFor()
   assert.match(await text('.asking'), /whole disk \(512 GB\).*a few minutes to an hour or more/s)
+  // Its choices sit on one row, Cancel a quiet link at the end of it.
+  const wholeDisk = page.locator('.asking .choices')
+  const tops = await wholeDisk.getByRole('button').evaluateAll((all) => all.map((b) => Math.round(b.getBoundingClientRect().top + b.getBoundingClientRect().height / 2)))
+  assert.equal(new Set(tops).size, 1, `one row: ${tops}`)
+  assert.equal(await wholeDisk.getByRole('button', { name: 'Cancel' }).getAttribute('class'), 'link cancel')
   await shot('9d-whole-disk')
+  await fitsNarrow('The question about a whole disk')
+  await narrowShots('9d-whole-disk', page.locator('.asking'))
   await page.getByRole('button', { name: 'Cancel' }).click()
   assert.equal(await page.locator('.asking').count(), 0, 'cancelling goes back to the choices')
   assert.equal(await page.locator('.searching').count(), 0, 'and nothing was started')
@@ -658,7 +665,16 @@ try {
     'real photos are ticked to begin with; probable icons are not',
   )
   assert.match(await page.locator('.survey .hints li').last().innerText(), /Small pictures, probably not photos/)
+  // Its note sits with the row's description, before the buttons, as the
+  // other rows have theirs.
+  const note = await page.locator('.survey .hints li').last().evaluate((li) => {
+    const said = li.querySelector('.badge').getBoundingClientRect()
+    const look = [...li.querySelectorAll('button')].find((b) => b.textContent === 'Look inside').getBoundingClientRect()
+    return { before: said.right <= look.left, inAbout: li.querySelector('.about .badge') !== null }
+  })
+  assert.deepEqual(note, { before: true, inAbout: true })
   await shot('9q-survey')
+  await narrowShots('9q-survey', page.locator('.survey .hints li').last())
   // Files only in OneDrive are never opened, and never left out silently: each suggestion says so.
   const onlineSaid = /^412 files here are in OneDrive only, not on this computer, so Keevoro did not open them\. To include them, make them available offline in OneDrive first, then look again\.$/
   assert.match(await page.locator('.survey .hints li').nth(1).locator('.online-only').innerText(), onlineSaid)
@@ -916,7 +932,7 @@ try {
   const row = (ending) => kindsTable.getByRole('row').filter({ has: page.getByRole('cell', { name: ending, exact: true }) })
   assert.match(await row('.jpg').innerText(), /Photo\s+Built in/)
   assert.match(await row('.insp').innerText(), /Photo\s+Yours/)
-  assert.equal(await row('.jpg').getByRole('button', { name: 'Remove .jpg' }).count(), 0, 'a built-in kind cannot be removed')
+  assert.equal(await row('.jpg').getByRole('button', { name: 'Remove .jpg…' }).count(), 0, 'a built-in kind cannot be removed')
   // Switching one off says when it counts, and offers the way to the sources.
   const avi = page.getByRole('switch', { name: 'Look for .avi files' })
   const tableAt = await kindsTable.boundingBox()
@@ -940,7 +956,7 @@ try {
   assert.equal(await editing.getByLabel('Ending').isDisabled(), true, 'a built-in ending cannot be renamed')
   await editing.getByRole('button', { name: 'Cancel' }).click()
   // Removing one of your own is asked about on the page, never in a pop-up.
-  await page.getByRole('button', { name: 'Remove .insp' }).click()
+  await page.getByRole('button', { name: 'Remove .insp…' }).click()
   await page.getByRole('alertdialog', { name: 'Remove .insp?' }).waitFor()
   await row('.lrv').scrollIntoViewIfNeeded()
   await shot('9t-settings-kinds-of-file')

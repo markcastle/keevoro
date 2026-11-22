@@ -224,13 +224,13 @@ export function FileKindsPage(props: {
                       {!kind.builtIn && (
                         <button
                           className="link"
-                          aria-label={`Remove ${dotted(kind.ending)}`}
+                          aria-label={`Remove ${dotted(kind.ending)}…`}
                           onClick={() => {
                             setEditing(null)
                             setRemoving(kind.ending)
                           }}
                         >
-                          Remove
+                          Remove…
                         </button>
                       )}
                     </td>

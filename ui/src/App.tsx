@@ -1300,13 +1300,14 @@ function FindScreen(props: {
             Not sure where your photos are? Keevoro can find the folders that hold them first. That takes seconds, not
             hours, because it only reads the list of what is in each folder and opens nothing.
           </p>
-          <p className="choices">
+          <p className="choices whole-disk">
             <button className="primary" onClick={() => findFolders(asking)}>
               Find the folders with photos
             </button>
             <button onClick={pick}>Choose a folder inside it</button>
             <button onClick={() => start(asking.path)}>Look through all of it</button>
-            <button className="button" onClick={() => setAsking(null)}>
+            {/* Quiet, so it sits on the same row as the choices. */}
+            <button className="link cancel" onClick={() => setAsking(null)}>
               Cancel
             </button>
           </p>
@@ -3424,8 +3425,18 @@ function SurveyResult(props: {
                 />
                 <span className="where">{hint.folder}</span>
               </label>
-              <span className="quiet small">
-                {files(hint.photos, hint.videos, hint.others ?? 0)} · {size(hint.bytes)}
+              {/* What is in it, and what is known of it, together before its buttons. */}
+              <span className="about">
+                <span className="quiet small">
+                  {files(hint.photos, hint.videos, hint.others ?? 0)} · {size(hint.bytes)}
+                </span>
+                {outNow.has(hint.folder) && <span className="badge">Left out of this backup</span>}
+                {hint.alreadyASource && <span className="badge">Already a source</span>}
+                {!hint.likelyPhotos && !hint.alreadyASource && (
+                  <span className="badge" title="The pictures here are very small and there are no videos">
+                    Small pictures, probably not photos
+                  </span>
+                )}
               </span>
               <button
                 className="button small"
@@ -3453,13 +3464,6 @@ function SurveyResult(props: {
                   }}
                   onProblem={props.onProblem}
                 />
-              )}
-              {outNow.has(hint.folder) && <span className="badge">Left out of this backup</span>}
-              {hint.alreadyASource && <span className="badge">Already a source</span>}
-              {!hint.likelyPhotos && !hint.alreadyASource && (
-                <span className="badge" title="The pictures here are very small and there are no videos">
-                  Small pictures, probably not photos
-                </span>
               )}
               {hint.onlineOnlySaid && <p className="online-only small">{hint.onlineOnlySaid}</p>}
             </li>
