@@ -7,6 +7,10 @@ import type { ReactNode } from 'react'
  *
  * `locked` leaves it looking as it is but refuses the change, for a choice
  * that cannot be switched off just now (the last kind a backup is for).
+ *
+ * On its own it is the small switch with its words beside it, centred on
+ * each other and never in a box. As a `row` of a panel it is laid out as
+ * every row of Settings is: the words on the left, the switch on the right.
  */
 export function Toggle(props: {
   on: boolean
@@ -15,10 +19,12 @@ export function Toggle(props: {
   name?: string
   disabled?: boolean
   locked?: boolean
+  /** A row of a panel: the words on the left, the switch on the right. */
+  row?: boolean
   onChange: (on: boolean) => void
 }) {
   return (
-    <label className={props.locked ? 'toggle locked' : 'toggle'}>
+    <label className={['kv-toggle', props.row && 'row', props.locked && 'locked'].filter(Boolean).join(' ')}>
       <button
         type="button"
         className={props.on ? 'kv-switch small on' : 'kv-switch small'}

@@ -193,14 +193,14 @@ export function ReportPage(props: {
 
           <div className="kv-panel report-switches">
             <div>
-              <Toggle on={withLog} label="Include the end of Keevoro’s log" onChange={setWithLog} />
+              <Toggle row on={withLog} label="Include the end of Keevoro’s log" onChange={setWithLog} />
               <p className="quiet small">
                 It helps to see what Keevoro was doing. The log can name your folders and files. Your home folder and
                 user name are taken out, and it never holds keys or passwords.
               </p>
             </div>
             <div>
-              <Toggle on={withContact} label="Include a way to reach me" onChange={setWithContact} />
+              <Toggle row on={withContact} label="Include a way to reach me" onChange={setWithContact} />
               {withContact && (
                 <label className="report-reach" htmlFor={reach}>
                   <span className="visually-hidden">How to reach you</span>

@@ -10,6 +10,7 @@
 // and `keevoro repair plan` say the same.
 import { useState } from 'react'
 import type { Backend, Destination, PutRightPlan } from './backend'
+import { Explained } from './explained'
 import { needingAttention } from './thereWords'
 
 export function PutRight(props: {
@@ -36,13 +37,17 @@ export function PutRight(props: {
   if (attention === 0 && plan === null) {
     if (!props.destinations.some((d) => d.there > 0)) return null
     return (
-      <p className="quiet small">
-        <button className="button small" disabled={asking} onClick={ask}>
-          Prove every copy…
-        </button>{' '}
-        Reads every file back from where it was sent and compares it with its original, and puts right anything
-        that is not.
-      </p>
+      <Explained
+        className="prove"
+        action={
+          <button className="button small" disabled={asking} onClick={ask}>
+            Prove every copy…
+          </button>
+        }
+      >
+        Reads every file back from where it was sent and compares it with its original, and puts right anything that
+        is not.
+      </Explained>
     )
   }
   const go = (thorough: boolean) => {
@@ -58,11 +63,7 @@ export function PutRight(props: {
             deleted or replaced.
           </p>
           <p className="choices">
-            <button
-              className="primary"
-              disabled={asking}
-              onClick={ask}
-            >
+            <button className="primary" disabled={asking} onClick={ask}>
               Put this backup right…
             </button>
           </p>

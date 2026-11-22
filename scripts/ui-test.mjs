@@ -118,6 +118,29 @@ const fitsNarrow = async (screen) => {
   }
   await page.setViewportSize({ width: 1440, height: 900 })
 }
+// Screenshots of one part of a screen in a narrow window, light and dark,
+// brought into view, then the window put back.
+const narrowShots = async (name, part) => {
+  await page.setViewportSize({ width: 400, height: 800 })
+  await part.scrollIntoViewIfNeeded()
+  await shot(`${name}-400`)
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await shot(`${name}-400-dark`)
+  await page.emulateMedia({ colorScheme: 'light' })
+  await page.setViewportSize({ width: 1440, height: 900 })
+}
+// A switch's words sit beside it, centred on it, never above or below.
+const centredOnSwitch = (switches) =>
+  switches.evaluateAll((all) =>
+    all
+      .map((button) => {
+        const words = button.parentElement.querySelector(':scope > span')
+        const a = button.getBoundingClientRect()
+        const b = words.getBoundingClientRect()
+        return Math.abs(a.top + a.height / 2 - (b.top + b.height / 2)) > 2 ? `“${words.innerText}” is off centre` : null
+      })
+      .filter(Boolean),
+  )
 
 try {
   // --- A first-time user is asked one thing they can answer: what to call this.
@@ -180,6 +203,8 @@ try {
   await sourceWants.getByRole('switch', { name: 'Videos' }).uncheck()
   await page.locator('.source-wants').getByRole('status').getByText(/This source is set to photos only\. Anything already backed up stays backed up/).waitFor()
   assert.match(await page.locator('.types li').nth(2).innerText(), /left out: this source is set to photos only/)
+  // One panel of rows, as in Settings: the words on the left, each switch on the right.
+  assert.deepEqual(await centredOnSwitch(page.locator('.source-wants [role=switch]')), [])
   await shot('3c-source-photos-only')
   // The last tick cannot be taken away: a source is always for something.
   await sourceWants.getByRole('switch', { name: 'Photos' }).click({ force: true })
@@ -867,6 +892,7 @@ try {
   assert.equal(await forBackup.getByRole('switch', { name: 'Other files' }).isChecked(), true, 'everything Keevoro looks for, unless chosen otherwise')
   await forBackup.getByText('Other files are backed up exactly, but cannot be shown or grouped by date.').waitFor()
   await forBackup.scrollIntoViewIfNeeded()
+  assert.deepEqual(await centredOnSwitch(forBackup.getByRole('switch')), [])
   await shot('9v3-settings-backup-for-other-files')
   await page.getByRole('button', { name: '‹ Back', exact: true }).click()
   await page.locator('.steps button').first().click()
@@ -1010,18 +1036,33 @@ try {
   await page.getByText(/^[\d,]+ of your [\d,]+ files are safely there\. 5 need attention\.$/).waitFor()
   assert.equal(await page.getByText(/^Everything you are keeping is there/).count(), 0, 'never everything beside files that are not')
   await shot('9z1-backup-needs-putting-right')
+  await fitsNarrow('A backup that needs putting right')
   await page.getByRole('button', { name: 'Put this backup right…' }).click()
   await page.getByText(/^First, Keevoro puts right the 5 files it already knows are wrong/).waitFor()
   await page.getByText(/into a folder called "Set aside by Keevoro"/).waitFor()
   await shot('9z2-put-this-backup-right-plan')
+  await fitsNarrow('What putting a backup right will do')
+  await narrowShots('9z2b-put-this-backup-right-plan', page.getByRole('region', { name: 'Put this backup right' }))
   await page.getByRole('button', { name: /^Put it right and check every file/ }).click()
   await page.getByText(/^Moved 3 damaged copies aside into "Set aside by Keevoro\/2026-11-22"/).waitFor()
   await page.getByText(/^Your backup at the folder F:\\Family Backup is right: all [\d,]+ files you are keeping are there/).waitFor()
   await page.getByText(/^Everything you are keeping is there: [\d,]+ files\.$/).waitFor()
   assert.equal(await page.getByRole('button', { name: 'Put this backup right…' }).count(), 0, 'offered only when something needs it')
   await shot('9z3-backup-put-right')
-  // With nothing known to be wrong, the full proof is still a quiet press away.
-  await page.getByRole('button', { name: 'Prove every copy…' }).click()
+  // With nothing known to be wrong, the full proof is still a quiet press
+  // away, its sentence in a column of its own beside it: never running on
+  // from the button, and never wrapping beneath it.
+  const prove = page.getByRole('button', { name: 'Prove every copy…' })
+  assert.equal(await prove.getAttribute('aria-describedby').then((id) => page.locator(`[id="${id}"]`).innerText()), 'Reads every file back from where it was sent and compares it with its original, and puts right anything that is not.')
+  const beside = await page.locator('.explained.prove').evaluate((row) => {
+    const said = row.querySelector('.explained-said').getBoundingClientRect()
+    const button = row.querySelector('button').getBoundingClientRect()
+    return { gap: Math.round(button.left - said.right), sameRow: button.top < said.bottom }
+  })
+  assert.ok(beside.sameRow && beside.gap >= 12, `the button sits clear of its sentence (${JSON.stringify(beside)})`)
+  await fitsNarrow('Prove every copy, with its sentence')
+  await narrowShots('9z3b-prove-every-copy', page.locator('.explained.prove'))
+  await prove.click()
   await page.getByText(/^Keevoro reads back in full each of the [\d,]+ files you are keeping at the folder F:\\Family Backup/).waitFor()
   await shot('9z4-prove-every-copy')
   await page.getByRole('button', { name: 'Not now' }).click()
@@ -1166,6 +1207,7 @@ try {
   await explained.getByText('Keevoro will keep running by the clock so your backups happen on time.').waitFor()
   await explained.getByText(/may be under the \^ arrow there/).waitFor()
   assert.equal(await explained.getByRole('switch', { name: 'Start Keevoro when this computer starts' }).isChecked(), false)
+  assert.deepEqual(await centredOnSwitch(explained.getByRole('switch')), [], 'its words beside the switch, with no box around them')
   await shot('9x3-closing-keeps-running')
   await fitsNarrow('The first-close explanation')
   await explained.getByRole('switch', { name: 'Start Keevoro when this computer starts' }).check()
@@ -1706,8 +1748,12 @@ try {
   // its row, pointing at a row outlines its box, and choosing either
   // chooses both.
   const map = page.locator('.map-canvas')
-  const mapBox = await map.locator('canvas.over').boundingBox()
-  await page.mouse.move(mapBox.x + 30, mapBox.y + 8)
+  // Choosing a row low in the list can scroll the page, so the map is found afresh each time.
+  const mapCorner = async () => {
+    const box = await map.locator('canvas.over').boundingBox()
+    return [box.x + 30, box.y + 8]
+  }
+  await page.mouse.move(...(await mapCorner()))
   await page.locator('.map-tip:not([hidden])').waitFor()
   assert.match(await text('.map-tip'), /^Texture packs: 17\.7 GB, 160 other files$/)
   await page.locator('.space-list tr.lit', { hasText: 'Texture packs' }).waitFor()
@@ -1716,7 +1762,7 @@ try {
   await page.waitForFunction(() => document.querySelector('.map-canvas')?.dataset.lit === 'C:\\Users\\Mark\\Pictures\\Captures')
   await page.locator('.space-list tbody tr', { hasText: 'Screenshots' }).click()
   assert.equal(await map.getAttribute('data-selected'), 'C:\\Users\\Mark\\Pictures\\Screenshots', 'the row chosen lights its box')
-  await page.mouse.click(mapBox.x + 30, mapBox.y + 8)
+  await page.mouse.click(...(await mapCorner()))
   assert.equal(await map.getAttribute('data-selected'), 'C:\\Users\\Mark\\Pictures\\Texture packs', 'a box chosen on the map')
   assert.equal(await page.locator('.space-list tr[aria-selected="true"] .name > :first-child').innerText(), 'Texture packs', 'is chosen in the list')
   await page.locator('.space .chosen').getByRole('button', { name: 'Leave out Texture packs' }).waitFor()
@@ -1735,7 +1781,7 @@ try {
       if (document.querySelector('[data-easing]')) window.keevoroEased = true
     }).observe(document.body, { attributes: true, subtree: true, attributeFilter: ['data-easing'] })
   })
-  await page.mouse.click(mapBox.x + 30, mapBox.y + 8)
+  await page.mouse.click(...(await mapCorner()))
   await page.getByRole('grid', { name: 'What is in Texture packs, the biggest first' }).waitFor()
   await settled()
   assert.equal(await page.evaluate(() => window.keevoroEased), true, 'the folder grew to fill the map')
@@ -1743,7 +1789,7 @@ try {
   await page.getByRole('grid', { name: 'What is in Pictures, the biggest first' }).waitFor()
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.evaluate(() => (window.keevoroEased = false))
-  await page.mouse.dblclick(mapBox.x + 30, mapBox.y + 8)
+  await page.mouse.dblclick(...(await mapCorner()))
   await page.getByRole('grid', { name: 'What is in Texture packs, the biggest first' }).waitFor()
   await settled()
   assert.equal(await page.evaluate(() => window.keevoroEased), false, 'with reduced motion the new map simply appears')
@@ -2193,6 +2239,7 @@ try {
   assert.equal(await scansSelect.inputValue(), 'folders')
   await page.getByText('Kept in its own folders, starting with “Family Scans”.').waitFor()
   await fitsNarrow('a source keeping its folders')
+  await narrowShots('3f2-source-file-types', page.locator('.source-wants'))
 
   // Above Back up now, one quiet line says how it is arranged, with Change.
   await page.locator('.steps button').nth(2).click()

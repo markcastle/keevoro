@@ -142,12 +142,6 @@ nav {
   font-size: 14px;
 }
 
-.source span:first-of-type {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .source .spinner {
   margin-left: auto;
 }
@@ -191,6 +185,13 @@ header {
   border-bottom: 1px solid var(--line);
   padding-bottom: 18px;
   margin-bottom: 24px;
+}
+
+/* A page's opening sentences stay a comfortable length to read, however
+   wide the window. */
+main header p {
+  max-width: 75ch;
+  text-wrap: pretty;
 }
 
 h1 {
@@ -1406,6 +1407,11 @@ h3 {
   letter-spacing: 0;
 }
 
+/* A heading's first sentence sits under it, not a gap away. */
+h3 + .small {
+  margin-top: 0;
+}
+
 .status,
 .quiet {
   color: var(--ink-muted);
@@ -2147,14 +2153,33 @@ main > section > :last-child:not(.next) {
   background: none;
 }
 
-/* Its ground runs the full width of the window, whatever the page width. */
-.next::before {
+/* Its ground, and the line along its top, run the full width of the
+   window, whatever the page width. Each is drawn as a shadow spread
+   sideways and cut to its own height: a shadow never widens what can be
+   scrolled, where a box reaching past the edges did, and the page could
+   then be pushed sideways by bringing a button into view. */
+.next::before,
+.next::after {
   content: '';
   position: absolute;
   z-index: -1;
-  inset: 0 -100vw;
+  left: 0;
+  right: 0;
+  clip-path: inset(0 -100vw);
+}
+
+.next::before {
+  top: 0;
+  bottom: 0;
   background: var(--surface-raised);
-  border-top: 1px solid var(--line);
+  box-shadow: 0 0 0 100vw var(--surface-raised);
+}
+
+.next::after {
+  top: 0;
+  height: 1px;
+  background: var(--line);
+  box-shadow: 0 0 0 100vw var(--line);
 }
 
 /* Room above the bar, so the last thing on the page is not hard against it. */
@@ -2177,23 +2202,50 @@ main > section > :nth-last-child(2) {
   align-items: center;
 }
 
-/* Kinds of file on a source: folded away until asked for. */
-.types ul {
-  list-style: none;
-  padding: 0;
-  margin: var(--space-3) 0 var(--space-2);
+/* Kinds of file on a source: folded away until asked for. Its parts keep
+   to one column of a comfortable width, however wide the window. */
+.types {
   display: grid;
-  gap: var(--space-2);
+  gap: var(--space-3);
+  padding-top: var(--space-3);
 }
 
-.types li {
+.types > * {
+  max-width: 560px;
+}
+
+.types > p {
+  margin: 0;
+  max-width: 62ch;
+  text-wrap: pretty;
+}
+
+/* A row a kind: its ending and how many on the left, its switch on the right. */
+.types ul.kinds {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.kept .types ul.kinds > li {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: 10px var(--space-4);
+  border: 0;
 }
 
-.types li b {
-  min-width: 64px;
+.types .kind-text {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--space-3);
+  min-width: 0;
+}
+
+.types .kind-text b {
+  min-width: 48px;
   font-family: var(--font-mono);
   font-size: 13px;
   font-weight: 500;
@@ -2236,17 +2288,13 @@ main > section > :nth-last-child(2) {
 }
 
 .kept li.source .types .quiet,
+.kept li.source > .explain,
 .kept li.source .row-actions .link {
   font-family: var(--font-sans);
   font-size: 13px;
   line-height: 18px;
 }
 
-.kept .types li {
-  border-bottom: 0;
-  padding: 0;
-  display: flex;
-}
 
 /* ---------- what Keevoro is doing ---------- */
 
@@ -2820,17 +2868,6 @@ main > section > :nth-last-child(2) {
   text-align: left;
 }
 
-.choices.again {
-  margin: var(--space-3) 0;
-  gap: var(--space-3);
-  align-items: center;
-}
-
-/* Its sentence takes the room there is and wraps, however narrow the window. */
-.choices.again > span {
-  flex: 1 1 14rem;
-  min-width: 0;
-}
 
 /* About: what Keevoro promises. */
 .about .panel {
@@ -2969,13 +3006,24 @@ main > section > :nth-last-child(2) {
   max-width: 760px;
 }
 
+/* Its name, how it stands, then its buttons; Remove always in the last
+   column, so it lines up whether or not a row has a button before it. */
 .places-to li {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
   align-items: center;
-  gap: var(--space-2) var(--space-4);
+  gap: var(--space-2) var(--space-3);
   padding: var(--space-3) 0;
   border-bottom: 1px solid var(--line);
+}
+
+.places-to li > .button {
+  margin: 0;
+  justify-self: end;
+}
+
+.places-to li > .remove {
+  grid-column: -2;
 }
 
 .places-to .name {
@@ -2986,7 +3034,7 @@ main > section > :nth-last-child(2) {
 
 @media (max-width: 620px) {
   .places-to li {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto auto;
   }
 
   .places-to .name {
@@ -3087,6 +3135,12 @@ main > section > :nth-last-child(2) {
 .kept li.source .explain,
 .kept li.source .left-out-by-you {
   grid-column: 1 / -1;
+}
+
+/* What removing a source does, at a comfortable length to read. */
+.kept li.source > .explain {
+  max-width: 75ch;
+  text-wrap: pretty;
 }
 
 @media (max-width: 760px) {
@@ -3341,39 +3395,12 @@ main > section > :nth-last-child(2) {
   margin-top: var(--space-3);
 }
 
-/* What a backup or a source is for: plain tick boxes. */
+/* What a backup or a source is for: a switch a row (see .kv-wants). */
 fieldset.wants {
-  margin: var(--space-3) 0;
+  min-width: 0;
+  margin: 0;
   padding: 0;
   border: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2) var(--space-4);
-  align-items: center;
-}
-
-fieldset.wants legend {
-  padding: 0;
-  margin-bottom: var(--space-2);
-  font-weight: 500;
-  font-size: 14px;
-}
-
-fieldset.wants label {
-  display: inline-flex;
-  gap: var(--space-2);
-  align-items: center;
-  font-size: 14px;
-}
-
-fieldset.wants input {
-  height: auto;
-  box-shadow: none;
-}
-
-fieldset.wants [role='status'] {
-  flex-basis: 100%;
-  margin: 0;
 }
 
 /* Clearing unfinished copies: the question and its answer, in the page beside the button. */
@@ -3495,12 +3522,28 @@ fieldset.wants [role='status'] {
     display: none;
   }
 
+  /* Each step's number on its first line, so the three line up however
+     many lines their words take. */
+  .steps button {
+    align-items: flex-start;
+  }
+
+  .steps .num {
+    margin-top: -3px;
+  }
+
   .foot {
     flex: 1 1 100%;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: var(--space-1) var(--space-4);
+  }
+
+  /* What Keevoro is doing, with its line beneath, on a row of its own; the
+     other links share the next, on one line. */
+  .foot > .doing {
+    flex-basis: 100%;
   }
 
   main {
@@ -4158,16 +4201,17 @@ tr[aria-selected='true'] .share-bar .carried {
 
 /* ---------- other files, carried along ---------- */
 
-/* What a backup or a source is for: tick boxes, the last one always ticked. */
-fieldset.wants input[aria-disabled='true'] {
-  cursor: not-allowed;
+/* What one source is for: one panel of rows, and what a change means beneath it. */
+.source-wants {
+  display: grid;
+  gap: var(--space-2);
+  max-width: 560px;
+  margin-bottom: var(--space-4);
 }
 
-.source-wants .follow {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin-bottom: var(--space-2);
+.source-wants > p {
+  margin: 0;
+  padding: 0 var(--space-4);
 }
 
 /* An other file where a picture would be: its name and its kind, never a broken picture. */
@@ -4530,21 +4574,55 @@ fieldset.wants input[aria-disabled='true'] {
   margin-top: var(--space-2);
 }
 
-.still-checking {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-}
 
 /* ---------- drives that come and go ---------- */
 
-.drives-said {
+/* A button and the sentence that says what it does (see explained.tsx):
+   the sentence in a column of its own that wraps within itself, at a
+   comfortable length, and the button beside it, centred on it. When the
+   two do not fit side by side, the button goes beneath, never into the
+   sentence. */
+.explained {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-2) var(--space-3);
-  margin-top: var(--space-3);
+  gap: var(--space-2) var(--space-4);
+  margin: var(--space-3) 0;
+}
+
+.explained-said {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 62ch;
+  margin: 0;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--ink-muted);
+  text-wrap: pretty;
+}
+
+.explained-action {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* `.small` also sets a top margin, meant for a sentence; never for a control here. */
+.explained-action > .button {
+  margin: 0;
+}
+
+/* Where a backup goes, things are spaced by the column's own gap; a margin
+   as well left uneven holes around the line to prove every copy. */
+.explained.prove,
+.previews-line {
+  margin: 0;
+}
+
+/* The line under the drives keeps the usual gap to the sentence after it. */
+.explained.drives-said {
+  margin-bottom: 0;
 }
 
 /* A drive just plugged in: a mark in words and a brief outline that fades,
@@ -4650,7 +4728,10 @@ fieldset.wants input[aria-disabled='true'] {
 .source-arrange {
   display: grid;
   gap: var(--space-1);
-  margin-bottom: var(--space-3);
+}
+
+.source-arrange .explained {
+  margin: var(--space-1) 0 0;
 }
 
 .source-arrange select {
@@ -4658,9 +4739,6 @@ fieldset.wants input[aria-disabled='true'] {
   justify-self: start;
 }
 
-.source-arrange .suggestion .button {
-  margin-left: var(--space-1);
-}
 
 .kept-as {
   flex-basis: 100%;
@@ -5031,28 +5109,91 @@ fieldset.wants input[aria-disabled='true'] {
   align-items: center;
 }
 
-/* A small on/off switch with its words beside it (see toggle.tsx). */
-.toggle {
+/* Keeping a collection or not: one button, what it is now and the way to
+   change it, side by side on one line. */
+button.toggle {
   display: inline-flex;
-  align-items: flex-start;
+  align-items: baseline;
   gap: var(--space-2);
-  /* Long words beside it wrap inside the page, never push it sideways. */
   max-width: 100%;
   min-width: 0;
   font-size: 14px;
   font-weight: 400;
   font-family: var(--font-sans);
+}
+
+button.toggle > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 22px;
+}
+
+/* A small on/off switch with its words beside it (see toggle.tsx): the
+   words centred on the switch, and never a box around the two. */
+.kv-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  /* Long words beside it wrap inside the page, never push it sideways. */
+  max-width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 400;
+  font-family: var(--font-sans);
+  color: var(--ink);
   cursor: pointer;
 }
 
-.toggle.locked,
-.toggle.locked .kv-switch {
+.kv-toggle > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.kv-toggle.locked,
+.kv-toggle.locked .kv-switch {
   cursor: not-allowed;
 }
 
+/* As a row of a panel: the words on the left, the switch on the right,
+   the full-size switch, as in Settings. */
+.kv-toggle.row {
+  display: flex;
+  flex-direction: row-reverse;
+  justify-content: space-between;
+  gap: var(--space-4);
+  width: 100%;
+  min-height: 52px;
+  padding: 12px var(--space-4);
+  font-family: var(--font-display);
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 500;
+}
+
+.kv-toggle.row .kv-switch.small {
+  width: 44px;
+  height: 26px;
+}
+
+.kv-toggle.row .kv-switch.small .knob {
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+}
+
+.kv-toggle.row .kv-switch.small.on .knob {
+  transform: translateX(18px);
+}
+
+/* `.small` alone also sets a top margin, meant for a sentence. On the
+   switch it pushed it below the words beside it. */
 .kv-switch.small {
   width: 36px;
   height: 22px;
+  margin: 0;
 }
 
 .kv-switch.small .knob {
@@ -5076,10 +5217,9 @@ fieldset.wants input[aria-disabled='true'] {
   cursor: not-allowed;
 }
 
-.toggle > span {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  line-height: 22px;
+/* A clickable switch shows it, as a button does. */
+.kv-switch:hover:not(:disabled) {
+  border-color: var(--primary);
 }
 
 /* ==========================================================================
@@ -5294,14 +5434,14 @@ h3.kv-group-title {
 
 /* A hairline between rows, starting where the words do. */
 .kv-panel > *,
-.kv-wants fieldset.wants > .toggle,
+.kv-wants fieldset.wants > .kv-toggle,
 .kv-arrange .arrange-choice,
 .agent-folders li {
   position: relative;
 }
 
 .kv-panel > * + *::before,
-.kv-wants fieldset.wants > .toggle + .toggle::before,
+.kv-wants fieldset.wants > .kv-toggle + .kv-toggle::before,
 .kv-arrange .arrange-choice + .arrange-choice::before,
 .agent-folders li + li::before {
   content: '';
@@ -5439,26 +5579,6 @@ h3.kv-group-title {
   overflow: hidden;
   clip: rect(0 0 0 0);
   white-space: nowrap;
-}
-
-.kv-wants fieldset.wants > .toggle {
-  display: flex;
-  flex-direction: row-reverse;
-  justify-content: space-between;
-  align-items: center;
-  width: 100%;
-  padding: 12px var(--space-4);
-  font-family: var(--font-display);
-  font-size: 15px;
-  font-weight: 500;
-}
-
-.kv-wants fieldset.wants > .toggle {
-  height: auto;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  text-align: left;
 }
 
 .kv-wants fieldset.wants > p {
@@ -5664,24 +5784,10 @@ h3.kv-group-title {
   padding: 12px var(--space-4);
 }
 
-.report-switches .toggle {
-  display: flex;
-  flex-direction: row-reverse;
-  justify-content: space-between;
-  align-items: center;
-  width: 100%;
+/* Its row's padding is the panel row's, around the sentence beneath too. */
+.report-switches .kv-toggle.row {
+  min-height: 0;
   padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  text-align: left;
-  font-family: var(--font-display);
-  font-size: 15px;
-  font-weight: 500;
-}
-
-.report-switches .toggle:hover {
-  background: transparent;
 }
 
 .report-switches p {
