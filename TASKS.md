@@ -580,7 +580,8 @@ Today a backup runs when someone presses "Back up now". These make it run by its
 - [ ] Run when a known source is plugged in (a camera card, a drone's drive), with a choice of "ask me" or "just do it". The first half is built: Keevoro notices a drive arriving (`keevoro_api::places::if_changed` gives the drives that `arrived`, and on Windows `watch_for_drives` hears the system's notice); what is left is matching an arrival against each backup's sources and asking
 - [ ] Run when a destination comes back (a backup drive plugged in, the network returns) if a run was missed
 - [x] Carry on in the background with the window closed: an icon by the clock, and a way to start with the computer (0.45: closing hides to the icon where one shows; Pause, Back up now and Settings from its menu)
-- [ ] Say what happened: a notification when a run finishes, and louder when one fails or a destination has not been reached for a while
+- [x] Say what happened: a notification when a run finishes (0.45: when something was sent, waits for your say, or could not be done; quiet otherwise; a setting to turn them off)
+- [ ] Louder when a destination has not been reached for a while (`NOT_REACHED_FOR`), with the attention icon kept until Keevoro is opened
 - [ ] Be a good guest: wait while on battery, on a metered connection, or while the computer is busy, and never start two runs at once
 - [x] Never back up without the person's say on anything new: files a schedule finds are backed up, but newly found duplicates and set-aside pictures still follow the same rules (0.42: `keevoro run --unattended` holds back a backup never asked how to arrange it, reading from cloud storage costing about £1 or more, and a backup drive that looks emptied or replaced; lists set-aside pictures, new copies and another drive at a source's place)
 - [x] Show the next run and the last few on the backup screen, with "Run now" and "Skip the next one" (0.42)

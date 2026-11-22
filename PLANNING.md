@@ -86,7 +86,7 @@ A Rust workspace of small crates. The core has no I/O, and storage sits behind n
 | `keevoro-engine` | Built | What Keevoro does as plain function calls: scan into a backup, the Discover view, keep or skip, previews, backing up. `keevoro-api` sits on it. |
 | `keevoro-api` | Built | Every operation Keevoro offers, listed once in a register, for the app, the command line and an AI agent to share, with each request's JSON Schema (`schemars`) and the rules an agent is held to. The app, the command line and the MCP server each have a parity test against it. |
 | `keevoro-mcp` | Built | `keevoro mcp`: a Model Context Protocol server over standard input and output, one tool per operation offered to agents (`rmcp`, the official Rust SDK, with only its server and stdio transport; `tokio`). |
-| `keevoro-app` (`src-tauri`) | Part built | Tauri 2 desktop shell: a thin layer of commands over the engine. Screens are in `ui/` (React, Vite, TypeScript). Its icon by the clock uses Tauri's own `tray-icon` feature; `tauri-plugin-single-instance` keeps one Keevoro window program running, and `tauri-plugin-autostart` starts it with the computer when the person asks (both official Tauri plugins). |
+| `keevoro-app` (`src-tauri`) | Part built | Tauri 2 desktop shell: a thin layer of commands over the engine. Screens are in `ui/` (React, Vite, TypeScript). Its icon by the clock uses Tauri's own `tray-icon` feature; `tauri-plugin-single-instance` keeps one Keevoro window program running, `tauri-plugin-autostart` starts it with the computer when the person asks, and `tauri-plugin-notification` tells the person how a backup by itself went (all official Tauri plugins). |
 
 ### Storage plug-ins
 

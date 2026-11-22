@@ -244,6 +244,7 @@ export function demoBackend(): Backend {
     keepRunning: true,
     minimiseToTray: false,
     startWithComputer: false,
+    notify: true,
     tray: 'shown',
     whereTheIconIs:
       'Its icon is by the clock, at the bottom right of the screen (it may be under the ^ arrow there). Open or quit Keevoro from there.',
@@ -2075,6 +2076,7 @@ export function demoBackend(): Backend {
         keepRunning: change.keepRunning ?? keepRunning.keepRunning,
         minimiseToTray: change.minimiseToTray ?? keepRunning.minimiseToTray,
         startWithComputer: change.startWithComputer ?? keepRunning.startWithComputer,
+        notify: change.notify ?? keepRunning.notify,
       }
       return { ...keepRunning }
     },

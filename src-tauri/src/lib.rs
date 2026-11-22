@@ -26,6 +26,7 @@ mod closing;
 mod commands;
 mod events;
 mod keep_running;
+mod notices;
 #[cfg(test)]
 mod parity;
 mod relaunch;
@@ -81,7 +82,8 @@ pub fn run() {
                 .app_name("Keevoro")
                 .arg(closing::IN_BACKGROUND)
                 .build(),
-        );
+        )
+        .plugin(tauri_plugin_notification::init());
     let desktop = Desktop::Real {
         with_window: closing::starts_with_its_window(&args),
     };
@@ -99,6 +101,28 @@ pub fn run() {
             eprintln!("Keevoro couldn't start: {e}");
             std::process::exit(1);
         }
+    }
+}
+
+/// Tells the person how a backup by itself went, if it was one and has
+/// something worth saying (`notices.rs`).
+fn told_after<R: Runtime>(app: &tauri::AppHandle<R>, job: keevoro_api::JobId, last: &keevoro_api::jobs::SendEvent) {
+    let Some(shared) = app.try_state::<Shared>() else {
+        return;
+    };
+    let handle = shared
+        .keevoro
+        .jobs(None)
+        .into_iter()
+        .find(|j| j.handle.id == job)
+        .or_else(|| shared.keevoro.ended_job(job))
+        .map(|j| j.handle);
+    let Some(handle) = handle.filter(|h| h.by_itself.is_some()) else {
+        return;
+    };
+    let Some(backup) = handle.backup else { return };
+    if let Some(notice) = notices::notice(&backup.name, last) {
+        notices::tell(app, &backup.id, &notice);
     }
 }
 
@@ -142,12 +166,22 @@ fn app<R: Runtime>(
             keevoro.listen(move |event| {
                 events::to_window(&window, &event.said);
                 tray::nudge(&window);
+                // A backup by itself that ended may have something to say.
+                if let keevoro_api::Said::Send(last) = &event.said {
+                    if last.finished {
+                        let (app, job, last) = (window.clone(), event.job, last.clone());
+                        std::thread::spawn(move || told_after(&app, job, &last));
+                    }
+                }
             });
             // The icon by the clock, where the computer has a place for one.
             let handle = app.handle();
             let (startup, tray, with_window): (Arc<dyn startup::StartWithComputer>, _, _) = match desktop {
                 Desktop::Real { with_window } => (
-                    Arc::new(startup::ThroughThePlugin(handle.clone())),
+                    {
+                        notices::listen(handle);
+                        Arc::new(startup::ThroughThePlugin(handle.clone()))
+                    },
                     tray::make(handle).map_or(closing::Tray::None, |()| closing::Tray::made_on(std::env::consts::OS)),
                     with_window,
                 ),

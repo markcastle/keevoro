@@ -60,6 +60,12 @@ export function KeepRunningSetting(props: { api: Backend; onProblem: (error: unk
         said="It starts quietly, as an icon by the clock with no window, so backups by themselves happen without you opening it. It is listed with the programs your computer starts, under the name Keevoro."
         onChange={(on) => change({ startWithComputer: on })}
       />
+      <Switch
+        on={view.notify}
+        label="Tell me when a backup by itself finishes"
+        said="A notice when something was backed up, something waits for your say, or a backup could not be done. Nothing when there was nothing new, and nothing while Keevoro’s window is in front of you."
+        onChange={(on) => change({ notify: on })}
+      />
       {view.said && <p className="quiet small">{view.said}</p>}
     </div>
   )

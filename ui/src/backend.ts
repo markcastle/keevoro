@@ -982,6 +982,8 @@ export type KeepRunningView = {
   minimiseToTray: boolean
   /** Keevoro starts, quietly, when the computer starts. */
   startWithComputer: boolean
+  /** A backup by itself tells you when it finishes with something worth saying. */
+  notify: boolean
   /** Whether the icon by the clock is shown. */
   tray: 'shown' | 'mayNotShow' | 'none'
   /** Where the icon is, in a sentence. */
@@ -991,7 +993,7 @@ export type KeepRunningView = {
 }
 
 /** A change to how closing, minimising and starting with the computer are set; each part given replaces what was there. */
-export type KeepRunningChange = { keepRunning?: boolean; minimiseToTray?: boolean; startWithComputer?: boolean }
+export type KeepRunningChange = { keepRunning?: boolean; minimiseToTray?: boolean; startWithComputer?: boolean; notify?: boolean }
 
 /** What waits for the window as it opens or comes forward. */
 export type WindowAsk = {

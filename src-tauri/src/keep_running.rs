@@ -23,6 +23,9 @@ pub struct KeepRunningView {
     pub minimise_to_tray: bool,
     /// Keevoro starts, quietly, when the computer starts.
     pub start_with_computer: bool,
+    /// A backup by itself tells the person when it finishes with something
+    /// worth saying.
+    pub notify: bool,
     /// Whether the icon by the clock is shown: `shown`, `mayNotShow`
     /// (Linux, where GNOME shows none) or `none`.
     pub tray: &'static str,
@@ -43,6 +46,8 @@ pub struct KeepRunningChange {
     pub minimise_to_tray: Option<bool>,
     #[serde(default)]
     pub start_with_computer: Option<bool>,
+    #[serde(default)]
+    pub notify: Option<bool>,
 }
 
 fn view(shared: &Shared) -> KeepRunningView {
@@ -52,6 +57,7 @@ fn view(shared: &Shared) -> KeepRunningView {
         keep_running: closing::keeps_running(settings.keep_running, tray),
         minimise_to_tray: settings.minimise_to_tray && tray.may_hide(),
         start_with_computer: shared.desk.startup.is_on().unwrap_or(false),
+        notify: settings.notifies(),
         tray: match tray {
             Tray::Shown => "shown",
             Tray::MayNotShow => "mayNotShow",
@@ -91,7 +97,7 @@ pub fn keep_running(shared: State<'_, Shared>) -> KeepRunningView {
 /// Changes how closing, minimising and starting with the computer are set.
 #[tauri::command]
 pub fn set_keep_running(shared: State<'_, Shared>, change: KeepRunningChange) -> Said<KeepRunningView> {
-    if change.keep_running.is_some() || change.minimise_to_tray.is_some() {
+    if change.keep_running.is_some() || change.minimise_to_tray.is_some() || change.notify.is_some() {
         shared
             .keevoro
             .change_window_settings(|w| {
@@ -100,6 +106,9 @@ pub fn set_keep_running(shared: State<'_, Shared>, change: KeepRunningChange) ->
                 }
                 if let Some(on) = change.minimise_to_tray {
                     w.minimise_to_tray = on;
+                }
+                if let Some(on) = change.notify {
+                    w.notify = Some(on);
                 }
             })
             .map_err(|e| e.message)?;

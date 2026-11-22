@@ -704,6 +704,9 @@ fn closing_minimising_and_starting_with_the_computer_are_set_by_the_names_and_sh
     )
     .unwrap();
     assert_eq!(view["startWithComputer"], true);
+    assert_eq!(view["notify"], true, "notices are on until switched off");
+    let view = invoke(&window, "set_keep_running", json!({ "change": { "notify": false } })).unwrap();
+    assert_eq!(view["notify"], false);
     assert!(app.state::<Shared>().desk.startup.is_on().unwrap());
     // Kept in its own file, never in the settings file.
     let kept = app.state::<Shared>().keevoro.window_settings();
