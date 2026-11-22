@@ -853,7 +853,7 @@ try {
   ])
   assert.match(
     await page.locator('#setting-privacy').innerText(),
-    /^Your photos go only where you send them\s+There is no Keevoro account and no Keevoro server\..*If you choose to compare cloud storage providers, in Help or on the backup screen, it shows Stratus.*tells it only the size of the backup and your currency\. A report of a problem or an idea goes to Keevoro’s maker only when you send one, and you see exactly what it holds first\./s,
+    /^Your photos go only where you send them\s+You need no Keevoro account\..*If you choose to compare cloud storage providers, in Help or on the backup screen, it shows Stratus.*tells it only the size of the backup and your currency\. A report of a problem or an idea goes to Keevoro’s maker only when you send one, and you see exactly what it holds first\./s,
   )
   assert.match(await text('.kv-settings'), /voro, an old Swedish word meaning “were”/)
   assert.match(await text('.kv-settings'), /Copyright 2026 Mark Castle\..*Functional Source License \(FSL-1\.1-MIT\)/s)

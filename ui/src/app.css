@@ -18,8 +18,30 @@ body {
   color: var(--ink);
   font: 15px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
-  user-select: none;
   cursor: default;
+}
+
+/* Anything written to be read can be selected and copied: explanations,
+   paths, what went wrong, the log. The things you press cannot, so a quick
+   double click on a button never leaves a word highlighted. */
+button,
+a,
+summary,
+label,
+select,
+nav,
+[role='button'],
+[role='switch'],
+[role='tab'],
+[role='menu'],
+[role='menuitem'],
+[role='option'],
+[role='row'][aria-selected],
+img,
+svg,
+canvas {
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 h1,

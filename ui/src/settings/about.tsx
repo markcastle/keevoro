@@ -49,7 +49,7 @@ const PROMISES: [string, string, string][] = [
 
 /** What leaves this computer, and what stays. Said once, here, word for word. */
 export const LEAVES_THIS_COMPUTER =
-  'There is no Keevoro account and no Keevoro server. Your files go from your source to the destination you chose and nowhere else. Storage keys are kept in this computer’s own keychain. The only thing Keevoro contacts by itself is GitHub, to see whether there is a newer version. If you choose to compare cloud storage providers, in Help or on the backup screen, it shows Stratus, a comparison of cloud storage prices on the internet, and tells it only the size of the backup and your currency. A report of a problem or an idea goes to Keevoro’s maker only when you send one, and you see exactly what it holds first. On this computer it keeps only its working notes: a list of what it found, small previews, and a log of what it did.'
+  'You need no Keevoro account. Your files go from your source to the destination you chose and nowhere else. Storage keys are kept in this computer’s own keychain. The only thing Keevoro contacts by itself is GitHub, to see whether there is a newer version. If you choose to compare cloud storage providers, in Help or on the backup screen, it shows Stratus, a comparison of cloud storage prices on the internet, and tells it only the size of the backup and your currency. A report of a problem or an idea goes to Keevoro’s maker only when you send one, and you see exactly what it holds first. On this computer it keeps only its working notes: a list of what it found, small previews, and a log of what it did.'
 
 export function AboutSection(props: {
   api: Backend

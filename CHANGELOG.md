@@ -6,7 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **Text you might want to copy can be selected.** Explanations, paths, what went wrong, the log and the pages in Help and About can now be selected with the mouse and copied. Buttons and switches still cannot, so a double click never leaves a word highlighted.
+- **About says what is true today about servers.** "There is no Keevoro account and no Keevoro server" is now "You need no Keevoro account". Where your files go has not changed.
 
 ## [0.51.0] - 2026-11-22
 
