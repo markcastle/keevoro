@@ -84,7 +84,7 @@ import { ThereNow, WhatWasFound } from './whatIsThere'
 import { PutRight } from './putRight'
 import { ManageBackups } from './manageBackups'
 import { CheckLine, CheckStopped } from './checking'
-import { certain, outOfReachLine } from './thereWords'
+import { certain, mainButtonWords, outOfReachLine } from './thereWords'
 import { SyncedCard } from './synced'
 import { StorageFields } from './storageForm'
 import { AddBucketSource, CloudCost, CloudSourceIcon } from './bucketSource'
@@ -3216,14 +3216,14 @@ function SendPanel(props: {
             <CloudCost said={room?.cost ?? []} />
             <div className="choices">
               <button
-                className="primary"
+                className={said?.checkAdvised && props.waiting === 0 ? 'button' : 'primary'}
                 onClick={() => start('Starting…', api.send)}
                 disabled={props.waiting + props.safe === 0 || (room !== null && !room.enough)}
               >
-                {props.waiting > 0 ? 'Back up now' : 'Back up again'}
+                {mainButtonWords(props.waiting, said?.missed ?? 0)}
               </button>
               <button
-                className="button"
+                className={said?.checkAdvised && props.waiting === 0 ? 'primary' : 'button'}
                 onClick={() => start('Checking…', api.checkArrived)}
                 disabled={props.safe === 0 && !destinations.some((d) => d.there > 0)}
               >

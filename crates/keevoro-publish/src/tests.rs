@@ -177,6 +177,7 @@ fn quick() -> PublishOptions {
         stop: None,
         over_network: false,
         at_once: 1,
+        reachable: None,
     }
 }
 
@@ -268,11 +269,23 @@ async fn previews_can_be_replaced() {
 }
 
 #[tokio::test]
-async fn short_network_drops_are_retried() {
+async fn a_dropped_connection_is_tried_again_once_at_the_end_never_waited_on_the_spot() {
     let w = World::new().await;
-    w.store.drop_next.store(2, Ordering::SeqCst);
-    let r = w.publish(&[w.file("originals/a.jpg", b"photo", true)], &quick()).await;
-    assert_eq!((r.uploaded, r.failed.len()), (1, 0));
+    w.store.drop_next.store(1, Ordering::SeqCst);
+    let uploads = [
+        w.file("originals/a.jpg", b"photo a", true),
+        w.file("originals/b.jpg", b"photo b", true),
+    ];
+    let started = std::time::Instant::now();
+    let slow = PublishOptions {
+        retry_pause: Duration::from_secs(5),
+        ..quick()
+    };
+    let r = w.publish(&uploads, &slow).await;
+    assert_eq!((r.uploaded, r.failed.len(), r.tried_again), (2, 0, 1));
+    assert!(started.elapsed() < Duration::from_secs(5), "nothing waited on the spot");
+    // a failed, b went, then a once more at the end.
+    assert_eq!(w.store.puts.load(Ordering::SeqCst), 2);
 }
 
 #[tokio::test]
@@ -282,8 +295,8 @@ async fn a_long_outage_is_reported_and_picked_up_next_time() {
         w.file("originals/a.jpg", b"photo a", true),
         w.file("originals/b.jpg", b"photo b", true),
     ];
-    // Enough failures to exhaust the retries for the first file only.
-    w.store.drop_next.store(4, Ordering::SeqCst);
+    // Both fail once, and the first fails again at the end.
+    w.store.drop_next.store(3, Ordering::SeqCst);
     let r = w.publish(&uploads, &quick()).await;
     assert_eq!(
         (r.uploaded, r.failed.len()),
@@ -291,8 +304,9 @@ async fn a_long_outage_is_reported_and_picked_up_next_time() {
         "one bad file does not stop the rest"
     );
     assert_eq!(r.failed[0].key, "originals/a.jpg");
-    assert!(r.failed[0].reason.contains("tried again next time"));
-
+    assert_eq!(r.failed[0].cause, Cause::ConnectionLost);
+    assert_eq!(r.failed[0].side, Some(Side::Destination));
+    assert!(r.account(2).adds_up());
     let r = w.publish(&uploads, &quick()).await;
     assert_eq!((r.uploaded, r.already_there, r.failed.len()), (1, 1, 0));
 }
@@ -383,14 +397,21 @@ async fn a_failed_part_leaves_the_upload_resumable() {
     let upload = w.file("originals/big.mov", &video, true);
     let no_retries = PublishOptions { retries: 0, ..quick() };
 
+    // A part fails: the file is tried once more at the end, and carries on
+    // the upload it started.
     w.store.drop_next.store(1, Ordering::SeqCst);
     let r = w.publish(std::slice::from_ref(&upload), &no_retries).await;
-    assert_eq!(r.failed.len(), 1);
-    assert!(w.catalog.multipart("test", "originals/big.mov").unwrap().is_some());
-
-    let r = w.publish(&[upload], &no_retries).await;
-    assert_eq!(r.uploaded, 1);
+    assert_eq!((r.uploaded, r.failed.len(), r.tried_again), (1, 0, 1));
     assert!(w.stored("originals/big.mov").await == video);
+
+    // Failing again at the end, it is left resumable for next time.
+    let other = w.file("originals/other.mov", &video, true);
+    w.store.drop_next.store(2, Ordering::SeqCst);
+    let r = w.publish(std::slice::from_ref(&other), &no_retries).await;
+    assert_eq!(r.failed.len(), 1);
+    assert!(w.catalog.multipart("test", "originals/other.mov").unwrap().is_some());
+    let r = w.publish(&[other], &no_retries).await;
+    assert_eq!(r.uploaded, 1);
 }
 
 #[tokio::test]
@@ -933,8 +954,8 @@ impl World {
 async fn a_file_in_cloud_storage_is_fetched_sent_proved_and_its_copy_here_removed() {
     let w = World::new().await;
     let body = pattern(300_000);
-    // The connection drops twice while it is fetched: tried again.
-    let (upload, cloud) = w.in_the_cloud("originals/Spain/IMG_1.jpg", &body, 2);
+    // The connection drops while it is fetched: tried again at the end.
+    let (upload, cloud) = w.in_the_cloud("originals/Spain/IMG_1.jpg", &body, 1);
     let report = w.publish(std::slice::from_ref(&upload), &quick()).await;
     assert_eq!((report.uploaded, report.failed.len()), (1, 0), "{:?}", report.failed);
     assert_eq!(w.stored("originals/Spain/IMG_1.jpg").await, body);
@@ -942,12 +963,17 @@ async fn a_file_in_cloud_storage_is_fetched_sent_proved_and_its_copy_here_remove
         report.learned,
         [("originals/Spain/IMG_1.jpg".to_string(), blake3_hex(&body))]
     );
-    assert_eq!(cloud.fetches.load(Ordering::SeqCst), 3);
+    assert_eq!(
+        cloud.fetches.load(Ordering::SeqCst),
+        2,
+        "once, then once more at the end"
+    );
+    assert_eq!(report.tried_again, 1);
     assert_eq!(w.staged(), 0, "nothing is left on this computer");
     // Once it is there it is never fetched again: nothing already safely
     // sent is read a second time.
     let again = w.publish(&[upload], &quick()).await;
-    assert_eq!((again.already_there, cloud.fetches.load(Ordering::SeqCst)), (1, 3));
+    assert_eq!((again.already_there, cloud.fetches.load(Ordering::SeqCst)), (1, 2));
 }
 
 #[tokio::test]
@@ -1103,4 +1129,200 @@ async fn every_file_given_ends_up_in_exactly_one_place_in_the_account_whatever_h
         );
         w.dir.close().unwrap();
     }
+}
+
+/// A share that stops answering part-way and comes back, or does not.
+struct GoesAway {
+    inner: FolderStore,
+    caps: Capabilities,
+    /// Puts after this many fail as a lost connection, while away.
+    works_for: u32,
+    puts: AtomicU32,
+    away: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+#[async_trait]
+impl ObjectStore for GoesAway {
+    fn capabilities(&self) -> &Capabilities {
+        &self.caps
+    }
+    async fn check_connection(&self) -> Result<ConnectionReport, StorageError> {
+        self.inner.check_connection().await
+    }
+    async fn head(&self, key: &ObjectKey) -> Result<Option<ObjectInfo>, StorageError> {
+        self.inner.head(key).await
+    }
+    async fn holds_exactly(&self, key: &ObjectKey, blake3: &str) -> Result<Option<bool>, StorageError> {
+        self.inner.holds_exactly(key, blake3).await
+    }
+    async fn get(&self, key: &ObjectKey) -> Result<Vec<u8>, StorageError> {
+        self.inner.get(key).await
+    }
+    async fn put(&self, key: &ObjectKey, body: ByteSource, opts: &PutOptions) -> Result<PutReceipt, StorageError> {
+        let n = self.puts.fetch_add(1, Ordering::SeqCst);
+        if n == self.works_for {
+            self.away.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+        if self.away.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(StorageError::at(keevoro_storage::Step::Writing, connection_lost()));
+        }
+        self.inner.put(key, body, opts).await
+    }
+    async fn list_page(&self, prefix: &str, continuation: Option<String>) -> Result<ListPage, StorageError> {
+        self.inner.list_page(prefix, continuation).await
+    }
+    async fn delete(&self, key: &ObjectKey) -> Result<(), StorageError> {
+        self.inner.delete(key).await
+    }
+}
+
+#[async_trait]
+impl MultipartStore for GoesAway {
+    async fn start(&self, key: &ObjectKey, opts: &PutOptions) -> Result<UploadId, StorageError> {
+        self.inner.start(key, opts).await
+    }
+    async fn put_part(&self, id: &UploadId, number: u16, body: ByteSource) -> Result<PartReceipt, StorageError> {
+        self.inner.put_part(id, number, body).await
+    }
+    async fn complete(&self, id: &UploadId, parts: &[PartReceipt]) -> Result<PutReceipt, StorageError> {
+        self.inner.complete(id, parts).await
+    }
+    async fn abort(&self, id: &UploadId) -> Result<(), StorageError> {
+        self.inner.abort(id).await
+    }
+    async fn list_parts(&self, id: &UploadId) -> Result<Vec<PartReceipt>, StorageError> {
+        self.inner.list_parts(id).await
+    }
+}
+
+/// What this computer's system says when a share's connection is lost:
+/// Windows' "The specified network name is no longer available", or a
+/// connection reset elsewhere.
+fn connection_lost() -> std::io::Error {
+    let code = if cfg!(windows) {
+        64
+    } else if cfg!(target_os = "macos") {
+        54
+    } else {
+        104
+    };
+    std::io::Error::from_raw_os_error(code)
+}
+
+async fn goes_away(dir: &Path, works_for: u32) -> GoesAway {
+    let inner = FolderStore::open(dir).await.unwrap();
+    GoesAway {
+        caps: inner.capabilities().clone(),
+        inner,
+        works_for,
+        puts: AtomicU32::new(0),
+        away: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    }
+}
+
+#[tokio::test]
+async fn a_place_that_goes_away_is_stopped_for_now_and_the_rest_are_sent_at_the_end_if_it_is_back() {
+    let w = World::new().await;
+    let store = goes_away(&w.dir.path().join("share"), 5).await;
+    let uploads: Vec<Upload> = (0..40)
+        .map(|i| {
+            w.file(
+                &format!("originals/IMG_{i:04}.jpg"),
+                format!("photo {i}").as_bytes(),
+                true,
+            )
+        })
+        .collect();
+    // The place answers "still there?" with no while it is away; it comes
+    // back just before the end of the pass.
+    let away = store.away.clone();
+    let asked = std::sync::Arc::new(AtomicU32::new(0));
+    let counted = asked.clone();
+    let opts = PublishOptions {
+        reachable: Some(Reachable(std::sync::Arc::new(move || {
+            let n = counted.fetch_add(1, Ordering::SeqCst);
+            if n >= 1 {
+                // Asked again at the end: it is back.
+                away.store(false, std::sync::atomic::Ordering::SeqCst);
+                return true;
+            }
+            false
+        }))),
+        ..quick()
+    };
+    let r = publish(&store, &w.catalog, "test", &uploads, &opts, &mut |_| {})
+        .await
+        .unwrap();
+    // Five went, eight failed in a row, the place was not there, so no more
+    // were started; at the end it was back and everything was sent.
+    assert_eq!(
+        (r.uploaded, r.failed.len(), r.waiting_for_place.len()),
+        (40, 0, 0),
+        "{r:?}"
+    );
+    assert_eq!(
+        asked.load(Ordering::SeqCst),
+        2,
+        "asked once when it seemed gone, once at the end"
+    );
+    assert_eq!(
+        store.puts.load(Ordering::SeqCst),
+        5 + u32::try_from(trouble::GIVE_UP_AFTER).unwrap() + 35,
+        "not one failure per remaining file at full cost"
+    );
+    assert!(r.account(40).adds_up());
+}
+
+#[tokio::test]
+async fn a_place_that_goes_away_and_stays_away_leaves_the_rest_waiting_and_says_how_many() {
+    let w = World::new().await;
+    let store = goes_away(&w.dir.path().join("share"), 5).await;
+    let uploads: Vec<Upload> = (0..40)
+        .map(|i| {
+            w.file(
+                &format!("originals/IMG_{i:04}.jpg"),
+                format!("photo {i}").as_bytes(),
+                true,
+            )
+        })
+        .collect();
+    let opts = PublishOptions {
+        reachable: Some(Reachable(std::sync::Arc::new(|| false))),
+        ..quick()
+    };
+    let r = publish(&store, &w.catalog, "test", &uploads, &opts, &mut |_| {})
+        .await
+        .unwrap();
+    assert_eq!(r.uploaded, 5);
+    assert_eq!(r.failed.len(), trouble::GIVE_UP_AFTER);
+    assert!(r
+        .failed
+        .iter()
+        .all(|f| f.cause == Cause::ConnectionLost && f.side == Some(Side::Destination)));
+    assert_eq!(r.waiting_for_place.len(), 40 - 5 - trouble::GIVE_UP_AFTER);
+    let account = r.account(40);
+    assert!(account.adds_up(), "{account:?}");
+    assert_eq!(account.waiting_for_place, 27);
+    // Nothing was recorded for a file that did not arrive.
+    assert_eq!(w.catalog.sent_to("test").unwrap().len(), 5);
+}
+
+#[tokio::test]
+async fn a_healthy_run_never_asks_whether_the_place_is_there() {
+    let w = World::new().await;
+    let asked = std::sync::Arc::new(AtomicU32::new(0));
+    let counted = asked.clone();
+    let opts = PublishOptions {
+        reachable: Some(Reachable(std::sync::Arc::new(move || {
+            counted.fetch_add(1, Ordering::SeqCst);
+            true
+        }))),
+        ..quick()
+    };
+    let uploads: Vec<Upload> = (0..20)
+        .map(|i| w.file(&format!("originals/{i}.jpg"), format!("photo {i}").as_bytes(), true))
+        .collect();
+    let r = w.publish(&uploads, &opts).await;
+    assert_eq!((r.uploaded, r.tried_again), (20, 0));
+    assert_eq!(asked.load(Ordering::SeqCst), 0);
 }

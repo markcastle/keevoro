@@ -517,6 +517,10 @@ export type SendEvent = {
   heldBack?: string[]
   /** On the last event of a backup that ran by itself and did not run now, why. */
   notNow?: string
+  /** On the last event of a backup: how many files it could not back up. */
+  missed?: number
+  /** On the last event of a backup during which a destination's connection was lost: offer "Check they all arrived" first. */
+  checkAdvised?: boolean
 }
 
 /** What the "connect" form collects. Keys go to the system keychain. */

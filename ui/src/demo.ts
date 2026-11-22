@@ -372,6 +372,10 @@ export function demoBackend(): Backend {
   }
   byHand.keevoroEmptyTheFolder = () => (emptyOnLook = true)
   byHand.keevoroUnplugTheFolder = () => (unplugOnLook = true)
+  // The next backup's share drops out for a stretch, as the owner's did.
+  let dropNextBackup = false
+  ;(window as unknown as { keevoroDropTheShareNextBackup: () => void }).keevoroDropTheShareNextBackup = () =>
+    (dropNextBackup = true)
   // As the owner's network share was left: some files gone, some cut short.
   let damageOnLook = false
   ;(window as unknown as { keevoroDamageTheShare: () => void }).keevoroDamageTheShare = () => (damageOnLook = true)
@@ -1903,6 +1907,35 @@ export function demoBackend(): Backend {
         // Sent means safe: nothing is waiting any more.
         kept.forEach((c) => (c.gathered = c.photos + c.videos))
         keptOthers.forEach((r) => otherSent.add(r.id))
+        if (dropNextBackup && fresh > 5) {
+          // Five could not be sent while the share was away; they wait.
+          dropNextBackup = false
+          sentSoFar = total - 5
+          dests.forEach((d) => (d.there = total - 5))
+          let left = 5
+          for (const c of kept) {
+            const take = Math.min(left, c.gathered)
+            c.gathered -= take
+            left -= take
+          }
+          const n = (x: number) => x.toLocaleString('en-GB')
+          sendListeners.forEach((l) =>
+            l({
+              finished: true,
+              outcome: 'someFiles',
+              missed: 5,
+              checkAdvised: true,
+              summary: [
+                `Safely backed up ${n(fresh - 5)} files.`,
+                `Couldn't back up 5 files, because the connection to ${to} was lost for a while: IMG_1001.jpg, IMG_1002.jpg, IMG_1003.jpg and 2 more.`,
+                'Back up again to try them once more.',
+                `The connection to ${to} was lost during this backup. Every copy Keevoro counted was read back at its place before it was counted; to be certain, "Check they all arrived" looks at each one again from a fresh connection.`,
+                `${n(total - 5)} of the ${n(total)} files you are keeping are safely at ${to}. 5 still need attention: 5 couldn't be sent.`,
+              ],
+            }),
+          )
+          return
+        }
         sendListeners.forEach((l) =>
           l({
             finished: true,

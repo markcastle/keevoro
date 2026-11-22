@@ -27,6 +27,7 @@ pub mod recognise;
 pub mod schedule;
 pub mod skip;
 pub mod synced;
+pub mod trouble;
 pub mod unattended;
 pub mod wants;
 pub mod words;

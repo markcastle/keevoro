@@ -411,6 +411,8 @@ fn now() -> i64 {
 
 #[cfg(test)]
 mod arranging_tests;
+#[cfg(test)]
+mod dropout_tests;
 
 #[cfg(test)]
 mod tests {

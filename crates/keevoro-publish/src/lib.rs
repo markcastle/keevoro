@@ -14,9 +14,14 @@
 //!   or a dropped connection only the missing parts are sent.
 //! - **One bad file never stops the rest.** Problems are collected into the
 //!   report with a plain reason.
-//! - **Short network drops are retried** a few times with a growing pause.
-//!   Anything else (wrong key, no permission) is reported straight away,
-//!   because trying again would not help.
+//! - **A file that fails is tried again at the end, never on the spot.**
+//!   One that fails for a reason that may pass (a dropped connection, a file
+//!   in use) goes on a list and the pass carries on; at its end each is
+//!   tried once more. A place that fails every file is asked whether it is
+//!   still there, and if not, nothing more is started there until the end.
+//!   Anything else (wrong key, no permission, no room) is reported straight
+//!   away, because trying again would not help. Each failure carries its
+//!   side and cause (`keevoro_core::trouble`), so it is said truthfully.
 //!
 //! The engine knows nothing about S3, R2 or folders. It sees only the
 //! traits in `keevoro-storage`, which is what lets one test suite cover
@@ -26,6 +31,7 @@
 
 use futures_util::stream::{FuturesUnordered, StreamExt};
 use keevoro_catalog::{Catalog, CatalogError};
+use keevoro_core::trouble::{self, Cause, Side, Try};
 use keevoro_storage::{
     ByteSource, MultipartStore, ObjectKey, ObjectStore, PartReceipt, PutOptions, Step, StorageError, UploadId,
 };
@@ -106,6 +112,21 @@ pub struct PublishOptions {
     /// so sending several at once is several times quicker. To a disk it
     /// only makes the disk hop about, so there it stays at one.
     pub at_once: usize,
+    /// A cheap question whether the place is still there (a folder still a
+    /// folder), asked only once files start failing one after another. When
+    /// it says no, no more files are started there in this pass; at the
+    /// end it is asked again, and the rest are sent if it is back.
+    pub reachable: Option<Reachable>,
+}
+
+/// Whether a place is still there. See [`PublishOptions::reachable`].
+#[derive(Clone)]
+pub struct Reachable(pub std::sync::Arc<dyn Fn() -> bool + Send + Sync>);
+
+impl std::fmt::Debug for Reachable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Reachable")
+    }
 }
 
 impl Default for PublishOptions {
@@ -118,6 +139,7 @@ impl Default for PublishOptions {
             stop: None,
             over_network: false,
             at_once: 1,
+            reachable: None,
         }
     }
 }
@@ -125,7 +147,75 @@ impl Default for PublishOptions {
 #[derive(Debug, Clone, Serialize)]
 pub struct FailedUpload {
     pub key: String,
+    /// In words, with the operating system's own text in brackets.
     pub reason: String,
+    /// Why, as one of a few causes a person can act on, and which side it
+    /// was on, when that is known: what grouped sentences are made from.
+    pub cause: Cause,
+    pub side: Option<Side>,
+}
+
+impl FailedUpload {
+    /// A failure, with its cause worked out from the error.
+    pub fn of(key: &str, e: &StorageError, across_a_network: bool, was_working: bool) -> Self {
+        let (side, cause) = cause_of(e, across_a_network, was_working);
+        Self {
+            key: key.to_string(),
+            reason: plain_reason(e),
+            cause,
+            side,
+        }
+    }
+}
+
+/// Which side a storage problem was on and what it means, as
+/// `keevoro_core::trouble` says causes. The operating system's code, when
+/// there is one, goes through the one table.
+pub fn cause_of(e: &StorageError, across_a_network: bool, was_working: bool) -> (Option<Side>, Cause) {
+    let side = match e.step() {
+        Some(step) if !step.at_the_destination() => Some(Side::Source),
+        Some(_) => Some(Side::Destination),
+        None => match e {
+            StorageError::AccessDenied(_)
+            | StorageError::Network(_)
+            | StorageError::AlreadyExists(_)
+            | StorageError::Provider(_) => Some(Side::Destination),
+            _ => None,
+        },
+    };
+    let cause = match e {
+        StorageError::Network(_) => Cause::ConnectionLost,
+        StorageError::AccessDenied(_) => Cause::NotAllowed,
+        StorageError::AlreadyExists(_) => Cause::DifferentFileThere,
+        StorageError::NotTheSame(why) if why.starts_with("the file is not as it was") => Cause::ChangedSinceLooked,
+        StorageError::NotTheSame(_) => Cause::NotTheSame,
+        StorageError::Provider(said) if said.starts_with("There isn't room") => Cause::NoRoom,
+        _ => match e.io() {
+            Some(io) => match io.raw_os_error() {
+                Some(code) => trouble::cause_of_code(trouble::System::this(), code, across_a_network, was_working),
+                None => match io.kind() {
+                    std::io::ErrorKind::NotFound => Cause::NotFound,
+                    std::io::ErrorKind::PermissionDenied => Cause::NotAllowed,
+                    std::io::ErrorKind::StorageFull => Cause::NoRoom,
+                    std::io::ErrorKind::TimedOut
+                    | std::io::ErrorKind::ConnectionReset
+                    | std::io::ErrorKind::ConnectionAborted
+                    | std::io::ErrorKind::NotConnected
+                    | std::io::ErrorKind::BrokenPipe => Cause::ConnectionLost,
+                    _ => Cause::Other,
+                },
+            },
+            None => Cause::Other,
+        },
+    };
+    // Keevoro makes the folders it writes into, so a destination that says
+    // "not found" part-way through a run that was working has gone away.
+    let cause = if cause == Cause::NotFound && side == Some(Side::Destination) && was_working {
+        Cause::ConnectionLost
+    } else {
+        cause
+    };
+    (side, cause)
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -144,6 +234,12 @@ pub struct PublishReport {
     pub stopped: bool,
     /// Files not tried at all because it was asked to stop first.
     pub not_tried: usize,
+    /// Files that failed for a reason that may pass and were tried once
+    /// more at the end of the pass, however that went.
+    pub tried_again: usize,
+    /// The place stopped answering part-way and was not back by the end:
+    /// the files never tried there because of it, by key.
+    pub waiting_for_place: Vec<String>,
     /// The fingerprints worked out while sending, for uploads that asked:
     /// the key each went under, and its whole-file BLAKE3.
     pub learned: Vec<(String, String)>,
@@ -167,6 +263,8 @@ pub struct Account {
     pub failed: usize,
     /// Not tried, because the pass was stopped first.
     pub not_tried: usize,
+    /// Not tried, because the place went away part-way and was not back.
+    pub waiting_for_place: usize,
 }
 
 impl Account {
@@ -177,7 +275,7 @@ impl Account {
 
     /// Still needing something done.
     pub fn attention(&self) -> usize {
-        self.failed + self.not_tried
+        self.failed + self.not_tried + self.waiting_for_place
     }
 
     /// Does every file given have exactly one place in the sum?
@@ -196,6 +294,7 @@ impl PublishReport {
             copies_left_out: self.copies_left_out,
             failed: self.failed.len(),
             not_tried: self.not_tried,
+            waiting_for_place: self.waiting_for_place.len(),
         }
     }
 }
@@ -255,6 +354,14 @@ pub async fn publish(
     // Files being fetched to this computer first, never more than
     // FETCHED_AT_ONCE of them on its disk at once.
     let mut fetching = 0;
+    // What happened to the last few files, to notice a place that has
+    // gone; the files that failed for a reason that may pass, to try once
+    // more at the end, in order; and those not started because the place
+    // seemed gone.
+    let mut recent: Vec<Try> = Vec::new();
+    let mut later: Vec<(&Upload, bool, FailedUpload)> = Vec::new();
+    let mut held: Vec<&Upload> = Vec::new();
+    let mut gone = false;
     loop {
         while in_flight.len() < opts.at_once.max(1) {
             if fetching >= FETCHED_AT_ONCE && waiting.as_slice().first().is_some_and(|u| u.fetch.is_some()) {
@@ -268,6 +375,10 @@ pub async fn publish(
                 report.stopped |= waiting.len() > 0;
                 report.not_tried += waiting.len();
                 waiting = [].iter();
+                break;
+            }
+            if gone {
+                held.extend(waiting.by_ref());
                 break;
             }
             let Some(upload) = waiting.next() else { break };
@@ -296,44 +407,117 @@ pub async fn publish(
         };
         fetching -= usize::from(upload.fetch.is_some());
         match sent {
-            Ok(Outcome::Copy(whole)) => {
-                if upload.learn_fingerprint {
-                    report.learned.push((upload.key.to_string(), whole));
+            Err(SendError::Catalog(e)) => return Err(e),
+            Err(SendError::Storage(e)) => {
+                let was_working = report.uploaded + report.already_there > 0;
+                let failed = FailedUpload::of(upload.key.as_str(), &e, opts.over_network, was_working);
+                recent.push(Try::Failed(failed.cause));
+                // Not waited on and tried again now: it goes on the list
+                // for the end, and the run carries on with everything else.
+                if failed.cause.may_pass() {
+                    later.push((upload, was_gone, failed));
+                } else {
+                    report.failed.push(failed);
                 }
-                report.copies_left_out += 1;
+                if trouble::place_seems_gone(&recent) && opts.reachable.as_ref().is_some_and(|r| !(r.0)()) {
+                    gone = true;
+                }
             }
             Ok(outcome) => {
-                // The size recorded is the size that arrived, which a look
-                // compares with what it finds.
-                let arrived = match &outcome {
-                    Outcome::Sent(bytes, _) => *bytes,
-                    _ => upload.bytes,
-                };
-                catalog.mark_uploaded(target, upload.key.as_str(), arrived)?;
-                match outcome {
-                    Outcome::Sent(_, fingerprint) => {
-                        if let Some(fingerprint) = fingerprint {
-                            report.learned.push((upload.key.to_string(), fingerprint));
-                        }
-                        report.uploaded += 1;
-                        report.uploaded_bytes += upload.bytes;
-                        report.restored += usize::from(was_gone);
-                    }
-                    Outcome::AlreadyThere => report.already_there += 1,
-                    Outcome::Copy(_) => {}
-                }
+                recent.push(Try::Worked);
+                record(catalog, target, upload, was_gone, outcome, &mut report)?;
             }
-            Err(SendError::Catalog(e)) => return Err(e),
-            Err(SendError::Storage(e)) => report.failed.push(FailedUpload {
-                key: upload.key.to_string(),
-                reason: plain_reason(&e),
-            }),
+        }
+        if recent.len() > trouble::GIVE_UP_AFTER {
+            recent.remove(0);
         }
         progress.done += 1;
         progress.latest = upload.key.to_string();
         on_progress(&progress);
     }
+
+    // At the end, once: by now a share that dropped out has usually come
+    // back. If the place went away part-way, it is asked first whether it
+    // is back; if not, what is left waits for the next backup.
+    let back = !gone || opts.reachable.as_ref().is_none_or(|r| (r.0)());
+    if !back {
+        report.waiting_for_place = held.iter().map(|u| u.key.to_string()).collect();
+        report.failed.extend(later.into_iter().map(|(_, _, failed)| failed));
+        return Ok(report);
+    }
+    let mut again: Vec<(&Upload, bool, Option<FailedUpload>)> = later
+        .into_iter()
+        .map(|(u, was_gone, failed)| (u, was_gone, Some(failed)))
+        .collect();
+    again.extend(held.into_iter().map(|u| (u, false, None)));
+    for (upload, was_gone, first) in again {
+        if stop_asked() {
+            match first {
+                Some(failed) => report.failed.push(failed),
+                None => report.not_tried += 1,
+            }
+            continue;
+        }
+        let was_gone = was_gone || catalog.sent_state(target, upload.key.as_str())?.is_some();
+        report.tried_again += usize::from(first.is_some());
+        match send_one(store, catalog, target, upload, opts, sent_now).await {
+            Err(SendError::Catalog(e)) => return Err(e),
+            Err(SendError::Storage(e)) => {
+                let was_working = report.uploaded + report.already_there > 0;
+                report.failed.push(FailedUpload::of(
+                    upload.key.as_str(),
+                    &e,
+                    opts.over_network,
+                    was_working,
+                ));
+            }
+            Ok(outcome) => record(catalog, target, upload, was_gone, outcome, &mut report)?,
+        }
+        if first.is_none() {
+            progress.done += 1;
+            progress.latest = upload.key.to_string();
+            on_progress(&progress);
+        }
+    }
     Ok(report)
+}
+
+/// Writes down a file that was sent, or found there, or left out as a copy.
+fn record(
+    catalog: &Catalog,
+    target: &str,
+    upload: &Upload,
+    was_gone: bool,
+    outcome: Outcome,
+    report: &mut PublishReport,
+) -> Result<(), CatalogError> {
+    if let Outcome::Copy(whole) = outcome {
+        if upload.learn_fingerprint {
+            report.learned.push((upload.key.to_string(), whole));
+        }
+        report.copies_left_out += 1;
+        return Ok(());
+    }
+    // The size recorded is the size that arrived, which a look compares
+    // with what it finds.
+    let arrived = match &outcome {
+        Outcome::Sent(bytes, _) => *bytes,
+        _ => upload.bytes,
+    };
+    catalog.mark_uploaded(target, upload.key.as_str(), arrived)?;
+    match outcome {
+        Outcome::Sent(_, fingerprint) => {
+            if let Some(fingerprint) = fingerprint {
+                report.learned.push((upload.key.to_string(), fingerprint));
+            }
+            report.uploaded += 1;
+            report.uploaded_bytes += upload.bytes;
+            report.restored += usize::from(was_gone);
+        }
+        Outcome::AlreadyThere => report.already_there += 1,
+        Outcome::Copy(_) => {}
+    }
+    Ok(())
 }
 
 /// Stores a small document that may be replaced, such as the index.
@@ -407,10 +591,23 @@ pub async fn check_backup(
     };
     use keevoro_catalog::Seen;
     for want in expected {
+        let key = want.key.as_str();
+        let wrong = |reason: &str, cause: Cause| FailedUpload {
+            key: key.to_string(),
+            reason: reason.to_string(),
+            cause,
+            side: Some(Side::Destination),
+        };
         let (problem, seen) = match with_retries(opts, || store.head(&want.key)).await {
-            Ok(None) => (Some("It is missing from the backup".to_string()), Some(Seen::Missing)),
+            Ok(None) => (
+                Some(wrong("It is missing from the backup", Cause::NotFound)),
+                Some(Seen::Missing),
+            ),
             Ok(Some(found)) if found.bytes != want.bytes => (
-                Some("The backup's copy is a different size from the original".to_string()),
+                Some(wrong(
+                    "The backup's copy is a different size from the original",
+                    Cause::NotTheSame,
+                )),
                 Some(Seen::NotAsSent),
             ),
             Ok(Some(_)) if read_back && want.bytes <= MAX_READ_BACK_BYTES => {
@@ -420,24 +617,24 @@ pub async fn check_backup(
                         (None, Some(Seen::There))
                     }
                     Ok(_) => (
-                        Some("The backup's copy does not match the original".to_string()),
+                        Some(wrong(
+                            "The backup's copy does not match the original",
+                            Cause::NotTheSame,
+                        )),
                         Some(Seen::NotAsSent),
                     ),
-                    Err(e) => (Some(plain_reason(&e)), None),
+                    Err(e) => (Some(FailedUpload::of(key, &e, opts.over_network, true)), None),
                 }
             }
             Ok(Some(_)) => (None, Some(Seen::There)),
-            Err(e) => (Some(plain_reason(&e)), None),
+            Err(e) => (Some(FailedUpload::of(key, &e, opts.over_network, true)), None),
         };
         if let Some(seen) = seen {
             check.seen.push((want.key.to_string(), seen));
         }
         match problem {
             None => check.present += 1,
-            Some(reason) => check.problems.push(FailedUpload {
-                key: want.key.to_string(),
-                reason,
-            }),
+            Some(failed) => check.problems.push(failed),
         }
         progress.done += 1;
         on_progress(&progress);
@@ -516,7 +713,9 @@ async fn send_one(
     let Some(fetch) = &upload.fetch else {
         return send(store, catalog, target, upload, opts).await;
     };
-    let fetched = with_retries(opts, || fetch.fetch()).await?;
+    // Tried once now; if it fails for a reason that may pass, once more at
+    // the end of the pass.
+    let fetched = fetch.fetch().await?;
     if let Some(label) = upload.metadata.get("blake3") {
         if *label != fetched.blake3 {
             return Err(StorageError::NotTheSame(
@@ -601,18 +800,19 @@ async fn send(
         } else {
             None
         };
-        with_retries(opts, || {
-            store.put(&upload.key, ByteSource::File(upload.file.clone()), &put)
-        })
-        .await
-        .map(|receipt| {
-            // A store that counts as it writes has already reported these.
-            if !caps.counts_its_own_bytes {
-                keevoro_core::meter::sent(upload.bytes, opts.over_network);
-            }
-            (receipt.bytes, receipt.blake3.or(before))
-        })
-        .map_err(SendError::from)
+        // Never waited on and tried again on the spot: a file that fails for
+        // a reason that may pass is tried once more at the end of the pass.
+        store
+            .put(&upload.key, ByteSource::File(upload.file.clone()), &put)
+            .await
+            .map(|receipt| {
+                // A store that counts as it writes has already reported these.
+                if !caps.counts_its_own_bytes {
+                    keevoro_core::meter::sent(upload.bytes, opts.over_network);
+                }
+                (receipt.bytes, receipt.blake3.or(before))
+            })
+            .map_err(SendError::from)
     };
     match sent {
         Ok((bytes, fingerprint)) => Ok(Outcome::Sent(bytes, fingerprint.filter(|_| upload.learn_fingerprint))),

@@ -871,6 +871,22 @@ try {
   await page.getByText(/^Everything you are keeping was there when Keevoro last looked, 2 days ago: [\d,]+ files\.$/).waitFor()
   await shot('9y-backup-folder-unplugged')
 
+  // --- A share that drops out during a backup: one grouped sentence, said
+  // as the destination's, an account that adds up, and the main button
+  // saying what it will do next.
+  await page.goto(`${base}/?fast`)
+  await page.getByRole('button', { name: 'Choose where they go' }).click()
+  await page.evaluate(() => window.keevoroDropTheShareNextBackup())
+  await page.getByRole('button', { name: /^A folder/ }).click()
+  await page.getByRole('button', { name: 'Back up now' }).click()
+  await page.getByText(/^Couldn't back up 5 files, because the connection to the folder F:\\Family Backup was lost for a while: IMG_1001\.jpg, IMG_1002\.jpg, IMG_1003\.jpg and 2 more\.$/).waitFor()
+  await page.getByText(/^[\d,]+ of the [\d,]+ files you are keeping are safely at the folder F:\\Family Backup\. 5 still need attention: 5 couldn't be sent\.$/).waitFor()
+  assert.equal(await page.getByText(/from its source/).count(), 0, 'a destination\u2019s trouble is never said as the source\u2019s')
+  await page.getByRole('button', { name: 'Back up the 5 files that were missed' }).waitFor()
+  await shot('9w-backup-share-dropped-out')
+  await page.getByRole('button', { name: 'Back up the 5 files that were missed' }).click()
+  await page.getByText(/^All [\d,]+ files you are keeping are safely at the folder F:\\Family Backup\.$/).waitFor()
+
   // --- The owner's network share as 0.42.0 left it: some files gone, some
   // cut short. The screen says how many are safely there and how many need
   // attention, never "everything", and one button puts it right.

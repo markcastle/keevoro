@@ -153,6 +153,13 @@ pub fn account_words(place: &str, account: &keevoro_publish::Account) -> String 
             if account.not_tried == 1 { "was" } else { "were" }
         ));
     }
+    if account.waiting_for_place > 0 {
+        why.push(format!(
+            "{} {} waiting for it to come back",
+            n(account.waiting_for_place),
+            if account.waiting_for_place == 1 { "is" } else { "are" }
+        ));
+    }
     format!(
         "{} of the {} {}{ACCOUNT_MARK}{} safely at {place}. {} still {} attention: {}.",
         n(account.safe()),
@@ -162,6 +169,79 @@ pub fn account_words(place: &str, account: &keevoro_publish::Account) -> String 
         n(attention),
         if attention == 1 { "needs" } else { "need" },
         why.join(" and ")
+    )
+}
+
+/// Files that could not be sent, said in groups: one sentence for each side
+/// and cause, with how many, the first few names and how many more, and
+/// "could not be backed up again" for those that failed last time too.
+/// Each comes with a short form for the stage's red mark. Largest first.
+pub fn failure_groups(
+    failed: &[&keevoro_publish::FailedUpload],
+    place: &str,
+    across_a_network: bool,
+    last_time: &std::collections::HashSet<String>,
+) -> Vec<(String, String)> {
+    use keevoro_core::trouble::{self, Side};
+    let mut groups: Vec<((Side, trouble::Cause, bool), Vec<String>)> = Vec::new();
+    for f in failed {
+        let side = f.side.unwrap_or(Side::Destination);
+        let key = (side, f.cause, last_time.contains(&f.key));
+        match groups.iter_mut().find(|(k, _)| *k == key) {
+            Some((_, names)) => names.push(f.key.clone()),
+            None => groups.push((key, vec![f.key.clone()])),
+        }
+    }
+    groups.sort_by_key(|g| std::cmp::Reverse(g.1.len()));
+    groups
+        .into_iter()
+        .map(|((side, cause, again), names)| {
+            let why = trouble::cause_words(cause, side, place, across_a_network, names.len() == 1);
+            let short = format!("Couldn't back up {}: {why}", count(names.len(), "file"));
+            (trouble::group_words(&names, &why, again), short)
+        })
+        .collect()
+}
+
+/// Is this one of the lines that say files could not be backed up?
+pub fn is_failure_line(line: &str) -> bool {
+    line.starts_with("Couldn't back up")
+        || (line.starts_with("These ") && line.contains(" could not be backed up again"))
+        || line.starts_with("This file could not be backed up again")
+}
+
+/// A place that went away part-way through and was not back by the end.
+pub fn place_went_away_words(place: &str, files: usize, across_a_network: bool) -> String {
+    let went = if across_a_network {
+        format!("The connection to {place} was lost part-way through and had not come back by the end")
+    } else {
+        format!(
+            "{} went away part-way through and had not come back by the end",
+            crate::confirm::capitalised(place)
+        )
+    };
+    format!(
+        "{went}, so {} {} not sent. Everything already sent is safe there. Back up again once it is back.",
+        count(files, "file"),
+        if files == 1 { "was" } else { "were" }
+    )
+}
+
+/// The words that mark [`check_advised_words`] among what a backup says.
+pub const CHECK_ADVISED_MARK: &str = "\"Check they all arrived\" looks at each one again";
+
+/// What a backup says when a place's connection was lost during it: every
+/// copy counted was proved at its place, and a check from a fresh
+/// connection is the way to be certain.
+pub fn check_advised_words(place: &str, across_a_network: bool) -> String {
+    let went = if across_a_network {
+        format!("The connection to {place} was lost during this backup")
+    } else {
+        format!("{} went away during this backup", crate::confirm::capitalised(place))
+    };
+    format!(
+        "{went}. Every copy Keevoro counted was read back at its place before it was counted; to be certain, \
+         \"Check they all arrived\" looks at each one again from a fresh connection."
     )
 }
 

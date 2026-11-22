@@ -61,3 +61,12 @@ export function outOfReachLine(place: Place) {
 export function lookedSaid(places: Place[]) {
   return places.flatMap((p) => p.looked?.said ?? [])
 }
+
+/** What the main button says it will do: after a backup that missed files, which files it will send. */
+export function mainButtonWords(waiting: number, missed: number) {
+  if (waiting === 0) return 'Back up again'
+  if (missed > 0 && missed === waiting) {
+    return missed === 1 ? 'Back up the 1 file that was missed' : `Back up the ${missed.toLocaleString('en-GB')} files that were missed`
+  }
+  return 'Back up now'
+}

@@ -1061,7 +1061,10 @@ fn the_owners_second_screen_now_tells_one_truth() {
     std::fs::rename(&photo, &aside).unwrap();
     let (first, went) = t.run();
     assert_eq!(went.failed_files, 1);
-    assert!(first.contains("Couldn't read it from its source"), "{first}");
+    assert!(
+        first.contains("Couldn't back up 1 file, because it was no longer where it was found: IMG_"),
+        "{first}"
+    );
     assert!(
         first.contains(&format!(
             "3 of the 4 files you are keeping are safely at the folder {}. 1 still needs attention: 1 couldn't be \
@@ -1114,4 +1117,36 @@ fn a_file_really_gone_is_sent_again_in_the_same_run_that_says_so() {
     assert!(said.contains("Restored 1 file that had gone from there."), "{said}");
     assert!(t.usb().join(&keys[2]).is_file(), "sent again, in this run");
     assert!(said.contains("All 4 files you are keeping are safely at"), "{said}");
+}
+
+#[test]
+fn a_backup_nobody_is_watching_never_puts_damaged_copies_right_by_itself_and_lists_them() {
+    let t = Tester::new();
+    t.run();
+    let short = t.originals()[0].clone();
+    std::fs::write(&short, b"cut short").unwrap();
+    let mut said = Vec::new();
+    let went = crate::send::everywhere_as(
+        &crate::send::HowToSend { unattended: true },
+        &mut said,
+        &t.catalog,
+        &t.home,
+        &t.world(),
+        None,
+        &Stop::default(),
+        &Tracker::new(Remembered::default()),
+        &mut |_| {},
+        &mut |_| {},
+    )
+    .unwrap();
+    assert_eq!(
+        went.held,
+        [format!(
+            "The folder {} has 1 copy not the size it was sent at. Moving it aside to send it again waits for your \
+             say: open Keevoro and choose \"Put this backup right\".",
+            t.usb().display()
+        )]
+    );
+    assert_eq!(std::fs::read(&short).unwrap(), b"cut short", "left exactly as it was");
+    assert!(!t.usb().join(keevoro_core::SET_ASIDE_FOLDER).exists());
 }

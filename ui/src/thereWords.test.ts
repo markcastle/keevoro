@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { ago } from './format.ts'
 import type { Looked } from './backend.ts'
-import { certain, lookedSaid, outOfReachLine, thereNow } from './thereWords.ts'
+import { certain, lookedSaid, mainButtonWords, outOfReachLine, thereNow } from './thereWords.ts'
 
 const NOW = 1_800_000_000
 const at = (secondsAgo: number) => NOW - secondsAgo
@@ -71,4 +71,12 @@ test('the owner\u2019s second screen: never "everything is there" beside files t
   )
   // A look that could not reach the place says nothing of what it did not see.
   assert.equal(thereNow(0, 40, [{ there: 40, waiting: 0, looked: { ...outOfReach, gone: 3 } }], said).startsWith('Everything'), true)
+})
+
+test('after a backup that missed files, the main button says what it will do', () => {
+  assert.equal(mainButtonWords(176, 176), 'Back up the 176 files that were missed')
+  assert.equal(mainButtonWords(1, 1), 'Back up the 1 file that was missed')
+  assert.equal(mainButtonWords(200, 176), 'Back up now', 'new files too: not only the missed ones')
+  assert.equal(mainButtonWords(4, 0), 'Back up now')
+  assert.equal(mainButtonWords(0, 0), 'Back up again')
 })
