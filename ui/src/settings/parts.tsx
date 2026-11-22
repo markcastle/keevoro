@@ -241,11 +241,38 @@ export function SectionIcon(props: { id: SectionId }) {
       </>
     ),
     // A question.
-    help: (
+    howTo: (
       <>
         <circle cx="10" cy="10" r="6.5" />
         <path d="M8 8.25a2 2 0 1 1 2.75 1.85c-.5.2-.75.6-.75 1.15v.25" />
         <circle cx="10" cy="13.6" r="0.4" fill="currentColor" />
+      </>
+    ),
+    // A speech bubble.
+    report: (
+      <>
+        <path d="M4 5.5a1.5 1.5 0 0 1 1.5-1.5h9A1.5 1.5 0 0 1 16 5.5v6a1.5 1.5 0 0 1-1.5 1.5H9l-3.5 3v-3h0A1.5 1.5 0 0 1 4 11.5Z" />
+      </>
+    ),
+    // A cloud.
+    compare: (
+      <>
+        <path d="M6.5 14.5h7.25a3 3 0 0 0 .3-5.98A4.25 4.25 0 0 0 5.9 9.6 2.5 2.5 0 0 0 6.5 14.5Z" />
+      </>
+    ),
+    // Lines of a record.
+    log: (
+      <>
+        <rect x="4.5" y="3.5" width="11" height="13" rx="1.5" />
+        <path d="M7.5 7.5h5M7.5 10h5M7.5 12.5h3" />
+      </>
+    ),
+    // The letter i.
+    about: (
+      <>
+        <circle cx="10" cy="10" r="6.5" />
+        <path d="M10 9.25v4" />
+        <circle cx="10" cy="6.9" r="0.4" fill="currentColor" />
       </>
     ),
   }

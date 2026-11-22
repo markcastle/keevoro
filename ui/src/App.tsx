@@ -72,7 +72,6 @@ import { FoundPicture, Viewer } from './pictures'
 import { LookInside } from './inside'
 import { SpaceScreen } from './map'
 import { LiveMap } from './liveMap'
-import { OpenSourceLicences } from './licences'
 import { LeaveOutButton, LeftOutByYou, LeftOutSaid, leftOutByYou } from './leaveOut'
 import { VirtualTiles } from './tiles'
 import { SourceWants } from './wants'
@@ -86,16 +85,21 @@ import { WindowAsks } from './tray'
 import { certain, mainButtonWords, needingAttention, outOfReachLine } from './thereWords'
 import { SyncedCard } from './synced'
 import { GoogleClassNote, StorageFields } from './storageForm'
-import { CompareStorage } from './compare'
+import { CompareSheet, CompareStorage } from './compare'
 import { AddBucketSource, CloudCost, CloudSourceIcon } from './bucketSource'
 import { Explained } from './explained'
-import { SettingsScreen } from './settings/shell'
+import { PlaceScreen } from './settings/shell'
 import { parsePlace, placeOfRow } from './settings/places'
-import type { SettingsPlace } from './settings/places'
+import type { Place as PlaceAt, Where } from './settings/places'
+import type { Going } from './settings/help'
+import type { SetUp } from './stratus'
 
 type Step = 'find' | 'choose' | 'send'
 /** Looking inside a collection, or at what was set aside, sits on top of step 2. */
-type Overlay = { collection: Collection } | 'setAside' | 'duplicates' | 'settings' | 'activity' | 'about' | 'backups' | null
+type Overlay = { collection: Collection } | 'setAside' | 'duplicates' | Where | 'activity' | 'backups' | null
+
+/** Something asked of the backup screen from elsewhere: to add a destination, or set up one a comparison chose. */
+type SendAsk = { adding: true } | { setUp: SetUp }
 
 const STEPS: { id: Step; title: string }[] = [
   { id: 'find', title: 'Find your photos' },
@@ -115,8 +119,14 @@ export function App() {
   const [found, setFound] = useState<Discover | null>(null)
   const [step, setStep] = useState<Step>('find')
   const [overlay, setOverlay] = useState<Overlay>(null)
-  // Where Settings is, remembered while Keevoro is open, so it opens there again.
-  const [settingsAt, setSettingsAt] = useState<SettingsPlace>({ section: null })
+  // Where Settings and Help are, remembered while Keevoro is open, so each opens there again.
+  const [placesAt, setPlacesAt] = useState<Record<Where, PlaceAt>>({
+    settings: { where: 'settings', section: null },
+    help: { where: 'help', section: null },
+  })
+  const setPlace = (at: PlaceAt) => setPlacesAt((now) => ({ ...now, [at.where]: at }))
+  // What Help or a link asked of the backup screen, until it has been done.
+  const [sendAsk, setSendAsk] = useState<SendAsk | null>(null)
   // Manage backups opened from Settings goes back there.
   const [backupsFromSettings, setBackupsFromSettings] = useState(false)
   const [scan, setScan] = useState<ScanEvent | null>(null)
@@ -217,14 +227,15 @@ export function App() {
     scroller.scrollTop = overlay === null ? wasAt.current : 0
   }, [overlay])
 
-  // The screen a report is about, when the foot of the window opened it.
+  // The screen a report is about, when the foot of the side band opened Help.
   const [reportFrom, setReportFrom] = useState<string | null>(null)
-  /** Opens Settings where it was, or at a place asked for: a section, a page, or a row to bring into view. */
-  const openSettings = (at?: SettingsPlace) => {
-    if (at) setSettingsAt(at)
+  /** Opens Settings or Help where it was, or at a place asked for: a section, a page, or a row to bring into view. */
+  const openPlace = (where: Where, at?: PlaceAt) => {
+    if (at) setPlace(at)
     setReportFrom(null)
-    show('settings')
+    show(at?.where ?? where)
   }
+  const openSettings = (at?: PlaceAt) => openPlace('settings', at)
 
   const refresh = useCallback((from: Backend) => from.discover().then(setFound).catch(report), [report])
 
@@ -339,20 +350,11 @@ export function App() {
           return
         }
         const at = parsePlace(page)
-        if (at) openSettings(at.section === null ? undefined : at)
+        if (at) openPlace(at.where, at.section === null ? undefined : at)
       }}
       onProblem={report}
     />
   )
-
-  if (!state.backup) {
-    return (
-      <>
-        <Welcome onStart={(name) => openBackup(api.startBackup(name))} problem={problem} />
-        {asks}
-      </>
-    )
-  }
 
   const waiting = found?.waitingToGather ?? 0
   const kept = found?.collections.filter((c) => c.kept) ?? []
@@ -400,7 +402,7 @@ export function App() {
   /** The screen in front of the person, in its own words, for a report. */
   const screenName = () =>
     overlay === 'activity' ? 'What Keevoro is doing'
-    : overlay === 'about' ? 'About Keevoro'
+    : !state.backup ? 'Let’s find your photos'
     : overlay === 'backups' ? 'Manage backups'
     : overlay === 'duplicates' ? 'Duplicates'
     : overlay === 'setAside' ? 'Set aside'
@@ -458,11 +460,23 @@ export function App() {
     </>
   )
 
-  if (overlay === 'settings') {
+  // Where an answer in Help, How do I…, goes.
+  const goTo = (going: Going) => {
+    if ('row' in going) {
+      openSettings(placeOfRow(going.row))
+      return
+    }
+    go(going.step)
+    if (going.step === 'send' && going.adding) setSendAsk({ adding: true })
+  }
+
+  if (overlay === 'settings' || overlay === 'help') {
     return (
       <div className="app settings-open">
         {asks}
-        <SettingsScreen
+        <PlaceScreen
+          // Settings and Help are each arrived at afresh, focus and all.
+          key={overlay}
           api={api}
           state={state}
           sendingTo={sendingTo ?? null}
@@ -479,6 +493,16 @@ export function App() {
             setBackupsFromSettings(true)
             setOverlay('backups')
           }}
+          onGo={goTo}
+          keptBytes={found?.bytes ?? 0}
+          onSetUp={
+            state.backup
+              ? (setUp) => {
+                  go('send')
+                  setSendAsk({ setUp })
+                }
+              : undefined
+          }
           onReset={(s) => {
             setOverlay(null)
             setFound(null)
@@ -487,13 +511,112 @@ export function App() {
             setStep('find')
             setState(s)
           }}
-          place={settingsAt}
-          onPlace={setSettingsAt}
+          place={placesAt[overlay]}
+          onPlace={(at) => {
+            setPlace(at)
+            // A search in one place can find something in the other.
+            if (at.where !== overlay) setOverlay(at.where)
+          }}
           onBack={() => setOverlay(null)}
           onProblem={report}
           banner={banner}
           reportFrom={reportFrom}
         />
+      </div>
+    )
+  }
+
+  // The foot of the side band, the same on every screen: what Keevoro is
+  // doing, with its line, then Settings, then Help.
+  const foot = (
+    <div className="foot">
+      {check && !paused && (
+        <CheckLine api={api} check={check} pausedAlone={checkAlone} onPausedAlone={setCheckAlone} onProblem={report} />
+      )}
+      {!check && checkWaits.length > 0 && (
+        <span className="quiet small" role="status">
+          {checkWaits.join(' ')}
+        </span>
+      )}
+      {!check && checkLeft && (
+        <CheckStopped api={api} left={checkLeft} brief onStarted={() => setCheckLeft(null)} onProblem={report} />
+      )}
+      {paused && (
+        <span className="paused" role="status">
+          Keevoro is paused{pausedUntil ? ` until ${pausedUntil}` : ''}.{' '}
+          <button
+            className="button small"
+            onClick={() =>
+              api
+                .pauseWork(false)
+                .then(() => setPaused(false))
+                .catch(report)
+            }
+          >
+            Carry on
+          </button>
+        </span>
+      )}
+      <button className="link doing" onClick={() => show('activity')}>
+        What Keevoro is doing
+        {doing && !paused && (
+          <span className="quiet small" role="status">
+            <Spinner /> {doing}
+          </span>
+        )}
+      </button>
+      <button className="link" onClick={() => openSettings()}>
+        Settings
+      </button>
+      <button
+        className="link"
+        onClick={() => {
+          // A report written from Help says which screen the person was on.
+          const from = screenName()
+          openPlace('help')
+          setReportFrom(from)
+        }}
+      >
+        Help
+      </button>
+    </div>
+  )
+
+  const activity = (
+    <ActivityScreen
+      api={api}
+      check={
+        check ? (
+          <CheckLine api={api} check={check} pausedAlone={checkAlone} onPausedAlone={setCheckAlone} onProblem={report} />
+        ) : checkLeft ? (
+          <CheckStopped api={api} left={checkLeft} onStarted={() => setCheckLeft(null)} onProblem={report} />
+        ) : null
+      }
+      onPaused={setPaused}
+      onBack={() => setOverlay(null)}
+      onProblem={report}
+    />
+  )
+
+  // Before the first backup: the first screen, with the same side band
+  // foot as every other, so Settings and Help are where they always are.
+  if (!state.backup) {
+    return (
+      <div className="app first-run">
+        {asks}
+        <aside className="sidebar" aria-label="Keevoro">
+          {foot}
+        </aside>
+        <main ref={main} className={overlay === 'activity' ? undefined : 'welcoming'}>
+          {overlay === 'activity' ? (
+            <>
+              {banner}
+              {activity}
+            </>
+          ) : (
+            <Welcome onStart={(name) => openBackup(api.startBackup(name))} problem={problem} />
+          )}
+        </main>
       </div>
     )
   }
@@ -530,59 +653,7 @@ export function App() {
             </li>
           ))}
         </ol>
-        <div className="foot">
-          {check && !paused && (
-            <CheckLine api={api} check={check} pausedAlone={checkAlone} onPausedAlone={setCheckAlone} onProblem={report} />
-          )}
-          {!check && checkWaits.length > 0 && (
-            <span className="quiet small" role="status">
-              {checkWaits.join(' ')}
-            </span>
-          )}
-          {!check && checkLeft && (
-            <CheckStopped api={api} left={checkLeft} brief onStarted={() => setCheckLeft(null)} onProblem={report} />
-          )}
-          {paused && (
-            <span className="paused" role="status">
-              Keevoro is paused{pausedUntil ? ` until ${pausedUntil}` : ''}.{' '}
-              <button
-                className="button small"
-                onClick={() =>
-                  api
-                    .pauseWork(false)
-                    .then(() => setPaused(false))
-                    .catch(report)
-                }
-              >
-                Carry on
-              </button>
-            </span>
-          )}
-          <button className="link doing" onClick={() => show('activity')}>
-            What Keevoro is doing
-            {doing && !paused && (
-              <span className="quiet small" role="status">
-                <Spinner /> {doing}
-              </span>
-            )}
-          </button>
-          <button className="link" onClick={() => openSettings()}>
-            Settings
-          </button>
-          <button className="link" onClick={() => show('about')}>
-            About Keevoro
-          </button>
-          <button
-            className="link"
-            onClick={() => {
-              const from = screenName()
-              openSettings({ section: 'help', detail: 'report' })
-              setReportFrom(from)
-            }}
-          >
-            Report a problem or idea
-          </button>
-        </div>
+        {foot}
       </aside>
 
       <main ref={main}>
@@ -613,21 +684,7 @@ export function App() {
             onProblem={report}
           />
         ) : overlay === 'activity' ? (
-          <ActivityScreen
-            api={api}
-            check={
-              check ? (
-                <CheckLine api={api} check={check} pausedAlone={checkAlone} onPausedAlone={setCheckAlone} onProblem={report} />
-              ) : checkLeft ? (
-                <CheckStopped api={api} left={checkLeft} onStarted={() => setCheckLeft(null)} onProblem={report} />
-              ) : null
-            }
-            onPaused={setPaused}
-            onBack={() => setOverlay(null)}
-            onProblem={report}
-          />
-        ) : overlay === 'about' ? (
-          <AboutScreen api={api} version={state.version} onBack={() => setOverlay(null)} onProblem={report} />
+          activity
         ) : overlay === 'duplicates' ? (
           <DuplicatesScreen api={api} onBack={() => setOverlay(null)} onProblem={report} />
         ) : overlay !== 'setAside' && overlay?.collection.byFolder ? (
@@ -669,7 +726,7 @@ export function App() {
             justFound={justFound}
             checking={check !== null}
             arrange={arranged?.arrange ?? 'byDate'}
-            onLog={() => openSettings({ section: 'help', detail: 'log' })}
+            onLog={() => openPlace('help', { where: 'help', section: 'log' })}
             onProblem={report}
             onStarted={() => setJustFound(null)}
             onChanged={() => {
@@ -739,6 +796,8 @@ export function App() {
             onSent={() => void refresh(api)}
             arrange={arranged?.arrange}
             onSettings={(row) => openSettings(placeOfRow(row))}
+            ask={sendAsk}
+            onAsked={() => setSendAsk(null)}
             next={
               <Next
                 back={() => go('choose')}
@@ -808,13 +867,22 @@ function useFilledAbove(bar: RefObject<HTMLElement | null>): boolean {
   return filled
 }
 
+/** The name being typed on the first screen, kept while Keevoro is open so a look at Help or Settings loses nothing. */
+let welcomeName = 'My photos'
+
 function Welcome(props: { onStart: (name: string) => void; problem: string | null }) {
-  const [name, setName] = useState('My photos')
+  const [name, setTyped] = useState(welcomeName)
+  const setName = (typed: string) => {
+    welcomeName = typed
+    setTyped(typed)
+  }
   return (
     <form
       className="welcome"
       onSubmit={(e) => {
         e.preventDefault()
+        // Started: the next first screen (after a reset, say) suggests the name afresh.
+        welcomeName = 'My photos'
         props.onStart(name)
       }}
     >
@@ -1367,7 +1435,7 @@ function FindScreen(props: {
                       <button className="link" onClick={props.onLog}>
                         the log
                       </button>
-                      , in Settings, Help.
+                      , in Help.
                     </p>
                   )}
                   {justFound.onlineOnlySaid && <p className="online-only">{justFound.onlineOnlySaid}</p>}
@@ -1836,143 +1904,6 @@ function ceiling(peak: number, floor: number) {
  * One measure over the last two minutes: a single thin line on a quiet
  * grid, with the figure under the pointer shown as you move across it.
  */
-/**
- * What Keevoro is, what it promises, and the terms it comes under. The
- * promises are the ones the code is built around and tested for; nothing
- * is claimed here that the tests do not hold it to.
- */
-function AboutScreen(props: { api: Backend; version: string; onBack: () => void; onProblem: (error: unknown) => void }) {
-  const { api, onProblem } = props
-  const [licences, setLicences] = useState(false)
-  const open = (page: string) => api.openReleasePage(page).catch(onProblem)
-  if (licences) return <OpenSourceLicences onBack={() => setLicences(false)} />
-  return (
-    <section className="about">
-      <header>
-        <button className="link" onClick={props.onBack}>
-          ‹ Back
-        </button>
-        <h1>About Keevoro</h1>
-        <p className="status">Keep things as they were.</p>
-      </header>
-
-      <div className="panel">
-        <h2>Your photos are safe with Keevoro</h2>
-        <p>
-          These are the only copies some people have of the people and places they love. Keevoro is built around a few
-          rules it is made never to break, and automated tests guard them every time the app changes.
-        </p>
-        <dl className="promises">
-          <dt>Your sources are only ever read</dt>
-          <dd>
-            Keevoro never changes, moves, renames or deletes anything on a drive, card or folder it looks through.
-            Removing a source only takes it off a list. If a source is damaged or vanishes mid-way, nothing on it has
-            been touched.
-          </dd>
-          <dt>A copy only counts when it is proved exact</dt>
-          <dd>
-            Every file is fingerprinted from its whole contents. An original written to a folder or a drive is read
-            back from its place in the backup and compared with that fingerprint before Keevoro calls it safe, and
-            one that does not match is never counted, and is said so. If a file of the same name is already there, it is fingerprinted too, and
-            counted only if it is the same file. An original sent to Cloudflare R2, Amazon S3 or Google Cloud Storage travels over an
-            encrypted, error-checked connection, and “Check they all arrived” confirms each one is there and the
-            right size.
-          </dd>
-          <dt>No original in a backup is ever replaced or removed</dt>
-          <dd>
-            An original, once backed up, is never overwritten. Two different photos with the same name are both kept.
-            Deleting a photo from a source does not delete it from your backup. Only what Keevoro makes itself, the
-            previews and the list of contents, is ever rewritten. A copy found damaged is never deleted either: when
-            you ask Keevoro to put the backup right, it is moved aside into a folder of its own there, with a note.
-          </dd>
-          <dt>Duplicates are exact, never guesses</dt>
-          <dd>
-            A file is left out as a duplicate only when every byte matches the copy being kept. Photos that merely
-            look alike are both kept, and you can see every duplicate before anything is backed up.
-          </dd>
-          <dt>Nothing is hidden from you</dt>
-          <dd>
-            Anything set aside is listed with the reason and can be brought back. Anything that could not be read is
-            counted on screen and listed by name in the log, and anything that could not be backed up is named when
-            the backup ends.
-          </dd>
-          <dt>You never need Keevoro to get your photos back</dt>
-          <dd>
-            A backup is ordinary files in ordinary folders, with a plain note inside explaining them. Copy the{' '}
-            <code>originals</code> folder and you have everything.
-          </dd>
-          <dt>Your photos go only where you send them</dt>
-          <dd>
-            There is no Keevoro account and no Keevoro server. Your files go from your source to the destination you
-            chose and nowhere else. Storage keys are kept in this computer’s own keychain. The only thing Keevoro
-            contacts by itself is GitHub, to see whether there is a newer version. If you choose Compare providers
-            while choosing where to back up to, it shows Stratus, a comparison of cloud storage prices on the
-            internet, and tells it only the size of the backup and your currency. A report of a problem or an idea
-            goes to Keevoro’s maker only when you send one, and you see exactly what it holds first. On this computer
-            it keeps only its working notes: a list of what it found, small previews, and a log of what it did.
-          </dd>
-        </dl>
-        <p className="quiet small">
-          What no program can promise is that a disk will not fail. Keep more than one copy of anything you cannot
-          afford to lose, in more than one place, and use “Check they all arrived” now and then.
-        </p>
-      </div>
-
-      <div className="panel">
-        <h2>The name</h2>
-        <p>
-          The name blends the sound of English <i>keep</i> with <i>voro</i>, an old Swedish word meaning “were”.
-          Together they capture why we save photos and videos in the first place: to remember people and places as
-          they were.
-        </p>
-      </div>
-
-      <div className="panel thanks">
-        <h2>Thank you</h2>
-        <p>Keevoro is made by Mark Castle.</p>
-        <p>
-          A special thank you to <b>Adam Sparshott</b>, for all his help in testing Keevoro and for his excellent
-          ideas. He found the faults that mattered most, and many of the things you see here began as his suggestions:
-          keeping your folders as they are, backing up other kinds of file, cloud drives as sources, managing your
-          backups, and a calmer map of where the space goes.
-        </p>
-        <p className="quiet small">
-          Keevoro is also built on the work of many open source projects. They are listed, with their licences, under
-          Open source licences below.
-        </p>
-      </div>
-
-      <div className="panel">
-        <h2>Licence</h2>
-        <p>
-          Copyright 2026 Mark Castle. Keevoro’s source is open to read, use, change and share under the Functional
-          Source License (FSL-1.1-MIT). You may use it freely, at home or at work. You may not sell it or offer it as
-          a product that competes with Keevoro. Each version becomes plain MIT two years after it comes out.
-        </p>
-        <p className="quiet small">
-          That is a summary; the licence itself is what counts. The Keevoro name and logo are not covered by it, and
-          it comes with no warranty.
-        </p>
-        <p className="choices">
-          <button className="button small" onClick={() => open(`${PROJECT}/blob/main/LICENSE.md`)}>
-            Read the licence
-          </button>
-          <button className="button small" onClick={() => open(`${PROJECT}/blob/main/TRADEMARKS.md`)}>
-            The name and logo
-          </button>
-          <button className="button small" onClick={() => open(PROJECT)}>
-            See the source
-          </button>
-          <button className="button small" onClick={() => setLicences(true)}>
-            Open source licences
-          </button>
-        </p>
-        <p className="quiet small">Version {props.version}</p>
-      </div>
-    </section>
-  )
-}
-
 /** Said before each stage's line for a screen reader, since its mark is a picture. */
 const STAGE_STATE_WORDS: Record<BackupStage['state'], string> = {
   done: 'Done: ',
@@ -1981,9 +1912,6 @@ const STAGE_STATE_WORDS: Record<BackupStage['state'], string> = {
   alongside: 'Now: ',
   next: 'Then: ',
 }
-
-/** Keevoro's home on the web: the source, the licence and the releases. */
-const PROJECT = 'https://github.com/markcastle/keevoro'
 
 /** How many seconds each point on a chart is averaged over. */
 const STEADIED_OVER = 5
@@ -2238,6 +2166,9 @@ function SendScreen(props: {
   arrange?: Arrange
   /** Opens Settings at a row: how files are arranged, previews. */
   onSettings: (row: string) => void
+  /** Asked from Help: to add a destination, or set up one a comparison chose. */
+  ask: SendAsk | null
+  onAsked: () => void
   next: ReactNode
 }) {
   return (
@@ -2271,6 +2202,8 @@ function SendScreen(props: {
         onSent={props.onSent}
         onSettings={props.onSettings}
         keptBytes={props.found?.bytes ?? 0}
+        ask={props.ask}
+        onAsked={props.onAsked}
       />
       {props.next}
     </section>
@@ -2299,19 +2232,53 @@ function SendPanel(props: {
   onSettings: (row: string) => void
   /** What is being kept, in bytes, for comparing what cloud storage of that size costs. */
   keptBytes: number
+  /** Asked from Help: to add a destination, or set up one a comparison chose. */
+  ask: SendAsk | null
+  onAsked: () => void
 }) {
   const { api, onProblem, onWhere, onSent } = props
   const [where, setWhere] = useState<string | null | undefined>(undefined)
-  const [form, setForm] = useState<ConnectRequest | null>(null)
+  // Help may have asked, as it sent the person here, for a form for a kind
+  // of storage chosen in the comparison, or for another destination.
+  const [form, setForm] = useState<ConnectRequest | null>(() =>
+    props.ask && 'setUp' in props.ask ? { kind: props.ask.setUp.kind, place: props.ask.setUp.place, bucket: '' } : null,
+  )
   const [connecting, setConnecting] = useState(false)
   const [refused, setRefused] = useState<string | null>(null)
   const [running, setRunning] = useState<string | null>(null)
   const [said, setSaid] = useState<SendEvent | null>(null)
   const [stopping, setStopping] = useState(false)
   // True while a further destination is being chosen for a backup that has one.
-  const [adding, setAdding] = useState(false)
+  const [adding, setAdding] = useState(props.ask !== null)
   // Clearing unfinished copies, once chosen from More, until its question is put away.
   const [clearing, setClearing] = useState(false)
+  // The comparison of cloud storage, once chosen from More.
+  const [comparing, setComparing] = useState(false)
+  // A kind of storage chosen in the comparison opens Keevoro's own form for
+  // it, as another destination when this backup already has one.
+  const setUpChosen = (setUp: SetUp) => {
+    setComparing(false)
+    setRefused(null)
+    setForm({ kind: setUp.kind, place: setUp.place, bucket: '' })
+    setAdding(true)
+  }
+  // What Help asked for is taken once, as above; once Keevoro has said
+  // where this backup goes, the panel is brought into view with the focus
+  // on what to fill in.
+  const panel = useRef<HTMLDivElement>(null)
+  const wasAsked = useRef(props.ask !== null)
+  const { onAsked } = props
+  useEffect(() => {
+    if (wasAsked.current) onAsked()
+  }, [onAsked])
+  useEffect(() => {
+    if (!wasAsked.current || where === undefined) return
+    wasAsked.current = false
+    requestAnimationFrame(() => {
+      panel.current?.scrollIntoView({ block: 'start' })
+      panel.current?.querySelector<HTMLElement>('.connect input, .adding h2, .destinations .place')?.focus()
+    })
+  }, [where])
   const { destinations } = props
   // Whether this backup also makes previews, or sends the originals alone.
   const [previews, setPreviews] = useState(true)
@@ -2505,6 +2472,11 @@ function SendPanel(props: {
         ]
       : []),
     { label: 'Add another destination', onChoose: () => setAdding(true) },
+    {
+      label: 'Compare providers',
+      title: 'Compares what cloud storage costs, on Stratus, a page from the internet.',
+      onChoose: () => setComparing(true),
+    },
     ...(destinations.length <= 1
       ? [
           {
@@ -2518,12 +2490,21 @@ function SendPanel(props: {
 
   if (where === undefined || !asked) return null
   return (
-    <div className="panel send">
+    <div className="panel send" ref={panel}>
+      {comparing && (
+        <CompareSheet
+          api={api}
+          keptBytes={props.keptBytes}
+          onClose={() => setComparing(false)}
+          onSetUp={setUpChosen}
+          onProblem={onProblem}
+        />
+      )}
       {where === null || adding ? (
         <>
-          {adding && (
+          {adding && where !== null && (
             <div className="adding">
-              <h2>Add another destination</h2>
+              <h2 tabIndex={-1}>Add another destination</h2>
               <p className="quiet">
                 Keevoro will back up to this one as well as {where}. It starts empty and catches up on the next
                 backup. A photo only counts as safe once it is at every destination.

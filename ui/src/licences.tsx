@@ -1,7 +1,6 @@
-// The open source licences, reached from About and from Settings, Help.
-// Keevoro is built on other
-// people's work, and this names every piece shipped in the app with its
-// licence. The list is `licences.json`, made by `cargo xtask licences` from
+// The open source licences, a page of Help, About Keevoro. Keevoro is
+// built on other people's work, and this names every piece shipped in the
+// app with its licence. The list is `licences.json`, made by `cargo xtask licences` from
 // Cargo.lock and package-lock.json, and a test fails when it is out of date,
 // so nothing here is written by hand.
 
@@ -19,25 +18,10 @@ export function matching(entries: Licensed[], typed: string): Licensed[] {
   return wanted === '' ? entries : entries.filter((e) => e.name.toLowerCase().includes(wanted))
 }
 
-export function OpenSourceLicences(props: { onBack: () => void }) {
-  return (
-    <section className="about licences">
-      <header>
-        <button className="link" onClick={props.onBack}>
-          ‹ Back to About
-        </button>
-        <h1>Open source licences</h1>
-        <p className="status">{THANKS}</p>
-      </header>
-      <LicencesList />
-    </section>
-  )
-}
-
 const THANKS =
   'Keevoro is built on the work of many open source projects. Each one in the app is listed here with its licence. Thank you to everyone who made them.'
 
-/** The list itself, with a box to find one by name: About's page, and a page in Settings. */
+/** The list itself, with a box to find one by name. */
 export function LicencesList(props: { withThanks?: boolean }) {
   const [typed, setTyped] = useState('')
   const rust = useMemo(() => matching(LISTS.rust, typed), [typed])

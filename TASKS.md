@@ -613,7 +613,7 @@ The owner's words: "At work we now have an icon that allows users to report bugs
 - [ ] No account needed to send one: a small receiving service files it as an issue on the project
 - [ ] The owner approves each one: yes, no, or later
 - [ ] An AI builds what was approved and it goes through the same checks on Windows and a Mac as every release
-- [ ] The person who reported it hears when it ships. Keevoro's side is done: "Your reports" in Settings, Help, and `keevoro reports`, ask how each is getting on and say "Done in version 0.47.0"
+- [ ] The person who reported it hears when it ships. Keevoro's side is done: "Your reports" in Help, and `keevoro reports`, ask how each is getting on and say "Done in version 0.47.0"
 - [ ] Decided before building: where reports are received; how much may go out without the owner's say (nothing at first; anything touching how files are copied or proved always waits for the owner); and how abuse and repeats are kept out
 
 ### Scheduled and repeat backups

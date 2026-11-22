@@ -79,6 +79,13 @@ const shot = async (name) => {
   await settled()
   await page.screenshot({ path: join(shots, `${name}.png`) })
 }
+// The side band alone, to see its foot at a glance.
+const footShot = async (name) => {
+  await settled()
+  // Clipped from the window as it is, so nothing on the page is scrolled to take it.
+  const band = await page.locator('.sidebar').boundingBox()
+  await page.screenshot({ path: join(shots, `${name}.png`), clip: band })
+}
 const text = (selector) => page.locator(selector).first().innerText()
 // The step the list down the side says we are on.
 const currentStep = () => page.locator('.steps li.now').innerText()
@@ -160,6 +167,8 @@ const fitsNarrow = async (screen) => {
     await settled()
     assert.deepEqual(await spills(), [], `${screen} at ${width} pixels wide spills sideways`)
     await headingClearOfBand(`${screen} at ${width} pixels wide`)
+    // Wherever the side band is, its foot is there too, however narrow.
+    if ((await page.locator('.sidebar').count()) > 0) await footHere(`${screen} at ${width} pixels wide`)
   }
   await page.setViewportSize({ width: 1440, height: 900 })
 }
@@ -173,6 +182,20 @@ const narrowShots = async (name, part) => {
   await shot(`${name}-400-dark`)
   await page.emulateMedia({ colorScheme: 'light' })
   await page.setViewportSize({ width: 1440, height: 900 })
+}
+// The foot of the side band is the same on every main screen, in the same
+// place: what Keevoro is doing (with its line), then Settings, then Help,
+// and nothing else. In a narrow window the band is a strip across the top,
+// with the foot in it all the same.
+const footHere = async (where) => {
+  const foot = page.locator('.sidebar .foot')
+  assert.equal(await foot.count(), 1, `${where}: the side band has its foot`)
+  assert.ok(await foot.isVisible(), `${where}: the foot can be seen`)
+  const links = await foot.locator(':scope > button.link').evaluateAll((all) => all.map((b) => b.firstChild?.textContent?.trim()))
+  assert.deepEqual(links, ['What Keevoro is doing', 'Settings', 'Help'], `${where}: the foot holds what Keevoro is doing, Settings and Help`)
+  const band = await page.locator('.sidebar').boundingBox()
+  const box = await foot.boundingBox()
+  assert.ok(band && box && box.x >= band.x && box.x + box.width <= band.x + band.width + 1, `${where}: the foot is inside the side band`)
 }
 // The backup screen's choices wanted now and then wait behind More, a menu
 // beside the few buttons used most. Chooses one of them, as a person would.
@@ -197,11 +220,26 @@ try {
   // --- A first-time user is asked one thing they can answer: what to call this.
   await page.goto(`${base}/?demo=new&fast`)
   await page.getByRole('heading', { name: 'Let’s find your photos' }).waitFor()
-  assert.equal(await page.getByRole('button').count(), 1, 'one way forward')
+  assert.equal(await page.locator('.welcome').getByRole('button').count(), 1, 'one way forward')
+  // Settings and Help are where they always are, even before the first backup.
+  await footHere('The first screen')
   assert.equal(await page.getByLabel('What shall we call this backup?').inputValue(), 'My photos', 'with a name already suggested')
   await page.getByLabel('What shall we call this backup?').fill('Family photos')
   assert.equal(await page.locator('.welcome .brand img:visible').getAttribute('alt'), 'Keevoro', 'the logo, name and all')
   await shot('1-welcome')
+  await footShot('1-welcome-foot')
+  await page.setViewportSize({ width: 400, height: 800 })
+  await footHere('The first screen at 400 pixels')
+  await shot('1-welcome-foot-400')
+  await page.setViewportSize({ width: 1440, height: 900 })
+  // Help opens from there too; with no backup yet, Settings says what waits for one.
+  await page.getByRole('button', { name: 'Help', exact: true }).click()
+  await page.getByRole('heading', { name: 'How do I…', level: 2 }).waitFor()
+  await page.getByRole('button', { name: '‹ Back', exact: true }).click()
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await page.getByText('These are set for each backup. Start one first, on the first screen, and its settings appear here.').waitFor()
+  await page.keyboard.press('Escape')
+  await page.getByRole('heading', { name: 'Let’s find your photos' }).waitFor()
   await page.getByRole('button', { name: 'Get started' }).click()
 
   // --- Step 1 asks where the photos are, and offers the drives by name.
@@ -223,6 +261,7 @@ try {
   assert.ok(await page.locator('.steps button').nth(1).isDisabled(), 'later steps wait their turn')
   assert.equal(await page.locator('.next').count(), 0, 'nothing to move on to until something is found')
   await shot('2-find')
+  await footHere('Find your photos')
   await fitsNarrow('The first screen with a synced folder')
 
   await places.first().click()
@@ -335,6 +374,7 @@ try {
   assert.match(await text('.photos .status'), new RegExp(`^Keeping ${howMany - 1} of ${howMany}\\.`))
   await page.waitForFunction(() => [...document.images].every((i) => i.complete && i.naturalWidth > 0))
   await shot('6-inside-a-collection')
+  await footHere('Inside a collection')
 
   // Everything here can be kept or left out in one go, and the folder it
   // came from is named, to open.
@@ -387,6 +427,7 @@ try {
   assert.match(await text('.duplicates .knows'), /1 file below is marked still being checked/)
   assert.deepEqual(await page.locator('.duplicates .groups li').first().locator('.mark').allInnerTexts(), ['Kept', 'Left out', 'Left out'])
   await shot('9o-duplicates')
+  await footHere('Duplicates')
   await page.getByRole('button', { name: '‹ Back' }).click()
 
   // What was set aside can be looked at, with the reason, and rescued.
@@ -405,6 +446,7 @@ try {
   // It says how much room the files will need before a place is chosen.
   assert.match(await text('.send .needs'), /^You are backing up [\d,]+ files, about [\d.]+ (MB|GB)\. Wherever you choose needs at least that much free\.$/)
   await shot('7-where-should-they-go')
+  await footHere('Where should they go?')
   // Not sure where to buy cloud storage? One quiet line, and nothing is
   // loaded from the internet until it is chosen.
   assert.equal(await text('.compare-line'), 'Not sure where to buy cloud storage? Compare providers')
@@ -690,6 +732,7 @@ try {
   })
   assert.deepEqual(note, { before: true, inAbout: true })
   await shot('9q-survey')
+  await footHere('The survey of a disk')
   await narrowShots('9q-survey', page.locator('.survey .hints li').last())
   // Files only in OneDrive are never opened, and never left out silently: each suggestion says so.
   const onlineSaid = /^412 files here are in OneDrive only, not on this computer, so Keevoro did not open them\. To include them, make them available offline in OneDrive first, then look again\.$/
@@ -744,32 +787,87 @@ try {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto(`${base}/?demo=empty&fast`)
 
-  // --- About has its own page: what Keevoro promises, the name, the licence.
-  await page.getByRole('button', { name: 'About Keevoro' }).click()
-  await page.getByRole('heading', { name: 'About Keevoro', level: 1 }).waitFor()
-  assert.deepEqual(await page.locator('.about .promises dt').allInnerTexts(), [
+  // --- Help sits beside Settings, opened from the foot of the side band,
+  // and built the same way: its own list of sections, a search, rows, and
+  // pages with a way back. It opens on How do I….
+  await footHere('A backup with nothing found yet')
+  await page.getByRole('button', { name: 'Help', exact: true }).click()
+  await page.getByRole('heading', { name: 'Help', level: 1 }).waitFor()
+  const helpSections = page.getByRole('navigation', { name: 'Help sections' })
+  assert.deepEqual(await helpSections.getByRole('button').allInnerTexts(), [
+    'How do I…',
+    'Report a problem or suggest an idea',
+    'Compare cloud storage providers',
+    'What Keevoro has been doing',
+    'About Keevoro',
+  ])
+  await page.getByRole('heading', { name: 'How do I…', level: 2 }).waitFor()
+  assert.equal(await page.evaluate(() => document.activeElement?.textContent), 'How do I…', 'arriving, the page’s heading has the focus')
+  assert.equal(await page.locator('.steps').count(), 0, 'the list of sections takes the side band’s place, never beside it')
+  assert.equal(await page.locator('#setting-howSecondPlace').getByRole('button').innerText(), 'Add another destination')
+  assert.match(await page.locator('#setting-howWindowClosed').innerText(), /Closing the window leaves Keevoro running by the clock\. Its icon is by the clock/)
+  assert.match(await page.locator('#setting-howNewComputer').innerText(), /Keevoro can’t move a backup to a new computer yet\./)
+  assert.equal(await page.locator('#setting-howNewComputer button').count(), 0, 'no button where there is nowhere to go')
+  assert.equal(await page.locator('.kv-page .primary').count(), 0, 'no filled button among the answers')
+  await shot('9q-help')
+  await narrowShots('9q-help', page.locator('.kv-side'))
+  const helpSection = async (name) => {
+    await helpSections.getByRole('button', { name, exact: true }).click()
+    await page.getByRole('heading', { name, level: 2 }).waitFor()
+  }
+  // An answer's button goes straight there: a setting, with its row marked.
+  await page.getByRole('button', { name: 'Set a schedule' }).click()
+  await page.getByRole('heading', { name: 'Backing up by itself', level: 2 }).waitFor()
+  await page.locator('#setting-schedule[data-marked]').waitFor()
+  // Escape goes back out, and Help opens again where it was.
+  await page.keyboard.press('Escape')
+  await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
+  await page.getByRole('button', { name: 'Help', exact: true }).click()
+  await page.getByRole('heading', { name: 'How do I…', level: 2 }).waitFor()
+  await page.locator('#setting-howSource').getByRole('button', { name: 'Find your photos' }).click()
+  await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
+  assert.match(await currentStep(), /Find your photos/)
+  await page.getByRole('button', { name: 'Help', exact: true }).click()
+
+  // Help, What Keevoro has been doing: the log, newest at the bottom.
+  await helpSection('What Keevoro has been doing')
+  await page.locator('.kv-settings .log').getByText(/Reading a large file \(3\.9 GB\): E:\\Video\\wedding\.mov/).waitFor()
+  await shot('9h-help-log')
+
+  // --- Help, About Keevoro: the version, with Check for updates, what
+  // Keevoro promises, what leaves this computer, who made it, the name, and
+  // the licence; the open source licences a page of their own.
+  await helpSection('About Keevoro')
+  assert.deepEqual(await page.locator('.kv-promises .kv-row-title').allInnerTexts(), [
     'Your sources are only ever read',
     'A copy only counts when it is proved exact',
     'No original in a backup is ever replaced or removed',
     'Duplicates are exact, never guesses',
     'Nothing is hidden from you',
     'You never need Keevoro to get your photos back',
-    'Your photos go only where you send them',
   ])
-  assert.match(await text('.about'), /voro, an old Swedish word meaning “were”/)
-  assert.match(await text('.about'), /Copyright 2026 Mark Castle\..*Functional Source License \(FSL-1\.1-MIT\)/s)
+  assert.match(
+    await page.locator('#setting-privacy').innerText(),
+    /^Your photos go only where you send them\s+There is no Keevoro account and no Keevoro server\..*If you choose to compare cloud storage providers, in Help or on the backup screen, it shows Stratus.*tells it only the size of the backup and your currency\. A report of a problem or an idea goes to Keevoro’s maker only when you send one, and you see exactly what it holds first\./s,
+  )
+  assert.match(await text('.kv-settings'), /voro, an old Swedish word meaning “were”/)
+  assert.match(await text('.kv-settings'), /Copyright 2026 Mark Castle\..*Functional Source License \(FSL-1\.1-MIT\)/s)
   // Who makes it, and who helped.
   assert.match(await text('.thanks'), /Keevoro is made by Mark Castle\./)
   assert.match(await text('.thanks'), /A special thank you to Adam Sparshott, for all his help in testing Keevoro and for his excellent ideas\./)
   for (const name of ['Read the licence', 'The name and logo', 'See the source']) {
     await page.getByRole('button', { name }).waitFor()
   }
-  assert.equal(await page.getByText('Your sources are only ever read.', { exact: true }).count(), 0, 'no longer a stray line in the side bar')
+  // The same Check for updates as Settings, Updates.
+  await page.locator('#setting-aboutVersion').getByRole('button', { name: 'Check for updates' }).click()
+  await page.locator('#setting-aboutVersion').getByText('That is the newest version.').waitFor()
   await shot('9r-about')
+  await fitsNarrow('About Keevoro')
+  await narrowShots('9r-about', page.locator('#settings-page-title'))
 
   // --- From About, every piece of open source work in the app, with its licence.
   await page.getByRole('button', { name: 'Open source licences' }).click()
-  await page.getByRole('heading', { name: 'Open source licences', level: 1 }).waitFor()
+  await page.getByRole('heading', { name: 'Open source licences', level: 2 }).waitFor()
   assert.match(await text('.licences'), /The app and the keevoro command \(\d{3,}\)/)
   assert.match(await text('.licences'), /The app’s screens \(\d+\)/)
   assert.match(await page.locator('.licensed li', { hasText: 'react-dom' }).innerText(), /react-dom\s+[\d.]+\s+MIT/)
@@ -778,16 +876,59 @@ try {
   assert.match(await text('.licences'), /The app and the keevoro command \(1 of \d+\)/)
   assert.match(await text('.licences'), /None by that name\./)
   await shot('9r2-licences')
-  await page.getByRole('button', { name: '‹ Back to About' }).click()
-  await page.getByRole('heading', { name: 'About Keevoro', level: 1 }).waitFor()
-  await page.getByRole('button', { name: '‹ Back', exact: true }).click()
+  await page.getByRole('button', { name: '‹ About Keevoro' }).click()
+  await page.getByRole('heading', { name: 'About Keevoro', level: 2 }).waitFor()
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'setting-licences', 'back on the row that opened it')
+
+  // --- Help, Compare cloud storage providers: the same sheet, said the
+  // same way, set to the size of this backup.
+  await helpSection('Compare cloud storage providers')
+  assert.match(await text('.kv-page'), /Stratus, made by Adam Sparshott, compares what it costs/)
+  assert.match(await text('.kv-page'), /This loads a comparison page from the internet\. Keevoro tells it only the size of this backup, about 1 GB, and your currency\./)
+  await shot('9q-help-compare')
+  await fitsNarrow('Help, Compare cloud storage providers')
+  await page.setViewportSize({ width: 400, height: 800 })
+  await shot('9q-help-compare-400')
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const askedBefore = stratusAsked.length
+  await page.getByRole('button', { name: 'Compare providers' }).click()
+  const helpCompare = page.getByRole('dialog', { name: 'Compare cloud storage' })
+  await helpCompare.waitFor()
+  assert.match(await helpCompare.innerText(), /This loads a comparison page from the internet\. Keevoro tells it only the size of this backup, about 1 GB, and your currency\. The prices are Stratus’s, not Keevoro’s/)
+  assert.match(await helpCompare.innerText(), /Comparison by Stratus, made by Adam Sparshott\./)
+  await page.frameLocator('.compare-sheet iframe').getByRole('button', { name: 'Pick R2 Standard' }).click()
+  assert.ok(stratusAsked.length > askedBefore && stratusAsked.every((url) => STRATUS.test(url)), 'only the stand-in is ever asked')
+  await shot('9q-help-compare-sheet')
+  // Escape closes the sheet, and only the sheet.
+  await helpCompare.getByRole('heading', { name: 'Compare cloud storage' }).click()
+  await page.keyboard.press('Escape')
+  await helpCompare.waitFor({ state: 'detached' })
+  await page.getByRole('heading', { name: 'Compare cloud storage providers', level: 2 }).waitFor()
+  // A choice Keevoro can back up to opens Keevoro's own form for it, on the backup screen.
+  await page.getByRole('button', { name: 'Compare providers' }).click()
+  await page.frameLocator('.compare-sheet iframe').getByRole('button', { name: 'Pick R2 Standard' }).click()
+  await helpCompare.getByRole('button', { name: 'Set up Cloudflare R2 in Keevoro' }).click()
+  await page.getByRole('heading', { name: 'Where should they go?', level: 1 }).waitFor()
+  await page.getByLabel('Cloudflare account ID').waitFor()
+  await page.getByRole('button', { name: 'Cancel' }).click()
+  // How do I… goes to the backup screen ready to add a destination.
+  await page.getByRole('button', { name: 'Help', exact: true }).click()
+  await helpSection('How do I…')
+  await page.getByRole('button', { name: 'Add another destination' }).click()
+  await page.getByRole('heading', { name: 'Where should they go?', level: 1 }).waitFor()
+  await page.locator('.destinations .place').first().waitFor()
+  await page.getByRole('button', { name: 'Find your photos', exact: false }).first().click()
+  await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
+  // Afresh, so Settings opens as it does the first time.
+  await page.goto(`${base}/?demo=empty&fast`)
 
   // --- Settings: a short list of sections down the side, one shown at a
-  // time, everyday first, Advanced and Help set apart at the end.
-  await page.getByRole('button', { name: 'Settings' }).click()
+  // time, everyday first, Advanced set apart at the end. Only what you set:
+  // Help is a place of its own beside it.
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
   await page.getByRole('heading', { name: 'Settings', level: 1 }).waitFor()
   const sections = page.getByRole('navigation', { name: 'Settings sections' })
-  assert.deepEqual(await sections.getByRole('button').allInnerTexts(), ['This backup', 'Backing up by itself', 'Appearance', 'Updates', 'Advanced', 'Help'])
+  assert.deepEqual(await sections.getByRole('button').allInnerTexts(), ['This backup', 'Backing up by itself', 'Appearance', 'Updates', 'Advanced'])
   assert.equal(await sections.getByRole('button', { name: 'This backup' }).getAttribute('aria-current'), 'page', 'it opens on the first section')
   await page.getByRole('heading', { name: 'This backup', level: 2 }).waitFor()
   assert.equal(await page.locator('.steps').count(), 0, 'the list of sections takes the side bar’s place, never beside it')
@@ -798,7 +939,7 @@ try {
   await page.getByRole('heading', { name: 'Backing up by itself', level: 2 }).waitFor()
   assert.equal(await page.evaluate(() => document.activeElement?.textContent), 'Backing up by itself', 'the focus moves with it')
   await page.keyboard.press('End')
-  await page.getByRole('heading', { name: 'Help', level: 2 }).waitFor()
+  await page.getByRole('heading', { name: 'Advanced', level: 2 }).waitFor()
   await page.keyboard.press('Home')
   await page.getByRole('heading', { name: 'This backup', level: 2 }).waitFor()
   // Every row's control is named by the row: a switch by its words, a button described by them.
@@ -874,14 +1015,6 @@ try {
   await page.getByRole('heading', { name: 'Appearance', level: 2 }).waitFor()
   await page.getByRole('button', { name: 'Match my computer' }).click()
 
-  // Help: the log is a page of its own, newest at the bottom.
-  await settingsSection('Help')
-  await page.getByRole('button', { name: 'What Keevoro has been doing' }).click()
-  await page.getByRole('heading', { name: 'What Keevoro has been doing', level: 2 }).waitFor()
-  await page.locator('.kv-settings .log').getByText(/Reading a large file \(3\.9 GB\): E:\\Video\\wedding\.mov/).waitFor()
-  await shot('9h-settings-log')
-  await page.getByRole('button', { name: '‹ Help' }).click()
-  await page.getByRole('heading', { name: 'Help', level: 2 }).waitFor()
   // Updates: which Keevoro this is, and a way to ask.
   await settingsSection('Updates')
   await page.getByRole('button', { name: 'Check for updates' }).click()
@@ -889,13 +1022,34 @@ try {
   await shot('9j-settings-updates')
 
   // --- Search finds a row by its words, or others like them, says which
-  // section it is in, and goes there with the row marked.
+  // place and section it is in, and goes there with the row marked.
   const searchBox = page.getByRole('searchbox', { name: 'Search Settings' })
   await searchBox.fill('dark mode')
-  const results = page.getByRole('list', { name: 'Settings found' })
-  assert.match(await results.innerText(), /^Light or dark\s+Appearance$/)
+  const results = page.getByRole('list', { name: 'Found in Settings and Help' })
+  assert.match(await results.innerText(), /^Light or dark\s+Settings, Appearance$/)
   await searchBox.fill('notifications')
-  assert.match(await results.getByRole('button').first().innerText(), /^Tell me when a backup by itself finishes\s+Backing up by itself$/)
+  assert.match(await results.getByRole('button').first().innerText(), /^Tell me when a backup by itself finishes\s+Settings, Backing up by itself$/)
+  // It finds what is in Help too, says so, and goes there.
+  await searchBox.fill('compare')
+  assert.match(await results.getByRole('button').first().innerText(), /^Compare cloud storage providers\s+Help$/)
+  await searchBox.fill('licences')
+  assert.match(await results.getByRole('button').first().innerText(), /^Open source licences\s+Help, About Keevoro$/)
+  await searchBox.fill('report')
+  assert.match(await results.getByRole('button').first().innerText(), /^Report a problem or suggest an idea\s+Help$/)
+  await searchBox.fill('about')
+  await shot('9k-settings-search-help')
+  await searchBox.press('Enter')
+  await page.getByRole('heading', { name: 'About Keevoro', level: 2 }).waitFor()
+  await page.getByRole('heading', { name: 'Help', level: 1 }).waitFor()
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'settings-page-title', 'the page’s heading has the focus')
+  // And from Help, what is in Settings.
+  const helpSearch = page.getByRole('searchbox', { name: 'Search Help' })
+  await helpSearch.fill('reset')
+  assert.match(await results.getByRole('button').first().innerText(), /^Reset Keevoro\s+Settings, Advanced$/)
+  await results.getByRole('button').first().click()
+  await page.getByRole('heading', { name: 'Settings', level: 1 }).waitFor()
+  await page.getByRole('heading', { name: 'Advanced', level: 2 }).waitFor()
+  await page.locator('#setting-reset[data-marked]').waitFor()
   await searchBox.fill('heic')
   await shot('9k-settings-search')
   await results.getByRole('button', { name: /own picture codecs/ }).click()
@@ -904,7 +1058,7 @@ try {
   assert.equal(await searchBox.inputValue(), '', 'the search is cleared')
   assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('role')), 'switch', 'the row’s switch has the focus')
   await searchBox.fill('zebra')
-  await page.getByText('No settings match “zebra”.').waitFor()
+  await page.getByText('Nothing in Settings or Help matches “zebra”.').waitFor()
   await searchBox.press('Escape')
   assert.equal(await searchBox.inputValue(), '')
   await sections.waitFor()
@@ -1176,10 +1330,11 @@ try {
   await menu.waitFor()
   assert.equal(await more.getAttribute('aria-expanded'), 'true')
   assert.equal(await more.getAttribute('aria-controls'), await menu.getAttribute('id'))
-  assert.deepEqual(await items.allInnerTexts(), ['Clear unfinished copies…', 'Add another destination', 'Back up somewhere else'])
+  assert.deepEqual(await items.allInnerTexts(), ['Clear unfinished copies…', 'Add another destination', 'Compare providers', 'Back up somewhere else'])
   assert.equal(await focused(), 'Clear unfinished copies…', 'the focus goes to the first item')
   for (const [key, then] of [
     ['ArrowDown', 'Add another destination'],
+    ['ArrowDown', 'Compare providers'],
     ['ArrowDown', 'Back up somewhere else'],
     ['ArrowDown', 'Clear unfinished copies…'],
     ['ArrowUp', 'Back up somewhere else'],
@@ -1247,6 +1402,19 @@ try {
   await page.getByRole('heading', { name: 'Add another destination' }).waitFor()
   await page.getByRole('button', { name: 'Not now' }).click()
   await more.waitFor()
+  // The comparison of cloud storage is there for a backup that already has
+  // somewhere to go; a choice opens its form as another destination.
+  await moreChoice('Compare providers')
+  const moreCompare = page.getByRole('dialog', { name: 'Compare cloud storage' })
+  await moreCompare.waitFor()
+  await page.frameLocator('.compare-sheet iframe').getByRole('button', { name: 'Pick R2 Standard' }).click()
+  await moreCompare.getByRole('button', { name: 'Set up Cloudflare R2 in Keevoro' }).click()
+  await moreCompare.waitFor({ state: 'detached' })
+  await page.getByRole('heading', { name: 'Add another destination' }).waitFor()
+  await page.getByLabel('Cloudflare account ID').waitFor()
+  await shot('9-more-compare-set-up')
+  await page.getByRole('button', { name: 'Not now' }).click()
+  await more.waitFor()
   // Backing up somewhere else takes this one off, deleting nothing, and
   // asks where instead.
   await more.click()
@@ -1270,7 +1438,7 @@ try {
   await page.locator('.send form button[type=submit]').click()
   await page.getByRole('heading', { name: 'Backing up to 2 places' }).waitFor()
   await more.click()
-  assert.deepEqual(await items.allInnerTexts(), ['Add another destination'])
+  assert.deepEqual(await items.allInnerTexts(), ['Add another destination', 'Compare providers'])
   await page.keyboard.press('Escape')
 
   // --- A share that drops out during a backup: one grouped sentence, said
@@ -1771,6 +1939,7 @@ try {
   assert.match(await page.locator('.chart .read').first().innerText(), /^[\d.]+%, (\d+ seconds ago|just now)$/)
   await page.mouse.move(5, 5)
   await shot('9k-activity')
+  await footHere('What Keevoro is doing')
   // Pausing is one button, and the side bar keeps saying so wherever you go.
   await page.getByRole('button', { name: 'Pause Keevoro’s work' }).click()
   await page.getByText('Paused. Keevoro is waiting and using almost nothing.').waitFor()
@@ -1811,6 +1980,7 @@ try {
   assert.match(await backupRow('My photos 3').innerText(), /Open now/)
   assert.equal(await backupRow('My photos 3').getByRole('button', { name: 'Open' }).count(), 0, 'the open one is not offered to open')
   await shot('9ac-manage-backups')
+  await footHere('Manage backups')
   await fitsNarrow('Manage backups')
   // Renamed in place; a name in use is refused, in words, and changes nothing.
   await backupRow('Test 2').getByRole('button', { name: 'Rename' }).click()
@@ -1861,8 +2031,9 @@ try {
   await page.getByRole('heading', { name: 'Your backups', level: 1 }).waitFor()
   await page.getByRole('button', { name: '‹ Back' }).click()
   await page.getByRole('heading', { name: 'This backup', level: 2 }).waitFor()
-  // Reset is set apart, at the foot of Help, and asks first in the page.
-  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Help' }).click()
+  // Reset is set apart, on its own at the foot of Advanced, and asks first in the page.
+  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Advanced' }).click()
+  assert.equal(await page.locator('.kv-page .kv-group').last().evaluate((g) => g.classList.contains('kv-danger-zone')), true, 'the last thing in Advanced')
   assert.match(await page.getByRole('group', { name: 'Start again' }).innerText(), /Reset Keevoro\s+Puts Keevoro back as it was when you first installed it/)
   await page.getByRole('button', { name: 'Reset Keevoro…' }).click()
   assert.match(await text('.resetting'), /This removes:.*your backup.*This does not touch:.*anything on your sources.*already sent/s)
@@ -1871,7 +2042,7 @@ try {
   assert.equal(await page.locator('.resetting').count(), 0, 'cancelling changes nothing')
   await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'This backup' }).click()
   assert.match(await page.locator('#setting-name').innerText(), /My photos/)
-  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Help' }).click()
+  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Advanced' }).click()
   await page.getByRole('button', { name: 'Reset Keevoro…' }).click()
   await page.getByRole('button', { name: 'Yes, reset Keevoro' }).click()
   await page.getByRole('heading', { name: 'Let’s find your photos' }).waitFor()
@@ -1966,6 +2137,8 @@ try {
   await page.getByRole('heading', { name: 'Inside Pictures', level: 1 }).waitFor()
   await page.waitForFunction(() => document.querySelectorAll('.inside .tile img').length >= 12)
   await shot('9q4-look-inside')
+  await footHere('Looking inside')
+  await footShot('9q4-look-inside-foot')
   await fitsNarrow('Looking inside')
   // Only the videos, newest first by the file's date, each with its length.
   await page.getByRole('radiogroup', { name: 'Show' }).getByRole('radio', { name: 'Videos' }).click()
@@ -2118,6 +2291,8 @@ try {
   console.log(`The map of Pictures drew its boxes in ${drawnMs} ms.`)
   assert.ok(drawnMs < 200, `the map took ${drawnMs} ms to draw`)
   await shot('9t-space-map')
+  await footHere('Where the space goes')
+  await footShot('9t-space-map-foot')
   await page.emulateMedia({ colorScheme: 'dark' })
   await shot('9t2-space-map-dark')
   await page.emulateMedia({ colorScheme: 'light' })
@@ -2488,9 +2663,6 @@ try {
     ['Advanced', null, 'advanced'],
     ['Advanced', ['Kinds of file', 'Kinds of file Keevoro looks for'], 'kinds-of-file'],
     ['Advanced', ['AI agents Looking only', 'AI agents'], 'ai-agents'],
-    ['Help', null, 'help'],
-    ['Help', ['What Keevoro has been doing', 'What Keevoro has been doing'], 'log'],
-    ['Help', ['Open source licences', 'Open source licences'], 'licences'],
   ]
   for (const [name, inside, file] of settingsPages) {
     await settingsList.getByRole('button', { name, exact: true }).click()
@@ -2513,7 +2685,7 @@ try {
   await settingsList.waitFor()
   assert.equal(await page.locator('#settings-page-title').isVisible(), false, 'the list alone')
   assert.deepEqual(await spills(), [], 'the list of sections at 400 pixels spills sideways')
-  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-current') && document.activeElement.textContent), 'Help', 'back on the section it came from, marked as the one open')
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-current') && document.activeElement.textContent), 'Advanced', 'back on the section it came from, marked as the one open')
   await shot('12-settings-list-400')
   await settingsList.getByRole('button', { name: 'Updates' }).click()
   await page.getByRole('heading', { name: 'Updates', level: 2 }).waitFor()
@@ -2530,9 +2702,47 @@ try {
   await page.getByRole('button', { name: 'What Keevoro is doing' }).click()
   await fitsNarrow('What Keevoro is doing')
   await page.getByRole('button', { name: '‹ Back' }).click()
-  await page.getByRole('button', { name: 'About Keevoro' }).click()
-  await fitsNarrow('About')
-  await page.getByRole('button', { name: '‹ Back' }).click()
+  // Every section of Help, and its page, fits a narrow window too, and is
+  // pictured wide, at 400 pixels, and dark.
+  await page.getByRole('button', { name: 'Help', exact: true }).click()
+  const helpList = page.getByRole('navigation', { name: 'Help sections' })
+  const helpPages = [
+    ['How do I…', null, 'how-do-i'],
+    ['Report a problem or suggest an idea', null, 'report'],
+    ['Compare cloud storage providers', null, 'compare'],
+    ['What Keevoro has been doing', null, 'log'],
+    ['About Keevoro', null, 'about'],
+    ['About Keevoro', ['Open source licences', 'Open source licences'], 'licences'],
+  ]
+  for (const [name, inside, file] of helpPages) {
+    await helpList.getByRole('button', { name, exact: true }).click()
+    if (inside) await page.getByRole('button', { name: inside[0], exact: true }).click()
+    await page.getByRole('heading', { name: inside ? inside[1] : name, level: 2, exact: true }).waitFor()
+    await shot(`12-help-${file}`)
+    await fitsNarrow(`Help, ${file}`)
+    await page.setViewportSize({ width: 400, height: 800 })
+    await settled()
+    await shot(`12-help-${file}-400`)
+    assert.equal(await helpList.isVisible(), false, `Help, ${file}, at 400 pixels is a page of its own`)
+    await page.getByRole('button', { name: inside ? `‹ ${name}` : '‹ Help' }).waitFor()
+    await page.emulateMedia({ colorScheme: 'dark' })
+    await settled()
+    await shot(`12-help-${file}-400-dark`)
+    await page.emulateMedia({ colorScheme: 'light' })
+    await page.setViewportSize({ width: 1440, height: 900 })
+    if (inside) await page.getByRole('button', { name: `‹ ${name}` }).click()
+  }
+  await page.setViewportSize({ width: 400, height: 800 })
+  await page.getByRole('button', { name: '‹ Help' }).click()
+  await helpList.waitFor()
+  assert.deepEqual(await spills(), [], 'the list of Help’s sections at 400 pixels spills sideways')
+  await shot('12-help-list-400')
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await settled()
+  await shot('12-help-list-400-dark')
+  await page.emulateMedia({ colorScheme: 'light' })
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.getByRole('button', { name: '‹ Back', exact: true }).click()
 
   // --- The narrow window fits even when the typeface cannot be loaded,
   // whose stand-in draws words wider: the bar at the foot wraps instead.
@@ -2648,7 +2858,8 @@ try {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto(`${base}/?fast&reportFails`)
   await page.getByRole('heading', { name: 'Which of these should we keep?', level: 1 }).waitFor()
-  await page.getByRole('button', { name: 'Report a problem or idea' }).click()
+  await page.getByRole('button', { name: 'Help', exact: true }).click()
+  await page.getByRole('navigation', { name: 'Help sections' }).getByRole('button', { name: 'Report a problem or suggest an idea' }).click()
   await page.getByRole('heading', { name: 'Report a problem or suggest an idea', level: 2 }).waitFor()
   const reportKinds = page.getByRole('radiogroup', { name: 'What is it?' })
   assert.equal(await reportKinds.getByRole('radio', { name: 'Something went wrong' }).getAttribute('aria-checked'), 'true')
@@ -2719,19 +2930,31 @@ try {
   // Back goes to the screen it came from.
   await page.getByRole('button', { name: '‹ Back', exact: true }).click()
   await page.getByRole('heading', { name: 'Which of these should we keep?', level: 1 }).waitFor()
-  // It is the first row of Settings, Help; the list says quietly when it could not check.
-  await page.goto(`${base}/?fast&reportsOffline&page=settings/help`)
-  await page.getByRole('heading', { name: 'Help', level: 2 }).waitFor()
-  assert.equal(await page.locator('.kv-page .kv-panel > *').first().getAttribute('id'), 'setting-report', 'the first row in Help')
-  await page.getByRole('button', { name: 'Report a problem or suggest an idea' }).click()
+  // The name it had in Settings, Help, still leads to it, now in Help; the
+  // list says quietly when it could not check.
+  await page.goto(`${base}/?fast&reportsOffline&page=settings/help/report`)
+  await page.getByRole('heading', { name: 'Help', level: 1 }).waitFor()
+  await page.getByRole('heading', { name: 'Report a problem or suggest an idea', level: 2 }).waitFor()
   await page.getByText('Couldn’t check just now.').waitFor()
-  await page.getByText(/the screen you were on \(Settings, Help\)/).waitFor()
+  await page.getByText(/the screen you were on \(Help\)/).waitFor()
   await reportKinds.getByRole('radio', { name: 'I have an idea' }).click()
   await page.getByLabel('What is your idea?').waitFor()
   // The search finds it by other words for it.
-  await page.getByLabel('Search Settings').fill('feedback')
-  assert.match(await page.getByRole('list', { name: 'Settings found' }).locator('li').first().innerText(), /^Report a problem or suggest an idea\s+Help$/)
-  await page.getByLabel('Search Settings').fill('')
+  await page.getByLabel('Search Help').fill('feedback')
+  assert.match(await page.getByRole('list', { name: 'Found in Settings and Help' }).locator('li').first().innerText(), /^Report a problem or suggest an idea\s+Help$/)
+  await page.getByLabel('Search Help').fill('')
+  // The other old names lead to where each thing lives now.
+  for (const [old, heading] of [
+    ['settings/help', 'How do I…'],
+    ['settings/help/log', 'What Keevoro has been doing'],
+    ['settings/help/licences', 'Open source licences'],
+    ['settings/help/reset', 'Advanced'],
+    ['about', 'About Keevoro'],
+    ['help/compare', 'Compare cloud storage providers'],
+  ]) {
+    await page.goto(`${base}/?fast&page=${old}`)
+    await page.getByRole('heading', { name: heading, level: 2, exact: true }).waitFor()
+  }
 
   // --- On a work computer whose proxy Keevoro cannot use, Keevoro cannot
   // reach the reports service, so the window sends the very same text
@@ -2742,8 +2965,7 @@ try {
     request.method() === 'POST'
       ? { status: 201, answer: { ok: true, reference: 'K-2001', token: WINDOW_TOKEN } }
       : { status: 200, answer: { ok: true, reference: 'K-2001', status: 'started' } }
-  await page.goto(`${base}/?fast&reportUnreachable&page=settings/help`)
-  await page.getByRole('button', { name: 'Report a problem or suggest an idea' }).click()
+  await page.goto(`${base}/?fast&reportUnreachable&page=help/report`)
   await page.getByLabel('What happened?').fill('Sending a report sat on Sending.')
   await page.getByText('See exactly what will be sent').click()
   await page.waitForFunction(() => document.querySelector('.report-preview pre')?.textContent.includes('Sending a report'))
@@ -2759,7 +2981,8 @@ try {
   await shot('13-report-sent-through-the-window')
   // Asked after through the window too, next time the page opens.
   await page.getByRole('button', { name: '‹ Back', exact: true }).click()
-  await page.getByRole('button', { name: 'Report a problem or idea' }).click()
+  // Help opens again where it was.
+  await page.getByRole('button', { name: 'Help', exact: true }).click()
   await page.locator('#setting-yourReports li', { hasText: 'K-2001' }).getByText('Being worked on').waitFor()
   assert.ok(
     reportsAsked.some((r) => r.method === 'GET' && r.url === `https://reports.keevoro.com/v1/reports/K-2001?token=${WINDOW_TOKEN}`),
@@ -2771,8 +2994,7 @@ try {
   // Neither way reaches it: the words stay, with why in plain words.
   reportsService = null
   const beforeOffline = problems.length
-  await page.goto(`${base}/?fast&reportUnreachable&page=settings/help`)
-  await page.getByRole('button', { name: 'Report a problem or suggest an idea' }).click()
+  await page.goto(`${base}/?fast&reportUnreachable&page=help/report`)
   await page.getByLabel('What happened?').fill('Sending a report sat on Sending.')
   await page.getByRole('button', { name: 'Send', exact: true }).click()
   const unreached = page.getByRole('alert').filter({ hasText: 'Your report wasn’t sent.' })

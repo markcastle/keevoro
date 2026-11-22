@@ -6234,3 +6234,11 @@ h3.kv-group-title {
     flex: 1 1 100%;
   }
 }
+
+/* ---------- before the first backup ----------
+   The first screen keeps the side band, holding only its foot (what
+   Keevoro is doing, Settings and Help), so those are where they always
+   are. The welcome fills the rest, as it always has. */
+.app.first-run main.welcoming {
+  padding: 0;
+}
