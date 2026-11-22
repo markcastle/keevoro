@@ -35,6 +35,16 @@ impl Drop for CarryOnAfter {
 }
 
 /// Keevoro in a temporary folder, where every job says every step.
+pub(crate) fn keevoro_for_tests(dir: &Path) -> Keevoro {
+    keevoro(dir)
+}
+
+/// [`card_going_to_usb`], for other modules' tests.
+pub(crate) fn card_going_to_usb_for(dir: &Path, keevoro: &Keevoro) -> (Named, PathBuf, PathBuf) {
+    card_going_to_usb(dir, keevoro)
+}
+
+/// Keevoro in a temporary folder, where every job says every step.
 fn keevoro(dir: &Path) -> Keevoro {
     crate::keevoro::tests::keevoro(dir).with_progress_every(Duration::ZERO)
 }
@@ -2656,7 +2666,7 @@ fn a_source_unplugged_while_it_is_looked_through_is_said_plainly_and_nothing_fou
 }
 
 /// The computer as a test says it is, for backups that run by themselves.
-struct Says(keevoro_core::background::StartFacts);
+pub(crate) struct Says(pub(crate) keevoro_core::background::StartFacts);
 
 impl Signals for Says {
     fn now(&self) -> keevoro_core::background::StartFacts {
@@ -2664,7 +2674,7 @@ impl Signals for Says {
     }
 }
 
-fn plugged_in_and_quiet() -> Says {
+pub(crate) fn plugged_in_and_quiet() -> Says {
     Says(keevoro_core::background::StartFacts {
         on_battery: Some(false),
         others_cpu: Some(2.0),

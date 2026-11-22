@@ -5022,3 +5022,107 @@ fieldset.wants input[aria-disabled='true'] {
   text-overflow: clip;
   color: var(--ink-muted);
 }
+
+/* Backing up by itself, on the backup screen (ui/src/schedule.tsx). */
+.schedule-card {
+  margin: var(--space-5) 0;
+  padding: var(--space-4) var(--space-5);
+  max-width: 860px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface, transparent);
+}
+
+.schedule-card h3 {
+  margin: 0 0 var(--space-2);
+}
+
+.schedule-card h4 {
+  margin: var(--space-4) 0 var(--space-2);
+}
+
+.schedule-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  margin: var(--space-2) 0;
+}
+
+.schedule-line .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.schedule-last {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.schedule-last li {
+  display: grid;
+  grid-template-columns: minmax(7rem, auto) minmax(7rem, auto) 1fr;
+  gap: var(--space-1) var(--space-4);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--line);
+}
+
+.schedule-last .mark {
+  font-weight: 500;
+}
+
+.schedule-last .ran.unreachable .mark,
+.schedule-last .ran.refused .mark,
+.schedule-last .ran.someFiles .mark,
+.schedule-last .ran.heldBack .mark {
+  color: var(--sun-ink);
+}
+
+.schedule-last .said {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 600px) {
+  .schedule-last li {
+    grid-template-columns: 1fr;
+  }
+}
+
+.panel.schedule-dialog {
+  margin-top: var(--space-4);
+  max-width: 720px;
+}
+
+.schedule-dialog fieldset {
+  margin: var(--space-3) 0;
+  padding: 0;
+  border: 0;
+}
+
+.schedule-dialog label {
+  display: block;
+  padding: var(--space-2) 0;
+}
+
+.schedule-dialog select {
+  margin: 0 var(--space-1);
+}
+
+.schedule-dialog .choices {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.schedule-dialog input[type='radio'] {
+  width: auto;
+  height: auto;
+  margin: 0 var(--space-2) 0 0;
+  padding: 0;
+  vertical-align: middle;
+}

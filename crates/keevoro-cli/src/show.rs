@@ -1305,3 +1305,50 @@ pub fn last_word(io: &mut Io<'_>, last: Option<&Said>) -> std::io::Result<()> {
     }
     Ok(())
 }
+
+/// When a backup backs up by itself, when next, and its last few runs.
+pub fn schedule(io: &mut Io<'_>, _: &ArgMatches, view: &Value) -> Said_ {
+    let Some(every) = view.get("every").and_then(Value::as_str) else {
+        if view.get("unreadable").and_then(Value::as_bool) == Some(true) {
+            writeln!(
+                io.out,
+                "This backup has a schedule this version of Keevoro can't read, so it doesn't back up by itself. Setting one keeps the old one aside."
+            )?;
+        } else {
+            writeln!(
+                io.out,
+                "This backup doesn't back up by itself. Set it with, for example: keevoro schedule set daily 02:30"
+            )?;
+        }
+        return Ok(Code::Worked);
+    };
+    writeln!(io.out, "{every}")?;
+    if view.get("paused").and_then(Value::as_bool) == Some(true) {
+        writeln!(io.out, "Paused. Carry on with: keevoro schedule set carry-on")?;
+    } else if let Some(next) = view.get("next").and_then(Value::as_str) {
+        let skipping = view.get("skipping").and_then(Value::as_bool) == Some(true);
+        writeln!(
+            io.out,
+            "Next: {next}{}",
+            if skipping {
+                ", which will be skipped, as you asked"
+            } else {
+                ""
+            }
+        )?;
+    }
+    let last = view.get("last").and_then(Value::as_array).cloned().unwrap_or_default();
+    if !last.is_empty() {
+        writeln!(io.out, "Last few:")?;
+        for run in &last {
+            writeln!(
+                io.out,
+                "  {} (UTC), {}: {}",
+                keevoro_api::words::date_and_time(run.get("at").and_then(Value::as_i64).unwrap_or(0)),
+                run.get("why").and_then(Value::as_str).unwrap_or_default(),
+                run.get("said").and_then(Value::as_str).unwrap_or_default()
+            )?;
+        }
+    }
+    Ok(Code::Worked)
+}

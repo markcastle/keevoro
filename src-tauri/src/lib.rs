@@ -98,6 +98,22 @@ fn app<R: Runtime>(
             keevoro_api::places::watch_for_drives(move || {
                 let _ = told.emit(DRIVES, ());
             });
+            // Backups that back up by themselves run while Keevoro is open:
+            // a look every minute at what is in memory, never in the first
+            // five minutes after opening or waking (see `schedule::Ticker`).
+            let scheduler = app.handle().clone();
+            std::thread::Builder::new()
+                .name("keevoro schedule".into())
+                .spawn(move || {
+                    let keevoro = &scheduler.state::<Shared>().keevoro;
+                    let mut ticker = keevoro_api::schedule::Ticker::started_at(keevoro.now());
+                    loop {
+                        std::thread::sleep(std::time::Duration::from_secs(60));
+                        if ticker.may_run(keevoro.now()) {
+                            keevoro.run_schedules_due();
+                        }
+                    }
+                })?;
             // Backups removed over a week ago are cleared away for good,
             // quietly, off the thread that opens the window.
             let handle = app.handle().clone();
@@ -151,6 +167,11 @@ fn app<R: Runtime>(
             commands::discover,
             commands::scan_place,
             commands::look_again,
+            commands::schedule,
+            commands::set_schedule,
+            commands::skip_next_run,
+            commands::run_scheduled_now,
+            commands::window_used,
             commands::stop_scanning,
             commands::survey_place,
             commands::stop_survey,

@@ -819,6 +819,13 @@ pub static ROWS: &[Row] = &[
                 "Run by itself, with nobody watching: hold back what needs your say, and never start on battery or while the computer is busy",
             ))
             .arg(
+                flag(
+                    "if-due",
+                    "With --unattended, only when the backup's schedule says a run is due: once however many were missed, and never twice with the app",
+                )
+                .requires("unattended"),
+            )
+            .arg(
                 arg("wait", "With --unattended, how many minutes to wait at most for a good moment; none by default")
                     .long("wait")
                     .value_name("MINUTES")
@@ -831,6 +838,9 @@ pub static ROWS: &[Row] = &[
                 let mut ask = json!({});
                 if let Some(minutes) = m.get_one::<u32>("wait") {
                     ask["waitMinutes"] = json!(minutes);
+                }
+                if m.get_flag("if-due") {
+                    ask["ifDue"] = json!(true);
                 }
                 Ok((Op::ScheduleRun, ask))
             } else {
@@ -846,6 +856,64 @@ pub static ROWS: &[Row] = &[
         args: none,
         ask: |c, m, io| nothing(c, m, io, Op::BackupCheck),
         show: show::nothing_more,
+    },
+    Row {
+        words: &["schedule"],
+        ops: &[Op::ScheduleShow],
+        about: None,
+        args: none,
+        ask: |c, m, io| nothing(c, m, io, Op::ScheduleShow),
+        show: show::schedule,
+    },
+    Row {
+        words: &["schedule", "set"],
+        ops: &[Op::ScheduleSet],
+        about: Some(
+            "Sets when the backup backs up by itself, in this computer's own time: daily 02:30, weekly sun 09:00, monthly 31 02:30 (the last day of shorter months), or off. pause and carry-on pause it and carry on; carrying on never catches up what was missed while paused. Saving never runs it at once. Keevoro runs it while the app is open; for your own scheduler, see keevoro run --unattended --if-due.",
+        ),
+        args: |c| {
+            c.arg(
+                arg("how", "daily, weekly, monthly, off, pause or carry-on")
+                    .required(true)
+                    .value_parser(["daily", "weekly", "monthly", "off", "pause", "carry-on"]),
+            )
+            .arg(arg("first", "For daily, the time; for weekly, the day (mon to sun); for monthly, the day of the month (1 to 31)"))
+            .arg(arg("second", "For weekly and monthly, the time, such as 02:30"))
+        },
+        ask: |_, m, _| {
+            let first = text(m, "first");
+            let second = text(m, "second");
+            let wanted = |what: Option<String>, name: &str| {
+                what.ok_or_else(|| Failure::not_understood(format!("give the {name} too")))
+            };
+            let ask = match required(m, "how").as_str() {
+                "daily" => json!({ "every": "day", "at": wanted(first, "time, such as 02:30")? }),
+                "weekly" => json!({
+                    "every": "week",
+                    "weekday": wanted(first, "day of the week, such as sun")?,
+                    "at": wanted(second, "time, such as 09:00")?,
+                }),
+                "monthly" => {
+                    let day: u8 = wanted(first, "day of the month, such as 31")?
+                        .parse()
+                        .map_err(|_| Failure::not_understood("the day of the month should be 1 to 31"))?;
+                    json!({ "every": "month", "day": day, "at": wanted(second, "time, such as 02:30")? })
+                }
+                "off" => json!({ "every": "off" }),
+                "pause" => json!({ "paused": true }),
+                _ => json!({ "paused": false }),
+            };
+            Ok((Op::ScheduleSet, ask))
+        },
+        show: show::schedule,
+    },
+    Row {
+        words: &["schedule", "skip"],
+        ops: &[Op::ScheduleSkipNext],
+        about: None,
+        args: |c| c.arg(flag("undo", "Stop skipping it")),
+        ask: |_, m, _| Ok((Op::ScheduleSkipNext, json!({ "undo": m.get_flag("undo") }))),
+        show: show::schedule,
     },
     Row {
         words: &["history"],

@@ -436,6 +436,26 @@ fn the_screens_commands_start_the_apis_jobs_and_their_events_reach_the_window() 
     let discover = invoke(&window, "discover", json!({})).unwrap();
     assert_eq!(discover["photos"], 1, "{discover}");
 
+    // Backing up by itself: set, shown, skipped, and stopped.
+    let none = invoke(&window, "schedule", json!({})).unwrap();
+    fits(&none, "ScheduleView");
+    assert_eq!(none["every"], Value::Null);
+    let set = invoke(
+        &window,
+        "set_schedule",
+        json!({ "request": { "every": "day", "at": "02:30" } }),
+    )
+    .unwrap();
+    fits(&set, "ScheduleView");
+    fits(&set["choice"], "ScheduleChoice");
+    assert_eq!(set["every"], "Every day at 02:30");
+    let skipped = invoke(&window, "skip_next_run", json!({ "undo": false })).unwrap();
+    assert_eq!(skipped["skipping"], true);
+    invoke(&window, "window_used", json!({})).unwrap();
+    let off = invoke(&window, "set_schedule", json!({ "request": { "every": "off" } })).unwrap();
+    assert_eq!(off["every"], Value::Null);
+    assert_eq!(off["last"], json!([]));
+
     // How it is arranged, asked once something is found, by the names and
     // shapes the screens use.
     let arranged = invoke(&window, "backup_arrange", json!({})).unwrap();

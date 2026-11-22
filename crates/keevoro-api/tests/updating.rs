@@ -429,3 +429,34 @@ fn a_source_0_37_1_looked_through_is_looked_through_as_before_and_its_drive_reme
         .expect("remembered once looked through");
     assert_eq!(remembered.volume, keevoro_engine::reach::volume_of(&card));
 }
+
+/// Backing up by itself (0.42) keeps its schedule and its record in each
+/// backup's catalog, never in `settings.json`. A backup 0.37.1 kept has
+/// neither: it has no schedule, nothing runs by itself, and the settings
+/// file gains nothing.
+#[test]
+fn a_backup_0_37_1_kept_has_no_schedule_and_nothing_runs_by_itself() {
+    let dir = tempfile::tempdir().unwrap();
+    let (keevoro, places) = as_0_37_1_left_it(dir.path());
+    for backup in ["Family photos", "Drone footage"] {
+        let shown = ask(&keevoro, Op::ScheduleShow, Some(backup), Value::Null);
+        assert_eq!(
+            shown,
+            json!({ "paused": false, "skipping": false, "last": [] }),
+            "{backup}"
+        );
+    }
+    assert!(keevoro.run_schedules_due().is_empty());
+    // Setting one leaves the settings file exactly as it was.
+    let settings = places.folders.config.join("settings.json");
+    let before = std::fs::read_to_string(&settings).unwrap();
+    ask(
+        &keevoro,
+        Op::ScheduleSet,
+        Some("Family photos"),
+        json!({ "every": "day", "at": "02:30" }),
+    );
+    assert_eq!(std::fs::read_to_string(&settings).unwrap(), before);
+    let shown = ask(&keevoro, Op::ScheduleShow, Some("Family photos"), Value::Null);
+    assert_eq!(shown["every"], "Every day at 02:30");
+}

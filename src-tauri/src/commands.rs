@@ -724,6 +724,50 @@ pub fn look_again(
     Ok(())
 }
 
+/// When the open backup backs up by itself, when next, and its last few
+/// runs.
+#[tauri::command]
+pub fn schedule(shared: State<'_, Shared>) -> Said<keevoro_api::schedule::ScheduleView> {
+    shared.keevoro.schedule(&open_backup(&shared)?).map_err(say)
+}
+
+/// Sets, changes, pauses or stops the open backup backing up by itself.
+#[tauri::command]
+pub fn set_schedule(
+    shared: State<'_, Shared>,
+    request: keevoro_api::schedule::SetScheduleRequest,
+) -> Said<keevoro_api::schedule::ScheduleView> {
+    shared
+        .keevoro
+        .set_schedule(&open_backup(&shared)?, &request)
+        .map_err(say)
+}
+
+/// Skips the next run by itself, or stops skipping it.
+#[tauri::command]
+pub fn skip_next_run(shared: State<'_, Shared>, undo: bool) -> Said<keevoro_api::schedule::ScheduleView> {
+    shared.keevoro.skip_next_run(&open_backup(&shared)?, undo).map_err(say)
+}
+
+/// Runs the open backup now as its schedule does: looks through the
+/// sources again, holds back what needs a say, sends what is new.
+#[tauri::command]
+pub fn run_scheduled_now(shared: State<'_, Shared>) -> Said<()> {
+    let open = open_backup(&shared)?;
+    shared
+        .keevoro
+        .run_by_itself(&open, keevoro_api::Occasion::RunNow, 0, None)
+        .map_err(say)?;
+    Ok(())
+}
+
+/// The person is using the window: a backup by itself waits until they
+/// have finished.
+#[tauri::command]
+pub fn window_used(shared: State<'_, Shared>) {
+    shared.keevoro.note_window_used();
+}
+
 /// Where this backup goes, in words, or `None` if nowhere yet.
 /// Quick: the places are named without counting what has reached them.
 #[tauri::command]

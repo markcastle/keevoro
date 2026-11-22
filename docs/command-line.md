@@ -307,6 +307,8 @@ WantedBy=timers.target
 
 With cron, `30 2 * * * $HOME/.local/bin/keevoro run --unattended -b "Family photos"`.
 
+To follow the schedule set in Keevoro (`keevoro schedule set`, or "Backing up by itself" on the backup screen) rather than your scheduler's own times, add `--if-due` and call it as often as you like, every hour say: it runs only when the backup's schedule says a run is due, once however many were missed, and never a second time when the app has already run it. When nothing is due it says when the next run is ("Not due yet. Next: Tonight at 02:30.") and ends with 0. The Keevoro app runs a backup's schedule by itself while it is open, so this is only needed when the app is not left open.
+
 To try Keevoro out without touching your real backups, set `KEEVORO_HOME` to an empty folder. Keevoro then keeps its settings, its notes about each backup and its log under that folder instead.
 
 ## Every command
@@ -404,7 +406,10 @@ A collection is named by its whole name, such as "Holidays / Cornwall", or by it
 | --- | --- |
 | `keevoro rehearse` | What backing up now would do: how many files, how much, to where, after looking at what is really at each place. Sends nothing. |
 | `keevoro run` | Backs up to every destination, originals first. |
-| `keevoro run --unattended [--wait MINUTES]` | Backs up by itself, as a schedule does, for a system scheduler: waits while the computer is on battery or busy, looks through the sources again, holds back what needs your say, and sends what is new. See [For a system scheduler](#for-a-system-scheduler). |
+| `keevoro schedule` | When the backup backs up by itself, when it runs next, and how its last few runs went. |
+| `keevoro schedule set daily 02:30` | Backs it up by itself every day at that time, in this computer's own time. Also `weekly sun 09:00`, `monthly 31 02:30` (the last day of shorter months), `off`, `pause` and `carry-on` (which never catches up what was missed while paused). Saving never runs it at once. The app runs it while it is open; see [For a system scheduler](#for-a-system-scheduler) for when it is not. |
+| `keevoro schedule skip [--undo]` | Skips the next run by itself, or stops skipping it. |
+| `keevoro run --unattended [--if-due] [--wait MINUTES]` | Backs up by itself, as a schedule does, for a system scheduler: waits while the computer is on battery or busy, looks through the sources again, holds back what needs your say, and sends what is new. See [For a system scheduler](#for-a-system-scheduler). |
 | `keevoro check` | Confirms what is at each destination. |
 | `keevoro history` | How earlier backups went: when, where, how much, how long, numbered from the newest. |
 | `keevoro history N` | Everything recorded about one of them, by its number. |

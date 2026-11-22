@@ -41,6 +41,9 @@ import type {
   Arrange,
   ArrangeView,
   SourceArrangeView,
+  ScheduleAttempt,
+  ScheduleChoice,
+  ScheduleView,
 } from './backend'
 import { count, size } from './format'
 import { PictureQueue, fileKey } from './pictureQueue'
@@ -682,6 +685,47 @@ export function demoBackend(): Backend {
         },
       },
     })
+  }
+  // Backing up by itself: `?schedule` starts with one set, and its last
+  // few runs, one of which could not reach the backup drive.
+  const scheduled = new URLSearchParams(window.location.search).has('schedule')
+  let scheduleChoice: ScheduleChoice | null = scheduled ? { v: 1, every: 'day', at: '02:30', paused: false } : null
+  let skippingNext = false
+  const hoursAgo = (h: number) => Math.floor(Date.now() / 1000) - h * 3600
+  const scheduleLast: ScheduleAttempt[] = scheduled
+    ? [
+        { at: hoursAgo(6), why: 'on its schedule', outcome: 'worked', said: 'Safely backed up 23 files (96.0 MB).' },
+        { at: hoursAgo(30), why: 'on its schedule', outcome: 'worked', said: 'Nothing new to back up.' },
+        {
+          at: hoursAgo(54),
+          why: 'on its schedule',
+          outcome: 'unreachable',
+          said: 'Keevoro can’t find the folder F:\\Family Backup. Is it plugged in? It will catch up when it is.',
+        },
+      ]
+    : []
+  const ordinalOf = (n: number) =>
+    `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : n % 10 === 1 ? 'st' : n % 10 === 2 ? 'nd' : n % 10 === 3 ? 'rd' : 'th'}`
+  const DAYS: Record<string, string> = { mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday' }
+  const scheduleView = (): ScheduleView => {
+    const c = scheduleChoice
+    if (!c) return { paused: false, skipping: false, last: scheduleLast }
+    const every =
+      c.every === 'day'
+        ? `Every day at ${c.at}`
+        : c.every === 'week'
+          ? `Every week on ${DAYS[c.weekday ?? 'sun']} at ${c.at}`
+          : `Every month on the ${ordinalOf(c.day ?? 1)}${(c.day ?? 1) > 28 ? ' (or the last day of shorter months)' : ''} at ${c.at}`
+    const next =
+      c.every === 'day' ? `Tonight at ${c.at}` : c.every === 'week' ? `${DAYS[c.weekday ?? 'sun']} at ${c.at}` : `On ${c.day ?? 1} December at ${c.at}`
+    return {
+      every,
+      choice: c,
+      paused: c.paused,
+      ...(c.paused ? {} : { next, nextAt: hoursAgo(-8) }),
+      skipping: skippingNext && !c.paused,
+      last: scheduleLast,
+    }
   }
   let pausedNow = false
   let tick = 0
@@ -1742,6 +1786,24 @@ export function demoBackend(): Backend {
       if (dests.length > 0 && dests.every((d) => d.there >= all)) collections.forEach((c) => c.kept && (c.gathered = c.photos + c.videos))
       said()
     },
+    schedule: async () => scheduleView(),
+    setSchedule: async (request) => {
+      if (request.every === 'off') scheduleChoice = null
+      else if (request.every)
+        scheduleChoice = { v: 1, every: request.every, at: request.at ?? '02:30', weekday: request.weekday, day: request.day, paused: false }
+      else if (scheduleChoice) scheduleChoice = { ...scheduleChoice, paused: request.paused ?? scheduleChoice.paused }
+      skippingNext = false
+      return scheduleView()
+    },
+    skipNextRun: async (undo) => {
+      skippingNext = !undo
+      return scheduleView()
+    },
+    async runScheduledNow() {
+      scheduleLast.unshift({ at: hoursAgo(0), why: 'when you pressed Run now', outcome: 'worked', said: 'Safely backed up 12 files (41.0 MB).' })
+      await this.send()
+    },
+    windowUsed: async () => {},
     async send() {
       const kept = collections.filter((c) => c.kept)
       const keptOthers = otherFolders().flatMap((f) => otherRowsIn(f.key)).filter((r) => r.kept)

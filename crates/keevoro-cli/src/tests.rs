@@ -567,6 +567,37 @@ fn a_backup_run_by_itself_for_a_system_scheduler_says_in_its_exit_code_what_happ
     assert_eq!(ran.code, Code::Worked, "{}{}", ran.out, ran.err);
     assert!(usb.join("originals").is_dir());
 
+    // With --if-due, only when its schedule says so: none yet, then not
+    // due, as saving a schedule never runs it at once.
+    let ran = at.keevoro(&["run", "--unattended", "--if-due"]);
+    assert_eq!(ran.code, Code::Worked, "{}{}", ran.out, ran.err);
+    assert!(
+        ran.out.contains("Not backed up: this backup has no schedule."),
+        "{}",
+        ran.out
+    );
+    let none = at.keevoro(&["schedule"]);
+    assert!(none.out.contains("keevoro schedule set daily 02:30"), "{}", none.out);
+    let set = at.keevoro(&["schedule", "set", "weekly", "sun", "09:00"]);
+    assert_eq!(set.code, Code::Worked, "{}", set.err);
+    assert!(
+        set.out.starts_with("Every week on Sunday at 09:00\nNext: "),
+        "{}",
+        set.out
+    );
+    let skipped = at.keevoro(&["schedule", "skip"]);
+    assert!(
+        skipped.out.contains("which will be skipped, as you asked"),
+        "{}",
+        skipped.out
+    );
+    let ran = at.keevoro(&["run", "--unattended", "--if-due"]);
+    assert_eq!(ran.code, Code::Worked, "{}{}", ran.out, ran.err);
+    assert!(ran.out.contains("Not due yet. Next: "), "{}", ran.out);
+    assert!(at.keevoro(&["schedule", "set", "pause"]).out.contains("Paused."));
+    assert_eq!(at.keevoro(&["schedule", "set", "weekly"]).code, Code::NotUnderstood);
+    at.keevoro(&["schedule", "set", "off"]);
+
     // The backup drive unplugged: out of reach, as for any backup.
     std::fs::rename(&usb, dir.path().join("USB in a drawer")).unwrap();
     let ran = at.keevoro(&["run", "--unattended", "--wait", "0"]);

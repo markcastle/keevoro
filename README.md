@@ -91,6 +91,7 @@ These are rules the code is built around and automated tests guard, not hopes.
 - 🖥️ **Previews without extra software:** photos and video stills are decoded by the computer's own codecs on Windows and macOS.
 - 📈 **A good guest on your computer:** a page saying what Keevoro is doing and why, with graphs of its own processor, disk, network and memory use, and one button to pause everything.
 - 🔁 **Incremental:** open a backup again later and it sends only what is new.
+- ⏰ **By itself, on a schedule:** every day, week or month at a time you choose, while Keevoro is open, or from your computer's own scheduler with `keevoro run --unattended`. Anything that needs your say waits for you, it waits while the computer is on battery or busy, and a backup drive that looks wiped or swapped is never filled again without you.
 - 🔄 **Updates itself:** downloads the new version, checks it against the published checksums, and installs it.
 - 🌗 **Light and dark:** or whatever your computer is set to.
 - 🤖 **AI agents:** an AI app such as Claude can find your photos and back them up for you, through `keevoro mcp`. It may only look until you allow more, only in folders you name, and can never touch a source or delete a photo. See [docs/mcp.md](docs/mcp.md).
@@ -185,6 +186,7 @@ Honest limits today:
 - The app is not code-signed, hence the one-time trust prompt.
 - Cloud backups are tested against MinIO, which speaks the same language as R2 and S3. Try a spare bucket first.
 - An AI agent can use Keevoro only on the computer it runs on. Agents on other machines are for later.
+- A backup on a schedule runs while the Keevoro window is open; running from an icon by the clock, with the window closed, and when a card is plugged in, is next.
 
 What is planned is in [TASKS.md](TASKS.md).
 

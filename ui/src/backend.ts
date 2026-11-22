@@ -399,6 +399,52 @@ export type ScanEvent = {
   differentDrive?: DifferentDrive[]
 }
 
+/** How a backup's schedule is kept: every day, week or month, at a time in this computer's own time. */
+export type ScheduleChoice = {
+  v: number
+  every: 'day' | 'week' | 'month'
+  /** "02:30" */
+  at: string
+  /** For a week: mon to sun. */
+  weekday?: string
+  /** For a month: 1 to 31, the last day of shorter months. */
+  day?: number
+  paused: boolean
+}
+
+/** One run by itself, or one passed over. */
+export type ScheduleAttempt = {
+  at: number
+  /** "on its schedule", "when you pressed Run now". */
+  why: string
+  outcome: 'worked' | 'someFiles' | 'unreachable' | 'refused' | 'stopped' | 'heldBack' | 'notNow' | 'skipped'
+  said: string
+}
+
+/** When a backup backs up by itself, when next, and its last few runs. */
+export type ScheduleView = {
+  /** "Every day at 02:30"; absent when it has no schedule. */
+  every?: string
+  choice?: ScheduleChoice
+  paused: boolean
+  /** "Tonight at 02:30" */
+  next?: string
+  nextAt?: number
+  skipping: boolean
+  last: ScheduleAttempt[]
+  /** A schedule this version could not read: it is kept, and counts as none. */
+  unreadable?: boolean
+}
+
+/** What to set: `every` off for none; only `paused` to pause or carry on. */
+export type SetSchedule = {
+  every?: 'day' | 'week' | 'month' | 'off'
+  at?: string
+  weekday?: string
+  day?: number
+  paused?: boolean
+}
+
 /** What pressing Update did: started installing, or waits for the work in hand to finish, said in `waiting`. */
 export type UpdateStarted = { waiting?: string }
 
@@ -1002,6 +1048,14 @@ export interface Backend {
   onDrives(listener: () => void): () => void
   /** Starts looking through the drive or folder at this path. */
   scanPlace(path: string): Promise<void>
+  /** When this backup backs up by itself, when next, and its last few runs. */
+  schedule(): Promise<ScheduleView>
+  setSchedule(request: SetSchedule): Promise<ScheduleView>
+  skipNextRun(undo: boolean): Promise<ScheduleView>
+  /** Runs it now as its schedule does; heard as `send` events. */
+  runScheduledNow(): Promise<void>
+  /** The person is using the window, so a backup by itself waits until they have finished. */
+  windowUsed(): Promise<void>
   /** Looks through one source again, or every one; a source not plugged in is passed over and said, and `differentDrive` answers the question about one. */
   lookAgain(source?: number, differentDrive?: OtherDrive): Promise<void>
   /**
@@ -1174,6 +1228,11 @@ async function tauriBackend(): Promise<Backend> {
     onDrives: (listener) => subscribe('drives', () => listener()),
     scanPlace: (path) => invoke('scan_place', { path }),
     lookAgain: (source, differentDrive) => invoke('look_again', { source, differentDrive }),
+    schedule: () => invoke('schedule'),
+    setSchedule: (request) => invoke('set_schedule', { request }),
+    skipNextRun: (undo) => invoke('skip_next_run', { undo }),
+    runScheduledNow: () => invoke('run_scheduled_now'),
+    windowUsed: () => invoke('window_used'),
     surveyPlace: (path) => invoke('survey_place', { path }),
     stopSurvey: () => invoke('stop_survey'),
     onSurvey: (listener) => subscribe('survey', listener),

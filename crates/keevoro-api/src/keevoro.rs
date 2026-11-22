@@ -272,6 +272,10 @@ pub struct Keevoro {
     /// When Keevoro's own window was last used, in seconds since 1970;
     /// zero when it has not been.
     pub(crate) window_used: Arc<std::sync::atomic::AtomicI64>,
+    /// What the scheduler knows of each backup's schedule between looks.
+    pub(crate) schedules: Arc<crate::schedule::Known>,
+    /// The time and time zone, for schedules: the computer's, or a test's.
+    pub(crate) clock: Arc<dyn crate::schedule::Clock>,
 }
 
 impl Keevoro {
@@ -302,6 +306,8 @@ impl Keevoro {
             data: folders.data.clone(),
             signals: Arc::new(crate::jobs::ThisComputer::default()),
             window_used: Arc::default(),
+            schedules: Arc::default(),
+            clock: Arc::new(crate::schedule::SystemClock),
         };
         keevoro.apply_saved_choices();
         // Pictures kept for quick showing are kept within bounds, quietly,
@@ -331,6 +337,19 @@ impl Keevoro {
     pub fn with_signals(mut self, signals: impl crate::jobs::Signals + 'static) -> Self {
         self.signals = Arc::new(signals);
         self
+    }
+
+    /// Reads the time and time zone somewhere else, for schedules: for
+    /// tests, a clock the test moves.
+    #[must_use]
+    pub fn with_clock(mut self, clock: impl crate::schedule::Clock + 'static) -> Self {
+        self.clock = Arc::new(clock);
+        self
+    }
+
+    /// The time now, as schedules read it.
+    pub fn now(&self) -> jiff::Timestamp {
+        self.clock.now()
     }
 
     /// Notes that the person is using Keevoro's own window now, so a

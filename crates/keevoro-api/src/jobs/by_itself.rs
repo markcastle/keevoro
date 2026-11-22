@@ -31,6 +31,7 @@ use crate::keevoro::Keevoro;
 use keevoro_catalog::Catalog;
 use keevoro_core::background::{may_start, StartFacts};
 use keevoro_core::estimate::Tracker;
+use keevoro_core::schedule::Ran;
 use keevoro_core::unattended::{what_waits, Facts, Occasion};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -118,6 +119,21 @@ impl Keevoro {
         wait_minutes: u32,
         listener: Option<Listener>,
     ) -> Result<JobHandle> {
+        self.run_by_itself_if_due(backup, occasion, wait_minutes, false, listener)
+    }
+
+    /// [`Keevoro::run_by_itself`]; with `if_due`, only when the backup's
+    /// schedule says a run is due, decided once the run holds the
+    /// computer-wide lock, so two programs that both saw it due never both
+    /// run it.
+    pub fn run_by_itself_if_due(
+        &self,
+        backup: &Named,
+        occasion: Occasion,
+        wait_minutes: u32,
+        if_due: bool,
+        listener: Option<Listener>,
+    ) -> Result<JobHandle> {
         let lock = OneAtATime::take(&self.data)?.ok_or_else(|| Error::busy(ONE_AT_A_TIME))?;
         let ctx = self.context();
         let job = ctx.jobs.begin_by_itself(backup, occasion, listener)?;
@@ -127,44 +143,217 @@ impl Keevoro {
         let opening = "Getting ready to back up by itself";
         job.note_line(opening);
         ctx.jobs.heard(&job, Said::Send(SendEvent::progress(opening)), true);
-        let _ = Backup::open(&backup.home).and_then(|b| b.forget_last_summary());
-        ctx.log.say(&format!(
-            "Backing up \"{}\" by itself, {}",
-            backup.name,
-            occasion.words()
-        ));
         let run = Run {
             backup: backup.clone(),
             occasion,
+            if_due,
             wait: Duration::from_secs(u64::from(wait_minutes) * 60),
             signals: self.signals.clone(),
             window_used: self.window_used.clone(),
             how: self.how_to_look(backup),
+            schedules: self.schedules.clone(),
+            clock: self.clock.clone(),
         };
         spawn(&ctx, &job, move |ctx, job, ending| {
             let _lock = lock;
             // A guest's work: everything else on the computer comes first.
             keevoro_frame::quiet::lower_this_threads_priority();
-            let last = run.go(ctx, job, &tracker);
-            super::duplicates::start(ctx, &run.backup, None, super::duplicates::Why::AfterRunningByItself);
+            let (last, slot, ran) = match run.what_to_do(ctx) {
+                Plan::NotDue { said, passed } => (run.end(ctx, job, Ending::NotDue(said)), passed, false),
+                Plan::Go {
+                    slot,
+                    occasion,
+                    said_first,
+                } => {
+                    let _ = Backup::open(&run.backup.home).and_then(|b| b.forget_last_summary());
+                    ctx.log.say(&format!(
+                        "Backing up \"{}\" by itself, {}",
+                        run.backup.name,
+                        occasion.words()
+                    ));
+                    (run.go(ctx, job, &tracker, occasion, said_first), slot, true)
+                }
+            };
+            run.remember(ctx, &last, slot, ran);
+            if ran {
+                super::duplicates::start(ctx, &run.backup, None, super::duplicates::Why::AfterRunningByItself);
+            }
             ending.with(Some(last));
         })?;
         Ok(handle)
     }
 }
 
+/// What a run by itself does, once it holds the lock.
+enum Plan {
+    /// Its schedule has nothing due: what to say, and the slot passed over
+    /// (skipped as asked, or too soon after the last run), if one was.
+    NotDue {
+        said: String,
+        passed: Option<jiff::Timestamp>,
+    },
+    /// Run, for this slot if its schedule is why, saying these first.
+    Go {
+        slot: Option<jiff::Timestamp>,
+        occasion: Occasion,
+        said_first: Vec<String>,
+    },
+}
+
 /// One run, and what it needs on its thread.
 struct Run {
     backup: Named,
     occasion: Occasion,
+    if_due: bool,
     wait: Duration,
     signals: Arc<dyn Signals>,
     window_used: Arc<AtomicI64>,
     how: looking::HowToLook,
+    schedules: Arc<crate::schedule::Known>,
+    clock: Arc<dyn crate::schedule::Clock>,
 }
 
 impl Run {
-    fn go(&self, ctx: &Context, job: &Arc<Job>, tracker: &Tracker) -> Said {
+    /// Decides, under the lock, whether to run, and notes that a run is
+    /// going, so one cut short by Keevoro closing or the computer shutting
+    /// down is said by the next.
+    fn what_to_do(&self, ctx: &Context) -> Plan {
+        let (now, zone) = (self.clock.now(), self.clock.zone());
+        let Ok(catalog) = Catalog::open_in_library(&self.backup.home) else {
+            return Plan::Go {
+                slot: None,
+                occasion: self.occasion,
+                said_first: Vec::new(),
+            };
+        };
+        let schedule = crate::schedule::schedule_of(&catalog).ok().flatten();
+        let mut record = crate::schedule::record_of(&catalog).unwrap_or_default();
+        let mut said_first = Vec::new();
+        let mut slot = None;
+        let mut occasion = self.occasion;
+        if self.if_due {
+            let Some(schedule) = schedule else {
+                return Plan::NotDue {
+                    said: "Not backed up: this backup has no schedule.".into(),
+                    passed: None,
+                };
+            };
+            match keevoro_core::schedule::due(&schedule, &record.rules(), &zone, now) {
+                keevoro_core::schedule::Due::Now { slot: due, missed } => {
+                    slot = Some(due);
+                    occasion = if missed > 0 {
+                        Occasion::CatchUp
+                    } else {
+                        Occasion::Schedule
+                    };
+                    said_first.extend(keevoro_core::schedule::catching_up_words(missed));
+                }
+                keevoro_core::schedule::Due::Paused => {
+                    return Plan::NotDue {
+                        said: "Not backed up: backing up by itself is paused for this backup.".into(),
+                        passed: None,
+                    }
+                }
+                keevoro_core::schedule::Due::NotYet { next } => {
+                    return Plan::NotDue {
+                        said: match next {
+                            Some(next) => format!(
+                                "Not due yet. Next: {}.",
+                                keevoro_core::schedule::next_words(next, now, &zone)
+                            ),
+                            None => "Not due yet.".into(),
+                        },
+                        passed: None,
+                    }
+                }
+                keevoro_core::schedule::Due::Pass { slot: due, why } => {
+                    return Plan::NotDue {
+                        said: match why {
+                            keevoro_core::schedule::Pass::Skipped => "Skipped, as you asked.".into(),
+                            keevoro_core::schedule::Pass::TooSoon => "Not run again so soon after the last run.".into(),
+                        },
+                        passed: Some(due),
+                    };
+                }
+            }
+        }
+        if record.running_since.is_some() {
+            said_first.push(
+                "The last backup by itself was cut short, perhaps when Keevoro closed or the computer shut down. This run carries on from where it was."
+                    .into(),
+            );
+        }
+        record.running_since = Some(now.as_second());
+        if let Err(e) = crate::schedule::keep_record(&catalog, &record) {
+            ctx.log.say(&format!(
+                "Couldn't note that \"{}\" is backing up by itself: {e}",
+                self.backup.name
+            ));
+        }
+        Plan::Go {
+            slot,
+            occasion,
+            said_first,
+        }
+    }
+
+    /// Writes down how a run ended: what its schedule has accounted for,
+    /// and a line in its last few.
+    fn remember(&self, ctx: &Context, last: &Said, slot: Option<jiff::Timestamp>, it_ran: bool) {
+        let Said::Send(last) = last else { return };
+        let (now, zone) = (self.clock.now(), self.clock.zone());
+        let (outcome, ran) = if it_ran {
+            attempt_of(last)
+        } else if slot.is_some() {
+            ("skipped", None)
+        } else {
+            ("notDue", None)
+        };
+        let result = (|| -> Result<()> {
+            let catalog = Catalog::open_in_library(&self.backup.home)?;
+            let schedule = crate::schedule::schedule_of(&catalog)?;
+            let mut record = crate::schedule::record_of(&catalog)?;
+            record.running_since = None;
+            let not_due = outcome == "notDue";
+            if ran.is_some_and(|r| !matches!(r, Ran::NotNow | Ran::Busy)) {
+                record.last_ran = Some(now.as_second());
+            }
+            if let (Some(schedule), Some(slot)) = (schedule, slot) {
+                if ran.is_none_or(keevoro_core::schedule::accounts_for_its_slot) {
+                    record.handled_through =
+                        Some(keevoro_core::schedule::handled_after_run(&schedule, &zone, slot, now));
+                    if record.skip == Some(slot.as_second()) {
+                        record.skip = None;
+                    }
+                }
+            }
+            if !not_due || outcome == "skipped" {
+                record.note(crate::schedule::Attempt {
+                    at: now.as_second(),
+                    why: self.occasion.words().to_string(),
+                    outcome: outcome.to_string(),
+                    said: said_in_a_line(last),
+                });
+            }
+            crate::schedule::keep_record(&catalog, &record)
+        })();
+        if let Err(e) = result {
+            ctx.log.say(&format!(
+                "Couldn't write down how \"{}\" backed up by itself: {e}",
+                self.backup.name
+            ));
+        }
+        self.schedules.forget(&self.backup.id);
+    }
+
+    fn go(
+        &self,
+        ctx: &Context,
+        job: &Arc<Job>,
+        tracker: &Tracker,
+        occasion: Occasion,
+        said_first: Vec<String>,
+    ) -> Said {
         if let Some(not_now) = self.wait_for_a_good_moment(job) {
             return self.end(ctx, job, not_now);
         }
@@ -180,7 +369,8 @@ impl Run {
                 ..ToLook::default()
             });
         let mut looked_again = Vec::new();
-        let mut passed_over = to_look.passed_over.clone();
+        let mut passed_over = said_first;
+        passed_over.extend(to_look.passed_over.iter().cloned());
         for step in &to_look.steps {
             match looking::get_ready(ctx, home, step) {
                 Ok(said) => passed_over.extend(said),
@@ -215,7 +405,7 @@ impl Run {
         };
         let waits = what_waits(&facts);
         let record = keevoro_engine::history::ByItself {
-            why: self.occasion.words().to_string(),
+            why: occasion.words().to_string(),
             looked_again,
             passed_over: passed_over.clone(),
             found,
@@ -340,7 +530,9 @@ impl Run {
     /// Ends a run that sent nothing, saying why.
     fn end(&self, ctx: &Context, job: &Arc<Job>, how: Ending) -> Said {
         ctx.jobs.release(job);
+        let not_due = matches!(how, Ending::NotDue(_));
         let (said, outcome, problem) = match &how {
+            Ending::NotDue(said) => (said.clone(), Outcome::Worked, None),
             Ending::NotNow(why) => (format!("Not backed up now. {why}."), Outcome::Stopped, None),
             Ending::Stopped => (keevoro_engine::send::STOPPED.to_string(), Outcome::Stopped, None),
             Ending::Problem(problem) => (String::new(), Outcome::Refused, Some(problem.clone())),
@@ -360,14 +552,16 @@ impl Run {
                     ctx.log.say(&format!("Couldn't write down how this backup went: {e:#}"));
                 }
             }
-            Ending::Stopped | Ending::Problem(_) => {}
+            Ending::Stopped | Ending::Problem(_) | Ending::NotDue(_) => {}
         }
         ctx.log.say(&format!(
             "Backing up \"{}\" by itself ended: {}",
             self.backup.name,
             last.summary.join(" ")
         ));
-        let _ = Backup::open(&self.backup.home).and_then(|b| b.remember_last_summary(&last));
+        if !not_due {
+            let _ = Backup::open(&self.backup.home).and_then(|b| b.remember_last_summary(&last));
+        }
         let last = Said::Send(last);
         ctx.jobs.heard(job, last.clone(), true);
         last
@@ -376,6 +570,8 @@ impl Run {
 
 /// How a run that sent nothing ended.
 enum Ending {
+    /// Its schedule has nothing due now, or the one due was passed over.
+    NotDue(String),
     /// Not now: on battery, busy, or the person in Keevoro, past the wait.
     NotNow(String),
     Stopped,
@@ -448,4 +644,41 @@ fn record_held_back(
         })),
     };
     keevoro_engine::history::record(&catalog, &entry)
+}
+
+/// How a run ended, as a word for its last few and as the schedule's rules
+/// see it.
+fn attempt_of(last: &SendEvent) -> (&'static str, Option<Ran>) {
+    if last.not_now.is_some() {
+        return ("notNow", Some(Ran::NotNow));
+    }
+    match last.outcome {
+        _ if !last.held_back.is_empty() && matches!(last.outcome, Some(Outcome::Worked)) => {
+            ("heldBack", Some(Ran::HeldBack))
+        }
+        Some(Outcome::Worked) | None => ("worked", Some(Ran::Worked)),
+        Some(Outcome::SomeFiles) => ("someFiles", Some(Ran::SomeFiles)),
+        Some(Outcome::Unreachable) => ("unreachable", Some(Ran::Unreachable)),
+        Some(Outcome::Refused) => ("refused", Some(Ran::Refused)),
+        Some(Outcome::Stopped) => ("stopped", Some(Ran::StoppedByPerson)),
+    }
+}
+
+/// What a run said, in the one line its last few show.
+fn said_in_a_line(last: &SendEvent) -> String {
+    if let Some(why) = &last.not_now {
+        return format!("Not backed up then. {why}.");
+    }
+    if let Some(problem) = &last.problem {
+        return problem.clone();
+    }
+    let sent = last.summary.iter().find(|l| l.starts_with("Safely backed up"));
+    let held = last.held_back.first();
+    match (sent, held) {
+        (Some(sent), Some(_)) => format!("{sent} Something waits for your say."),
+        (Some(sent), None) => sent.clone(),
+        (None, Some(held)) => held.clone(),
+        (None, None) if last.outcome == Some(Outcome::Stopped) => "Stopped.".into(),
+        (None, None) => "Nothing new to back up.".into(),
+    }
 }

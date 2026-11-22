@@ -19,6 +19,7 @@
 
 import { DifferentDriveAsked, PassedOver } from './differentDrive'
 import { ByItselfDetail } from './byItself'
+import { ScheduleCard, useNoteWindowUse } from './schedule'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
@@ -104,6 +105,8 @@ const all = (n: number, withOthers = false) =>
 
 export function App() {
   const [api, setApi] = useState<Backend | null>(null)
+  // A backup by itself waits while the person is using the window.
+  useNoteWindowUse(api)
   const [state, setState] = useState<AppState | null>(null)
   const [found, setFound] = useState<Discover | null>(null)
   const [step, setStep] = useState<Step>('find')
@@ -627,6 +630,7 @@ export function App() {
         ) : (
           <SendScreen
             api={api}
+            name={state.backup.name}
             found={found}
             onDuplicates={() => show('duplicates')}
             waiting={waiting}
@@ -2692,6 +2696,8 @@ function Tally(props: { found: Discover; onDuplicates: () => void; onSetAside?: 
 /** Step 3. One question: where should they go? Then one button: send. */
 function SendScreen(props: {
   api: Backend
+  /** The backup's name, as the person called it. */
+  name: string
   found: Discover | null
   onDuplicates: () => void
   waiting: number
@@ -2724,6 +2730,7 @@ function SendScreen(props: {
       )}
       <SendPanel
         api={props.api}
+        name={props.name}
         destinations={props.found?.destinations ?? []}
         withOtherFiles={(props.found?.others ?? 0) > 0}
         waiting={props.waiting}
@@ -2743,6 +2750,7 @@ function SendScreen(props: {
  */
 function SendPanel(props: {
   api: Backend
+  name: string
   /** Each place this backup goes to, with what has reached it. */
   destinations: Destination[]
   /** The backup holds other files, so what is in it says where they go. */
@@ -3318,6 +3326,7 @@ function SendPanel(props: {
               ordinary files.
             </p>
           </details>
+        <ScheduleCard api={api} name={props.name} running={running !== null} onProblem={onProblem} />
         {history.length > 0 && !running && <History history={history} />}
         </>
       )}

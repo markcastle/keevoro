@@ -38,6 +38,9 @@ getrandom = "0.3"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "bmp", "tiff", "webp"] }
 imagesize = "0.14"
 infer = "0.19"
+# Dates, times and time zones for backing up on a schedule: already in the
+# tree through other crates; bundles the time zones on Windows.
+jiff = "0.2"
 kamadak-exif = "0.6"
 keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native"] }
 regex = "1"

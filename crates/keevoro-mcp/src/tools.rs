@@ -141,7 +141,7 @@ mod tests {
         ] {
             assert!(op_named(kept).is_none(), "{kept}");
         }
-        assert_eq!(tools.len(), 48);
+        assert_eq!(tools.len(), 49);
         assert_eq!(title("run_backup"), "Run backup");
         assert_eq!(title("about_keevoro"), "About Keevoro");
     }
