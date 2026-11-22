@@ -1042,6 +1042,40 @@ try {
   await scheduleCard.getByRole('button', { name: 'Carry on' }).click()
   await scheduleCard.getByText(/^Next: tonight at 02:30/).waitFor()
 
+  // --- Keevoro by the clock. The first time the window is closed, it says
+  // Keevoro keeps running, and where its icon is; starting with the
+  // computer is never ticked for the person.
+  await page.goto(`${base}/?closing&fast`)
+  const explained = page.getByRole('dialog', { name: 'Keevoro keeps running' })
+  await explained.waitFor()
+  await explained.getByText('Keevoro will keep running by the clock so your backups happen on time.').waitFor()
+  await explained.getByText(/may be under the \^ arrow there/).waitFor()
+  assert.equal(await explained.getByRole('checkbox', { name: 'Start Keevoro when this computer starts' }).isChecked(), false)
+  await shot('9x3-closing-keeps-running')
+  await fitsNarrow('The first-close explanation')
+  await explained.getByRole('checkbox', { name: 'Start Keevoro when this computer starts' }).check()
+  await explained.getByRole('button', { name: 'OK' }).click()
+  await explained.waitFor({ state: 'detached' })
+  // Settings says the same, under a heading a person would look under.
+  await page.getByRole('button', { name: 'Settings' }).click()
+  await page.getByRole('heading', { name: 'When you close Keevoro' }).waitFor()
+  const keeping = page.locator('.keep-running')
+  assert.equal(await keeping.getByRole('switch', { name: 'Keep Keevoro running by the clock when its window is closed' }).getAttribute('aria-checked'), 'true')
+  assert.equal(await keeping.getByRole('switch', { name: 'Minimise to the tray as well' }).getAttribute('aria-checked'), 'false')
+  assert.equal(await keeping.getByRole('switch', { name: 'Start Keevoro when this computer starts' }).getAttribute('aria-checked'), 'true', 'ticked in the explanation')
+  await keeping.getByRole('switch', { name: 'Minimise to the tray as well' }).click()
+  await page.waitForFunction(() => document.querySelector('.keep-running [aria-label="Minimise to the tray as well"]')?.getAttribute('aria-checked') === 'true')
+  await keeping.scrollIntoViewIfNeeded()
+  await shot('9x4-settings-when-you-close')
+  await fitsNarrow('Settings, when you close Keevoro')
+  // Quitting with a backup going asks first, over the window.
+  await page.goto(`${base}/?quitting&busy&fast`)
+  const quitAsked = page.getByRole('dialog', { name: 'A backup is running. Stop it after the file in hand and quit? Nothing is lost.' })
+  await quitAsked.waitFor()
+  await shot('9x5-quit-asks-first')
+  await quitAsked.getByRole('button', { name: 'Keep it running' }).click()
+  await quitAsked.waitFor({ state: 'detached' })
+
   // --- Looking again with a source's card in a drawer passes it over and
   // says so: what was found on it is kept.
   await page.goto(`${base}/?drives=away&fast`)

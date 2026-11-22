@@ -170,6 +170,10 @@ pub async fn clear_away_backup<R: Runtime>(
 pub fn reset_everything(shared: State<'_, Shared>) -> Said<AppState> {
     // The API refuses while any of Keevoro's programs is working.
     shared.keevoro.reset().map_err(say)?;
+    // Nor does Keevoro start with the computer any more.
+    if let Err(why) = shared.desk.startup.set(false) {
+        shared.keevoro.log().say(&crate::startup::could_not(false, &why));
+    }
     Ok(current_state(&shared))
 }
 
@@ -650,12 +654,14 @@ pub fn send_progress(shared: State<'_, Shared>) -> SendProgress {
 /// Pauses or resumes every heavy job. Each waits at its next safe point,
 /// between one file and the next, and carries on from there when resumed.
 #[tauri::command]
-pub fn pause_work(shared: State<'_, Shared>, paused: bool) {
+pub fn pause_work<R: Runtime>(app: AppHandle<R>, shared: State<'_, Shared>, paused: bool) {
     if paused {
         shared.keevoro.pause();
     } else {
         shared.keevoro.carry_on();
     }
+    // The icon by the clock says so too.
+    crate::tray::nudge(&app);
 }
 
 /// Asks a search that is running to stop. It ends within a moment and

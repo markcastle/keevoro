@@ -5142,3 +5142,30 @@ fieldset.wants input[aria-disabled='true'] {
   padding: 0;
   vertical-align: middle;
 }
+
+/* What the window is told when it comes forward from the icon by the clock:
+   over everything, so it cannot be missed. */
+.window-ask {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.window-ask .panel {
+  max-width: 560px;
+  box-shadow: var(--shadow-md);
+}
+
+.window-ask .ask-tick {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.keep-running .switch-row + .switch-row {
+  margin-top: var(--space-3);
+}

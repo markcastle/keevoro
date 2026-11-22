@@ -325,6 +325,11 @@ impl Keevoro {
             .store(until.map_or(0, Timestamp::as_second), Ordering::SeqCst);
     }
 
+    /// Pauses all of Keevoro's heavy work for as long as asked.
+    pub fn pause_for(&self, how_long: PauseFor) {
+        self.pause_until(how_long.ends(self.clock.now(), &self.clock.zone()));
+    }
+
     /// When a pause for a while ends by itself, while Keevoro is paused.
     pub fn paused_until(&self) -> Option<Timestamp> {
         let until = self.paused_until.load(Ordering::SeqCst);

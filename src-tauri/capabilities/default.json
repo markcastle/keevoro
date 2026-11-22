@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "What the app's own window may ask for: its commands, its events, and the folder picker. Nothing else.",
+  "description": "What the app's own window may ask for: its commands, its events, and the folder picker. Nothing else: the single-instance and autostart plugins are used from Rust only, so the page is given none of their commands.",
   "windows": ["main"],
   "permissions": ["core:default", "dialog:allow-open"]
 }

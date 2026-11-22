@@ -974,6 +974,40 @@ export type MapView = {
   searchedSince?: boolean
 }
 
+/** How closing, minimising and starting with the computer are set (Settings, "When you close Keevoro"). */
+export type KeepRunningView = {
+  /** Closing the window keeps Keevoro running by the clock. */
+  keepRunning: boolean
+  /** Minimising hides the window to the icon by the clock too. */
+  minimiseToTray: boolean
+  /** Keevoro starts, quietly, when the computer starts. */
+  startWithComputer: boolean
+  /** Whether the icon by the clock is shown. */
+  tray: 'shown' | 'mayNotShow' | 'none'
+  /** Where the icon is, in a sentence. */
+  whereTheIconIs: string
+  /** Said beside the choices where the icon may not show. */
+  said?: string
+}
+
+/** A change to how closing, minimising and starting with the computer are set; each part given replaces what was there. */
+export type KeepRunningChange = { keepRunning?: boolean; minimiseToTray?: boolean; startWithComputer?: boolean }
+
+/** What waits for the window as it opens or comes forward. */
+export type WindowAsk = {
+  /** The page to open: 'settings'. */
+  page?: string
+  /** Say once that closing keeps Keevoro running, and where its icon is: these words. */
+  closing?: string
+  /** Ask before quitting cuts work short: this question. */
+  quitting?: string
+  /** Something the icon's menu could not do, said. */
+  note?: string
+}
+
+/** What quitting answered: nothing when it quits, or the question to ask first. */
+export type QuitAnswer = { asked?: string }
+
 /** A newer version of Keevoro that is ready to install. */
 export type Update = { version: string; page: string }
 
@@ -1183,6 +1217,17 @@ export interface Backend {
   /** Checks for duplicates now, even after the check was stopped. */
   checkDuplicatesNow(): Promise<void>
   onCheck(listener: (event: CheckEvent) => void): () => void
+  /** How closing, minimising and starting with the computer are set. */
+  keepRunning(): Promise<KeepRunningView>
+  setKeepRunning(change: KeepRunningChange): Promise<KeepRunningView>
+  /** What waits for the window, taken once: a page, a question, a note. */
+  windowAsk(): Promise<WindowAsk | null>
+  /** Heard when something waits for the window. */
+  onWindowAsk(listener: () => void): () => void
+  /** The first-close explanation was read: hides the window to the icon, starting with the computer if ticked. */
+  hideToTray(startWithComputer: boolean): Promise<void>
+  /** Quits Keevoro; with work in hand, answers the question to ask first unless `stop`. */
+  quitKeevoro(stop: boolean): Promise<QuitAnswer>
 }
 
 const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
@@ -1312,6 +1357,12 @@ async function tauriBackend(): Promise<Backend> {
     stopChecking: () => invoke('stop_checking'),
     checkDuplicatesNow: () => invoke('check_duplicates_now'),
     onCheck: (listener) => subscribe('check', listener),
+    keepRunning: () => invoke('keep_running'),
+    setKeepRunning: (change) => invoke('set_keep_running', { change }),
+    windowAsk: () => invoke('window_ask'),
+    onWindowAsk: (listener) => subscribe('window_ask', () => listener()),
+    hideToTray: (startWithComputer) => invoke('hide_to_tray', { startWithComputer }),
+    quitKeevoro: (stop) => invoke('quit_keevoro', { stop }),
   }
 }
 

@@ -494,7 +494,9 @@ impl Keevoro {
             .get(&backup.id)
             .is_some_and(|seen| now.as_second() - seen.read_at < READ_AGAIN_EVERY && now.as_second() >= seen.read_at);
         if !fresh {
-            let catalog = Catalog::open_in_library(&backup.home).ok()?;
+            // Never made where it is not: a backup removed a moment ago, or
+            // one whose drive is unplugged, is passed over.
+            let catalog = crate::backup::existing_catalog(&backup.home)?;
             let not_before = all.get(&backup.id).map_or(0, |s| s.not_before);
             all.insert(
                 backup.id.clone(),
