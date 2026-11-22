@@ -1017,3 +1017,90 @@ async fn never_more_than_two_files_from_cloud_storage_are_on_this_computer_at_on
     assert!(most <= FETCHED_AT_ONCE, "{most} were here at once");
     assert_eq!(w.staged(), 0);
 }
+
+/// A small, steady source of made-up choices, so the cases are the same on
+/// every run and every computer.
+struct Dice(u64);
+
+impl Dice {
+    fn roll(&mut self, sides: u64) -> u64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        self.0 % sides
+    }
+}
+
+#[tokio::test]
+async fn every_file_given_ends_up_in_exactly_one_place_in_the_account_whatever_happens() {
+    // Made-up outcomes: files already there by the record, recorded but
+    // gone, a different file under the name, a connection that drops more
+    // often than the retries, access refused, and a stop part-way.
+    for seed in 1..=60u64 {
+        let mut dice = Dice(seed * 2_654_435_761);
+        let mut w = World::new().await;
+        w.store.drop_next = AtomicU32::new(dice.roll(6) as u32);
+        w.store.deny = dice.roll(10) == 0;
+        let files = 1 + dice.roll(12) as usize;
+        let mut uploads = Vec::new();
+        for i in 0..files {
+            let key = format!("originals/{seed}/IMG_{i:04}.jpg");
+            let body = format!("photo {seed} {i}").into_bytes();
+            let upload = w.file(&key, &body, true);
+            match dice.roll(5) {
+                0 => {
+                    // There already, as a look found.
+                    w.store
+                        .inner
+                        .put(&upload.key, ByteSource::Bytes(body.clone()), &PutOptions::default())
+                        .await
+                        .unwrap();
+                    w.catalog.mark_uploaded("test", &key, body.len() as u64).unwrap();
+                }
+                1 => {
+                    // Recorded, but a look found it gone.
+                    w.catalog.mark_uploaded("test", &key, body.len() as u64).unwrap();
+                    w.catalog
+                        .set_seen("test", &[(key.clone(), keevoro_catalog::Seen::Missing)])
+                        .unwrap();
+                }
+                2 => {
+                    // Something else is under its name.
+                    w.store
+                        .inner
+                        .put(
+                            &upload.key,
+                            ByteSource::Bytes(b"another".to_vec()),
+                            &PutOptions::default(),
+                        )
+                        .await
+                        .unwrap();
+                }
+                _ => {}
+            }
+            uploads.push(upload);
+        }
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let stop_after = dice.roll(files as u64 + 3) as usize;
+        let opts = PublishOptions {
+            retries: 1,
+            stop: Some(stop.clone()),
+            ..quick()
+        };
+        let report = publish(&w.store, &w.catalog, "test", &uploads, &opts, &mut |p| {
+            if p.done >= stop_after {
+                stop.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        })
+        .await
+        .unwrap();
+        let account = report.account(uploads.len());
+        assert!(account.adds_up(), "seed {seed}: {account:?}");
+        assert_eq!(
+            account.attention() > 0,
+            !report.failed.is_empty() || report.stopped,
+            "seed {seed}"
+        );
+        w.dir.close().unwrap();
+    }
+}

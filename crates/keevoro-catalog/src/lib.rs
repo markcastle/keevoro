@@ -234,6 +234,25 @@ impl SeenCounts {
     pub fn sent(&self) -> usize {
         self.there + self.missing + self.not_as_sent
     }
+
+    /// Counts one more file found as `seen`.
+    pub fn add(&mut self, seen: Seen) {
+        *self.of(seen) += 1;
+    }
+
+    /// Counts one fewer file found as `seen`.
+    pub fn take(&mut self, seen: Seen) {
+        let n = self.of(seen);
+        *n = n.saturating_sub(1);
+    }
+
+    fn of(&mut self, seen: Seen) -> &mut usize {
+        match seen {
+            Seen::There => &mut self.there,
+            Seen::Missing => &mut self.missing,
+            Seen::NotAsSent => &mut self.not_as_sent,
+        }
+    }
 }
 
 /// One file Keevoro sent to a destination, as its record stands.

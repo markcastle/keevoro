@@ -58,3 +58,17 @@ test('a place in a list says when it cannot be reached, and what each look said 
     outOfReach.said[0],
   ])
 })
+
+test('the owner\u2019s second screen: never "everything is there" beside files that are not', () => {
+  const found = { ...fresh, gone: 15, notAsSent: 64 }
+  assert.equal(
+    thereNow(79, 71_945, [{ there: 71_945, waiting: 79, looked: found }], said),
+    '71,945 of your 72,024 files are safely there. 79 need attention.',
+  )
+  assert.equal(
+    thereNow(80, 71_944, [{ there: 71_944, waiting: 80, looked: { ...fresh, gone: 1, notAsSent: 0 } }], said),
+    '71,944 of your 72,024 files are safely there. 1 needs attention. 79 more are waiting to be backed up.',
+  )
+  // A look that could not reach the place says nothing of what it did not see.
+  assert.equal(thereNow(0, 40, [{ there: 40, waiting: 0, looked: { ...outOfReach, gone: 3 } }], said).startsWith('Everything'), true)
+})

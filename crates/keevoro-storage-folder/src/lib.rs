@@ -6,15 +6,20 @@
 //!
 //! Every write goes to a temporary file under `.keevoro-uploads/` inside the
 //! root first, then moves into place, so a crash never leaves a half-written
-//! file under its final name.
+//! file under its final name. Only once it is at its final name is it read
+//! back and proved, so what is proved is what a later look will find, even
+//! on a network share that dropped out while the file was moved into place.
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 use async_trait::async_trait;
 use keevoro_storage::{
     ByteSource, Capabilities, ConnectionReport, Downloaded, ListPage, MultipartLimits, MultipartStore, ObjectInfo,
-    ObjectKey, ObjectStore, PartReceipt, PutOptions, PutReceipt, StorageError, UploadId,
+    ObjectKey, ObjectStore, PartReceipt, PutOptions, PutReceipt, Step, StorageError, UploadId,
 };
+
+mod files;
+pub use files::{Files, RealFiles, Written};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -42,6 +47,9 @@ pub struct FolderStore {
     /// How many folders' listings are read at the same time by
     /// [`ObjectStore::list_all`]: one on a disk, a few across a network.
     listing_at_once: usize,
+    /// What files are written through: the computer's own, or a stand-in
+    /// that drops out, in tests.
+    files: Arc<dyn Files>,
 }
 
 impl FolderStore {
@@ -91,7 +99,16 @@ impl FolderStore {
                 counts_its_own_bytes: false,
             },
             watcher: None,
+            files: Arc::new(RealFiles),
         }
+    }
+
+    /// Writes files through `files` instead of the computer's own: how a
+    /// test makes a share that drops out part-way.
+    #[must_use]
+    pub fn with_files(mut self, files: Arc<dyn Files>) -> Self {
+        self.files = files;
+        self
     }
 
     /// Has `watcher` told about every few megabytes of a file as they are
@@ -243,17 +260,19 @@ impl ObjectStore for FolderStore {
     }
 
     async fn put(&self, key: &ObjectKey, body: ByteSource, opts: &PutOptions) -> Result<PutReceipt, StorageError> {
-        let dest = self.path_for(key)?;
-        let tmp = self.temp_path().await;
-        let (bytes, blake3) = write_source(
-            &tmp,
-            body,
-            self.watcher.clone(),
-            opts.expect_blake3.clone(),
-            opts.learn_blake3,
-        )
-        .await?;
-        self.publish(&tmp, &dest, key, opts.create_only).await?;
+        let copy = Copy {
+            files: self.files.clone(),
+            tmp: self.temp_path().await,
+            dest: self.path_for(key)?,
+            key: key.clone(),
+            create_only: opts.create_only,
+            watcher: self.watcher.clone(),
+            expect: opts.expect_blake3.clone(),
+            learn: opts.learn_blake3,
+        };
+        let (bytes, blake3) = tokio::task::spawn_blocking(move || copy.store(body))
+            .await
+            .map_err(|e| StorageError::Provider(e.to_string()))??;
         Ok(PutReceipt {
             key: key.clone(),
             bytes,
@@ -382,7 +401,7 @@ impl MultipartStore for FolderStore {
             return Err(StorageError::InvalidParts("part numbers start at 1".into()));
         }
         let tmp = dir.join(format!("part-{number:05}.tmp"));
-        let (bytes, _) = write_source(&tmp, body, None, None, false).await?;
+        let bytes = write_part(&tmp, body).await?;
         fs::rename(&tmp, dir.join(part_name(number))).await?;
         Ok(PartReceipt {
             number,
@@ -479,113 +498,209 @@ impl FolderStore {
     }
 }
 
-async fn write_source(
-    dest: &Path,
-    body: ByteSource,
-    watcher: Option<Watcher>,
-    expect: Option<String>,
-    learn: bool,
-) -> Result<(u64, Option<String>), StorageError> {
-    match body {
-        ByteSource::Bytes(b) => {
-            let mut f = fs::File::create(dest).await?;
-            f.write_all(&b).await?;
-            f.sync_all().await?;
-            Ok((b.len() as u64, None))
-        }
-        ByteSource::File(src) => {
-            let dest = dest.to_path_buf();
-            tokio::task::spawn_blocking(move || copy_file(&src, &dest, watcher.as_ref(), expect.as_deref(), learn))
-                .await
-                .map_err(|e| StorageError::Provider(e.to_string()))?
-        }
-    }
+/// Writes one part of an upload in parts, which `complete` later joins.
+/// Whole files go through [`Copy`], which proves them.
+async fn write_part(dest: &Path, body: ByteSource) -> Result<u64, StorageError> {
+    let bytes = match body {
+        ByteSource::Bytes(b) => b,
+        ByteSource::File(src) => fs::read(src).await?,
+    };
+    let mut f = fs::File::create(dest).await?;
+    f.write_all(&bytes).await?;
+    f.sync_all().await?;
+    Ok(bytes.len() as u64)
 }
 
-/// Copies `src` to `dest` in large pieces, telling `watcher` after each
-/// piece, and gives the copy the original's modified time. The source is
-/// only ever read.
-///
-/// When the file's fingerprint is known (`expect`), the copy is proved
-/// exact in two steps, because a backup nobody has checked is only a hope:
-///
-/// 1. What is read from the source is fingerprinted as it goes by. If that
-///    is not the expected fingerprint, the file has changed since it was
-///    looked at or the source is not reading back what it holds.
-/// 2. What was written is flushed to the disk, read back from start to
-///    finish and fingerprinted again. If that differs, the destination did
-///    not keep what it was given.
-///
-/// Either way the copy is removed and the failure reported; nothing wrong
-/// is ever left under a real name.
-fn copy_file(
-    src: &Path,
-    dest: &Path,
-    watcher: Option<&Watcher>,
-    expect: Option<&str>,
+/// One file being stored: where it is written first, where it goes, and how
+/// it is to be proved.
+struct Copy {
+    files: Arc<dyn Files>,
+    tmp: PathBuf,
+    dest: PathBuf,
+    key: ObjectKey,
+    create_only: bool,
+    watcher: Option<Watcher>,
+    /// The fingerprint the file is known by, which what is read must match.
+    expect: Option<String>,
+    /// Asked to give back the fingerprint, for a file a search only sampled.
     learn: bool,
-) -> Result<(u64, Option<String>), StorageError> {
-    use std::io::{Read, Write};
-    let mut input = std::fs::File::open(src)?;
-    let mut output = std::fs::File::create(dest)?;
-    let mut buffer = vec![0u8; COPY_BUFFER];
-    let mut total = 0u64;
-    let prove = expect.is_some() || learn;
-    let mut read = blake3::Hasher::new();
-    loop {
-        let n = match input.read(&mut buffer) {
-            Ok(0) => break,
-            Ok(n) => n,
-            Err(e) if e.kind() == ErrorKind::Interrupted => continue,
-            Err(e) => return Err(e.into()),
-        };
-        if prove {
-            read.update(&buffer[..n]);
-        }
-        output.write_all(&buffer[..n])?;
-        total += n as u64;
-        if let Some(tell) = watcher {
-            tell(n as u64);
-        }
-    }
-    output.flush()?;
-    // Keep the original's modified time: it is sometimes the only clue to
-    // when a photo was taken.
-    if let Ok(modified) = input.metadata().and_then(|m| m.modified()) {
-        let _ = output.set_modified(modified);
-    }
-    if !prove {
-        return Ok((total, None));
-    }
-    let refuse = |why: &str| {
-        let _ = std::fs::remove_file(dest);
-        Err(StorageError::NotTheSame(why.to_string()))
-    };
-    // What was read is the file: either it matches the fingerprint already
-    // known, or (when none is known yet) it becomes the fingerprint.
-    let fingerprint = read.finalize().to_hex().to_string();
-    if expect.is_some_and(|expected| expected != fingerprint) {
-        return refuse("the file is not as it was when it was looked at");
-    }
-    // Past the system's own memory and onto the disk before it is read back.
-    output.sync_all()?;
-    drop(output);
-    let mut written = blake3::Hasher::new();
-    let mut back = std::fs::File::open(dest)?;
-    loop {
-        match back.read(&mut buffer) {
-            Ok(0) => break,
-            Ok(n) => {
-                written.update(&buffer[..n]);
+}
+
+impl Copy {
+    /// Stores `body` under its real name and proves it there, telling the
+    /// watcher as it goes. The source is only ever read. Answers its size
+    /// and, when it was asked for or known, its fingerprint.
+    ///
+    /// The proof, because a backup nobody has checked is only a hope:
+    ///
+    /// 1. What is read from the source is fingerprinted as it goes by. If
+    ///    that is not the fingerprint expected, the file has changed since
+    ///    it was looked at, and it is refused.
+    /// 2. The copy is written to a working file, flushed to the disk or the
+    ///    far end, and moved into place without ever replacing a file.
+    /// 3. Then, at its real name, its size is asked afresh and it is opened
+    ///    afresh and read back in full. Only if that is the full size and the
+    ///    same fingerprint does it count. This is after the last write and
+    ///    the move, so a share that dropped out and came back while the file
+    ///    was moved, leaving it short or not there at all, is caught.
+    ///
+    /// Any error at any step means it does not count. A working file is
+    /// removed when it can be, and otherwise left for the sweep. A copy found
+    /// wrong at its real name is left where it is, since nothing in a
+    /// backup is ever deleted: it is never counted, and the next backup
+    /// finds it and says so.
+    fn store(self, body: ByteSource) -> Result<(u64, Option<String>), StorageError> {
+        let files = self.files.as_ref();
+        let written = self.write(files, body);
+        let (total, fingerprint) = match written {
+            Ok(done) => done,
+            Err(e) => {
+                let _ = files.remove(&self.tmp);
+                return Err(e);
             }
-            Err(e) if e.kind() == ErrorKind::Interrupted => {}
-            Err(e) => return Err(e.into()),
+        };
+        let linked = match self.place(files) {
+            Ok(linked) => linked,
+            Err(e) => {
+                let _ = files.remove(&self.tmp);
+                return Err(e);
+            }
+        };
+        let proved = self.prove(files, total, &fingerprint);
+        if linked {
+            // The working name is a second name for the same file. If it
+            // cannot be removed now, the sweep removes it later; the copy at
+            // its real name is unaffected.
+            let _ = files.remove(&self.tmp);
+        }
+        proved?;
+        let prove = self.expect.is_some() || self.learn;
+        Ok((total, prove.then_some(fingerprint)))
+    }
+
+    /// Writes the working file and flushes it, answering its size and the
+    /// fingerprint of what was read.
+    fn write(&self, files: &dyn Files, body: ByteSource) -> Result<(u64, String), StorageError> {
+        use std::io::Read;
+        let mut output = files
+            .create_new(&self.tmp)
+            .map_err(|e| StorageError::at(Step::Writing, e))?;
+        let mut read = blake3::Hasher::new();
+        let mut total = 0u64;
+        let mut modified = None;
+        let mut put = |output: &mut Box<dyn Written>, piece: &[u8], total: &mut u64| -> Result<(), StorageError> {
+            read.update(piece);
+            output
+                .write_all(piece)
+                .map_err(|e| StorageError::at(Step::Writing, e))?;
+            *total += piece.len() as u64;
+            if let Some(tell) = &self.watcher {
+                tell(piece.len() as u64);
+            }
+            Ok(())
+        };
+        match body {
+            ByteSource::Bytes(bytes) => put(&mut output, &bytes, &mut total)?,
+            ByteSource::File(src) => {
+                let mut input = std::fs::File::open(&src).map_err(|e| StorageError::at(Step::ReadingTheSource, e))?;
+                let mut buffer = vec![0u8; COPY_BUFFER];
+                loop {
+                    let n = match input.read(&mut buffer) {
+                        Ok(0) => break,
+                        Ok(n) => n,
+                        Err(e) if e.kind() == ErrorKind::Interrupted => continue,
+                        Err(e) => return Err(StorageError::at(Step::ReadingTheSource, e)),
+                    };
+                    put(&mut output, &buffer[..n], &mut total)?;
+                }
+                modified = input.metadata().and_then(|m| m.modified()).ok();
+            }
+        }
+        output.flush().map_err(|e| StorageError::at(Step::Writing, e))?;
+        // Keep the original's modified time: it is sometimes the only clue
+        // to when a photo was taken.
+        if let Some(modified) = modified {
+            let _ = output.set_modified(modified);
+        }
+        let fingerprint = read.finalize().to_hex().to_string();
+        if self.expect.as_deref().is_some_and(|expected| expected != fingerprint) {
+            return Err(StorageError::NotTheSame(
+                "the file is not as it was when it was looked at".to_string(),
+            ));
+        }
+        output.sync().map_err(|e| StorageError::at(Step::Flushing, e))?;
+        drop(output);
+        Ok((total, fingerprint))
+    }
+
+    /// Gives the working file its real name, never over a file already
+    /// there. Answers whether the working name is still a second name for
+    /// it (a hard link), to be removed once it is proved.
+    fn place(&self, files: &dyn Files) -> Result<bool, StorageError> {
+        let moving = |e| StorageError::at(Step::MovingIntoPlace, e);
+        if let Some(parent) = self.dest.parent() {
+            files.make_folders(parent).map_err(moving)?;
+        }
+        if !self.create_only {
+            files.rename(&self.tmp, &self.dest).map_err(moving)?;
+            return Ok(false);
+        }
+        // A hard link fails, all at once, if the name is taken.
+        match files.hard_link(&self.tmp, &self.dest) {
+            Ok(()) => Ok(true),
+            Err(e) if e.kind() == ErrorKind::AlreadyExists => Err(StorageError::AlreadyExists(self.key.to_string())),
+            Err(_) => {
+                // FAT and exFAT drives, and some shares, have no hard links.
+                // Check, then move.
+                if files.exists(&self.dest).map_err(moving)? {
+                    return Err(StorageError::AlreadyExists(self.key.to_string()));
+                }
+                files.rename(&self.tmp, &self.dest).map_err(moving)?;
+                Ok(false)
+            }
         }
     }
-    if written.finalize().to_hex().as_str() != fingerprint {
-        return refuse("what was written did not read back the same");
+
+    /// Reads the copy back at its real name, afresh, and compares it with
+    /// what was written.
+    fn prove(&self, files: &dyn Files, total: u64, fingerprint: &str) -> Result<(), StorageError> {
+        use std::io::Read;
+        let back = |e| StorageError::at(Step::ReadingBack, e);
+        match files.size(&self.dest).map_err(back)? {
+            None => {
+                return Err(StorageError::NotTheSame(
+                    "it was not there once it had been moved into place".to_string(),
+                ))
+            }
+            Some(size) if size != total => {
+                return Err(StorageError::NotTheSame(format!(
+                    "once moved into place it was {size} bytes, not {total}"
+                )))
+            }
+            Some(_) => {}
+        }
+        let mut input = files.open(&self.dest).map_err(back)?;
+        let mut written = blake3::Hasher::new();
+        let mut buffer = vec![0u8; COPY_BUFFER];
+        let mut read = 0u64;
+        loop {
+            match input.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(n) => {
+                    written.update(&buffer[..n]);
+                    read += n as u64;
+                }
+                Err(e) if e.kind() == ErrorKind::Interrupted => {}
+                Err(e) => return Err(back(e)),
+            }
+        }
+        if read != total || written.finalize().to_hex().as_str() != fingerprint {
+            return Err(StorageError::NotTheSame(
+                "what was written did not read back the same".to_string(),
+            ));
+        }
+        Ok(())
     }
-    Ok((total, Some(fingerprint)))
 }
 
 /// Walks the root and returns `(key, bytes)` for every file outside the work area.
@@ -942,6 +1057,9 @@ fn unique_id() -> String {
 }
 
 #[cfg(test)]
+mod dropping;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -949,6 +1067,29 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let s = FolderStore::open(dir.path().join("library")).await.unwrap();
         (dir, s)
+    }
+
+    #[tokio::test]
+    #[ignore = "run by hand: it copies 600 MB"]
+    async fn how_long_copying_200_photos_takes() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = FolderStore::open(dir.path().join("to")).await.unwrap();
+        let mut sources = Vec::new();
+        for i in 0..200u32 {
+            let p = dir.path().join(format!("src-{i}.jpg"));
+            let bytes: Vec<u8> = (0..3_000_000u32).map(|b| (b.wrapping_mul(i + 7) % 251) as u8).collect();
+            let hash = blake3::hash(&bytes).to_hex().to_string();
+            std::fs::write(&p, &bytes).unwrap();
+            sources.push((p, hash));
+        }
+        let started = std::time::Instant::now();
+        for (i, (p, hash)) in sources.iter().enumerate() {
+            let key = ObjectKey::new(format!("originals/{i}.jpg")).unwrap();
+            let opts = PutOptions { create_only: true, expect_blake3: Some(hash.clone()), ..Default::default() };
+            store.put(&key, ByteSource::File(p.clone()), &opts).await.unwrap();
+        }
+        let took = started.elapsed();
+        println!("200 photos of 3 MB: {took:?}, {:.0} MB a second", 600.0 / took.as_secs_f64());
     }
 
     #[tokio::test]

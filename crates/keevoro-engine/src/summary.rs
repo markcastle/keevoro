@@ -122,6 +122,49 @@ fn how_well_described(item: &FoundItem) -> (bool, bool, std::cmp::Reverse<usize>
 pub const ARRANGED_BY_DATE_UNASKED: &str = "Arranged by date. To keep your folders as they are instead, choose so in \
      Settings or run `keevoro arrange folders`.";
 
+/// The words that mark the closing account of a destination's originals
+/// among what a backup says ([`account_words`]).
+pub const ACCOUNT_MARK: &str = " you are keeping ";
+
+/// The closing account of one destination's originals: how many of the
+/// files being kept are safely there now, and how many still need
+/// attention and why. Every number comes from one
+/// [`keevoro_publish::Account`], which always adds up, so this sentence
+/// can never contradict the lines before it.
+pub fn account_words(place: &str, account: &keevoro_publish::Account) -> String {
+    let n = thousands;
+    let given = account.given;
+    let attention = account.attention();
+    if attention == 0 {
+        return if given == 1 {
+            format!("The 1 file{ACCOUNT_MARK}is safely at {place}.")
+        } else {
+            format!("All {} files{ACCOUNT_MARK}are safely at {place}.", n(given))
+        };
+    }
+    let mut why = Vec::new();
+    if account.failed > 0 {
+        why.push(format!("{} couldn't be sent", n(account.failed)));
+    }
+    if account.not_tried > 0 {
+        why.push(format!(
+            "{} {} not tried before the backup was stopped",
+            n(account.not_tried),
+            if account.not_tried == 1 { "was" } else { "were" }
+        ));
+    }
+    format!(
+        "{} of the {} {}{ACCOUNT_MARK}{} safely at {place}. {} still {} attention: {}.",
+        n(account.safe()),
+        n(given),
+        if given == 1 { "file" } else { "files" },
+        if account.safe() == 1 { "is" } else { "are" },
+        n(attention),
+        if attention == 1 { "needs" } else { "need" },
+        why.join(" and ")
+    )
+}
+
 /// The words that mark [`source_unplugged`] among what a backup says.
 pub const UNPLUGGED_PART_WAY: &str = " was unplugged part-way through, so ";
 
@@ -546,5 +589,56 @@ mod tests {
         assert_eq!(bytes(512), "512 bytes");
         assert_eq!(bytes(1536), "1.5 KB");
         assert_eq!(bytes(44_023_414_784), "41.0 GB");
+    }
+
+    #[test]
+    fn the_closing_account_says_every_number_once_and_they_add_up() {
+        use keevoro_publish::Account;
+        let place = "the folder Y:\\personal";
+        let all = Account {
+            given: 72_024,
+            already_there: 71_848,
+            sent: 176,
+            ..Account::default()
+        };
+        assert!(all.adds_up());
+        assert_eq!(
+            account_words(place, &all),
+            "All 72,024 files you are keeping are safely at the folder Y:\\personal."
+        );
+        let first_run = Account {
+            given: 72_024,
+            already_there: 722,
+            sent: 71_126,
+            failed: 176,
+            ..Account::default()
+        };
+        assert!(first_run.adds_up());
+        assert_eq!(
+            account_words(place, &first_run),
+            "71,848 of the 72,024 files you are keeping are safely at the folder Y:\\personal. 176 still need \
+             attention: 176 couldn't be sent."
+        );
+        let stopped = Account {
+            given: 10,
+            sent: 3,
+            failed: 1,
+            not_tried: 6,
+            ..Account::default()
+        };
+        assert_eq!(
+            account_words(place, &stopped),
+            "3 of the 10 files you are keeping are safely at the folder Y:\\personal. 7 still need attention: 1 \
+             couldn't be sent and 6 were not tried before the backup was stopped."
+        );
+        let one = Account {
+            given: 1,
+            sent: 1,
+            ..Account::default()
+        };
+        assert_eq!(
+            account_words(place, &one),
+            "The 1 file you are keeping is safely at the folder Y:\\personal."
+        );
     }
 }

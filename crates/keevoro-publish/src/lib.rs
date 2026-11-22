@@ -27,7 +27,7 @@
 use futures_util::stream::{FuturesUnordered, StreamExt};
 use keevoro_catalog::{Catalog, CatalogError};
 use keevoro_storage::{
-    ByteSource, MultipartStore, ObjectKey, ObjectStore, PartReceipt, PutOptions, StorageError, UploadId,
+    ByteSource, MultipartStore, ObjectKey, ObjectStore, PartReceipt, PutOptions, Step, StorageError, UploadId,
 };
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -142,9 +142,62 @@ pub struct PublishReport {
     pub failed: Vec<FailedUpload>,
     /// True when it was asked to stop before every file had been tried.
     pub stopped: bool,
+    /// Files not tried at all because it was asked to stop first.
+    pub not_tried: usize,
     /// The fingerprints worked out while sending, for uploads that asked:
     /// the key each went under, and its whole-file BLAKE3.
     pub learned: Vec<(String, String)>,
+}
+
+/// Where every file a pass was given ended up. The one sum a closing
+/// summary is made from, so what it says always adds up: every file given
+/// is in exactly one of these.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Account {
+    /// Every file the pass was given.
+    pub given: usize,
+    /// There before, as this backup's look found, or found there exact.
+    pub already_there: usize,
+    /// Sent now, and proved.
+    pub sent: usize,
+    /// Exact copies of a file already being backed up: not sent twice.
+    pub copies_left_out: usize,
+    /// Tried, and could not be sent.
+    pub failed: usize,
+    /// Not tried, because the pass was stopped first.
+    pub not_tried: usize,
+}
+
+impl Account {
+    /// Safely there now, one way or another.
+    pub fn safe(&self) -> usize {
+        self.already_there + self.sent + self.copies_left_out
+    }
+
+    /// Still needing something done.
+    pub fn attention(&self) -> usize {
+        self.failed + self.not_tried
+    }
+
+    /// Does every file given have exactly one place in the sum?
+    pub fn adds_up(&self) -> bool {
+        self.safe() + self.attention() == self.given
+    }
+}
+
+impl PublishReport {
+    /// Where each of the `given` files ended up.
+    pub fn account(&self, given: usize) -> Account {
+        Account {
+            given,
+            already_there: self.already_there,
+            sent: self.uploaded,
+            copies_left_out: self.copies_left_out,
+            failed: self.failed.len(),
+            not_tried: self.not_tried,
+        }
+    }
 }
 
 /// Counts for "3,412 of 9,870 safely backed up".
@@ -158,8 +211,9 @@ pub struct PublishProgress {
 }
 
 enum Outcome {
-    /// Sent now, with its fingerprint if that was asked for and found.
-    Sent(Option<String>),
+    /// Sent now: the size that arrived, and its fingerprint if that was
+    /// asked for and found.
+    Sent(u64, Option<String>),
     AlreadyThere,
     /// Fetched and found to be an exact copy of a file already given its
     /// place (whose fingerprint this is), so not sent.
@@ -212,6 +266,7 @@ pub async fn publish(
             }
             if stop_asked() {
                 report.stopped |= waiting.len() > 0;
+                report.not_tried += waiting.len();
                 waiting = [].iter();
                 break;
             }
@@ -248,9 +303,15 @@ pub async fn publish(
                 report.copies_left_out += 1;
             }
             Ok(outcome) => {
-                catalog.mark_uploaded(target, upload.key.as_str(), upload.bytes)?;
+                // The size recorded is the size that arrived, which a look
+                // compares with what it finds.
+                let arrived = match &outcome {
+                    Outcome::Sent(bytes, _) => *bytes,
+                    _ => upload.bytes,
+                };
+                catalog.mark_uploaded(target, upload.key.as_str(), arrived)?;
                 match outcome {
-                    Outcome::Sent(fingerprint) => {
+                    Outcome::Sent(_, fingerprint) => {
                         if let Some(fingerprint) = fingerprint {
                             report.learned.push((upload.key.to_string(), fingerprint));
                         }
@@ -398,7 +459,14 @@ pub fn plain_reason(e: &StorageError) -> String {
         StorageError::AlreadyExists(_) => {
             "A different file is already stored under this name, and Keevoro never replaces an original".into()
         }
-        StorageError::Io(io) => format!("Couldn't read it from its source ({io})"),
+        StorageError::At { step, source } => match step {
+            Step::ReadingTheSource => format!("Couldn't read it from its source ({source})"),
+            Step::Writing | Step::Flushing => format!("Couldn't write the copy at the backup ({source})"),
+            Step::MovingIntoPlace => format!("Couldn't give the copy its name at the backup ({source})"),
+            Step::ReadingBack => format!("Couldn't read the copy back from the backup to prove it ({source})"),
+        },
+        // Which side it was on is not known, so neither is named.
+        StorageError::Io(io) => format!("The disk or the connection reported a problem ({io})"),
         StorageError::NotTheSame(why) => format!(
             "The copy was not the same as the original, so it was not kept ({why}). It will be tried again next time"
         ),
@@ -483,7 +551,7 @@ async fn send_one(
         sent.insert(whole.clone(), key);
     }
     Ok(match outcome {
-        Outcome::Sent(_) => Outcome::Sent(upload.learn_fingerprint.then_some(whole)),
+        Outcome::Sent(bytes, _) => Outcome::Sent(bytes, upload.learn_fingerprint.then_some(whole)),
         other => other,
     })
 }
@@ -521,7 +589,9 @@ async fn send(
         },
     };
     let sent = if in_parts {
-        send_in_parts(store, catalog, target, upload, &put, opts).await
+        send_in_parts(store, catalog, target, upload, &put, opts)
+            .await
+            .map(|fingerprint| (upload.bytes, fingerprint))
     } else {
         // A store that cannot fingerprint as it writes (cloud storage, which
         // streams the file itself) has it done here first. For the sizes
@@ -540,12 +610,12 @@ async fn send(
             if !caps.counts_its_own_bytes {
                 keevoro_core::meter::sent(upload.bytes, opts.over_network);
             }
-            receipt.blake3.or(before)
+            (receipt.bytes, receipt.blake3.or(before))
         })
         .map_err(SendError::from)
     };
     match sent {
-        Ok(fingerprint) => Ok(Outcome::Sent(fingerprint.filter(|_| upload.learn_fingerprint))),
+        Ok((bytes, fingerprint)) => Ok(Outcome::Sent(bytes, fingerprint.filter(|_| upload.learn_fingerprint))),
         Err(SendError::Storage(StorageError::AlreadyExists(_))) => {
             let found = with_retries(opts, || store.head(&upload.key)).await?;
             same_or_refuse(store, upload, found.map_or(u64::MAX, |f| f.bytes))
@@ -663,7 +733,8 @@ async fn fingerprint_of(file: &std::path::Path) -> Result<String, StorageError> 
     let file = file.to_path_buf();
     tokio::task::spawn_blocking(move || {
         use std::io::Read;
-        let mut input = std::fs::File::open(&file)?;
+        let source = |e| StorageError::at(Step::ReadingTheSource, e);
+        let mut input = std::fs::File::open(&file).map_err(source)?;
         let mut hasher = blake3::Hasher::new();
         let mut buffer = vec![0u8; 1024 * 1024];
         loop {
@@ -673,7 +744,7 @@ async fn fingerprint_of(file: &std::path::Path) -> Result<String, StorageError> 
                     hasher.update(&buffer[..n]);
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
-                Err(e) => return Err(StorageError::from(e)),
+                Err(e) => return Err(source(e)),
             }
         }
         Ok(hasher.finalize().to_hex().to_string())
@@ -714,10 +785,11 @@ fn part_size(store: &dyn MultipartStore, total: u64, preferred: u64) -> u64 {
 }
 
 fn read_range(file: &Path, offset: u64, len: u64) -> Result<Vec<u8>, StorageError> {
-    let mut f = std::fs::File::open(file)?;
-    f.seek(SeekFrom::Start(offset))?;
+    let source = |e| StorageError::at(Step::ReadingTheSource, e);
+    let mut f = std::fs::File::open(file).map_err(source)?;
+    f.seek(SeekFrom::Start(offset)).map_err(source)?;
     let mut buf = vec![0u8; usize::try_from(len).map_err(|_| StorageError::InvalidParts("part too large".into()))?];
-    f.read_exact(&mut buf)?;
+    f.read_exact(&mut buf).map_err(source)?;
     Ok(buf)
 }
 

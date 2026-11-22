@@ -21,7 +21,7 @@ mod key;
 #[cfg(feature = "conformance")]
 pub mod conformance;
 
-pub use error::StorageError;
+pub use error::{Step, StorageError};
 pub use key::ObjectKey;
 
 use async_trait::async_trait;

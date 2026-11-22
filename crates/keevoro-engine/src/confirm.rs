@@ -313,12 +313,13 @@ pub fn look_with(catalog: &Catalog, target: &str, store: Result<&dyn ObjectStore
                 let key = ObjectKey::new(mark).map_err(|e| e.to_string())?;
                 marks_there &= store.head(&key).await.map_err(|e| unreachable_words(&e))?.is_some();
             }
-            Ok((listed, marks_there))
+            let mut found = compare(&sent, &listed);
+            recheck(store, &sent, &mut found).await?;
+            Ok((found, marks_there))
         })
     });
     let looked = match listed {
-        Ok((listed, marks_there)) => {
-            let found = compare(&sent, &listed);
+        Ok((found, marks_there)) => {
             catalog.set_seen(target, &found.changes)?;
             let at = now();
             Looked {
@@ -334,6 +335,72 @@ pub fn look_with(catalog: &Catalog, target: &str, store: Result<&dyn ObjectStore
     };
     catalog.set_setting(&setting(target), &serde_json::to_string(&looked)?)?;
     Ok(looked)
+}
+
+/// The most files a listing says are missing or another size that are each
+/// asked about again, one by one, before a look believes it. Beyond this,
+/// the listing is believed only if every one asked about agreed with it.
+pub const RECHECK_AT_MOST: usize = 2_000;
+
+/// A listing is not always the truth. On a network share that dropped out
+/// and came back, the owner's showed 15 files missing and 64 at another
+/// size; the backup that followed read every one of them in full and found
+/// each there and exact. So a file the listing says has gone, or is another
+/// size, is asked about again by itself (its own size, from a fresh
+/// question) before anything is written down, and what that says is what
+/// counts. Asking one fails, and the whole look is a failed look that
+/// changes no record: out of reach is never gone.
+async fn recheck(store: &dyn ObjectStore, sent: &[keevoro_catalog::Sent], found: &mut Found) -> Result<(), String> {
+    let bytes: HashMap<&str, u64> = sent.iter().map(|s| (s.key.as_str(), s.bytes)).collect();
+    let before: HashMap<&str, Seen> = sent.iter().map(|s| (s.key.as_str(), s.seen)).collect();
+    let mut asked = 0;
+    let mut contradicted = false;
+    let mut kept = Vec::with_capacity(found.changes.len());
+    let mut unasked = Vec::new();
+    for (key, said) in std::mem::take(&mut found.changes) {
+        if said == Seen::There {
+            kept.push((key, said));
+            continue;
+        }
+        if asked >= RECHECK_AT_MOST {
+            unasked.push((key, said));
+            continue;
+        }
+        asked += 1;
+        let object = ObjectKey::new(key.clone()).map_err(|e| e.to_string())?;
+        let really = match store.head(&object).await.map_err(|e| unreachable_words(&e))? {
+            None => Seen::Missing,
+            Some(info) if Some(&info.bytes) == bytes.get(key.as_str()) => Seen::There,
+            Some(_) => Seen::NotAsSent,
+        };
+        if really != said {
+            contradicted = true;
+            if key.starts_with(LOOKED_IN[0]) {
+                found.originals.take(said);
+                found.originals.add(really);
+            }
+        }
+        if before.get(key.as_str()) != Some(&really) {
+            kept.push((key, really));
+        }
+    }
+    // What was not asked about is believed only when the listing proved
+    // right every time it was asked; otherwise those records stay as they
+    // were, and the counts with them.
+    for (key, said) in unasked {
+        if contradicted {
+            if key.starts_with(LOOKED_IN[0]) {
+                found.originals.take(said);
+                found
+                    .originals
+                    .add(before.get(key.as_str()).copied().unwrap_or(Seen::There));
+            }
+        } else {
+            kept.push((key, said));
+        }
+    }
+    found.changes = kept;
+    Ok(())
 }
 
 /// A problem listing a destination, in the words a backup uses when it
@@ -438,7 +505,7 @@ pub fn as_it_stands(catalog: &Catalog, saved: &Saved, now: i64) -> Result<Option
     let name = saved.describe();
     let mut said = Vec::new();
     if looked.reached {
-        said.extend(gone_words(&name, originals, looked.emptied));
+        said.extend(gone_words(&name, originals, looked.emptied, saved.kind == "folder"));
     } else if let Some(problem) = &looked.problem {
         said.push(out_of_reach_words(&name, problem, looked.last_reached, now));
     }
@@ -466,7 +533,7 @@ pub(crate) fn capitalised(name: &str) -> String {
 /// What to say about what has gone from a destination, before anything
 /// is sent: what is missing, what is not as it was sent, and what will be
 /// done about each. Nothing when everything is there.
-pub fn gone_words(name: &str, originals: SeenCounts, emptied: bool) -> Vec<String> {
+pub fn gone_words(name: &str, originals: SeenCounts, emptied: bool, can_set_aside: bool) -> Vec<String> {
     let mut said = Vec::new();
     let place = capitalised(name);
     let (missing, sent) = (originals.missing, originals.sent());
@@ -493,24 +560,48 @@ pub fn gone_words(name: &str, originals: SeenCounts, emptied: bool) -> Vec<Strin
     }
     let other = originals.not_as_sent;
     if other > 0 {
-        let (files, it, they_were, that) = if other == 1 {
-            ("1 file", "it", "it was", "that copy is")
-        } else {
-            (
-                &*format!("{} files", summary::thousands(other)),
-                "they",
-                "they were",
-                "those copies are",
-            )
-        };
-        said.push(format!(
-            "{place} has {files} under the name Keevoro gave {it}, but not the size {they_were} backed up at, so \
-             {it} may be damaged and {} not counted as safe. Keevoro never replaces a file in a backup, so {it} \
-             can be sent again only once {that} moved or removed.",
-            if other == 1 { "is" } else { "are" }
-        ));
+        said.push(not_as_sent_words(&place, other, can_set_aside));
     }
     said
+}
+
+/// What is said of copies at a destination under the names Keevoro gave
+/// them but not at the size they were sent at. Keevoro never replaces or
+/// deletes a file in a backup, so what puts them right is said with it: in
+/// a folder, "Put this backup right" moves them aside there and sends them
+/// again; in cloud storage a move is a copy and a delete, which Keevoro
+/// never does by itself, so the person is told what they can do.
+pub fn not_as_sent_words(place: &str, files: usize, can_set_aside: bool) -> String {
+    let one = files == 1;
+    let (count, names, them, sizes, they_were, they_are) = if one {
+        ("1 file".to_string(), "the name", "it", "the size", "it was", "it is")
+    } else {
+        (
+            format!("{} files", summary::thousands(files)),
+            "the names",
+            "them",
+            "the sizes",
+            "they were",
+            "they are",
+        )
+    };
+    let (those, copies) = if one { ("that", "copy") } else { ("those", "copies") };
+    let what_next = if can_set_aside {
+        format!(
+            "Keevoro never replaces a file in a backup: \"Put this backup right\" moves {those} {copies} aside \
+             there, into a folder of their own, then sends {them} again and proves {}.",
+            if one { "it" } else { "each one" }
+        )
+    } else {
+        format!(
+            "Keevoro never replaces or deletes a file in a backup. To put {them} right, delete {those} {copies} in \
+             your storage's own website and back up again."
+        )
+    };
+    format!(
+        "{place} has {count} under {names} Keevoro gave {them}, but not {sizes} {they_were} backed up at, so \
+         {they_are} not counted as safe. {what_next}"
+    )
 }
 
 /// What to say about a destination Keevoro could not look at: why, in the

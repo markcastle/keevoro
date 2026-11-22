@@ -333,10 +333,14 @@ fn originals_first(
     )?;
     if !keep_going() {
         files_sent(out, &files)?;
+        for line in said(&files).lines().filter(|l| l.contains(summary::ACCOUNT_MARK)) {
+            writeln!(out, "{line}")?;
+        }
         return stopped(out).map(|_| failed + not_told_apart);
     }
 
-    // Anything that could not be sent is said once, with its reason.
+    // Anything that could not be sent is said once, with its reason, and
+    // then where every file stands.
     let files_failed = |out: &mut dyn Write| -> Result<()> {
         for line in said(&files).lines() {
             if line.starts_with("Couldn't back up")
@@ -344,6 +348,11 @@ fn originals_first(
                 || line.starts_with("Back up again")
                 || line.contains(summary::UNPLUGGED_PART_WAY)
             {
+                writeln!(out, "{line}")?;
+            }
+        }
+        for line in said(&files).lines() {
+            if line.contains(summary::ACCOUNT_MARK) {
                 writeln!(out, "{line}")?;
             }
         }
@@ -1124,6 +1133,13 @@ fn run_until(
             writeln!(out, "  {}: {}.", f.key, f.reason)?;
         }
         writeln!(out, "Back up again to try them once more.")?;
+    }
+    // The originals close with one account of where every file being kept
+    // stands, from the same report the lines above came from.
+    if pass.sending == Kind::SendingOriginals {
+        let account = report.account(uploads.len());
+        debug_assert!(account.adds_up(), "{account:?}");
+        writeln!(out, "{}", summary::account_words(pass.to, &account))?;
     }
     writeln!(
         out,
