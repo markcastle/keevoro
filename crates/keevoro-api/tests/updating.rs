@@ -57,11 +57,37 @@ impl Places {
         ] {
             let plain = path.display().to_string();
             let json = serde_json::to_string(&plain).unwrap();
+            text = joined_as_here(&text, &format!("{{json:{name}}}"), true);
+            text = joined_as_here(&text, &format!("{{{name}}}"), false);
             text = text.replace(&format!("{{json:{name}}}"), &json[1..json.len() - 1]);
             text = text.replace(&format!("{{{name}}}"), &plain);
         }
         text
     }
+}
+
+/// The fixture joins names onto a place with a forward slash
+/// (`{CARD}/DCIM/a.jpg`). Windows takes that in an ordinary path but not in
+/// the long form a real path has there (`\\?\C:\...`), so on Windows what
+/// follows a place, up to the closing quote, is spelled with its own
+/// separator. Elsewhere the text is left as it is.
+fn joined_as_here(text: &str, place: &str, in_json: bool) -> String {
+    if !cfg!(windows) {
+        return text.to_string();
+    }
+    let separator = if in_json { "\\\\" } else { "\\" };
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find(place) {
+        let after = at + place.len();
+        out.push_str(&rest[..after]);
+        let tail = &rest[after..];
+        let end = tail.find(['\'', '"', '\n']).unwrap_or(tail.len());
+        out.push_str(&tail[..end].replace('/', separator));
+        rest = &tail[end..];
+    }
+    out.push_str(rest);
+    out
 }
 
 fn fixture(name: &str) -> String {
@@ -78,12 +104,15 @@ fn as_0_37_1_left_it(dir: &Path) -> (Keevoro, Places) {
     // reached by another spelling (`/var/...` for `/private/var/...` on a
     // Mac, a short `RUNNER~1` name on Windows), and a source kept under
     // that one would be taken by the next look for a different place.
-    let dir = std::fs::canonicalize(dir).unwrap();
-    let dir = dir.as_path();
+    //
+    // Keevoro's own folders stay spelled as given: the fixture joins names
+    // onto them with a forward slash, which the long form a real path takes
+    // on Windows (`\\?\C:\...`) does not allow.
+    let real = std::fs::canonicalize(dir).unwrap();
     let places = Places {
-        card: dir.join("Card"),
-        beach: dir.join("Beach"),
-        usb: dir.join("USB"),
+        card: real.join("Card"),
+        beach: real.join("Beach"),
+        usb: real.join("USB"),
         folders: Folders::under(&dir.join("home")),
     };
     std::fs::create_dir_all(&places.folders.config).unwrap();
@@ -174,7 +203,9 @@ fn everything_a_person_set_and_keevoro_recorded_in_0_37_1_is_there_after_updatin
     );
     let left_out = sources[0]["leftOut"][0].as_str().unwrap_or_default();
     assert!(
-        left_out.starts_with(&places.card.display().to_string()) && left_out.ends_with("Old"),
+        // Keevoro shows a place without the `\\?\` Windows puts before a real path.
+        left_out.starts_with(places.card.display().to_string().trim_start_matches(r"\\?\"))
+            && left_out.ends_with("Old"),
         "{sources}"
     );
     assert_eq!(sources[0]["onlineOnly"], 3);

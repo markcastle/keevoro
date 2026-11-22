@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.49.0] - 2026-11-22
+
 ### Added
 
 - **Help, a place of its own beside Settings.** The foot of the side band now opens Help, built just like Settings: its own list down the side, a search, and pages with a way back. It holds **How do I…**, short plain answers each with a button that takes you straight there (add another source, back up to a second place, make it back up by itself, back up a card when it is plugged in, check a backup is all there, bring Keevoro back when its window is closed, leave a folder out, change which kinds of file are backed up, and, honestly, what moving to a new computer means today); **Report a problem or suggest an idea**, with your reports; **Compare cloud storage providers**, which opens the same comparison by Stratus, set to the size of your backup; **What Keevoro has been doing**, the log; and **About Keevoro**, with the version and Check for updates, what Keevoro promises, what leaves this computer, the thanks, and the open source licences. The search in either place finds what is in both, and says which place each is in, such as "Help, About Keevoro".
@@ -809,7 +813,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.48.0...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.49.0...HEAD
+[0.49.0]: https://github.com/markcastle/keevoro/compare/v0.48.0...v0.49.0
 [0.48.0]: https://github.com/markcastle/keevoro/compare/v0.47.0...v0.48.0
 [0.47.0]: https://github.com/markcastle/keevoro/compare/v0.46.1...v0.47.0
 [0.46.1]: https://github.com/markcastle/keevoro/compare/v0.46.0...v0.46.1
