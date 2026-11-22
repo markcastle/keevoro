@@ -125,7 +125,7 @@ pub(crate) mod tests {
             outcome: Some(Outcome::Worked),
             held_back: vec!["4 new pictures were set aside.".into()],
             not_now: Some("Waiting while this computer is on battery".into()),
-            missed: 176,
+            missed: 132,
             check_advised: true,
         };
         assert_eq!(keys(&send), fields_of("SendEvent"));

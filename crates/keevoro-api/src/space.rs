@@ -31,7 +31,7 @@ use std::path::Path;
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MapRequest {
-    /// The place to map, written whole, such as `C:\Users\Mark\Pictures`:
+    /// The place to map, written whole, such as `C:\Users\You\Pictures`:
     /// where the trail back starts. It, or a folder it is in, must have
     /// been surveyed.
     pub place: String,
@@ -743,7 +743,7 @@ mod tests {
     use serde_json::{json, Value};
     use std::path::PathBuf;
 
-    /// The owner's own case: a Pictures folder with Camera Roll, Captures
+    /// A typical case: a Pictures folder with Camera Roll, Captures
     /// (screen recordings), Texture packs (zip files), an old library and
     /// Screenshots, beside Documents.
     fn pictures(dir: &Path) -> PathBuf {

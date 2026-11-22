@@ -470,7 +470,7 @@ mod tests {
         assert_eq!(online_only(0, None, std::path::Path::new("/x")), None);
         // The service is the folder's own when its name says, else this
         // computer's.
-        let dropbox = online_only(2, None, std::path::Path::new("/Users/mark/Dropbox/Camera Uploads")).unwrap();
+        let dropbox = online_only(2, None, std::path::Path::new("/Users/you/Dropbox/Camera Uploads")).unwrap();
         assert!(dropbox.contains("in Dropbox only"), "{dropbox}");
         let plain = online_only(2, None, std::path::Path::new("/media/card")).unwrap();
         assert!(plain.contains(keevoro_scan::online::SERVICE), "{plain}");
@@ -689,30 +689,30 @@ mod tests {
     #[test]
     fn the_closing_account_says_every_number_once_and_they_add_up() {
         use keevoro_publish::Account;
-        let place = "the folder Y:\\personal";
+        let place = "the folder Z:\\Photos";
         let all = Account {
-            given: 72_024,
-            already_there: 71_848,
-            sent: 176,
+            given: 48_210,
+            already_there: 48_078,
+            sent: 132,
             ..Account::default()
         };
         assert!(all.adds_up());
         assert_eq!(
             account_words(place, &all),
-            "All 72,024 files you are keeping are safely at the folder Y:\\personal."
+            "All 48,210 files you are keeping are safely at the folder Z:\\Photos."
         );
         let first_run = Account {
-            given: 72_024,
+            given: 48_210,
             already_there: 722,
-            sent: 71_126,
-            failed: 176,
+            sent: 47_356,
+            failed: 132,
             ..Account::default()
         };
         assert!(first_run.adds_up());
         assert_eq!(
             account_words(place, &first_run),
-            "71,848 of the 72,024 files you are keeping are safely at the folder Y:\\personal. 176 still need \
-             attention: 176 couldn't be sent."
+            "48,078 of the 48,210 files you are keeping are safely at the folder Z:\\Photos. 132 still need \
+             attention: 132 couldn't be sent."
         );
         let stopped = Account {
             given: 10,
@@ -723,7 +723,7 @@ mod tests {
         };
         assert_eq!(
             account_words(place, &stopped),
-            "3 of the 10 files you are keeping are safely at the folder Y:\\personal. 7 still need attention: 1 \
+            "3 of the 10 files you are keeping are safely at the folder Z:\\Photos. 7 still need attention: 1 \
              couldn't be sent and 6 were not tried before the backup was stopped."
         );
         let one = Account {
@@ -733,7 +733,7 @@ mod tests {
         };
         assert_eq!(
             account_words(place, &one),
-            "The 1 file you are keeping is safely at the folder Y:\\personal."
+            "The 1 file you are keeping is safely at the folder Z:\\Photos."
         );
     }
 }

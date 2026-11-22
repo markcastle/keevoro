@@ -276,7 +276,7 @@ mod tests {
 
         assert!(is_bucket_path(Path::new("s3://family-photos/Photos/a.jpg")));
         assert!(is_bucket_path(Path::new("endpoint://b/a.jpg")));
-        assert!(!is_bucket_path(Path::new("/home/mark/s3://x")));
+        assert!(!is_bucket_path(Path::new("/home/you/s3://x")));
         assert!(!is_bucket_path(Path::new("C:\\Photos\\a.jpg")));
         // Its files' paths work like any other's.
         let file = Path::new("s3://family-photos/Photos/2019/Spain/IMG_1.jpg");

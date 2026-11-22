@@ -409,7 +409,7 @@ mod tests {
 
         // Anything that changes something is refused, saying how to allow it.
         for (op, request) in [
-            (Op::BackupsStart, json!({ "name": "Drone" })),
+            (Op::BackupsStart, json!({ "name": "Beach" })),
             (
                 Op::CollectionsKeep,
                 json!({ "collection": "Holidays / Cornwall", "keep": false }),
@@ -659,7 +659,7 @@ mod tests {
     fn the_real_path_passed_on_is_written_as_a_person_would_write_it() {
         let request = json!({ "place": "anything" });
         for (real, shown) in [
-            (r"\\?\C:\Users\Mark\Pictures", r"C:\Users\Mark\Pictures"),
+            (r"\\?\C:\Users\You\Pictures", r"C:\Users\You\Pictures"),
             (r"\\?\UNC\nas\photos\2004", r"\\nas\photos\2004"),
             ("/Volumes/Photos/2004", "/Volumes/Photos/2004"),
         ] {

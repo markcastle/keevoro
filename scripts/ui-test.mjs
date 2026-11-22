@@ -498,7 +498,7 @@ try {
   const runs = page.locator('.sends > .sends-scroll > table > tbody > tr')
   assert.deepEqual(await page.locator('.sends > .sends-scroll > table > thead th').allInnerTexts(), ['When', 'Where', 'Backed up', 'Took', 'Average speed', 'Details'])
   assert.equal(await runs.count(), 3, 'this backup and the two before')
-  assert.match(await runs.nth(1).innerText(), /folder \\\\NAS\\Photos\s+720\.6 GB\s+about 22 hours 50 minutes\s+9\.0 MB\/s/)
+  assert.match(await runs.nth(1).innerText(), /folder \\\\NAS\\Photos\s+316\.2 GB\s+about 9 hours 40 minutes\s+9\.3 MB\/s/)
   assert.match(await runs.nth(2).innerText(), /folder F:\\Family Backup\s+30\.1 GB\s+about 41 minutes\s+12\.5 MB\/s/)
   // A row opens in place to everything recorded about that backup.
   const details = runs.nth(1).locator('button[aria-controls]')
@@ -509,16 +509,16 @@ try {
   assert.equal(await details.getAttribute('aria-expanded'), 'true', 'opened from the keyboard')
   assert.match(await details.getAttribute('aria-label'), /^Hide everything/)
   const panel = page.locator('.run-detail')
-  assert.match(await panel.innerText(), /720\.6 GB to the folder \\\\NAS\\Photos in about 22 hours 50 minutes, at an average of 9\.0 MB a second\./)
+  assert.match(await panel.innerText(), /316\.2 GB to the folder \\\\NAS\\Photos in about 9 hours 40 minutes, at an average of 9\.3 MB a second\./)
   assert.match(await panel.innerText(), /from the app, with Keevoro 0\.32\.0\. It finished\. It was paused for about 10 minutes/)
-  assert.match(await panel.locator('table.stages').innerText(), /Backing up your files\s+Went wrong: Couldn’t back up 2 files\s+about 21 hours\s+716\.8 GB\s+9\.7 MB a second\s+slowest 3\.2 MB a second, fastest 14\.6 MB a second/)
+  assert.match(await panel.locator('table.stages').innerText(), /Backing up your files\s+Went wrong: Couldn’t back up 2 files\s+about 9 hours\s+312\.4 GB\s+9\.9 MB a second\s+slowest 3\.2 MB a second, fastest 14\.6 MB a second/)
   // A stage that went wrong says so in words beside its mark, not by colour alone.
   assert.equal(await panel.locator('table.stages .went-wrong').count(), 1)
-  assert.match(await panel.innerText(), /11,243 files sent \(716\.8 GB\), 2 could not be sent\./)
-  assert.match(await panel.innerText(), /1,406 duplicates left out, saving 38\.2 GB\./)
-  assert.match(await panel.innerText(), /21,792 preview files sent \(3\.8 GB\)/)
-  assert.match(await panel.innerText(), /NAS\\Photos, across a network: 720\.6 GB/)
-  assert.match(await panel.innerText(), /What it said at the end\s+Safely backed up 11,243 files/)
+  assert.match(await panel.innerText(), /8,628 files sent \(312\.4 GB\), 2 could not be sent\./)
+  assert.match(await panel.innerText(), /1,118 duplicates left out, saving 27\.5 GB\./)
+  assert.match(await panel.innerText(), /16,820 preview files sent \(3\.8 GB\)/)
+  assert.match(await panel.innerText(), /NAS\\Photos, across a network: 316\.2 GB/)
+  assert.match(await panel.innerText(), /What it said at the end\s+Safely backed up 8,628 files/)
   await panel.scrollIntoViewIfNeeded()
   await shot('9v-a-backup-in-full')
   // An older one says only what was kept, and why.
@@ -589,11 +589,11 @@ try {
   assert.match(await text('.backup .current'), /Family photos/)
   await page.getByRole('button', { name: 'Backup', exact: true }).click()
   await page.getByRole('button', { name: 'Start a new backup…' }).click()
-  await page.getByLabel('Name for the new backup').fill('Drone footage')
+  await page.getByLabel('Name for the new backup').fill('Holiday videos')
   await shot('9a-new-backup')
   await page.getByRole('button', { name: 'Start', exact: true }).click()
   await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
-  assert.match(await text('.backup .current'), /Drone footage/)
+  assert.match(await text('.backup .current'), /Holiday videos/)
   assert.equal(await page.locator('.kept li.source').count(), 0, 'a new backup starts with no sources')
   assert.ok(await page.locator('.steps button').nth(1).isDisabled(), 'and nothing chosen')
   await page.getByRole('button', { name: 'Backup', exact: true }).click()
@@ -644,7 +644,7 @@ try {
   assert.match(await text('.asking'), /Keevoro can find the folders that hold them first\. That takes seconds/)
   await page.getByRole('button', { name: 'Find the folders with photos' }).click()
   await page.getByRole('heading', { name: '4 folders on Windows (C:) seem to hold photos and videos' }).waitFor()
-  assert.match(await text('.survey'), /Looked at 481,907 files in 36,412 folders in 6\.2 seconds, without opening any of them/)
+  assert.match(await text('.survey'), /Looked at 352,640 files in 28,915 folders in 5\.4 seconds, without opening any of them/)
   const ticks = page.locator('.survey .hints input')
   assert.deepEqual(
     await ticks.evaluateAll((boxes) => boxes.map((b) => b.checked)),
@@ -661,7 +661,7 @@ try {
   assert.equal(await leftOut.locator('summary').innerText(), 'Left out a folder Keevoro made, as it is not a source')
   assert.equal(await leftOut.getByRole('button', { name: 'Show me the folder' }).isVisible(), false, 'folded away')
   await leftOut.locator('summary').click()
-  assert.match(await leftOut.innerText(), /a folder an older version of Keevoro made, which it no longer uses\. It takes 9\.2 GB: 8\.4 GB of copies of your photos/)
+  assert.match(await leftOut.innerText(), /a folder an older version of Keevoro made, which it no longer uses\. It takes 9\.4 GB: 8\.6 GB of copies of your photos/)
   assert.match(await leftOut.innerText(), /never removes it/)
   await leftOut.getByRole('button', { name: 'Show me the folder' }).click()
   await leftOut.scrollIntoViewIfNeeded()
@@ -891,12 +891,12 @@ try {
   await settingsSection('Advanced')
   await page.getByRole('button', { name: 'Choose a folder…' }).click()
   const oldFolder = page.getByRole('group', { name: 'Unfinished copies in G:\\Old Keevoro backup' })
-  assert.match(await oldFolder.innerText(), /^There are 15\.2 GB of unfinished copies \(583 files\) in G:\\Old Keevoro backup, left by a backup that was stopped part-way\. Clearing them touches nothing that was backed up\./)
+  assert.match(await oldFolder.innerText(), /^There are 5\.5 GB of unfinished copies \(211 files\) in G:\\Old Keevoro backup, left by a backup that was stopped part-way\. Clearing them touches nothing that was backed up\./)
   await oldFolder.scrollIntoViewIfNeeded()
   await shot('9z-settings-clear-unfinished')
   await fitsNarrow('Clearing unfinished copies, in Settings')
   await oldFolder.getByRole('button', { name: 'Clear them' }).click()
-  await oldFolder.getByText(/^Cleared 15\.2 GB of unfinished copies \(583 files\) from G:\\Old Keevoro backup\./).waitFor()
+  await oldFolder.getByText(/^Cleared 5\.5 GB of unfinished copies \(211 files\) from G:\\Old Keevoro backup\./).waitFor()
   assert.match(await oldFolder.innerText(), /Left 1 thing written to in the last hour, as a backup may be using it right now\. Try again later\./)
   await oldFolder.getByRole('button', { name: 'Done' }).click()
   await page.getByRole('button', { name: 'Choose a folder…' }).click()
@@ -1039,12 +1039,12 @@ try {
   await page.getByRole('button', { name: 'See where the space goes' }).click()
   await page.getByRole('heading', { name: 'Where the space goes on Windows (C:)', level: 1 }).waitFor()
   await page.locator('.space-list').getByRole('button', { name: 'Users', exact: true }).click()
-  await page.locator('.space-list').getByRole('button', { name: 'Mark', exact: true }).click()
-  await page.getByRole('grid', { name: 'What is in Mark, the biggest first' }).waitFor()
+  await page.locator('.space-list').getByRole('button', { name: 'You', exact: true }).click()
+  await page.getByRole('grid', { name: 'What is in You, the biggest first' }).waitFor()
   await page.getByRole('list', { name: 'Key' }).getByText('Other files to carry along').waitFor()
   assert.match(await text('.space .status'), /other files to carry along [\d.]+ GB/)
   await page.getByRole('tab', { name: 'By kind of file' }).click()
-  const kindsHere = page.getByRole('table', { name: 'What is in Mark, by kind of file' })
+  const kindsHere = page.getByRole('table', { name: 'What is in You, by kind of file' })
   assert.deepEqual(await kindsHere.locator('tr.kind-group button[aria-pressed]').allInnerTexts(), ['Photos', 'Videos', 'Other files to carry along', 'Everything else'])
   await page.getByRole('tab', { name: 'By folder' }).click()
   await shot('9w4-space-map-other-files')
@@ -1440,7 +1440,7 @@ try {
   assert.deepEqual(
     (await page.locator('.speed .stages li').allInnerTexts()).map((t) => t.replace(/^(Done|Now|Then):\s*/, '')),
     [
-      'Working out where each file goes: 2,500 of 11,245',
+      'Working out where each file goes: 2,500 of 8,630',
       'Backing up your files: 30.1 GB',
       'Making previews: 10,547',
       'Backing up the previews: 4.0 GB',
@@ -1451,13 +1451,13 @@ try {
   assert.equal(await page.getByText(/^Stopped\./).count(), 0, 'no stale "Stopped" while it runs')
   // The screen says what step the backup is on straight away, in its own
   // words, and the activity page says the same.
-  await page.locator('.send .running').getByText('Working out where each file goes: 2,500 of 11,245').waitFor()
+  await page.locator('.send .running').getByText('Working out where each file goes: 2,500 of 8,630').waitFor()
   assert.equal(await page.locator('.send .done').count(), 0, 'nothing an earlier backup said is left showing')
   // There is always a bar while a backup runs, whatever step it is on.
   await page.locator('.send .speed progress').first().waitFor()
   await shot('9m-came-back-to-a-running-backup')
   await page.getByRole('button', { name: /^What Keevoro is doing/ }).click()
-  await page.getByText(/^Right now: Working out where each file goes: 2,500 of 11,245$/).waitFor()
+  await page.getByText(/^Right now: Working out where each file goes: 2,500 of 8,630$/).waitFor()
   await page.getByRole('button', { name: '‹ Back' }).click()
   // Coming back again, it is still running, still counting from when it
   // began, and still nothing stale is shown.
@@ -1666,7 +1666,7 @@ try {
   await page.getByRole('button', { name: 'Find the folders with photos' }).click()
   await page.getByRole('heading', { name: '4 folders on Windows (C:) seem to hold photos and videos' }).waitFor()
   await page.locator('.survey .hints input').nth(2).uncheck()
-  await page.getByRole('button', { name: 'Look inside C:\\Users\\Mark\\Pictures' }).click()
+  await page.getByRole('button', { name: 'Look inside C:\\Users\\You\\Pictures' }).click()
   await page.getByRole('heading', { name: 'Inside Pictures', level: 1 }).waitFor()
   assert.match(await text('.inside .status'), /^1,630 photos and 82 videos, [\d.]+ GB\. Nothing here is added or changed until you choose\.$/)
   assert.match(await text('.inside header .online-only'), /^32 files are in OneDrive only, not on this computer, so Keevoro does not open them/)
@@ -1712,7 +1712,7 @@ try {
   await page.goto(`${base}/?demo=empty&fast`)
   await page.getByRole('button', { name: /Windows \(C:\)/ }).click()
   await page.getByRole('button', { name: 'Find the folders with photos' }).click()
-  await page.getByRole('button', { name: 'Look inside C:\\Users\\Mark\\Pictures' }).click()
+  await page.getByRole('button', { name: 'Look inside C:\\Users\\You\\Pictures' }).click()
   await page.getByRole('heading', { name: 'Inside Pictures', level: 1 }).waitFor()
   await page.waitForFunction(() => document.querySelectorAll('.inside .tile img').length >= 12)
   await shot('9q4-look-inside')
@@ -1738,11 +1738,11 @@ try {
   await fitsNarrow('Looking inside, videos only')
   await page.getByRole('button', { name: '‹ Back' }).click()
   // And from inside, one button looks through it properly.
-  await page.getByRole('button', { name: 'Look inside C:\\Users\\Mark\\Pictures' }).click()
+  await page.getByRole('button', { name: 'Look inside C:\\Users\\You\\Pictures' }).click()
   await page.getByRole('heading', { name: 'Inside Pictures', level: 1 }).waitFor()
   await page.locator('.inside header').getByRole('button', { name: 'Look through this folder' }).click()
   await page.locator('.kept li.source').first().waitFor()
-  assert.match(await text('.kept li.source .what .folder'), /^C:\\Users\\Mark\\Pictures$/)
+  assert.match(await text('.kept li.source .what .folder'), /^C:\\Users\\You\\Pictures$/)
 
   // --- Any folder can be looked inside: a source, surveyed first when
   // Keevoro has not seen inside it, and one picked from the first step.
@@ -1792,7 +1792,7 @@ try {
   await fitsNarrow('The survey with a folder left out')
   await page.getByRole('button', { name: 'Put back assets' }).click()
   await page.getByRole('button', { name: 'Leave out assets' }).waitFor()
-  await page.getByRole('button', { name: 'Look inside C:\\Users\\Mark\\Pictures' }).click()
+  await page.getByRole('button', { name: 'Look inside C:\\Users\\You\\Pictures' }).click()
   await page.getByRole('heading', { name: 'Inside Pictures', level: 1 }).waitFor()
   await page.getByRole('button', { name: 'Leave out Captures' }).click()
   await page.getByRole('button', { name: 'Put back Captures' }).waitFor()
@@ -1826,12 +1826,12 @@ try {
   assert.match(await windowsRow.getAttribute('class'), /muted/, 'not photos or videos, so muted')
   await page.locator('.space-list').getByRole('button', { name: 'Users', exact: true }).click()
   await page.getByRole('navigation', { name: 'Where you are' }).getByText('Users').waitFor()
-  await page.locator('.space-list').getByRole('button', { name: 'Mark', exact: true }).click()
+  await page.locator('.space-list').getByRole('button', { name: 'You', exact: true }).click()
   await page.locator('.space-list').getByRole('button', { name: 'Pictures', exact: true }).click()
   await page.getByRole('grid', { name: 'What is in Pictures, the biggest first' }).waitFor()
   assert.deepEqual(
     await page.getByRole('navigation', { name: 'Where you are' }).locator('li').allInnerTexts(),
-    ['Windows (C:)', 'Users', 'Mark', 'Pictures'],
+    ['Windows (C:)', 'Users', 'You', 'Pictures'],
     'the trail back up',
   )
   assert.deepEqual((await spaceRows()).slice(0, 4), ['Texture packs', 'Keevoro Library', 'Captures', 'Camera Roll'])
@@ -1854,13 +1854,13 @@ try {
   await page.locator('.map-tip:not([hidden])').waitFor()
   assert.match(await text('.map-tip'), /^Texture packs: 17\.7 GB, 160 other files$/)
   await page.locator('.space-list tr.lit', { hasText: 'Texture packs' }).waitFor()
-  assert.equal(await map.getAttribute('data-pointed'), 'C:\\Users\\Mark\\Pictures\\Texture packs')
+  assert.equal(await map.getAttribute('data-pointed'), 'C:\\Users\\You\\Pictures\\Texture packs')
   await page.locator('.space-list tbody tr', { hasText: 'Captures' }).hover()
-  await page.waitForFunction(() => document.querySelector('.map-canvas')?.dataset.lit === 'C:\\Users\\Mark\\Pictures\\Captures')
+  await page.waitForFunction(() => document.querySelector('.map-canvas')?.dataset.lit === 'C:\\Users\\You\\Pictures\\Captures')
   await page.locator('.space-list tbody tr', { hasText: 'Screenshots' }).click()
-  assert.equal(await map.getAttribute('data-selected'), 'C:\\Users\\Mark\\Pictures\\Screenshots', 'the row chosen lights its box')
+  assert.equal(await map.getAttribute('data-selected'), 'C:\\Users\\You\\Pictures\\Screenshots', 'the row chosen lights its box')
   await page.mouse.click(...(await mapCorner()))
-  assert.equal(await map.getAttribute('data-selected'), 'C:\\Users\\Mark\\Pictures\\Texture packs', 'a box chosen on the map')
+  assert.equal(await map.getAttribute('data-selected'), 'C:\\Users\\You\\Pictures\\Texture packs', 'a box chosen on the map')
   assert.equal(await page.locator('.space-list tr[aria-selected="true"] .name > :first-child').innerText(), 'Texture packs', 'is chosen in the list')
   await page.locator('.space .chosen').getByRole('button', { name: 'Leave out Texture packs' }).waitFor()
   // Drawing every box of the map is quick: said, and held to a ceiling.
@@ -1943,7 +1943,7 @@ try {
   await page.locator('.space-list tbody tr').first().focus()
   await page.keyboard.press('ArrowDown')
   await page.keyboard.press('ArrowDown')
-  assert.equal(await page.evaluate(() => document.activeElement?.dataset.key), 'C:\\Users\\Mark\\Pictures\\Captures')
+  assert.equal(await page.evaluate(() => document.activeElement?.dataset.key), 'C:\\Users\\You\\Pictures\\Captures')
   await page.keyboard.press('Enter')
   await page.getByRole('grid', { name: 'What is in Captures, the biggest first' }).waitFor()
   assert.equal(await page.getByLabel('Where you are').locator('[aria-current="page"]').innerText(), 'Captures')

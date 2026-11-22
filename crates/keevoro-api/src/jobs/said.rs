@@ -217,7 +217,7 @@ pub struct SendEvent {
     #[serde(rename = "notNow", default, skip_serializing_if = "Option::is_none")]
     pub not_now: Option<String>,
     /// On the last event of a backup: how many files it could not back up,
-    /// so the next press can say what it will do ("Back up the 176 files
+    /// so the next press can say what it will do ("Back up the 132 files
     /// that were missed").
     #[serde(default, skip_serializing_if = "is_zero")]
     pub missed: usize,

@@ -215,7 +215,7 @@ pub fn drive_name(path: &std::path::Path) -> Option<String> {
 }
 
 /// Drive letters that lead to another computer: a mapped network drive,
-/// such as `Y:` for a share on a server. The system's list of disks leaves
+/// such as `Z:` for a share on a server. The system's list of disks leaves
 /// these out, because they are not disks of this computer, but to the
 /// person they are a drive like any other and belong on the same screen.
 ///
@@ -463,7 +463,7 @@ mod tests {
             (mac.name.as_str(), mac.detail.as_str()),
             ("Family Backup", "USB or external drive · 2 TB")
         );
-        let linux = describe("/media/mark/SDCARD", "/dev/sdb1", 16 * GB, true).unwrap();
+        let linux = describe("/media/you/SDCARD", "/dev/sdb1", 16 * GB, true).unwrap();
         assert_eq!(linux.name, "SDCARD", "a device path is not a name");
         assert_eq!(describe("/", "", 250 * GB, false).unwrap().name, "This computer");
     }
@@ -481,14 +481,14 @@ mod tests {
 
     #[test]
     fn a_mapped_network_drive_is_offered_like_any_other_drive() {
-        let offered = across_a_network(&[('Z', false), ('Y', true), ('C', false), ('N', true)]);
+        let offered = across_a_network(&[('Y', false), ('Z', true), ('C', false), ('N', true)]);
         let names: Vec<&str> = offered.iter().map(|p| p.name.as_str()).collect();
         assert_eq!(
             names,
-            ["Network drive (N:)", "Network drive (Y:)"],
+            ["Network drive (N:)", "Network drive (Z:)"],
             "in order, and only those that answered"
         );
-        assert_eq!(offered[1].path, "Y:\\");
+        assert_eq!(offered[1].path, "Z:\\");
         assert_eq!(offered[1].detail, "On another computer or server");
         assert!(
             !offered[1].removable && offered[1].ask_first,
@@ -512,11 +512,11 @@ mod tests {
         assert_eq!(letters.len(), 26);
         drives.asking(&letters, start);
         for letter in letters.iter().copied().filter(|l| *l != 'Q') {
-            drives.heard(letter, letter == 'Y');
+            drives.heard(letter, letter == 'Z');
         }
         // Q's server is switched off: it has not answered.
         let names: Vec<String> = drives.offered().into_iter().map(|p| p.name).collect();
-        assert_eq!(names, ["Network drive (Y:)"]);
+        assert_eq!(names, ["Network drive (Z:)"]);
 
         // Shown again soon after, nothing is asked: the answers are kept.
         assert!(!drives.needs_asking(start + Duration::from_secs(5)));
@@ -529,7 +529,7 @@ mod tests {
         assert_eq!(again.len(), 25);
         assert!(!again.contains(&'Q'), "no second thread waits on the same server");
         drives.asking(&again, later);
-        drives.heard('Y', false);
+        drives.heard('Z', false);
         drives.heard('Q', true);
         let names: Vec<String> = drives.offered().into_iter().map(|p| p.name).collect();
         assert_eq!(
@@ -545,14 +545,14 @@ mod tests {
 
     #[test]
     fn a_drive_plugged_in_or_taken_out_is_noticed_and_nothing_else_is() {
-        let known = vec!["/".to_string(), "/media/mark/KINGSTON".to_string()];
+        let known = vec!["/".to_string(), "/media/you/KINGSTON".to_string()];
         assert_eq!(changed(&known, &known), None, "nothing changed, nothing more is asked");
-        let now = vec!["/".to_string(), "/media/mark/SANDISK".to_string()];
+        let now = vec!["/".to_string(), "/media/you/SANDISK".to_string()];
         assert_eq!(
             changed(&known, &now),
             Some(Change {
-                arrived: vec!["/media/mark/SANDISK".to_string()],
-                left: vec!["/media/mark/KINGSTON".to_string()],
+                arrived: vec!["/media/you/SANDISK".to_string()],
+                left: vec!["/media/you/KINGSTON".to_string()],
             })
         );
         // A card pushed into a reader already plugged in is a volume

@@ -14,6 +14,13 @@ Keevoro rescues family photos and videos from old drives for people who are not 
 4. **Nothing leaves the machine** except to storage the user connected, a report the person writes and chooses to send, after seeing exactly what it holds, and a comparison page the person chooses to open (Stratus), told only a size and a currency. No telemetry, no third-party APIs for image analysis.
 5. **No `unsafe`.** It is forbidden at the workspace level.
 6. **No `unwrap` or `expect` outside tests.** Return errors. Problems with one file never stop a whole scan; they go in the report.
+7. **Examples are always made up.** This repository is public. Never put real paths, drive letters, share or server names, user names, file names, counts or sizes from anyone's computer or backups (the owner's, a tester's or your own) into code, comments, tests, fixtures, demo data, docs, commit messages or the changelog, even when a real case is what prompted the change. Say "a backup to a network share" and invent the figures. Use the same made-up set everywhere:
+   - Home folder: `C:\Users\You` (`/Users/you` on a Mac, `/home/you` on Linux).
+   - Destinations: `D:\Backups` for a drive, `F:\Family Backup` for a USB drive, `Z:\Photos` for a mapped network share, `\\NAS\Photos` for one written in full.
+   - Backups and sources: "Family photos", "Holiday videos", "Mum's card".
+   - Files: `IMG_0048.jpg` and its neighbours.
+   - Figures: 48,210 files and 312.4 GB for a big backup, with 132 that could not be sent (48,078 safely there). Where numbers are added or taken away, make them add up.
+   - People: none. Email addresses only at `example.com`.
 
 ## How to work
 

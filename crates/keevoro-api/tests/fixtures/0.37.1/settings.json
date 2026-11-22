@@ -7,7 +7,7 @@
     },
     {
       "id": "backup-2",
-      "name": "Drone footage",
+      "name": "Holiday videos",
       "home": "{json:DATA}/backups/backup-2"
     }
   ],

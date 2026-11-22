@@ -343,7 +343,7 @@ pub fn look_with(catalog: &Catalog, target: &str, store: Result<&dyn ObjectStore
 pub const RECHECK_AT_MOST: usize = 2_000;
 
 /// A listing is not always the truth. On a network share that dropped out
-/// and came back, the owner's showed 15 files missing and 64 at another
+/// and came back, one listing showed 12 files missing and 41 at another
 /// size; the backup that followed read every one of them in full and found
 /// each there and exact. So a file the listing says has gone, or is another
 /// size, is asked about again by itself (its own size, from a fresh

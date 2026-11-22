@@ -885,7 +885,7 @@ pub(crate) mod tests {
     #[test]
     fn windows_long_paths_are_shown_the_ordinary_way() {
         let shown = |p: &str| friendly_path(Path::new(p));
-        assert_eq!(shown(r"\\?\C:\Users\Mark\Pictures"), r"C:\Users\Mark\Pictures");
+        assert_eq!(shown(r"\\?\C:\Users\You\Pictures"), r"C:\Users\You\Pictures");
         assert_eq!(shown(r"\\?\UNC\nas\photos"), r"\\nas\photos");
         assert_eq!(shown("/Volumes/KINGSTON"), "/Volumes/KINGSTON");
     }

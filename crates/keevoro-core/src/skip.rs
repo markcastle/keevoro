@@ -288,12 +288,12 @@ mod tests {
 
     #[test]
     fn a_folder_left_out_is_left_out_with_all_beneath_it_and_nothing_beside_it() {
-        let photos = PathBuf::from("/home/mark/Photos");
+        let photos = PathBuf::from("/home/you/Photos");
         let rules = SkipRules::default().with_left_out(vec![photos.clone()]);
         assert_eq!(rules.own_place(&photos), Some(SkipReason::LeftOut));
         assert_eq!(rules.own_place(&photos.join("2019")), Some(SkipReason::LeftOut));
-        assert_eq!(rules.own_place(Path::new("/home/mark/Photos 2")), None);
-        assert_eq!(rules.own_place(Path::new("/home/mark")), None);
+        assert_eq!(rules.own_place(Path::new("/home/you/Photos 2")), None);
+        assert_eq!(rules.own_place(Path::new("/home/you")), None);
         assert!(!SkipReason::LeftOut.keevoro_made());
         assert_eq!(SkipReason::LeftOut.describe(), "Left out by you");
         // Keevoro's own place is said first: it can't be put back.

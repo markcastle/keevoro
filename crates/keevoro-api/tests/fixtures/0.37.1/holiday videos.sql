@@ -1,4 +1,4 @@
--- The catalog of a second backup, "Drone footage", as Keevoro 0.37.1
+-- The catalog of a second backup, "Holiday videos", as Keevoro 0.37.1
 -- wrote it: nothing found yet, set to send the originals alone, with no
 -- previews, and for videos only.
 

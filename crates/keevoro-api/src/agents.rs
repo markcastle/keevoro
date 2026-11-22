@@ -455,14 +455,14 @@ mod tests {
     #[test]
     fn windows_spellings_of_one_path_are_one_path() {
         let same = [
-            r"C:\Users\Mark\Pictures",
-            r"c:\users\mark\pictures",
-            r"C:/Users/Mark/Pictures",
-            r"C:\Users/Mark\Pictures\",
-            r"C:\\Users\\Mark\\Pictures\\",
-            r"C:\Users\.\Mark\Pictures",
-            r"\\?\C:\Users\Mark\Pictures",
-            r"\\?\c:\USERS\Mark\Pictures\",
+            r"C:\Users\You\Pictures",
+            r"c:\users\you\pictures",
+            r"C:/Users/You/Pictures",
+            r"C:\Users/You\Pictures\",
+            r"C:\\Users\\You\\Pictures\\",
+            r"C:\Users\.\You\Pictures",
+            r"\\?\C:\Users\You\Pictures",
+            r"\\?\c:\USERS\You\Pictures\",
         ];
         for spelling in same {
             assert_eq!(win(spelling), win(same[0]), "{spelling}");
@@ -470,8 +470,8 @@ mod tests {
         assert_eq!(win(r"\\NAS\Photos\2004"), win(r"\\?\UNC\nas\photos\2004"));
         assert_eq!(win("//nas/photos/2004"), win(r"\\nas\Photos\2004"));
         assert!(win_inside(
-            r"\\?\C:\Users\Mark\Pictures\2004\x.jpg",
-            r"c:/users/mark/pictures/"
+            r"\\?\C:\Users\You\Pictures\2004\x.jpg",
+            r"c:/users/you/pictures/"
         ));
         assert!(win_inside(r"D:\", r"D:\"));
         assert!(win_inside(r"D:\DCIM", r"d:"));
@@ -479,38 +479,38 @@ mod tests {
 
     #[test]
     fn windows_spellings_that_dodge_are_refused() {
-        let photos = r"C:\Users\Mark\Pictures";
+        let photos = r"C:\Users\You\Pictures";
         let dodges = [
             // Climbing out, in every spelling.
-            r"C:\Users\Mark\Pictures\..\Documents",
-            r"C:/Users/Mark/Pictures/../Documents",
-            r"\\?\C:\Users\Mark\Pictures\..\Documents",
-            r"\\?\C:\Users\Mark\Pictures\.\x",
+            r"C:\Users\You\Pictures\..\Documents",
+            r"C:/Users/You/Pictures/../Documents",
+            r"\\?\C:\Users\You\Pictures\..\Documents",
+            r"\\?\C:\Users\You\Pictures\.\x",
             // A name that only starts the same.
-            r"C:\Users\Mark\Pictures-private",
-            r"C:\Users\Mark\Pictures private\x",
+            r"C:\Users\You\Pictures-private",
+            r"C:\Users\You\Pictures private\x",
             // Windows drops a trailing dot or space, and `:` is a stream.
-            r"C:\Users\Mark\Pictures.\..\Documents",
-            r"C:\Users\Mark\Pictures \x",
-            r"C:\Users\Mark\Pictures\x.",
-            r"C:\Users\Mark\Pictures:hidden",
-            r"C:\Users\Mark\Pictures\x.jpg:stream",
+            r"C:\Users\You\Pictures.\..\Documents",
+            r"C:\Users\You\Pictures \x",
+            r"C:\Users\You\Pictures\x.",
+            r"C:\Users\You\Pictures:hidden",
+            r"C:\Users\You\Pictures\x.jpg:stream",
             // Devices, other namespaces and a verbatim path with slashes.
-            r"\\.\C:\Users\Mark\Pictures",
-            r"\\?\GLOBALROOT\Device\HarddiskVolume1\Users\Mark\Pictures",
-            r"\\?\Volume{1b3b1146-4076-11e1-84aa-806e6f6e6963}\Users\Mark\Pictures",
-            r"\??\C:\Users\Mark\Pictures",
-            r"//?/C:/Users/Mark/Pictures",
-            r"\\?\C:\Users/Mark/Pictures",
+            r"\\.\C:\Users\You\Pictures",
+            r"\\?\GLOBALROOT\Device\HarddiskVolume1\Users\You\Pictures",
+            r"\\?\Volume{5f2c1a90-1d3e-11ef-9a6b-806e6f6e6963}\Users\You\Pictures",
+            r"\??\C:\Users\You\Pictures",
+            r"//?/C:/Users/You/Pictures",
+            r"\\?\C:\Users/You/Pictures",
             // Relative to something that cannot be known.
-            r"C:Users\Mark\Pictures",
-            r"\Users\Mark\Pictures",
-            r"Users\Mark\Pictures",
+            r"C:Users\You\Pictures",
+            r"\Users\You\Pictures",
+            r"Users\You\Pictures",
             r"Pictures",
             "",
             // Another drive, or another server's share of the same name.
-            r"D:\Users\Mark\Pictures",
-            r"\\nas\c$\Users\Mark\Pictures",
+            r"D:\Users\You\Pictures",
+            r"\\nas\c$\Users\You\Pictures",
         ];
         for dodge in dodges {
             assert!(!win_inside(dodge, photos), "{dodge} was let in");

@@ -252,16 +252,16 @@ mod tests {
             &k,
             Op::BackupsStart,
             None,
-            json!({ "name": "Drone", "wants": ["videos"] }),
+            json!({ "name": "Beach", "wants": ["videos"] }),
         )
         .unwrap();
-        let read = call_for_agent(&k, Op::BackupWants, Some("Drone"), json!({})).unwrap();
+        let read = call_for_agent(&k, Op::BackupWants, Some("Beach"), json!({})).unwrap();
         assert_eq!(read["wants"], json!(["videos"]));
         assert!(read.get("offersOthers").is_none(), "{read}");
         let e = call_for_agent(
             &k,
             Op::BackupWants,
-            Some("Drone"),
+            Some("Beach"),
             json!({ "wants": ["photos", "videos"] }),
         )
         .unwrap_err();
@@ -272,9 +272,9 @@ mod tests {
             may_change: Some(true),
         })
         .unwrap();
-        let set = call_for_agent(&k, Op::BackupWants, Some("Drone"), json!({ "wants": ["photos"] })).unwrap();
+        let set = call_for_agent(&k, Op::BackupWants, Some("Beach"), json!({ "wants": ["photos"] })).unwrap();
         assert_eq!(set["wants"], json!(["photos"]));
-        let e = call_for_agent(&k, Op::BackupWants, Some("Drone"), json!({ "wants": [] })).unwrap_err();
+        let e = call_for_agent(&k, Op::BackupWants, Some("Beach"), json!({ "wants": [] })).unwrap_err();
         assert_eq!(e.kind, crate::Kind::NotUnderstood, "at least one");
         assert!(k
             .log_tail(10)

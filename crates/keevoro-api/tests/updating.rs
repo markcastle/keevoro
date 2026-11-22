@@ -38,7 +38,7 @@ impl SecretStore for KeysInMemory {
 /// The places the fixture names, made real in a temporary folder.
 struct Places {
     card: PathBuf,
-    drone: PathBuf,
+    beach: PathBuf,
     usb: PathBuf,
     folders: Folders,
 }
@@ -51,7 +51,7 @@ impl Places {
         let data = self.folders.data.clone();
         for (name, path) in [
             ("CARD", &self.card),
-            ("DRONE", &self.drone),
+            ("BEACH", &self.beach),
             ("USB", &self.usb),
             ("DATA", &data),
         ] {
@@ -75,7 +75,7 @@ fn fixture(name: &str) -> String {
 fn as_0_37_1_left_it(dir: &Path) -> (Keevoro, Places) {
     let places = Places {
         card: dir.join("Card"),
-        drone: dir.join("Drone"),
+        beach: dir.join("Beach"),
         usb: dir.join("USB"),
         folders: Folders::under(&dir.join("home")),
     };
@@ -85,7 +85,7 @@ fn as_0_37_1_left_it(dir: &Path) -> (Keevoro, Places) {
         places.fill(&fixture("settings.json")),
     )
     .unwrap();
-    for (id, sql) in [("backup-1", "family photos.sql"), ("backup-2", "drone footage.sql")] {
+    for (id, sql) in [("backup-1", "family photos.sql"), ("backup-2", "holiday videos.sql")] {
         let catalog = places
             .folders
             .data
@@ -130,7 +130,7 @@ fn everything_a_person_set_and_keevoro_recorded_in_0_37_1_is_there_after_updatin
 
     // The backups, and the one that was open.
     let backups = ask(&keevoro, Op::BackupsList, None, Value::Null);
-    assert_eq!(names(&backups), ["Family photos", "Drone footage"]);
+    assert_eq!(names(&backups), ["Family photos", "Holiday videos"]);
     assert_eq!(backups[1]["open"], true, "{backups}");
 
     // Keevoro's own settings: the computer's codecs switched off, what an
@@ -160,7 +160,7 @@ fn everything_a_person_set_and_keevoro_recorded_in_0_37_1_is_there_after_updatin
     // The sources, with their names, what was found, the folder left out
     // and the files only online.
     let sources = ask(&keevoro, Op::SourcesList, family, Value::Null);
-    assert_eq!(names(&sources), ["Mum's card", "Drone"]);
+    assert_eq!(names(&sources), ["Mum's card", "Beach"]);
     assert_eq!(
         (sources[0]["items"].as_u64(), sources[1]["items"].as_u64()),
         (Some(6), Some(3))
@@ -186,18 +186,18 @@ fn everything_a_person_set_and_keevoro_recorded_in_0_37_1_is_there_after_updatin
     );
 
     // What the backup and each source are for: photos only for the backup,
-    // videos only for the drone, which 0.39.0 lost.
+    // videos only for the Beach source, which 0.39.0 lost.
     let wants = ask(&keevoro, Op::BackupWants, family, Value::Null);
     assert_eq!(wants["wants"], json!(["photos"]), "{wants}");
-    let drone = ask(&keevoro, Op::SourcesWants, family, json!({ "source": 2 }));
+    let beach = ask(&keevoro, Op::SourcesWants, family, json!({ "source": 2 }));
     assert_eq!(
-        (drone["own"].as_bool(), &drone["wants"]),
+        (beach["own"].as_bool(), &beach["wants"]),
         (Some(true), &json!(["videos"])),
-        "{drone}"
+        "{beach}"
     );
     let card = ask(&keevoro, Op::SourcesWants, family, json!({ "source": 1 }));
     assert_eq!(card["own"], false, "the card still follows its backup: {card}");
-    let wants = ask(&keevoro, Op::BackupWants, Some("Drone footage"), Value::Null);
+    let wants = ask(&keevoro, Op::BackupWants, Some("Holiday videos"), Value::Null);
     assert_eq!(wants["wants"], json!(["videos"]), "{wants}");
 
     // The endings left out of a source, and why each kind is not offered.
@@ -216,7 +216,7 @@ fn everything_a_person_set_and_keevoro_recorded_in_0_37_1_is_there_after_updatin
 
     // So what is offered is what was offered: three photos (one in the
     // folder left out, the screenshot's ending left out and the card's
-    // video passed over), two drone videos, one photo not kept.
+    // video passed over), two beach videos, one photo not kept.
     let found = ask(&keevoro, Op::FoundSummary, family, Value::Null);
     assert_eq!(
         (found["photos"].as_u64(), found["videos"].as_u64()),
@@ -245,7 +245,7 @@ fn everything_a_person_set_and_keevoro_recorded_in_0_37_1_is_there_after_updatin
     // A backup from before the choice of arranging existed is arranged by
     // date, as it always was, and is not asked; nor is the other, which
     // has a source too.
-    for backup in [family, Some("Drone footage")] {
+    for backup in [family, Some("Holiday videos")] {
         let arrange = ask(&keevoro, Op::BackupArrange, backup, Value::Null);
         assert_eq!(
             (arrange["arrange"].as_str(), arrange["asked"].as_bool()),
@@ -265,7 +265,7 @@ fn everything_a_person_set_and_keevoro_recorded_in_0_37_1_is_there_after_updatin
     // Whether previews are made, each backup's own choice.
     assert_eq!(ask(&keevoro, Op::BackupPreviews, family, Value::Null), true);
     assert_eq!(
-        ask(&keevoro, Op::BackupPreviews, Some("Drone footage"), Value::Null),
+        ask(&keevoro, Op::BackupPreviews, Some("Holiday videos"), Value::Null),
         false
     );
 
@@ -291,10 +291,10 @@ fn everything_a_person_set_and_keevoro_recorded_in_0_37_1_is_there_after_updatin
         &keevoro,
         Op::BackupsRename,
         None,
-        json!({ "backup": "Drone footage", "to": "Drone films" }),
+        json!({ "backup": "Holiday videos", "to": "Holiday films" }),
     );
     let again = ask(&keevoro, Op::BackupsList, None, Value::Null);
-    assert_eq!(names(&again), ["Family photos", "Drone films"]);
+    assert_eq!(names(&again), ["Family photos", "Holiday films"]);
     assert_eq!(
         ask(&keevoro, Op::KeevoroSettings, None, Value::Null)["ownCodecs"]["on"],
         false
@@ -357,12 +357,12 @@ fn everything_a_person_set_and_keevoro_recorded_in_0_37_1_is_there_after_updatin
     assert_eq!(removal["keysFor"], json!(["the Cloudflare R2 bucket family-photos"]));
     assert_eq!(
         names(&ask(&keevoro, Op::BackupsList, None, Value::Null)),
-        ["Drone films"]
+        ["Holiday films"]
     );
     ask(&keevoro, Op::BackupsPutBack, None, json!({ "backup": "Family photos" }));
     assert_eq!(
         names(&ask(&keevoro, Op::SourcesList, family, Value::Null)),
-        ["Mum's card", "Drone"]
+        ["Mum's card", "Beach"]
     );
     assert_eq!(
         ask(&keevoro, Op::BackupHistory, family, Value::Null)
@@ -438,7 +438,7 @@ fn a_source_0_37_1_looked_through_is_looked_through_as_before_and_its_drive_reme
 fn a_backup_0_37_1_kept_has_no_schedule_and_nothing_runs_by_itself() {
     let dir = tempfile::tempdir().unwrap();
     let (keevoro, places) = as_0_37_1_left_it(dir.path());
-    for backup in ["Family photos", "Drone footage"] {
+    for backup in ["Family photos", "Holiday videos"] {
         let shown = ask(&keevoro, Op::ScheduleShow, Some(backup), Value::Null);
         assert_eq!(
             shown,
@@ -487,7 +487,7 @@ fn keevoro_0_37_1_left_has_no_window_choices_and_making_them_leaves_the_settings
     assert!(keevoro.window_settings().explained_close);
     // And the backups are all still there, as 0.37.1 left them.
     let listed = ask(&keevoro, Op::BackupsList, None, Value::Null);
-    assert_eq!(names(&listed), ["Family photos", "Drone footage"]);
+    assert_eq!(names(&listed), ["Family photos", "Holiday videos"]);
 }
 
 /// Putting a backup right (0.43) writes down when each copy was proved by
@@ -592,5 +592,5 @@ fn keevoro_0_37_1_left_has_no_reports_and_sending_one_leaves_the_settings_file_a
     assert_eq!(listed["reports"][0]["reference"], "K-1");
     // And the backups are all still there, as 0.37.1 left them.
     let backups = ask(&keevoro, Op::BackupsList, None, Value::Null);
-    assert_eq!(names(&backups), ["Family photos", "Drone footage"]);
+    assert_eq!(names(&backups), ["Family photos", "Holiday videos"]);
 }

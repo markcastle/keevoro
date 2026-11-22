@@ -445,8 +445,8 @@ mod tests {
     #[test]
     fn clearing_unfinished_copies_says_what_goes_and_what_stays_and_why_before_and_after() {
         let swept = keevoro_engine::Swept {
-            files: 583,
-            bytes: 15 * 1024 * 1024 * 1024,
+            files: 211,
+            bytes: 6 * 1024 * 1024 * 1024,
             in_use: 1,
             not_ours: 2,
         };
@@ -454,14 +454,14 @@ mod tests {
         assert_eq!(
             before,
             [
-                "There are 15.0 GB of unfinished copies (583 files) in D:\\Backup, left by a backup that was stopped \
+                "There are 6.0 GB of unfinished copies (211 files) in D:\\Backup, left by a backup that was stopped \
                  part-way. Clearing them touches nothing that was backed up.",
                 "1 thing written to in the last hour will be left, as a backup may be using it right now.",
                 "2 things in its working folder that Keevoro did not put there will be left as they are.",
             ]
         );
         let after = tidied("D:\\Backup", &swept, true);
-        assert!(after[0].starts_with("Cleared 15.0 GB of unfinished copies (583 files) from D:\\Backup."));
+        assert!(after[0].starts_with("Cleared 6.0 GB of unfinished copies (211 files) from D:\\Backup."));
         assert!(after[1].starts_with("Left 1 thing written to in the last hour"));
         assert!(after[2].starts_with("Left 2 things"));
         let none = keevoro_engine::Swept::default();
@@ -501,22 +501,22 @@ mod a_run_in_full {
         }
     }
 
-    /// The owner's real backup: 11,245 files to a network folder in 22
-    /// hours 50 minutes.
+    /// A long backup: 8,630 files to a network folder in 9 hours 40
+    /// minutes.
     fn long_run() -> Sent {
         let to = "the folder \\\\nas\\photos";
-        let mut sending = stage(Kind::SendingOriginals, Some(to), 7168 * GB / 10, 80_000);
+        let mut sending = stage(Kind::SendingOriginals, Some(to), 3124 * GB / 10, 32_400);
         sending.slowest = Some(2.0 * 1024.0 * 1024.0);
         sending.fastest = Some(11.0 * 1024.0 * 1024.0);
         sending.problem = Some("Couldn't back up 2 files".into());
         Sent {
             finished_at: 1_794_751_331,
-            seconds: 82_200,
-            bytes: 7206 * GB / 10,
+            seconds: 34_800,
+            bytes: 3162 * GB / 10,
             to: to.into(),
             stopped: false,
             detail: Some(Box::new(RunDetail {
-                started_at: 1_794_751_331 - 82_200,
+                started_at: 1_794_751_331 - 34_800,
                 paused_seconds: 720,
                 ended: Ended::Finished,
                 problem: None,
@@ -527,11 +527,11 @@ mod a_run_in_full {
                     over_network: true,
                     reached: true,
                     problem: None,
-                    seconds: 82_200,
-                    bytes: 7206 * GB / 10,
+                    seconds: 34_800,
+                    bytes: 3162 * GB / 10,
                     originals: Sending {
-                        sent: 11_243,
-                        sent_bytes: 7168 * GB / 10,
+                        sent: 8_628,
+                        sent_bytes: 3124 * GB / 10,
                         restored: 40,
                         already_there: 0,
                         not_sent: vec![NotSent {
@@ -541,24 +541,24 @@ mod a_run_in_full {
                         not_sent_more: 1,
                     },
                     previews: Some(Sending {
-                        sent: 21_792,
+                        sent: 16_820,
                         sent_bytes: 38 * GB / 10,
                         ..Sending::default()
                     }),
-                    indexed: Some(11_243),
-                    cleared_files: 583,
-                    cleared_bytes: 15 * GB,
+                    indexed: Some(8_628),
+                    cleared_files: 211,
+                    cleared_bytes: 6 * GB,
                 }],
-                stages: vec![stage(Kind::Placing, None, 11_245, 40), sending],
-                duplicates: 312,
-                duplicate_bytes: 4 * GB,
+                stages: vec![stage(Kind::Placing, None, 8_630, 40), sending],
+                duplicates: 245,
+                duplicate_bytes: 3 * GB,
                 previews: Some(PreviewsMade {
-                    photos: 10_896,
+                    photos: 8_410,
                     videos: 0,
                     photos_without: 3,
                     videos_without: 0,
                 }),
-                summary: vec!["Safely backed up 11,243 files (716.8 GB).".into()],
+                summary: vec!["Safely backed up 8,628 files (312.4 GB).".into()],
                 by_itself: None,
             })),
         }
@@ -568,21 +568,21 @@ mod a_run_in_full {
     fn a_long_backup_reads_from_the_headline_down() {
         let lines = run_in_full(&long_run()).join("\n");
         for said in [
-            "720.6 GB in about 22 hours 50 minutes, at an average of 9.0 MB a second.",
+            "316.2 GB in about 9 hours 40 minutes, at an average of 9.3 MB a second.",
             "Started from the app at",
             "with Keevoro 0.33.0. It finished. It was paused for about 12 minutes.",
-            "  Working out where each file goes: under a minute, 11,245 files, 281 files a second on average",
-            "716.8 GB, 9.2 MB a second on average (slowest 2.0 MB a second, fastest 11.0 MB a second, each held a minute or more). Went wrong: Couldn't back up 2 files",
-            "11,243 files sent (716.8 GB), 40 of them sent again because they had gone from there, 2 could not be sent.",
+            "  Working out where each file goes: under a minute, 8,630 files, 216 files a second on average",
+            "312.4 GB, 9.9 MB a second on average (slowest 2.0 MB a second, fastest 11.0 MB a second, each held a minute or more). Went wrong: Couldn't back up 2 files",
+            "8,628 files sent (312.4 GB), 40 of them sent again because they had gone from there, 2 could not be sent.",
             "    originals/2019/IMG_0001.jpg: The source couldn't be read.",
             "    and 1 more.",
-            "Duplicates left out: 312, saving 4.0 GB.",
-            "Made 10,896 photo previews and 0 video stills.",
+            "Duplicates left out: 245, saving 3.0 GB.",
+            "Made 8,410 photo previews and 0 video stills.",
             "Without a preview, because Keevoro couldn't open them: 3 photos and 0 videos.",
-            "21,792 preview files sent (3.8 GB).",
-            ", across a network: 720.6 GB in about 22 hours 50 minutes, its index lists 11,243 files.",
-            "  Safely backed up 11,243 files (716.8 GB).",
-            "    Cleared 15.0 GB of unfinished copies left by an earlier backup that was stopped. They were Keevoro's working files, not part of your backup.",
+            "16,820 preview files sent (3.8 GB).",
+            ", across a network: 316.2 GB in about 9 hours 40 minutes, its index lists 8,628 files.",
+            "  Safely backed up 8,628 files (312.4 GB).",
+            "    Cleared 6.0 GB of unfinished copies left by an earlier backup that was stopped. They were Keevoro's working files, not part of your backup.",
         ] {
             assert!(lines.contains(said), "{said}\n---\n{lines}");
         }

@@ -482,7 +482,7 @@ export function demoBackend(): Backend {
   // Folders holding a stopped backup's working files, and how many.
   const untidy = new Map<string, number>([
     ['F:\\Family Backup', 12],
-    ['G:\\Old Keevoro backup', 583],
+    ['G:\\Old Keevoro backup', 211],
   ])
   let systemCodecs = true
   let agents = { lookIn: [] as string[], backUpTo: [] as string[], mayChange: false }
@@ -629,21 +629,21 @@ export function demoBackend(): Backend {
   const sends: Sent[] = [
     {
       finishedAt: Date.UTC(2026, 10, 19, 7, 41) / 1000,
-      seconds: 82_200,
-      bytes: 720.6 * GB,
+      seconds: 34_800,
+      bytes: 316.2 * GB,
       to: nas,
       stopped: false,
       detail: {
-        startedAt: Date.UTC(2026, 10, 18, 8, 51) / 1000,
+        startedAt: Date.UTC(2026, 10, 18, 22, 1) / 1000,
         pausedSeconds: 600,
         ended: 'finished',
         startedBy: 'the app',
         version: '0.32.0',
         stages: [
           { kind: 'tellingApart', unit: 'files', done: 214, seconds: 480, finished: true, perSecond: 214 / 480, slowest: 0.31, fastest: 0.62 },
-          { kind: 'placing', unit: 'files', done: 11_245, seconds: 40, finished: true, perSecond: 11_245 / 40, slowest: null, fastest: null },
-          { kind: 'sendingOriginals', to: nas, unit: 'bytes', done: 716.8 * GB, seconds: 75_600, finished: true, perSecond: (716.8 * GB) / 75_600, slowest: 3.2 * MB, fastest: 14.6 * MB, problem: 'Couldn’t back up 2 files' },
-          { kind: 'makingPreviews', unit: 'files', done: 10_896, seconds: 21_600, finished: true, perSecond: 10_896 / 21_600, slowest: 0.21, fastest: 1.9 },
+          { kind: 'placing', unit: 'files', done: 8_630, seconds: 40, finished: true, perSecond: 8_630 / 40, slowest: null, fastest: null },
+          { kind: 'sendingOriginals', to: nas, unit: 'bytes', done: 312.4 * GB, seconds: 32_400, finished: true, perSecond: (312.4 * GB) / 32_400, slowest: 3.2 * MB, fastest: 14.6 * MB, problem: 'Couldn’t back up 2 files' },
+          { kind: 'makingPreviews', unit: 'files', done: 8_410, seconds: 9_000, finished: true, perSecond: 8_410 / 9_000, slowest: 0.21, fastest: 1.9 },
           { kind: 'makingVideoPreviews', unit: 'files', done: 349, seconds: 2_400, finished: true, perSecond: 349 / 2_400, slowest: 0.09, fastest: 0.2 },
           { kind: 'sendingPreviews', to: nas, unit: 'bytes', done: 3.8 * GB, seconds: 4_800, finished: true, perSecond: (3.8 * GB) / 4_800, slowest: 0.6 * MB, fastest: 1.1 * MB },
           { kind: 'writingIndex', to: nas, unit: 'files', done: 1, seconds: 12, finished: true, perSecond: 1 / 12, slowest: null, fastest: null },
@@ -653,11 +653,11 @@ export function demoBackend(): Backend {
             to: nas,
             overNetwork: true,
             reached: true,
-            seconds: 82_200,
-            bytes: 720.6 * GB,
+            seconds: 34_800,
+            bytes: 316.2 * GB,
             originals: {
-              sent: 11_243,
-              sentBytes: 716.8 * GB,
+              sent: 8_628,
+              sentBytes: 312.4 * GB,
               alreadyThere: 0,
               notSent: [
                 { file: 'originals/2011/Summer/IMG_4410.JPG', reason: 'The source couldn’t be read: it may have been unplugged' },
@@ -665,21 +665,21 @@ export function demoBackend(): Backend {
               ],
               notSentMore: 0,
             },
-            previews: { sent: 21_792, sentBytes: 3.8 * GB, alreadyThere: 0, notSent: [], notSentMore: 0 },
-            indexed: 11_243,
+            previews: { sent: 16_820, sentBytes: 3.8 * GB, alreadyThere: 0, notSent: [], notSentMore: 0 },
+            indexed: 8_628,
           },
         ],
-        duplicates: 1_406,
-        duplicateBytes: 38.2 * GB,
-        previews: { photos: 10_896, videos: 349, photosWithout: 12, videosWithout: 0 },
+        duplicates: 1_118,
+        duplicateBytes: 27.5 * GB,
+        previews: { photos: 8_410, videos: 349, photosWithout: 12, videosWithout: 0 },
         summary: [
-          'Safely backed up 11,243 files (716.8 GB).',
+          'Safely backed up 8,628 files (312.4 GB).',
           'Couldn’t back up 2 files:',
           '  originals/2011/Summer/IMG_4410.JPG: The source couldn’t be read: it may have been unplugged.',
           '  originals/2011/Summer/IMG_4411.JPG: The source couldn’t be read: it may have been unplugged.',
           'Back up again to try them once more.',
-          'Previews added: 21,792 files (3.8 GB).',
-          'That took about 22 hours 50 minutes: 720.6 GB at an average of 9.0 MB a second.',
+          'Previews added: 16,820 files (3.8 GB).',
+          'That took about 9 hours 40 minutes: 316.2 GB at an average of 9.3 MB a second.',
         ],
       },
     },
@@ -710,7 +710,7 @@ export function demoBackend(): Backend {
             reached: true,
             seconds: 150,
             bytes: 96 * MB,
-            originals: { sent: 23, sentBytes: 96 * MB, alreadyThere: 11_243, notSent: [], notSentMore: 0 },
+            originals: { sent: 23, sentBytes: 96 * MB, alreadyThere: 8_628, notSent: [], notSentMore: 0 },
           },
         ],
         duplicates: 0,
@@ -814,14 +814,14 @@ export function demoBackend(): Backend {
     })
     const stages: BackupStage[] = sendingAtOpen
       ? [
-          stage({ kind: 'placing', state: 'now', unit: 'files', done: 2500, work: 11245, line: 'Working out where each file goes: 2,500 of 11,245' }),
+          stage({ kind: 'placing', state: 'now', unit: 'files', done: 2500, work: 8630, line: 'Working out where each file goes: 2,500 of 8,630' }),
           stage({ kind: 'sendingOriginals', state: 'next', unit: 'bytes', done: 0, work: 30.1 * GB, line: 'Backing up your files: 30.1 GB' }),
           stage({ kind: 'makingPreviews', state: 'next', unit: 'files', done: 0, work: 10547, line: 'Making previews: 10,547' }),
           stage({ kind: 'sendingPreviews', state: 'next', unit: 'bytes', done: 0, work: 4 * GB, line: 'Backing up the previews: 4.0 GB' }),
           stage({ kind: 'writingIndex', state: 'next', unit: 'files', done: 0, work: 1, line: 'Writing the list of what is there' }),
         ]
       : [
-          stage({ kind: 'placing', state: 'done', unit: 'files', done: 11245, work: 11245, line: 'Working out where each file goes' }),
+          stage({ kind: 'placing', state: 'done', unit: 'files', done: 8630, work: 8630, line: 'Working out where each file goes' }),
           stage({
             kind: 'sendingOriginals',
             state: 'now',
@@ -1281,7 +1281,7 @@ export function demoBackend(): Backend {
           : {}),
         paused: pausedNow,
         doing: 'Checking for duplicates and making thumbnails',
-        backupStep: new URLSearchParams(window.location.search).has('sending') ? 'Working out where each file goes: 2,500 of 11,245' : null,
+        backupStep: new URLSearchParams(window.location.search).has('sending') ? 'Working out where each file goes: 2,500 of 8,630' : null,
         jobs: [
           {
             what: 'Making thumbnails',
@@ -1311,7 +1311,7 @@ export function demoBackend(): Backend {
       return {
         running: sendStarted !== null,
         stopping: false,
-        line: sendingAtOpen && sendStarted !== null ? 'Working out where each file goes: 2,500 of 11,245' : '',
+        line: sendingAtOpen && sendStarted !== null ? 'Working out where each file goes: 2,500 of 8,630' : '',
         runningSeconds,
         estimate: sendStarted === null ? null : demoEstimate(runningSeconds),
         overNetwork: false,
@@ -1362,7 +1362,7 @@ export function demoBackend(): Backend {
       return lookedFor.map((k) => ({ ...k }))
     },
     chooseAgentFolder: async () => (agents.lookIn.includes('D:\\Photos') ? 'F:\\Family Backup' : 'D:\\Photos'),
-    // The owner's case: an old backup folder full of a stopped backup's working files.
+    // A typical case: an old backup folder full of a stopped backup's working files.
     tidyFolder: async (folder, dryRun) => {
       const files = untidy.get(folder) ?? 0
       const bytes = files * 26.7 * 1024 ** 2
@@ -1497,30 +1497,30 @@ export function demoBackend(): Backend {
       const leftOutHere = [...leftOutFolders].filter((f) => within(f, drive))
       return {
         hints: [
-          { folder: `${drive}\\Users\\Mark\\Videos\\Drone`, photos: 333, videos: 26, bytes: 94 * 1024 ** 3, likelyPhotos: true, alreadyASource: false },
-          { folder: `${drive}\\Users\\Mark\\Pictures`, photos: 11_204, videos: 310, bytes: 61 * 1024 ** 3, likelyPhotos: true, alreadyASource: false, onlineOnly: 412, onlineOnlySaid: onlineOnlySaid(412) },
+          { folder: `${drive}\\Users\\You\\Videos\\Holidays`, photos: 287, videos: 31, bytes: 88 * 1024 ** 3, likelyPhotos: true, alreadyASource: false },
+          { folder: `${drive}\\Users\\You\\Pictures`, photos: 9_318, videos: 274, bytes: 52 * 1024 ** 3, likelyPhotos: true, alreadyASource: false, onlineOnly: 412, onlineOnlySaid: onlineOnlySaid(412) },
           { folder: `${drive}\\Old laptop backup\\Photos`, photos: 902, videos: 12, bytes: 3.4 * 1024 ** 3, likelyPhotos: true, alreadyASource: false },
           { folder: `${drive}\\Games\\Launcher\\assets`, photos: 1_840, videos: 0, bytes: 9 * 1024 ** 2, likelyPhotos: false, alreadyASource: false },
           // Other files carried along, once their kind is on the list.
           ...(listedAsOther('pdf')
-            ? [{ folder: `${drive}\\Users\\Mark\\Documents`, photos: 0, videos: 0, others: 4_120, bytes: 2.1 * 1024 ** 3, likelyPhotos: true, alreadyASource: false }]
+            ? [{ folder: `${drive}\\Users\\You\\Documents`, photos: 0, videos: 0, others: 4_120, bytes: 2.1 * 1024 ** 3, likelyPhotos: true, alreadyASource: false }]
             : []),
           ...(listedAsOther('flac')
-            ? [{ folder: `${drive}\\Users\\Mark\\Music`, photos: 0, videos: 0, others: 240, bytes: 7.2 * 1024 ** 3, likelyPhotos: true, alreadyASource: false }]
+            ? [{ folder: `${drive}\\Users\\You\\Music`, photos: 0, videos: 0, others: 240, bytes: 7.2 * 1024 ** 3, likelyPhotos: true, alreadyASource: false }]
             : []),
         ].filter((hint) => !leftOutOf(hint.folder)),
-        folders: 36_412,
-        files: 481_907,
+        folders: 28_915,
+        files: 352_640,
         unreadable: 3,
-        seconds: 6.2,
+        seconds: 5.4,
         stopped: false,
         onlineOnly: 412,
         onlineOnlySaid: onlineOnlySaid(412),
         leftOut: [
           {
-            folder: `${drive}\\Users\\Mark\\Pictures\\Keevoro Library`,
+            folder: `${drive}\\Users\\You\\Pictures\\Keevoro Library`,
             what: 'oldLibrary',
-            said: `Left out ${drive}\\Users\\Mark\\Pictures\\Keevoro Library: a folder an older version of Keevoro made, which it no longer uses. It takes 9.2 GB: 8.4 GB of copies of your photos it gathered there (2,310 files), and 0.8 GB of previews and working files it made. Keevoro has not checked that every copy is also in one of your backups, so it leaves the folder for you to decide about and never removes it.`,
+            said: `Left out ${drive}\\Users\\You\\Pictures\\Keevoro Library: a folder an older version of Keevoro made, which it no longer uses. It takes 9.4 GB: 8.6 GB of copies of your photos it gathered there (2,330 files), and 0.8 GB of previews and working files it made. Keevoro has not checked that every copy is also in one of your backups, so it leaves the folder for you to decide about and never removes it.`,
           },
           ...leftOutHere.map((folder) => ({
             folder,
@@ -1612,7 +1612,7 @@ export function demoBackend(): Backend {
         '2026-11-16 14:02:09  Keevoro 9.8.0 started on windows (x86_64)',
         '2026-11-16 14:02:11  Looking through E:\\',
         '2026-11-16 14:02:19  Reading a large file (3.9 GB): E:\\Video\\wedding.mov',
-        '2026-11-16 14:03:40  Looked through E:\\ in 89 seconds: 238 photos and videos, 11,204 other files, 3 folders skipped, 0 unreadable',
+        '2026-11-16 14:03:40  Looked through E:\\ in 89 seconds: 238 photos and videos, 8,906 other files, 3 folders skipped, 0 unreadable',
       ].join('\n'),
     openLog: async () => {},
     // Reports to Keevoro's maker. `?reportFails` refuses the first one sent,
@@ -1716,11 +1716,11 @@ export function demoBackend(): Backend {
               ],
             },
             {
-              ...photo('DJI_0042.MP4'),
-              folder: 'E:\\Drone\\Lake District',
+              ...photo('MVI_0042.MP4'),
+              folder: 'E:\\Camcorder\\Lake District',
               bytes: 3.9 * 1024 ** 3,
               confirmed: false,
-              copies: [{ name: 'DJI_0042.MP4', folder: 'E:\\Drone\\Unsorted' }],
+              copies: [{ name: 'MVI_0042.MP4', folder: 'E:\\Camcorder\\Unsorted' }],
             },
           ],
     setAside: async () => junk.map((file) => ({ ...file })),

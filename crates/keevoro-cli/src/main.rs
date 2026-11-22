@@ -1,7 +1,7 @@
 //! `keevoro`: everything the Keevoro app does, from the command line.
 //!
 //! The command line and the app are two faces of the same thing. Both work
-//! on the same named backups ("Drone footage", "Family photos"), kept in
+//! on the same named backups ("Holiday videos", "Family photos"), kept in
 //! the same place on this computer, and both do everything through
 //! `keevoro-api`. This program holds no logic about photos of its own: it
 //! turns what was typed into one of the API's operations, and the answer

@@ -33,10 +33,10 @@ pub fn set_aside_folder(date: &str) -> String {
 }
 
 /// Moves the copy at `key` (a backup's own path, such as
-/// `originals/2016/IMG_6132.JPG`) under `root` into the set-aside folder for
+/// `originals/2016/IMG_0415.JPG`) under `root` into the set-aside folder for
 /// `date`, keeping its path beneath, and answers where it went, relative to
 /// `root`. A name already taken there is never moved over: the copy is
-/// given a number, `IMG_6132 (2).JPG`. A note is left in the folder the
+/// given a number, `IMG_0415 (2).JPG`. A note is left in the folder the
 /// first time. If anything fails, the copy is left exactly where it was.
 pub fn set_aside(root: &Path, key: &str, date: &str) -> std::io::Result<String> {
     let parts: Vec<&str> = key.split('/').filter(|p| !p.is_empty()).collect();
@@ -73,7 +73,7 @@ pub fn set_aside(root: &Path, key: &str, date: &str) -> std::io::Result<String> 
     ))
 }
 
-/// `IMG_6132.JPG`, then `IMG_6132 (2).JPG`, `IMG_6132 (3).JPG`.
+/// `IMG_0415.JPG`, then `IMG_0415 (2).JPG`, `IMG_0415 (3).JPG`.
 fn numbered(name: &str, n: u32) -> String {
     if n == 1 {
         return name.to_string();
@@ -136,16 +136,16 @@ mod tests {
     fn a_damaged_copy_is_moved_aside_keeping_its_path_and_never_over_another() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        let key = "originals/By date/2016/2016-12/IMG_6132.JPG";
+        let key = "originals/By date/2016/2016-12/IMG_0415.JPG";
         let at = root.join("originals/By date/2016/2016-12");
         std::fs::create_dir_all(&at).unwrap();
-        std::fs::write(at.join("IMG_6132.JPG"), b"short").unwrap();
+        std::fs::write(at.join("IMG_0415.JPG"), b"short").unwrap();
         let went = set_aside(root, key, "2026-11-22").unwrap();
         assert_eq!(
             went,
-            "Set aside by Keevoro/2026-11-22/originals/By date/2016/2016-12/IMG_6132.JPG"
+            "Set aside by Keevoro/2026-11-22/originals/By date/2016/2016-12/IMG_0415.JPG"
         );
-        assert!(!at.join("IMG_6132.JPG").exists(), "its real name is free");
+        assert!(!at.join("IMG_0415.JPG").exists(), "its real name is free");
         assert_eq!(std::fs::read(root.join(&went)).unwrap(), b"short", "moved, not lost");
         let note = std::fs::read_to_string(root.join(SET_ASIDE_FOLDER).join(SET_ASIDE_NOTE)).unwrap();
         assert!(note.contains("You can delete this folder once you are happy"), "{note}");
@@ -156,14 +156,14 @@ mod tests {
 
         // The same name set aside again the same day is numbered, never
         // moved over the first.
-        std::fs::write(at.join("IMG_6132.JPG"), b"short again").unwrap();
+        std::fs::write(at.join("IMG_0415.JPG"), b"short again").unwrap();
         let again = set_aside(root, key, "2026-11-22").unwrap();
-        assert!(again.ends_with("IMG_6132 (2).JPG"), "{again}");
+        assert!(again.ends_with("IMG_0415 (2).JPG"), "{again}");
         assert_eq!(std::fs::read(root.join(&went)).unwrap(), b"short");
         assert_eq!(std::fs::read(root.join(&again)).unwrap(), b"short again");
         // A note already there is kept as it is.
         std::fs::write(root.join(SET_ASIDE_FOLDER).join(SET_ASIDE_NOTE), b"mine").unwrap();
-        std::fs::write(at.join("IMG_6132.JPG"), b"x").unwrap();
+        std::fs::write(at.join("IMG_0415.JPG"), b"x").unwrap();
         set_aside(root, key, "2026-11-22").unwrap();
         assert_eq!(
             std::fs::read(root.join(SET_ASIDE_FOLDER).join(SET_ASIDE_NOTE)).unwrap(),

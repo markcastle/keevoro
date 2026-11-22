@@ -107,16 +107,16 @@ CREATE INDEX IF NOT EXISTS collected_by_path ON collected(path);
      CREATE INDEX IF NOT EXISTS uploaded_by_key ON uploaded(key);;
 
 INSERT INTO sources (id, name, root, other_files, scanned_at) VALUES (1, 'Mum''s card', '{CARD}', 2, 1794000000);
-INSERT INTO sources (id, name, root, other_files, scanned_at) VALUES (2, 'Drone', '{DRONE}', 0, 1794000100);
+INSERT INTO sources (id, name, root, other_files, scanned_at) VALUES (2, 'Beach', '{BEACH}', 0, 1794000100);
 INSERT INTO items (source_id, path, kind, mime, bytes, blake3, date, date_source, album, folder_date, width, height, junk, hashed, quick) VALUES (1, '{CARD}/DCIM/IMG_20240601_100000.jpg', 'photo', 'image/jpeg', 4400000, 'a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1', '2024-06-01T10:00:00', 'exif', '["DCIM"]', NULL, 4000, 3000, NULL, 1, NULL);
 INSERT INTO items (source_id, path, kind, mime, bytes, blake3, date, date_source, album, folder_date, width, height, junk, hashed, quick) VALUES (1, '{CARD}/DCIM/IMG_20240601_100500.jpg', 'photo', 'image/jpeg', 4400000, 'b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2', '2024-06-01T10:05:00', 'exif', '["DCIM"]', NULL, 4000, 3000, NULL, 1, NULL);
 INSERT INTO items (source_id, path, kind, mime, bytes, blake3, date, date_source, album, folder_date, width, height, junk, hashed, quick) VALUES (1, '{CARD}/DCIM/IMG_20240602_090000.jpg', 'photo', 'image/jpeg', 4300000, 'c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3', '2024-06-02T09:00:00', 'exif', '["DCIM"]', NULL, 4000, 3000, NULL, 1, NULL);
 INSERT INTO items (source_id, path, kind, mime, bytes, blake3, date, date_source, album, folder_date, width, height, junk, hashed, quick) VALUES (1, '{CARD}/DCIM/screen.png', 'photo', 'image/png', 900000, 'd4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4', NULL, NULL, '["DCIM"]', NULL, 1920, 1080, NULL, 1, NULL);
 INSERT INTO items (source_id, path, kind, mime, bytes, blake3, date, date_source, album, folder_date, width, height, junk, hashed, quick) VALUES (1, '{CARD}/DCIM/VID_20240601_101000.mp4', 'video', 'video/mp4', 52000000, 'e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5', '2024-06-01T10:10:00', 'video', '["DCIM"]', NULL, 1920, 1080, NULL, 1, NULL);
 INSERT INTO items (source_id, path, kind, mime, bytes, blake3, date, date_source, album, folder_date, width, height, junk, hashed, quick) VALUES (1, '{CARD}/Old/IMG_20100704_120000.jpg', 'photo', 'image/jpeg', 2100000, 'f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6', '2010-07-04T12:00:00', 'exif', '["Old"]', NULL, 2048, 1536, NULL, 1, NULL);
-INSERT INTO items (source_id, path, kind, mime, bytes, blake3, date, date_source, album, folder_date, width, height, junk, hashed, quick) VALUES (2, '{DRONE}/DJI_0001.MP4', 'video', 'video/mp4', 310000000, '0707070707070707070707070707070707070707070707070707070707070707', '2024-06-01T11:00:00', 'video', '[]', NULL, 3840, 2160, NULL, 1, NULL);
-INSERT INTO items (source_id, path, kind, mime, bytes, blake3, date, date_source, album, folder_date, width, height, junk, hashed, quick) VALUES (2, '{DRONE}/DJI_0002.MP4', 'video', 'video/mp4', 290000000, '1818181818181818181818181818181818181818181818181818181818181818', '2024-06-01T11:20:00', 'video', '[]', NULL, 3840, 2160, NULL, 1, NULL);
-INSERT INTO items (source_id, path, kind, mime, bytes, blake3, date, date_source, album, folder_date, width, height, junk, hashed, quick) VALUES (2, '{DRONE}/DJI_0003.JPG', 'photo', 'image/jpeg', 8100000, '2929292929292929292929292929292929292929292929292929292929292929', '2024-06-01T11:30:00', 'exif', '[]', NULL, 4000, 3000, NULL, 1, NULL);
+INSERT INTO items (source_id, path, kind, mime, bytes, blake3, date, date_source, album, folder_date, width, height, junk, hashed, quick) VALUES (2, '{BEACH}/DJI_0001.MP4', 'video', 'video/mp4', 310000000, '0707070707070707070707070707070707070707070707070707070707070707', '2024-06-01T11:00:00', 'video', '[]', NULL, 3840, 2160, NULL, 1, NULL);
+INSERT INTO items (source_id, path, kind, mime, bytes, blake3, date, date_source, album, folder_date, width, height, junk, hashed, quick) VALUES (2, '{BEACH}/DJI_0002.MP4', 'video', 'video/mp4', 290000000, '1818181818181818181818181818181818181818181818181818181818181818', '2024-06-01T11:20:00', 'video', '[]', NULL, 3840, 2160, NULL, 1, NULL);
+INSERT INTO items (source_id, path, kind, mime, bytes, blake3, date, date_source, album, folder_date, width, height, junk, hashed, quick) VALUES (2, '{BEACH}/DJI_0003.JPG', 'photo', 'image/jpeg', 8100000, '2929292929292929292929292929292929292929292929292929292929292929', '2024-06-01T11:30:00', 'exif', '[]', NULL, 4000, 3000, NULL, 1, NULL);
 INSERT INTO skipped (source_id, path, reason) VALUES (1, '{CARD}/.Trashes', 'recycle_bin');
 INSERT INTO unreadable (source_id, path, error) VALUES (1, '{CARD}/DCIM/IMG_0013.jpg', 'The file is damaged');
 -- One photo the person chose not to keep.
@@ -133,7 +133,7 @@ INSERT INTO settings (key, value) VALUES ('destinations', '[{"kind":"folder","pl
 INSERT INTO settings (key, value) VALUES ('destination', '{"kind":"folder","place":"{json:USB}","target":"folder:{json:USB}"}');
 INSERT INTO settings (key, value) VALUES ('index_key:folder:{USB}', 'index/Q9kTt3yXo0bVqUe2Ww1zRa.kvx');
 INSERT INTO settings (key, value) VALUES ('wants', '"photos"');
-INSERT INTO settings (key, value) VALUES ('wants:{DRONE}', '"videos"');
+INSERT INTO settings (key, value) VALUES ('wants:{BEACH}', '"videos"');
 INSERT INTO settings (key, value) VALUES ('left_out_folders', '["{json:CARD}/Old"]');
 INSERT INTO settings (key, value) VALUES ('left_out_types:{CARD}', '["png"]');
 INSERT INTO settings (key, value) VALUES ('online_only:{CARD}', '3');

@@ -200,7 +200,7 @@ pub struct ActivityView {
     /// What it is doing in one line, or `None` when idle.
     pub doing: Option<String>,
     /// The step a running backup is on, in its own words, such as
-    /// "Working out where each file goes: 2,500 of 11,245". `None` when no
+    /// "Working out where each file goes: 2,500 of 8,630". `None` when no
     /// backup is running.
     pub backup_step: Option<String>,
     pub jobs: Vec<Job>,
@@ -429,11 +429,11 @@ mod tests {
     #[test]
     fn a_running_backup_is_named_by_its_step_alone() {
         let view = now(Some(
-            "Working out where each file goes: 2,500 of 11,245\tD:\\DCIM\\a.jpg",
+            "Working out where each file goes: 2,500 of 8,630\tD:\\DCIM\\a.jpg",
         ));
         assert_eq!(
             view.backup_step.as_deref(),
-            Some("Working out where each file goes: 2,500 of 11,245")
+            Some("Working out where each file goes: 2,500 of 8,630")
         );
         assert_eq!(view.jobs[0].what, "Backing up your files");
         assert!(view.doing.unwrap().starts_with("Backing up your files"));

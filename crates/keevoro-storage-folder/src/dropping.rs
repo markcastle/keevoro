@@ -182,7 +182,7 @@ async fn setup(fault: Fault) -> Setup {
         .await
         .unwrap()
         .with_files(Arc::new(Shared(Dropping::new(fault))));
-    let photo = dir.path().join("IMG_6132.JPG");
+    let photo = dir.path().join("IMG_0415.JPG");
     let bytes: Vec<u8> = (0..300_000u32).map(|i| (i % 251) as u8).collect();
     std::fs::write(&photo, &bytes).unwrap();
     Setup {
@@ -195,7 +195,7 @@ async fn setup(fault: Fault) -> Setup {
 }
 
 fn original() -> ObjectKey {
-    ObjectKey::new("originals/By date/2016/2016-12/IMG_6132.JPG").unwrap()
+    ObjectKey::new("originals/By date/2016/2016-12/IMG_0415.JPG").unwrap()
 }
 
 async fn send(s: &Setup) -> Result<PutReceipt, StorageError> {

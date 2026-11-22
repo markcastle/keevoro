@@ -297,7 +297,7 @@ pub struct JobStatus {
     #[serde(flatten)]
     pub handle: JobHandle,
     /// The step it is on, in a few words, such as "Working out where each
-    /// file goes: 2,500 of 11,245".
+    /// file goes: 2,500 of 8,630".
     pub step: String,
     /// The last line it said, in full. For a backup, the file in hand
     /// follows the step after a tab.

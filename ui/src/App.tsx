@@ -805,7 +805,7 @@ function Welcome(props: { onStart: (name: string) => void; problem: string | nul
         Get started
       </button>
       <p className="quiet small">
-        A name such as “Family photos” or “Drone footage”. You can have several backups, each with its own sources
+        A name such as “Family photos” or “Holiday videos”. You can have several backups, each with its own sources
         and its own place to send things, and come back to any of them later.
       </p>
       {props.problem && (
@@ -881,7 +881,7 @@ function BackupPicker(props: {
               <input
                 value={naming}
                 onChange={(e) => setNaming(e.target.value)}
-                placeholder="Such as Drone footage"
+                placeholder="Such as Holiday videos"
                 aria-label="Name for the new backup"
                 maxLength={60}
                 autoFocus

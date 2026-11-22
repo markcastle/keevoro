@@ -231,7 +231,7 @@ pub struct StageView {
     pub work: u64,
     /// Per second, while it runs and once measured.
     pub per_second: Option<f64>,
-    /// In a few words, as shown: "Backing up your files: 708.4 GB of 716.8
+    /// In a few words, as shown: "Backing up your files: 303.9 GB of 312.4
     /// GB at 7.5 MB/s". For a stage that went wrong, what went wrong is
     /// in it too.
     pub line: String,

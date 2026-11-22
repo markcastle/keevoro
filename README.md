@@ -39,7 +39,7 @@ It is a desktop app for Windows and macOS, with a command-line tool that does th
 Three words you will see:
 
 - A **source** is anywhere Keevoro looks for photos: a drive, a USB stick, a memory card, a folder.
-- A **backup** is a named job, such as "Family photos" or "Drone footage". Each remembers its own sources, choices and destination, so you can come back later and it sends only what is new.
+- A **backup** is a named job, such as "Family photos" or "Holiday videos". Each remembers its own sources, choices and destination, so you can come back later and it sends only what is new.
 - A **destination** is where a backup goes: a folder, an external or network drive, Cloudflare R2, Amazon S3, Google Cloud Storage, or anything else that speaks S3. A backup can have several, and a photo counts as safe only once it is at all of them.
 
 ## 🧭 How it works

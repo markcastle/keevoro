@@ -1617,7 +1617,7 @@ mod tests {
     #[test]
     fn files_go_straight_from_the_source_to_a_folder_with_no_copy_in_between() {
         let (dir, card, home, catalog) = one_backup();
-        let to = dir.path().join("Drone footage");
+        let to = dir.path().join("Holiday videos");
         let said = send(&catalog, &home, &to);
         assert!(said.contains("Safely backed up"), "{said}");
 
@@ -2273,7 +2273,7 @@ mod tests {
     #[test]
     fn sending_again_later_only_sends_what_is_new() {
         let (dir, card, home, mut catalog) = one_backup();
-        let to = dir.path().join("Drone footage");
+        let to = dir.path().join("Holiday videos");
         send(&catalog, &home, &to);
         let again = send(&catalog, &home, &to);
         assert!(!again.contains("Safely backed up"), "nothing new to send: {again}");
@@ -2302,7 +2302,7 @@ mod tests {
     #[test]
     fn the_files_themselves_are_sent_before_any_preview_is_sent() {
         let (dir, _card, home, catalog) = one_backup();
-        let to = dir.path().join("Drone footage");
+        let to = dir.path().join("Holiday videos");
         let mut lines = Vec::new();
         let mut said = Vec::new();
         turn_alone(
@@ -2527,7 +2527,7 @@ mod tests {
     #[test]
     fn a_send_can_be_stopped_and_carried_on_later() {
         let (dir, _card, home, catalog) = one_backup();
-        let to = dir.path().join("Drone footage");
+        let to = dir.path().join("Holiday videos");
         let stop = Stop::default();
         let mut said = Vec::new();
         turn_alone(
@@ -2570,7 +2570,7 @@ mod tests {
     #[test]
     fn a_folders_index_never_says_where_the_folder_is() {
         let (dir, _card, home, catalog) = one_backup();
-        let to = dir.path().join("Drone footage");
+        let to = dir.path().join("Holiday videos");
         let said = send(&catalog, &home, &to);
         assert!(said.contains("Your private index: index/"), "{said}");
         assert!(!said.contains("file://"), "{said}");

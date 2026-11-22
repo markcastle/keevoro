@@ -19,7 +19,7 @@ impl Owner {
         let dir = tempfile::tempdir().unwrap();
         let card = dir.path().join("CARD");
         for n in 0..12u8 {
-            let p = card.join("DCIM").join(format!("IMG_61{:02}.JPG", n + 29));
+            let p = card.join("DCIM").join(format!("IMG_04{:02}.JPG", n + 12));
             std::fs::create_dir_all(p.parent().unwrap()).unwrap();
             std::fs::write(p, crate::discover::tests::real_jpeg(10 + n * 19)).unwrap();
         }
@@ -44,7 +44,7 @@ impl Owner {
     }
 
     fn share(&self) -> PathBuf {
-        self.dir.path().join("personal")
+        self.dir.path().join("Photos")
     }
 
     fn world(&self) -> World<'_> {
@@ -304,7 +304,7 @@ fn stopped_part_way_it_carries_on_without_reading_again_what_it_proved() {
 fn a_share_that_drops_out_mid_repair_changes_nothing_it_has_not_seen_and_carries_on_once_back() {
     let owner = Owner::new();
     let broken = owner.as_0_42_left_it();
-    let away = owner.dir.path().join("personal, unplugged");
+    let away = owner.dir.path().join("Photos, unplugged");
     let mut lines = 0;
     let (first, said) = owner.put_right(true, &Stop::default(), &mut |line| {
         if line.starts_with("Reading back") {
@@ -375,10 +375,10 @@ fn how_long_is_said_roundly_and_from_what_was_measured() {
     assert_eq!(about(7 * 60), "about 10 minutes");
     assert_eq!(about(59 * 60), "about 60 minutes");
     assert_eq!(about(90 * 60), "about 2 hours");
-    // The owner's backup: 480.9 GB in 15 hours 45 minutes.
-    let measured = Some((516_361_469_952, 56_700));
+    // A long backup: 312.4 GB in 10 hours 15 minutes.
+    let measured = Some((335_436_211_200, 36_900));
     let rate = likely_rate(measured, true);
-    assert_eq!(about((516_361_469_952_f64 / rate) as u64), "about 16 hours");
+    assert_eq!(about((335_436_211_200_f64 / rate) as u64), "about 10 hours");
     // Too little measured to go by: a careful guess.
     assert_eq!(likely_rate(Some((1_000, 10)), true), likely_rate(None, true));
     assert!(likely_rate(None, false) > likely_rate(None, true));
@@ -394,7 +394,7 @@ fn how_long_is_said_roundly_and_from_what_was_measured() {
 
 #[test]
 fn every_outcome_adds_up_and_its_words_never_contradict_it() {
-    let place = "the folder Y:\\personal";
+    let place = "the folder Z:\\Photos";
     for (proved, right, attention, thorough) in [(12, 0, 0, true), (3, 9, 0, false), (10, 0, 2, true), (0, 0, 1, true)]
     {
         let outcome = Outcome {

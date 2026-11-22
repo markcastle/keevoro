@@ -452,7 +452,7 @@ mod tests {
         let said = "412 files here are in OneDrive only, not on this computer, so Keevoro did not open them.";
         let sources = summary(
             Op::SourcesList,
-            &json!([{ "id": 1, "name": "OneDrive", "root": "C:\\Users\\Mark\\OneDrive", "items": 30, "onlineOnly": 412, "onlineOnlySaid": said }]),
+            &json!([{ "id": 1, "name": "OneDrive", "root": "C:\\Users\\You\\OneDrive", "items": 30, "onlineOnly": 412, "onlineOnlySaid": said }]),
         );
         assert!(sources.ends_with(&format!("30 files. {said}")), "{sources}");
         let looked = summary(
@@ -462,7 +462,7 @@ mod tests {
         assert!(looked.contains(said), "{looked}");
         let surveyed = summary(
             Op::JobsStatus,
-            &json!([{ "id": 4, "ended": true, "last": { "hints": [{ "folder": "C:\\Users\\Mark\\OneDrive\\Pictures", "photos": 500, "videos": 0, "bytes": 1, "likelyPhotos": true, "alreadyASource": false, "onlineOnly": 412, "onlineOnlySaid": said }], "folders": 1, "files": 2, "unreadable": 0, "seconds": 0.1, "stopped": false } }]),
+            &json!([{ "id": 4, "ended": true, "last": { "hints": [{ "folder": "C:\\Users\\You\\OneDrive\\Pictures", "photos": 500, "videos": 0, "bytes": 1, "likelyPhotos": true, "alreadyASource": false, "onlineOnly": 412, "onlineOnlySaid": said }], "folders": 1, "files": 2, "unreadable": 0, "seconds": 0.1, "stopped": false } }]),
         );
         assert!(surveyed.contains(said), "{surveyed}");
     }

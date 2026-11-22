@@ -515,7 +515,7 @@ mod tests {
     use super::*;
     use keevoro_scan::map::{Builder, CountedIn, FileSeen, Limits, Listing};
 
-    /// A map of `root` with `Users/Mark/Documents` and two years of
+    /// A map of `root` with `Users/You/Documents` and two years of
     /// pictures, one with a big video.
     fn surveyed(root: &Path) -> Remembered {
         let limits = Limits::default();
@@ -536,11 +536,11 @@ mod tests {
         b.record(CountedIn::Own(0), Listing::default());
         let users = b.subfolders(CountedIn::Own(0), &[("Users", None)]).unwrap();
         b.record(CountedIn::Own(users), Listing::default());
-        let mark = b.subfolders(CountedIn::Own(users), &[("Mark", None)]).unwrap();
-        b.record(CountedIn::Own(mark), Listing::default());
+        let you = b.subfolders(CountedIn::Own(users), &[("You", None)]).unwrap();
+        b.record(CountedIn::Own(you), Listing::default());
         let first = b
             .subfolders(
-                CountedIn::Own(mark),
+                CountedIn::Own(you),
                 &[
                     ("Documents", None),
                     ("Pictures", None),
@@ -583,7 +583,7 @@ mod tests {
         let root = dir.path().join("C");
         let survey = surveyed(&root);
         save(&cache, &survey).unwrap();
-        let pictures = root.join("Users").join("Mark").join("Pictures");
+        let pictures = root.join("Users").join("You").join("Pictures");
         let loaded = covering(&cache, &pictures).unwrap();
         assert_eq!(loaded.survey, survey, "every folder, ending and named file as it was");
         assert_eq!(loaded.totals, survey.map.totals());
@@ -664,7 +664,7 @@ mod tests {
         save(&cache, &surveyed(&drive)).unwrap();
         save(&cache, &surveyed(&elsewhere)).unwrap();
         assert!(!searched_since(&cache, &drive));
-        mark_out_of_date(&cache, &drive.join("Users").join("Mark").join("Pictures"));
+        mark_out_of_date(&cache, &drive.join("Users").join("You").join("Pictures"));
         assert!(
             searched_since(&cache, &drive),
             "a source inside the drive was looked through"

@@ -4,7 +4,7 @@
 //! record of it (`.keevoro/catalog.sqlite`) and the previews it makes. It
 //! is working space, never a copy of anyone's photos.
 //!
-//! A backup is opened by its home folder. Named backups ("Drone footage")
+//! A backup is opened by its home folder. Named backups ("Holiday videos")
 //! are listed by [`crate::Backups`], which finds the home folder for a name
 //! and hands back this same [`Backup`].
 

@@ -1,11 +1,11 @@
 //! What went wrong with a file, said truthfully and plainly, and when to
 //! stop trying a place that seems to have gone.
 //!
-//! The owner's backup to a network share showed "Couldn't read it from its
+//! A backup to a network share can show "Couldn't read it from its
 //! source (The media is write protected. (os error 19))" and "(This user
 //! can't sign in because this account is currently disabled. (os error
-//! 1331))" for 176 files in a row. Nothing was wrong with the source, the
-//! media or the account: the connection to the share had dropped for a few
+//! 1331))" for file after file. Nothing is wrong with the source, the
+//! media or the account: the connection to the share has dropped for a few
 //! minutes, and Windows says so in those words when a share's session goes
 //! part-way through. So:
 //!
@@ -170,7 +170,7 @@ pub fn place_seems_gone(recent: &[Try]) -> bool {
 }
 
 /// Why, as the end of a sentence about one file (`one`) or several.
-/// `place` is the place in words ("the folder Y:\personal");
+/// `place` is the place in words ("the folder Z:\Photos");
 /// `across_a_network` says whether it is a share or cloud storage. Pure.
 pub fn cause_words(cause: Cause, side: Side, place: &str, across_a_network: bool, one: bool) -> String {
     let source = side == Side::Source;
@@ -327,25 +327,25 @@ mod tests {
 
     #[test]
     fn files_are_said_in_groups_by_side_and_cause_with_the_first_few_names() {
-        let names: Vec<String> = (6129..6305)
-            .map(|n| format!("originals/By date/2016/2016-12/IMG_{n}.JPG"))
+        let names: Vec<String> = (412..544)
+            .map(|n| format!("originals/By date/2016/2016-12/IMG_{n:04}.JPG"))
             .collect();
         let why = cause_words(
             Cause::ConnectionLost,
             Side::Destination,
-            "the folder Y:\\personal",
+            "the folder Z:\\Photos",
             true,
             false,
         );
         assert_eq!(
             group_words(&names, &why, false),
-            "Couldn't back up 176 files, because the connection to the folder Y:\\personal was lost for a while: \
-             IMG_6129.JPG, IMG_6130.JPG, IMG_6131.JPG and 173 more."
+            "Couldn't back up 132 files, because the connection to the folder Z:\\Photos was lost for a while: \
+             IMG_0412.JPG, IMG_0413.JPG, IMG_0414.JPG and 129 more."
         );
         assert_eq!(
             group_words(&names[..12], &why, true),
-            "These 12 files could not be backed up again, because the connection to the folder Y:\\personal was \
-             lost for a while: IMG_6129.JPG, IMG_6130.JPG, IMG_6131.JPG and 9 more."
+            "These 12 files could not be backed up again, because the connection to the folder Z:\\Photos was \
+             lost for a while: IMG_0412.JPG, IMG_0413.JPG, IMG_0414.JPG and 9 more."
         );
         assert_eq!(
             group_words(
@@ -353,13 +353,13 @@ mod tests {
                 &cause_words(Cause::NotFound, Side::Source, "x", false, false),
                 false
             ),
-            "Couldn't back up 2 files, because they were no longer where they were found: IMG_6129.JPG and \
-             IMG_6130.JPG."
+            "Couldn't back up 2 files, because they were no longer where they were found: IMG_0412.JPG and \
+             IMG_0413.JPG."
         );
         assert_eq!(
             group_words(&names[..1], &why, true),
-            "This file could not be backed up again, because the connection to the folder Y:\\personal was lost \
-             for a while: IMG_6129.JPG."
+            "This file could not be backed up again, because the connection to the folder Z:\\Photos was lost \
+             for a while: IMG_0412.JPG."
         );
         assert_eq!(
             cause_words(Cause::NotFound, Side::Source, "x", false, true),
@@ -372,7 +372,7 @@ mod tests {
             Cause::NotAllowed,
             Cause::WriteProtected,
         ] {
-            let said = cause_words(cause, Side::Destination, "the folder Y:\\personal", true, false);
+            let said = cause_words(cause, Side::Destination, "the folder Z:\\Photos", true, false);
             assert!(!said.contains("found"), "{said}");
             assert!(!said.contains('\u{2014}'), "{said}");
         }

@@ -1046,26 +1046,26 @@ pub(crate) mod tests {
     fn backups_are_started_renamed_and_forgotten_with_a_line_in_the_log_each() {
         let dir = tempfile::tempdir().unwrap();
         let keevoro = keevoro(dir.path());
-        let drone = keevoro.start_backup("Drone footage").unwrap();
-        assert!(drone.home.starts_with(dir.path().join("data").join("backups")));
+        let beach = keevoro.start_backup("Holiday videos").unwrap();
+        assert!(beach.home.starts_with(dir.path().join("data").join("backups")));
         keevoro.start_backup("Family").unwrap();
-        let renamed = keevoro.rename_backup("drone footage", "Drone").unwrap();
-        assert_eq!(renamed.id, drone.id);
+        let renamed = keevoro.rename_backup("holiday videos", "Beach").unwrap();
+        assert_eq!(renamed.id, beach.id);
         assert!(keevoro
             .switch_to(&keevoro.backups().find("Family").unwrap().id)
             .unwrap());
         assert!(!keevoro.switch_to("nonsense").unwrap());
-        let gone = keevoro.forget_backup("Drone", false).unwrap();
+        let gone = keevoro.forget_backup("Beach", false).unwrap();
         assert!(gone.removed);
-        assert!(!drone.home.exists(), "its folder is set aside");
+        assert!(!beach.home.exists(), "its folder is set aside");
 
         let log = keevoro.log_tail(10);
         for line in [
-            "Started backup \"Drone footage\"",
+            "Started backup \"Holiday videos\"",
             "Started backup \"Family\"",
-            "Renamed backup \"Drone footage\" to \"Drone\"",
+            "Renamed backup \"Holiday videos\" to \"Beach\"",
             "Switched to backup \"Family\"",
-            "Removed backup \"Drone\". Nothing at its destinations or on its sources was touched",
+            "Removed backup \"Beach\". Nothing at its destinations or on its sources was touched",
         ] {
             assert!(log.contains(line), "{line} is missing from:\n{log}");
         }
@@ -1076,7 +1076,7 @@ pub(crate) mod tests {
     fn the_list_of_backups_says_what_each_holds_without_making_folders() {
         let dir = tempfile::tempdir().unwrap();
         let keevoro = keevoro(dir.path());
-        let drone = keevoro.start_backup("Drone").unwrap();
+        let beach = keevoro.start_backup("Beach").unwrap();
         let unplugged = keevoro.start_backup("Unplugged").unwrap();
         keevoro.switch_to(&unplugged.id).unwrap();
         // Its home folder is on a drive that is not plugged in.
@@ -1084,8 +1084,8 @@ pub(crate) mod tests {
 
         let list = keevoro.list_backups();
         assert_eq!(list.len(), 2);
-        assert_eq!((list[0].name.as_str(), list[0].open), ("Drone", false));
-        assert_eq!(list[0].home, drone.home.display().to_string());
+        assert_eq!((list[0].name.as_str(), list[0].open), ("Beach", false));
+        assert_eq!(list[0].home, beach.home.display().to_string());
         let counts = list[0].found.clone().unwrap();
         assert_eq!((counts.sources, counts.photos, counts.waiting), (0, 0, 0));
         assert!(list[1].open);
@@ -1098,17 +1098,17 @@ pub(crate) mod tests {
         let dir = tempfile::tempdir().unwrap();
         let app = keevoro(dir.path());
         let command_line = keevoro(dir.path());
-        let drone = app.start_backup("Drone footage").unwrap();
+        let beach = app.start_backup("Holiday videos").unwrap();
         // Started after the command line opened, and seen at once.
-        assert_eq!(command_line.list_backups()[0].id, drone.id);
+        assert_eq!(command_line.list_backups()[0].id, beach.id);
         assert_eq!(
-            command_line.backups().named_or_open(Some("drone footage")).unwrap(),
-            drone
+            command_line.backups().named_or_open(Some("holiday videos")).unwrap(),
+            beach
         );
         command_line.start_backup("Family").unwrap();
-        command_line.rename_backup("Drone footage", "Drone").unwrap();
+        command_line.rename_backup("Holiday videos", "Beach").unwrap();
         let names: Vec<String> = app.list_backups().into_iter().map(|b| b.name).collect();
-        assert_eq!(names, ["Drone", "Family"]);
+        assert_eq!(names, ["Beach", "Family"]);
         app.set_own_codecs(false).unwrap();
         assert!(command_line.backups().read().plain_decoding);
         app.set_own_codecs(true).unwrap();
@@ -1140,11 +1140,11 @@ pub(crate) mod tests {
     fn a_reset_is_logged_and_starts_from_nothing() {
         let dir = tempfile::tempdir().unwrap();
         let keevoro = keevoro(dir.path());
-        let home = keevoro.start_backup("Drone").unwrap().home;
+        let home = keevoro.start_backup("Beach").unwrap().home;
         keevoro.start_backup("Test 2").unwrap();
         keevoro.forget_backup("Test 2", false).unwrap();
         let done = keevoro.reset().unwrap();
-        assert_eq!(done.removed, ["Drone"]);
+        assert_eq!(done.removed, ["Beach"]);
         assert!(!home.exists());
         assert!(keevoro.removed_backups().is_empty(), "nor one removed and waiting");
         assert!(!dir.path().join("data").join("removed").exists());
@@ -1154,7 +1154,7 @@ pub(crate) mod tests {
             .contains("Reset to how Keevoro was when first installed: 1 backups removed"));
         assert_eq!(
             serde_json::to_value(&done).unwrap(),
-            serde_json::json!({ "removed": ["Drone"], "leftAlone": [] })
+            serde_json::json!({ "removed": ["Beach"], "leftAlone": [] })
         );
     }
 

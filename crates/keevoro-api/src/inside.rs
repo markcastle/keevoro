@@ -29,7 +29,7 @@ pub const MOST_AT_ONCE: usize = 500;
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FilesRequest {
-    /// The folder, written whole, such as `C:\Users\Mark\Pictures\2019`.
+    /// The folder, written whole, such as `C:\Users\You\Pictures\2019`.
     pub place: String,
     /// How many to pass over first, for the next page. 0 when left out.
     #[serde(default)]
