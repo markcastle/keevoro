@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.46.0] - 2026-11-22
+
 ### Added
 
 - **Keevoro by the clock.** Keevoro now has an icon by the clock: in the notification area on Windows, the menu bar on a Mac, and the system tray on Linux where the desktop has one. Hover over it and it says what is happening, in one line: "All backed up. Next: tonight at 02:30", "Backing up Family photos, about 12 minutes left", "Paused" or "Something needs your say", and its picture changes shape to match (an arrow while backing up, two bars while paused, an exclamation mark when something waits for you). Its menu has Open Keevoro, Pause (for an hour, until tomorrow morning, or until you carry on) and Carry on, which is the same Pause as in the window, Back up now, Stop this backup while one runs, Settings… and Quit Keevoro. On Windows a click on the icon brings the window back.
@@ -747,7 +751,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.45.1...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.46.0...HEAD
+[0.46.0]: https://github.com/markcastle/keevoro/compare/v0.45.1...v0.46.0
 [0.45.1]: https://github.com/markcastle/keevoro/compare/v0.45.0...v0.45.1
 [0.45.0]: https://github.com/markcastle/keevoro/compare/v0.44.0...v0.45.0
 [0.44.0]: https://github.com/markcastle/keevoro/compare/v0.43.0...v0.44.0
