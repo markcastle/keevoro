@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.45.1] - 2026-11-22
+
 ### Fixed
 
 - **The check for duplicates no longer carries on over a drive you have removed.** Our outside tester Adam found Keevoro still "checking for duplicates in the background (5,501 of 6,816)" on a drive he had taken out. Now, before it reads anything, the check looks once at each source, and passes over every file of one that is not plugged in, without trying them one by one; if a drive is pulled out while a file is being read, the rest of that drive is passed over at once. Sources that are still there are checked as before. It says so, at the foot of the window, in the log and in `keevoro status`: for example "KINGSTON (E:) is not plugged in, so its 1,315 files not yet checked for duplicates will be checked when it is back." When there is nothing else to check, the check ends. Nothing found or chosen is changed: those files simply stay "not checked yet", as when you stop the check, and a backup still reads in full any file that looks like another before sending it, so nothing is backed up twice or left out by mistake. The check starts again by itself the next time that source is looked through or backed up, and "Check for duplicates now" while it is still unplugged says plainly why there is nothing to check.
@@ -732,7 +736,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.45.0...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.45.1...HEAD
+[0.45.1]: https://github.com/markcastle/keevoro/compare/v0.45.0...v0.45.1
 [0.45.0]: https://github.com/markcastle/keevoro/compare/v0.44.0...v0.45.0
 [0.44.0]: https://github.com/markcastle/keevoro/compare/v0.43.0...v0.44.0
 [0.43.0]: https://github.com/markcastle/keevoro/compare/v0.42.0...v0.43.0
