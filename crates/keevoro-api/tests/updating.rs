@@ -73,6 +73,13 @@ fn fixture(name: &str) -> String {
 
 /// Keevoro's folders as 0.37.1 left them, opened by the Keevoro of today.
 fn as_0_37_1_left_it(dir: &Path) -> (Keevoro, Places) {
+    // 0.37.1 kept each source under its real path, as Keevoro does now, so
+    // the places are spelled that way here too: a temporary folder can be
+    // reached by another spelling (`/var/...` for `/private/var/...` on a
+    // Mac, a short `RUNNER~1` name on Windows), and a source kept under
+    // that one would be taken by the next look for a different place.
+    let dir = std::fs::canonicalize(dir).unwrap();
+    let dir = dir.as_path();
     let places = Places {
         card: dir.join("Card"),
         beach: dir.join("Beach"),
@@ -646,6 +653,15 @@ fn files_0_37_1_found_have_no_time_kept_and_the_next_look_keeps_one() {
     keevoro.wait_for_jobs();
     let after = found();
     assert_eq!(after.len(), 1, "{after:?}");
+    // The look replaced the source, never added a second one beside it.
+    let cards = keevoro_catalog::Catalog::open_in_library(&home)
+        .unwrap()
+        .sources()
+        .unwrap()
+        .into_iter()
+        .filter(|s| s.root.ends_with("Card"))
+        .count();
+    assert_eq!(cards, 1);
     assert!(after[0].modified.is_some());
 }
 
