@@ -435,7 +435,7 @@ mod tests {
                 glance().backups[0].clone(),
                 GlanceBackup {
                     id: "backup-2".into(),
-                    name: "Drone footage".into(),
+                    name: "Holiday videos".into(),
                     busy: true,
                 },
             ],
@@ -448,7 +448,7 @@ mod tests {
                 "---",
                 "Open Keevoro",
                 "Carry on",
-                "Back up now > Family photos / (Drone footage)",
+                "Back up now > Family photos / (Holiday videos)",
                 "---",
                 "Settings…",
                 "Quit Keevoro",

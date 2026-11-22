@@ -323,7 +323,7 @@ export type Looked = {
 }
 
 /**
- * One job the person comes back to, such as "Drone footage": its own
+ * One job the person comes back to, such as "Holiday videos": its own
  * sources, its own choices and its own place to send things.
  */
 export type Backup = { id: string; name: string }
@@ -700,7 +700,7 @@ export type BackupStage = {
   work: number
   /** Per second, while it runs and once measured. */
   perSecond: number | null
-  /** As shown: "Backing up your files: 708.4 GB of 716.8 GB at 7.5 MB/s". What went wrong is in it too. */
+  /** As shown: "Backing up your files: 303.9 GB of 312.4 GB at 7.5 MB/s". What went wrong is in it too. */
   line: string
   /** What went wrong, in words, when it did: "Couldn't back up 3 files". */
   problem?: string

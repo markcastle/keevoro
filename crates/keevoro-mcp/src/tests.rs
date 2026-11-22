@@ -162,7 +162,7 @@ async fn answers_are_a_summary_and_the_apis_json_and_problems_say_why() {
     );
 
     // Refused while the person allows only looking, with the API's words.
-    let refused = app.tool("start_backup", json!({ "name": "Drone" })).await;
+    let refused = app.tool("start_backup", json!({ "name": "Beach" })).await;
     assert_eq!(refused["isError"], true);
     assert_eq!(text_of(&refused, 0), keevoro_api::for_agents::LOOK_ONLY);
     assert_eq!(refused["structuredContent"]["kind"], "refused");

@@ -52,19 +52,15 @@ mod tests {
     #[test]
     fn a_folder_holds_itself_and_what_is_beneath_it() {
         for ignore_case in [false, true] {
-            assert!(within_by(&p("/home/mark/Photos"), &p("/home/mark/Photos"), ignore_case));
+            assert!(within_by(&p("/home/you/Photos"), &p("/home/you/Photos"), ignore_case));
             assert!(within_by(
-                &p("/home/mark/Photos/2019/a.jpg"),
-                &p("/home/mark/Photos"),
+                &p("/home/you/Photos/2019/a.jpg"),
+                &p("/home/you/Photos"),
                 ignore_case
             ));
-            assert!(within_by(
-                &p("/home/mark/Photos/"),
-                &p("/home/mark/Photos"),
-                ignore_case
-            ));
+            assert!(within_by(&p("/home/you/Photos/"), &p("/home/you/Photos"), ignore_case));
             assert!(
-                !within_by(&p("/home/mark"), &p("/home/mark/Photos"), ignore_case),
+                !within_by(&p("/home/you"), &p("/home/you/Photos"), ignore_case),
                 "not its parent"
             );
         }
@@ -74,21 +70,21 @@ mod tests {
     fn a_sibling_with_a_similar_name_is_never_inside() {
         for ignore_case in [false, true] {
             assert!(!within_by(
-                &p("/home/mark/Photos 2"),
-                &p("/home/mark/Photos"),
+                &p("/home/you/Photos 2"),
+                &p("/home/you/Photos"),
                 ignore_case
             ));
             assert!(!within_by(
-                &p("/home/mark/Photos 2/a.jpg"),
-                &p("/home/mark/Photos"),
+                &p("/home/you/Photos 2/a.jpg"),
+                &p("/home/you/Photos"),
                 ignore_case
             ));
             assert!(!within_by(
-                &p("/home/mark/Photosynthesis"),
-                &p("/home/mark/Photos"),
+                &p("/home/you/Photosynthesis"),
+                &p("/home/you/Photos"),
                 ignore_case
             ));
-            assert!(!within_by(&p("/home/mark/Pic"), &p("/home/mark/Pictures"), ignore_case));
+            assert!(!within_by(&p("/home/you/Pic"), &p("/home/you/Pictures"), ignore_case));
         }
         assert!(
             !within_by(&p("/anything"), &p(""), false),
@@ -98,14 +94,10 @@ mod tests {
 
     #[test]
     fn case_is_ignored_only_where_the_file_system_ignores_it() {
-        assert!(within_by(&p("/home/mark/PHOTOS/a.jpg"), &p("/home/mark/Photos"), true));
-        assert!(!within_by(
-            &p("/home/mark/PHOTOS/a.jpg"),
-            &p("/home/mark/Photos"),
-            false
-        ));
+        assert!(within_by(&p("/home/you/PHOTOS/a.jpg"), &p("/home/you/Photos"), true));
+        assert!(!within_by(&p("/home/you/PHOTOS/a.jpg"), &p("/home/you/Photos"), false));
         assert_eq!(
-            within(&p("/home/mark/PHOTOS"), &p("/home/mark/Photos")),
+            within(&p("/home/you/PHOTOS"), &p("/home/you/Photos")),
             cfg!(windows),
             "Windows ignores case; Macs and Linux, as Keevoro sees them, do not"
         );

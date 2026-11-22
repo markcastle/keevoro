@@ -326,7 +326,7 @@ mod tests {
     fn a_settings_file_with_no_changes_to_the_list_is_written_as_before() {
         let dir = tempfile::tempdir().unwrap();
         let k = keevoro(dir.path());
-        k.start_backup("Drone").unwrap();
+        k.start_backup("Beach").unwrap();
         let text = std::fs::read_to_string(dir.path().join("config").join("settings.json")).unwrap();
         assert!(!text.contains("file_kinds"), "{text}");
         k.add_file_kind("xyz", keevoro_core::MediaKind::Photo).unwrap();

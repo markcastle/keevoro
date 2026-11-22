@@ -249,7 +249,7 @@ pub static ROWS: &[Row] = &[
         ops: &[Op::BackupsStart],
         about: None,
         args: |c| {
-            c.arg(arg("name", "What to call it, such as \"Drone footage\"").required(true))
+            c.arg(arg("name", "What to call it, such as \"Holiday videos\"").required(true))
                 .arg(
                     Arg::new("wants")
                         .long("wants")

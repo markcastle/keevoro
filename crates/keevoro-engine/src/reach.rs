@@ -5,7 +5,7 @@
 //! several at once only make the disk hop about. Writing across a network,
 //! most of the time for a small file goes on waiting for the far end to
 //! answer, so several at once is several times quicker. A folder gives no
-//! sign of which it is from its name alone: `Y:\Backups` may be a disk in
+//! sign of which it is from its name alone: `Z:\Backups` may be a disk in
 //! the machine or storage in another country.
 
 use std::path::Path;
@@ -56,7 +56,7 @@ pub fn is_there(root: &Path) -> bool {
 /// Is this folder across a network?
 ///
 /// On Windows the system is asked what the path really is. A mapped drive
-/// letter such as `Y:` comes back as the share it stands for
+/// letter such as `Z:` comes back as the share it stands for
 /// (`\\server\share`), which is how a network drive is told from a disk
 /// without any special permissions. Elsewhere this cannot yet tell, and
 /// says no, which only means files go one at a time as before.
@@ -95,11 +95,11 @@ mod tests {
     #[test]
     fn a_share_is_told_from_a_disk_by_what_the_path_really_is() {
         // What Windows says a mapped network drive really is.
-        assert!(names_a_share(r"\\?\UNC\u123456.your-storagebox.de\backup\Keevoro"));
+        assert!(names_a_share(r"\\?\UNC\nas.example.net\backup\Keevoro"));
         assert!(names_a_share(r"\\nas\photos"));
         assert!(names_a_share("//nas/photos"));
         // Disks, however they are written.
-        assert!(!names_a_share(r"\\?\C:\Users\Mark\Pictures"));
+        assert!(!names_a_share(r"\\?\C:\Users\You\Pictures"));
         assert!(!names_a_share(r"D:\Backups"));
         assert!(!names_a_share("/Volumes/Backup"));
         assert!(!names_a_share(r"\\"));

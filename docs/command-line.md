@@ -8,15 +8,15 @@ The first half of this page walks through a first backup from start to finish. T
 
 ### Start a backup
 
-A **backup** is one job you come back to, with a name: "Family photos", say, or "Drone footage". Each has its own sources, its own choices and its own places to back up to.
+A **backup** is one job you come back to, with a name: "Family photos", say, or "Holiday videos". Each has its own sources, its own choices and its own places to back up to.
 
 ```sh
-keevoro backups start "Drone footage"
+keevoro backups start "Holiday videos"
 ```
 
 ```text
-Started the backup "Drone footage".
-Next, look through a source for it: keevoro look <a drive or folder> -b "Drone footage"
+Started the backup "Holiday videos".
+Next, look through a source for it: keevoro look <a drive or folder> -b "Holiday videos"
 ```
 
 Most commands work on one backup. Name it with `-b`. Leave `-b` out and the backup the app has open is used, which is simply your backup when you only have one, so the rest of this walk-through leaves it out.
@@ -32,19 +32,19 @@ keevoro survey "D:\"
 ```
 
 ```text
-Looked at 481,907 files in 36,412 folders in 6.2 seconds, without opening any of them.
-  94.0 GB  333 photos and 26 videos  D:\Users\Mark\Videos\Drone
-  61.0 GB  11,204 photos and 310 videos  D:\Users\Mark\Pictures
+Looked at 352,640 files in 28,915 folders in 5.4 seconds, without opening any of them.
+  88.0 GB  287 photos and 31 videos  D:\Users\You\Videos\Holidays
+  52.0 GB  9,318 photos and 274 videos  D:\Users\You\Pictures
    9.0 MB  1,840 photos and 0 videos  D:\Games\Launcher\assets  (small pictures, probably not photos)
 ```
 
 It goes by file names, so it is a good guess and not a promise. Keevoro remembers what it found, so you can look inside a suggestion before choosing it, without waiting again. Nothing is added or changed:
 
 ```sh
-keevoro folders "D:\Users\Mark\Pictures"
-keevoro files "D:\Users\Mark\Pictures\Camera Roll" --count 20
-keevoro files "D:\Users\Mark\Pictures\Camera Roll" --videos --sort newest
-keevoro picture --file "D:\Users\Mark\Pictures\Camera Roll\IMG_0001.jpg" --to look.webp
+keevoro folders "D:\Users\You\Pictures"
+keevoro files "D:\Users\You\Pictures\Camera Roll" --count 20
+keevoro files "D:\Users\You\Pictures\Camera Roll" --videos --sort newest
+keevoro picture --file "D:\Users\You\Pictures\Camera Roll\IMG_0001.jpg" --to look.webp
 ```
 
 `folders` lists the folders inside that hold photos or videos, with how many each holds; `files` lists one folder's photos and videos a page at a time (`--from` and `--count`, at most 500), by name or with `--sort newest` or `--sort oldest` by each file's date (when it was last changed or copied, which is not always when it was taken), all of them or only `--photos` or `--videos`, with how long each video lasts when its file says (MP4, MOV, M4V and 3GP); `picture --file` saves a picture of any of them. The picture is kept in Keevoro's own cache, and a file only in OneDrive (or iCloud) is never opened.
@@ -52,16 +52,16 @@ keevoro picture --file "D:\Users\Mark\Pictures\Camera Roll\IMG_0001.jpg" --to lo
 The survey also remembers where the space goes: every folder and the biggest files, photos or not, so you can see what fills a drive (zip files, screen recordings, an old library) before choosing what to back up. Folders Keevoro never looks through, such as system folders, are measured last, once the suggestions are ready:
 
 ```sh
-keevoro map "D:\Users\Mark\Pictures"
+keevoro map "D:\Users\You\Pictures"
 ```
 
 ```text
-Where the space goes in D:\Users\Mark\Pictures (mapped 2 minutes ago)
-  44.0 GB  100%  Pictures  12,436 photos, 179 videos, 172 other files
+Where the space goes in D:\Users\You\Pictures (mapped 2 minutes ago)
+  44.2 GB  100%  Pictures  12,506 photos, 169 videos, 172 other files
   17.7 GB   40%    Texture packs  160 other files
-   9.2 GB   21%    Keevoro Library  6,830 photos, 100 videos, 1 other file  (A library from an older Keevoro, never looked through)
+   9.4 GB   21%    Keevoro Library  6,900 photos, 90 videos, 1 other file  (A library from an older Keevoro, never looked through)
    9.1 GB   21%    Captures  41 videos
-By kind: photos 13.8 GB (31%), videos 12.4 GB (28%), everything else 17.7 GB (40%)
+By kind: photos 14.0 GB (32%), videos 12.4 GB (28%), everything else 17.7 GB (40%)
 Of it, 17.1 GB is photos and videos Keevoro would back up.
 ```
 
@@ -70,11 +70,11 @@ Of it, 17.1 GB is photos and videos Keevoro would back up.
 ### Look through a source
 
 ```sh
-keevoro look "D:\Users\Mark\Videos\Drone"
+keevoro look "D:\Users\You\Videos\Holidays"
 ```
 
 ```text
-Looked through Drone: found 333 photos and 26 videos.
+Looked through Holidays: found 287 photos and 31 videos.
 ```
 
 While it looks, a line underneath says how far it has got. The source is now part of the backup. `keevoro sources` lists them, and `keevoro look --again` looks through them all again later for anything new.
@@ -88,10 +88,10 @@ keevoro found
 ```
 
 ```text
-Found 333 photos and 26 videos (94.0 GB).
+Found 287 photos and 31 videos (88.0 GB).
 12 duplicates left out, saving 1.1 GB.
 40 pictures set aside as probably not photos. `keevoro set-aside` lists them.
-359 files not yet safely backed up (92.9 GB).
+318 files not yet safely backed up (86.9 GB).
 ```
 
 Files are grouped into collections: your own folders, and moments by date for the rest.
@@ -101,18 +101,18 @@ keevoro collections
 ```
 
 ```text
-Drone / Coast  June 2024 · 120 photos · 12 videos
-Drone / Test flights  May 2024 · 213 photos · 14 videos
+Holidays / Coast  June 2024 · 104 photos · 13 videos
+Holidays / Camping  May 2024 · 183 photos · 18 videos
 ```
 
 To leave a collection out, and to change your mind:
 
 ```sh
-keevoro skip "Test flights"
+keevoro skip "Camping"
 ```
 
 ```sh
-keevoro keep "Test flights"
+keevoro keep "Camping"
 ```
 
 Leaving something out only means it is not backed up. Nothing is ever deleted. To choose photo by photo, list a collection; each line starts with a short code:
@@ -122,8 +122,8 @@ keevoro photos "Coast"
 ```
 
 ```text
-9f2c4be1a7d03e55  DJI_0001.JPG  2024-06-12T10:15:00
-41aa09cd22e1f0b7  DJI_0002.JPG  2024-06-12T10:16:41
+9f2c4be1a7d03e55  IMG_0101.JPG  2024-06-12T10:15:00
+41aa09cd22e1f0b7  IMG_0102.JPG  2024-06-12T10:16:41
 ```
 
 Give a code to `keevoro skip --photo` or `keevoro keep --photo`. The same works for a picture that was set aside: a tiny scan of an old print may be the only copy there is. `keevoro duplicates` lists every file found more than once, with the copy kept and the copies left out. A copy is only left out when it matches byte for byte. To look at one, `keevoro picture 9f2c4be1a7d03e55 --large --to look.webp` saves a picture of it.
@@ -133,11 +133,11 @@ Give a code to `keevoro skip --photo` or `keevoro keep --photo`. The same works 
 A **destination** is where a backup goes: an external drive, a network share, or cloud storage. A backup can have several, and is only called safe once it is at every one.
 
 ```sh
-keevoro destinations add --folder "Y:\Drone footage"
+keevoro destinations add --folder "F:\Holiday videos"
 ```
 
 ```text
-Keevoro checked the folder Y:\Drone footage works, and will back up there.
+Keevoro checked the folder F:\Holiday videos works, and will back up there.
 ```
 
 Keevoro checks every place works before adding it. For cloud storage, see [Cloud storage and keys](#cloud-storage-and-keys) below.
@@ -153,7 +153,7 @@ keevoro rehearse
 Both this and `keevoro run` first look at what is really at each place you back up to, by name and size, so a backup folder emptied, swapped or cut short is said before anything is sent, and what has gone is sent again:
 
 ```text
-The folder E:\Backup looks emptied or replaced: it no longer holds any of the 359 files Keevoro backed up there. They will be sent again.
+The folder E:\Backup looks emptied or replaced: it no longer holds any of the 318 files Keevoro backed up there. They will be sent again.
 ```
 
 A place that cannot be reached (a drive unplugged, a share offline, keys refused) is said to be out of reach, and nothing Keevoro knows about it is forgotten.
@@ -165,11 +165,11 @@ keevoro run
 ```
 
 ```text
-Safely backed up 359 files (92.9 GB).
+Safely backed up 318 files (86.9 GB).
 Previews added: 1,413 files (310.2 MB).
-Index written for 359 files in 2 albums.
+Index written for 318 files in 2 albums.
 Your private index: index/q7Zp4xKm2Tf9LwR3bN8vYc.kvx
-That took about 36 minutes: 93.2 GB at an average of 43.1 MB a second.
+That took about 36 minutes: 87.2 GB at an average of 41.3 MB a second.
 ```
 
 The originals go first, straight from your sources, each one proved exact: it is fingerprinted as it is read, and the copy is read back and compared before it counts. Previews for a gallery come after. An original already in the backup is never replaced, and running it again sends only what is new. If you would rather send the originals alone, `keevoro previews off`.
@@ -185,7 +185,7 @@ keevoro check
 ```
 
 ```text
-Your backup: all 359 originals are there.
+Your backup: all 318 originals are there.
 ```
 
 ### Put it right
@@ -197,8 +197,8 @@ keevoro repair plan
 ```
 
 ```text
-First, Keevoro puts right the 79 files it already knows are wrong at the folder Y:\personal, which should take about 5 minutes.
-Then it reads back in full each of the 72,024 files you are keeping there and compares it with its original: 480.9 GB, which should take about 16 hours over this connection. It works in the background, so you can use the rest of Keevoro meanwhile, and you can stop it and carry on later.
+First, Keevoro puts right the 53 files it already knows are wrong at the folder Z:\Photos, which should take about 5 minutes.
+Then it reads back in full each of the 48,210 files you are keeping there and compares it with its original: 312.4 GB, which should take about 10 hours over this connection. It works in the background, so you can use the rest of Keevoro meanwhile, and you can stop it and carry on later.
 Any copy that is short, the wrong size or not the same as its original is moved aside there, into a folder called "Set aside by Keevoro", with a note saying what it is. Nothing is deleted or replaced. Then the original is sent again and its new copy read back.
 ```
 
@@ -221,7 +221,7 @@ keevoro run --detach
 ```
 
 ```text
-Backing up "Drone footage", in the background (job 4123000001). See how it is getting on with: keevoro follow
+Backing up "Holiday videos", in the background (job 4123000001). See how it is getting on with: keevoro follow
 ```
 
 Then, from any window:

@@ -94,7 +94,7 @@ mod tests {
             dir.path().join("cache"),
         );
         let backups = Backups::load(&config, &data);
-        let home = backups.start("Drone footage").unwrap().home;
+        let home = backups.start("Holiday videos").unwrap().home;
         std::fs::write(home.join("notes.txt"), "notes").unwrap();
         std::fs::create_dir_all(&cache).unwrap();
         std::fs::write(cache.join("thumb.webp"), "p").unwrap();
@@ -147,7 +147,7 @@ mod tests {
             .unwrap();
 
         let done = reset(&backups, &MemorySecrets::default(), &cache).unwrap();
-        assert_eq!(done.removed, ["Drone footage"]);
+        assert_eq!(done.removed, ["Holiday videos"]);
         assert_eq!(done.left_alone, std::slice::from_ref(&old_library));
 
         assert!(!home.exists(), "Keevoro's own notes are gone");

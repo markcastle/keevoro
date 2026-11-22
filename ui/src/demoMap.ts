@@ -1,4 +1,4 @@
-// Where the space goes, made up for the browser version: the owner's own
+// Where the space goes, made up for the browser version: a typical
 // case, a Windows disk whose Pictures folder holds a camera roll, screen
 // recordings, texture packs of zip files, an old Keevoro library and
 // screenshots, beside the system folders Keevoro never looks through.
@@ -46,7 +46,7 @@ const GB = 1024 ** 3
 
 const zips = (names: string[], each: number): [string, number][] => names.map((n, i) => [`${n}.zip`, Math.round(each * (1 - i * 0.07))])
 
-/** The owner's Pictures folder. */
+/** A made-up Pictures folder. */
 const PICTURES: Made = {
   name: 'Pictures',
   rest: { photo: [6, 19 * MB], other: [3, 40 * KB] },
@@ -86,8 +86,8 @@ const PICTURES: Made = {
       madeByKeevoro: true,
       rest: { other: [1, 4 * MB] },
       folders: [
-        { name: 'originals', rest: { photo: [2_210, 7.9 * GB], video: [100, 0.5 * GB] } },
-        { name: 'renditions', rest: { photo: [4_620, 0.8 * GB] } },
+        { name: 'originals', rest: { photo: [2_240, 8.1 * GB], video: [90, 0.5 * GB] } },
+        { name: 'renditions', rest: { photo: [4_660, 0.8 * GB] } },
       ],
     },
     { name: 'Screenshots', rest: { photo: [300, 0.9 * GB] } },
@@ -96,7 +96,7 @@ const PICTURES: Made = {
   ],
 }
 
-/** A Windows disk with the owner's Pictures folder on it. */
+/** A Windows disk with that Pictures folder on it. */
 const DISK: Made = {
   name: 'Windows (C:)',
   files: [
@@ -110,10 +110,10 @@ const DISK: Made = {
       name: 'Users',
       folders: [
         {
-          name: 'Mark',
+          name: 'You',
           folders: [
             PICTURES,
-            { name: 'Videos', folders: [{ name: 'Drone', rest: { photo: [333, 2.1 * GB], video: [26, 92 * GB] } }] },
+            { name: 'Videos', folders: [{ name: 'Holidays', rest: { photo: [287, 1.8 * GB], video: [31, 86.2 * GB] } }] },
             { name: 'Documents', rest: { other: [4_120, 2.1 * GB], photo: [14, 30 * MB] } },
             { name: 'Music', folders: [{ name: 'Holiday mix', rest: { other: [240, 7.2 * GB] } }] },
             { name: 'AppData', skipped: 'App or cache folder', rest: { other: [210_000, 9.4 * GB], photo: [30_000, 0.6 * GB] } },

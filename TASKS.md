@@ -12,7 +12,7 @@ Everything here was built and tested by machine. Some of it has now been tried b
 
 Tried by a person, on Windows:
 
-- [x] The app's buttons work through the new API: a check of an 11,245-file backup on 0.31.0, and a 15.9 GB backup on 0.36
+- [x] The app's buttons work through the new API: a check of an 8,630-file backup on 0.31.0, and a 12.6 GB backup on 0.36
 - [x] One estimate of the time left for the whole backup, with its stages listed
 - [x] Previews made in the background while the originals are sent
 
@@ -317,7 +317,7 @@ Done when a non-technical tester gets from a drive to a backup without help.
 
 ### Backups and destinations
 
-Separate, remembered jobs ("Drone footage to R2", "Family photos to a folder"), each sent straight to its destination. The thinking is in [PLANNING.md](PLANNING.md#backups-and-destinations).
+Separate, remembered jobs ("Holiday videos to R2", "Family photos to a folder"), each sent straight to its destination. The thinking is in [PLANNING.md](PLANNING.md#backups-and-destinations).
 
 - [x] Backups: named, separate, switchable from the side bar; the old single library becomes the first one
 - [x] Destinations as a list: a folder first, then R2, S3 and other S3-compatible storage

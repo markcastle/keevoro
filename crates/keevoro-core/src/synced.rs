@@ -69,7 +69,7 @@ pub enum System {
 #[derive(Debug, Clone)]
 pub struct ComputerFacts {
     pub system: System,
-    /// The person's home folder: `C:\Users\Mark`, `/Users/mark`.
+    /// The person's home folder: `C:\Users\You`, `/Users/you`.
     pub home: String,
     /// The few variables of the environment asked for (see
     /// [`ENVIRONMENT`]), by name.
@@ -150,7 +150,7 @@ pub struct SyncedFolder {
 
 impl SyncedFolder {
     /// The line under its name: "Synced with Microsoft's cloud ·
-    /// C:\Users\Mark\OneDrive".
+    /// C:\Users\You\OneDrive".
     pub fn detail(&self) -> String {
         format!("Synced with {} · {}", self.service.whose_cloud(), self.path)
     }
@@ -439,11 +439,11 @@ mod tests {
     use super::*;
 
     fn windows() -> ComputerFacts {
-        let mut facts = ComputerFacts::new(System::Windows, r"C:\Users\Mark");
+        let mut facts = ComputerFacts::new(System::Windows, r"C:\Users\You");
         for (k, v) in [
-            ("USERPROFILE", r"C:\Users\Mark"),
-            ("APPDATA", r"C:\Users\Mark\AppData\Roaming"),
-            ("LOCALAPPDATA", r"C:\Users\Mark\AppData\Local"),
+            ("USERPROFILE", r"C:\Users\You"),
+            ("APPDATA", r"C:\Users\You\AppData\Roaming"),
+            ("LOCALAPPDATA", r"C:\Users\You\AppData\Local"),
         ] {
             facts.environment.insert(k.into(), v.into());
         }
@@ -463,16 +463,16 @@ mod tests {
         let mut facts = windows();
         facts
             .environment
-            .insert("OneDrive".into(), r"C:\Users\Mark\OneDrive".into());
+            .insert("OneDrive".into(), r"C:\Users\You\OneDrive".into());
         facts
             .environment
-            .insert("OneDriveConsumer".into(), r"C:\Users\Mark\OneDrive".into());
-        exists(&mut facts, &[r"C:\Users\Mark\OneDrive"]);
+            .insert("OneDriveConsumer".into(), r"C:\Users\You\OneDrive".into());
+        exists(&mut facts, &[r"C:\Users\You\OneDrive"]);
         let found = synced_folders(&facts);
-        assert_eq!(names(&found), [("OneDrive", r"C:\Users\Mark\OneDrive")]);
+        assert_eq!(names(&found), [("OneDrive", r"C:\Users\You\OneDrive")]);
         assert_eq!(
             found[0].detail(),
-            r"Synced with Microsoft’s cloud · C:\Users\Mark\OneDrive"
+            r"Synced with Microsoft’s cloud · C:\Users\You\OneDrive"
         );
 
         // With a work account too, each is named as Explorer names it.
@@ -485,7 +485,7 @@ mod tests {
             names(&found),
             [
                 ("OneDrive - Contoso", r"D:\Work\OneDrive - Contoso"),
-                ("OneDrive - Personal", r"C:\Users\Mark\OneDrive"),
+                ("OneDrive - Personal", r"C:\Users\You\OneDrive"),
             ]
         );
         assert_eq!(found[0].account.as_deref(), Some("Contoso"));
@@ -496,12 +496,12 @@ mod tests {
         let mut facts = windows();
         facts
             .environment
-            .insert("OneDrive".into(), r"C:\Users\Mark\OneDrive".into());
+            .insert("OneDrive".into(), r"C:\Users\You\OneDrive".into());
         assert!(
             synced_folders(&facts).is_empty(),
             "OneDrive signed out, its folder gone"
         );
-        assert!(places_to_check(&facts).contains(&r"C:\Users\Mark\OneDrive".to_string()));
+        assert!(places_to_check(&facts).contains(&r"C:\Users\You\OneDrive".to_string()));
     }
 
     #[test]
@@ -509,25 +509,25 @@ mod tests {
         let mut facts = windows();
         facts
             .environment
-            .insert("OneDrive".into(), r"c:\users\mark\onedrive\".into());
-        exists(&mut facts, &[r"C:\Users\Mark\OneDrive"]);
+            .insert("OneDrive".into(), r"c:\users\you\onedrive\".into());
+        exists(&mut facts, &[r"C:\Users\You\OneDrive"]);
         assert_eq!(synced_folders(&facts).len(), 1);
     }
 
     #[test]
     fn dropbox_is_found_where_its_own_settings_say_personal_and_business() {
         let mut facts = windows();
-        let info = r#"{"personal": {"path": "C:\\Users\\Mark\\Dropbox", "host": 1},
+        let info = r#"{"personal": {"path": "C:\\Users\\You\\Dropbox", "host": 1},
                        "business": {"path": "E:\\Dropbox (Acme)", "host": 2}}"#;
-        let file = r"C:\Users\Mark\AppData\Local\Dropbox\info.json";
+        let file = r"C:\Users\You\AppData\Local\Dropbox\info.json";
         assert!(files_to_read(&facts).contains(&file.to_string()));
         facts.files.insert(file.into(), info.into());
-        exists(&mut facts, &[r"C:\Users\Mark\Dropbox", r"E:\Dropbox (Acme)"]);
+        exists(&mut facts, &[r"C:\Users\You\Dropbox", r"E:\Dropbox (Acme)"]);
         let found = synced_folders(&facts);
         assert_eq!(
             names(&found),
             [
-                ("Dropbox", r"C:\Users\Mark\Dropbox"),
+                ("Dropbox", r"C:\Users\You\Dropbox"),
                 ("Dropbox (Acme)", r"E:\Dropbox (Acme)")
             ]
         );
@@ -535,7 +535,7 @@ mod tests {
 
         // A settings file that cannot be read costs only itself.
         facts.files.insert(file.into(), "{ not json".into());
-        assert_eq!(names(&synced_folders(&facts)), [("Dropbox", r"C:\Users\Mark\Dropbox")]);
+        assert_eq!(names(&synced_folders(&facts)), [("Dropbox", r"C:\Users\You\Dropbox")]);
     }
 
     #[test]
@@ -543,11 +543,11 @@ mod tests {
         let mut facts = windows();
         facts.volumes.push((r"G:\".into(), "Google Drive".into()));
         facts.volumes.push((r"E:\".into(), "KINGSTON".into()));
-        exists(&mut facts, &[r"G:\", r"C:\Users\Mark\My Drive"]);
+        exists(&mut facts, &[r"G:\", r"C:\Users\You\My Drive"]);
         let found = synced_folders(&facts);
         assert_eq!(
             names(&found),
-            [("Google Drive", r"G:\"), ("Google Drive", r"C:\Users\Mark\My Drive")]
+            [("Google Drive", r"G:\"), ("Google Drive", r"C:\Users\You\My Drive")]
         );
         assert_eq!(found[0].detail(), r"Synced with Google’s cloud · G:\");
     }
@@ -557,21 +557,21 @@ mod tests {
         let mut facts = windows();
         exists(
             &mut facts,
-            &[r"C:\Users\Mark\iCloudDrive", r"C:\Users\Mark\Pictures\iCloud Photos"],
+            &[r"C:\Users\You\iCloudDrive", r"C:\Users\You\Pictures\iCloud Photos"],
         );
         assert_eq!(
             names(&synced_folders(&facts)),
             [
-                ("iCloud Drive", r"C:\Users\Mark\iCloudDrive"),
-                ("iCloud Photos", r"C:\Users\Mark\Pictures\iCloud Photos")
+                ("iCloud Drive", r"C:\Users\You\iCloudDrive"),
+                ("iCloud Photos", r"C:\Users\You\Pictures\iCloud Photos")
             ]
         );
     }
 
     #[test]
     fn on_a_mac_every_service_in_cloud_storage_is_named_by_its_folder() {
-        let mut facts = ComputerFacts::new(System::Mac, "/Users/mark");
-        let storage = "/Users/mark/Library/CloudStorage";
+        let mut facts = ComputerFacts::new(System::Mac, "/Users/you");
+        let storage = "/Users/you/Library/CloudStorage";
         assert_eq!(folders_to_list(&facts), [storage]);
         facts.listings.insert(
             storage.into(),
@@ -580,7 +580,7 @@ mod tests {
                 "OneDrive-Contoso",
                 "OneDrive-SharedLibraries-Contoso",
                 "Dropbox",
-                "GoogleDrive-mark@example.com",
+                "GoogleDrive-family@example.com",
                 "GoogleDrive-work@example.com",
                 "Box-Box",
                 ".DS_Store",
@@ -591,39 +591,36 @@ mod tests {
         exists(
             &mut facts,
             &[
-                "/Users/mark/Library/CloudStorage/OneDrive-Personal",
-                "/Users/mark/Library/CloudStorage/OneDrive-Contoso",
-                "/Users/mark/Library/CloudStorage/OneDrive-SharedLibraries-Contoso",
-                "/Users/mark/Library/CloudStorage/Dropbox",
-                "/Users/mark/Library/CloudStorage/GoogleDrive-mark@example.com/My Drive",
-                "/Users/mark/Library/CloudStorage/GoogleDrive-work@example.com/My Drive",
-                "/Users/mark/Library/CloudStorage/Box-Box",
-                "/Users/mark/Library/Mobile Documents/com~apple~CloudDocs",
+                "/Users/you/Library/CloudStorage/OneDrive-Personal",
+                "/Users/you/Library/CloudStorage/OneDrive-Contoso",
+                "/Users/you/Library/CloudStorage/OneDrive-SharedLibraries-Contoso",
+                "/Users/you/Library/CloudStorage/Dropbox",
+                "/Users/you/Library/CloudStorage/GoogleDrive-family@example.com/My Drive",
+                "/Users/you/Library/CloudStorage/GoogleDrive-work@example.com/My Drive",
+                "/Users/you/Library/CloudStorage/Box-Box",
+                "/Users/you/Library/Mobile Documents/com~apple~CloudDocs",
             ],
         );
         assert_eq!(
             names(&synced_folders(&facts)),
             [
-                (
-                    "OneDrive - Contoso",
-                    "/Users/mark/Library/CloudStorage/OneDrive-Contoso"
-                ),
+                ("OneDrive - Contoso", "/Users/you/Library/CloudStorage/OneDrive-Contoso"),
                 (
                     "OneDrive - Personal",
-                    "/Users/mark/Library/CloudStorage/OneDrive-Personal"
+                    "/Users/you/Library/CloudStorage/OneDrive-Personal"
                 ),
-                ("Dropbox", "/Users/mark/Library/CloudStorage/Dropbox"),
+                ("Dropbox", "/Users/you/Library/CloudStorage/Dropbox"),
                 (
-                    "Google Drive (mark@example.com)",
-                    "/Users/mark/Library/CloudStorage/GoogleDrive-mark@example.com/My Drive"
+                    "Google Drive (family@example.com)",
+                    "/Users/you/Library/CloudStorage/GoogleDrive-family@example.com/My Drive"
                 ),
                 (
                     "Google Drive (work@example.com)",
-                    "/Users/mark/Library/CloudStorage/GoogleDrive-work@example.com/My Drive"
+                    "/Users/you/Library/CloudStorage/GoogleDrive-work@example.com/My Drive"
                 ),
                 (
                     "iCloud Drive",
-                    "/Users/mark/Library/Mobile Documents/com~apple~CloudDocs"
+                    "/Users/you/Library/Mobile Documents/com~apple~CloudDocs"
                 ),
             ]
         );
@@ -631,63 +628,63 @@ mod tests {
 
     #[test]
     fn older_mac_services_and_linux_dropbox_are_found_too() {
-        let mut mac = ComputerFacts::new(System::Mac, "/Users/mark");
+        let mut mac = ComputerFacts::new(System::Mac, "/Users/you");
         mac.volumes.push(("/Volumes/GoogleDrive".into(), "GoogleDrive".into()));
         mac.files.insert(
-            "/Users/mark/.dropbox/info.json".into(),
-            r#"{"personal": {"path": "/Users/mark/Dropbox"}}"#.into(),
+            "/Users/you/.dropbox/info.json".into(),
+            r#"{"personal": {"path": "/Users/you/Dropbox"}}"#.into(),
         );
         exists(
             &mut mac,
             &[
                 "/Volumes/GoogleDrive/My Drive",
-                "/Users/mark/Dropbox",
-                "/Users/mark/OneDrive",
+                "/Users/you/Dropbox",
+                "/Users/you/OneDrive",
             ],
         );
         assert_eq!(
             names(&synced_folders(&mac)),
             [
-                ("OneDrive", "/Users/mark/OneDrive"),
-                ("Dropbox", "/Users/mark/Dropbox"),
+                ("OneDrive", "/Users/you/OneDrive"),
+                ("Dropbox", "/Users/you/Dropbox"),
                 ("Google Drive", "/Volumes/GoogleDrive/My Drive")
             ]
         );
 
-        let mut linux = ComputerFacts::new(System::Other, "/home/mark");
-        exists(&mut linux, &["/home/mark/Dropbox"]);
-        assert_eq!(names(&synced_folders(&linux)), [("Dropbox", "/home/mark/Dropbox")]);
+        let mut linux = ComputerFacts::new(System::Other, "/home/you");
+        exists(&mut linux, &["/home/you/Dropbox"]);
+        assert_eq!(names(&synced_folders(&linux)), [("Dropbox", "/home/you/Dropbox")]);
         // Case tells two folders apart on Linux.
-        let mut other = ComputerFacts::new(System::Other, "/home/mark");
-        exists(&mut other, &["/home/mark/dropbox"]);
+        let mut other = ComputerFacts::new(System::Other, "/home/you");
+        exists(&mut other, &["/home/you/dropbox"]);
         assert!(synced_folders(&other).is_empty());
     }
 
     #[test]
     fn a_computer_with_no_cloud_service_offers_nothing() {
         assert!(synced_folders(&windows()).is_empty());
-        assert!(synced_folders(&ComputerFacts::new(System::Mac, "/Users/mark")).is_empty());
+        assert!(synced_folders(&ComputerFacts::new(System::Mac, "/Users/you")).is_empty());
     }
 
     #[test]
     fn the_service_is_known_from_a_folder_inside_it() {
         let cases = [
-            (r"C:\Users\Mark\OneDrive\Pictures", Some(Service::OneDrive)),
-            (r"C:\Users\Mark\OneDrive - Contoso", Some(Service::OneDrive)),
+            (r"C:\Users\You\OneDrive\Pictures", Some(Service::OneDrive)),
+            (r"C:\Users\You\OneDrive - Contoso", Some(Service::OneDrive)),
             (
-                "/Users/mark/Library/CloudStorage/OneDrive-Personal/Photos",
+                "/Users/you/Library/CloudStorage/OneDrive-Personal/Photos",
                 Some(Service::OneDrive),
             ),
-            ("/Users/mark/Dropbox (Acme)/Camera Uploads", Some(Service::Dropbox)),
+            ("/Users/you/Dropbox (Acme)/Camera Uploads", Some(Service::Dropbox)),
             (
-                "/Users/mark/Library/CloudStorage/GoogleDrive-a@b.c/My Drive/x",
+                "/Users/you/Library/CloudStorage/GoogleDrive-a@b.c/My Drive/x",
                 Some(Service::GoogleDrive),
             ),
             (
-                "/Users/mark/Library/Mobile Documents/com~apple~CloudDocs",
+                "/Users/you/Library/Mobile Documents/com~apple~CloudDocs",
                 Some(Service::ICloud),
             ),
-            ("/home/mark/Pictures", None),
+            ("/home/you/Pictures", None),
         ];
         for (path, service) in cases {
             // A Windows path read on another system is one part; the

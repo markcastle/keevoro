@@ -1090,11 +1090,11 @@ fn photos_only_or_videos_only_chosen_before_0_39_is_carried_over() {
         }
         conn.pragma_update(None, "user_version", 8).unwrap();
         conn.execute_batch(
-            r#"INSERT INTO sources (id, name, root, scanned_at) VALUES (1, 'Card', '/media/card', 1), (2, 'Drone', '/media/drone', 1), (3, 'Phone', '/media/phone', 1);
+            r#"INSERT INTO sources (id, name, root, scanned_at) VALUES (1, 'Card', '/media/card', 1), (2, 'Camcorder', '/media/camcorder', 1), (3, 'Phone', '/media/phone', 1);
                INSERT INTO settings (key, value) VALUES
                  ('wants', '"photos"'),
                  ('wants:/media/card', '"videos"'),
-                 ('wants:/media/drone', '"both"'),
+                 ('wants:/media/camcorder', '"both"'),
                  ('left_out_types:/media/card', '["png"]');"#,
         )
         .unwrap();

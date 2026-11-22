@@ -183,7 +183,7 @@ fn status_says_what_is_running_and_is_empty_afterwards() {
     let dir = tempfile::tempdir().unwrap();
     let keevoro = keevoro(dir.path());
     let named = keevoro.start_backup("Card photos").unwrap();
-    let other = keevoro.start_backup("Drone").unwrap();
+    let other = keevoro.start_backup("Beach").unwrap();
     let card = card_in(dir.path());
     assert!(keevoro.jobs(None).is_empty());
 
@@ -262,7 +262,7 @@ fn a_second_job_that_writes_is_refused_while_the_first_runs() {
     let dir = tempfile::tempdir().unwrap();
     let keevoro = keevoro(dir.path());
     let (named, card, _usb) = card_going_to_usb(dir.path(), &keevoro);
-    let other = keevoro.start_backup("Drone").unwrap();
+    let other = keevoro.start_backup("Beach").unwrap();
 
     keevoro.pause();
     keevoro.look_again(&named, None, None, None).unwrap();
@@ -1431,20 +1431,20 @@ fn stopping_by_kind_on_one_backup_leaves_the_rest_running() {
     let dir = tempfile::tempdir().unwrap();
     let app = keevoro(dir.path());
     let card_photos = app.start_backup("Card photos").unwrap();
-    let drone = app.start_backup("Drone").unwrap();
+    let beach = app.start_backup("Beach").unwrap();
     let card = card_in(dir.path());
     let command_line = command_line(dir.path());
 
     app.pause();
     let mine = app.look(&card_photos, &card, None).unwrap();
-    let theirs = command_line.look(&drone, &card, None).unwrap();
+    let theirs = command_line.look(&beach, &card, None).unwrap();
     eventually("the command line's job seen", || {
-        app.jobs(Some(&drone.id)).into_iter().find(|s| s.elsewhere)
+        app.jobs(Some(&beach.id)).into_iter().find(|s| s.elsewhere)
     });
     // Stopping searches on one backup asks only the program running that
     // one. (Stopping lifts the pause, so the app's own search then goes
     // on to the end.)
-    assert_eq!(app.stop(Which::KindsOn(&[JobKind::Look], &drone.id)), [theirs.id]);
+    assert_eq!(app.stop(Which::KindsOn(&[JobKind::Look], &beach.id)), [theirs.id]);
     assert!(matches!(app.wait(theirs.id), Some(Said::Scan(e)) if e.stopped));
     assert!(matches!(app.wait(mine.id), Some(Said::Scan(e)) if !e.stopped));
     app.wait_for_jobs();

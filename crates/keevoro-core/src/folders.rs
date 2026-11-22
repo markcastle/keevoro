@@ -155,7 +155,7 @@ mod tests {
 
     #[test]
     fn trims_user_profile_paths() {
-        let h = hints("Users/mark/Pictures/Family/Christmas 2011");
+        let h = hints("Users/you/Pictures/Family/Christmas 2011");
         assert_eq!(h.album, vec!["Family", "Christmas 2011"]);
         let h = hints(r"Documents and Settings\Dad\My Documents\My Pictures\Garden");
         assert_eq!(h.album, vec!["Garden"]);
@@ -199,8 +199,8 @@ mod tests {
 
     #[test]
     fn same_folder_on_two_drives_gives_the_same_album() {
-        let a = hints(r"Users\mark\Pictures\Spain 2009");
-        let b = hints(r"Backup of C\Users\mark\Pictures\Spain 2009");
+        let a = hints(r"Users\you\Pictures\Spain 2009");
+        let b = hints(r"Backup of C\Users\you\Pictures\Spain 2009");
         assert_eq!(a.album, b.album);
     }
 

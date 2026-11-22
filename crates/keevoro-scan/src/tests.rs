@@ -309,9 +309,9 @@ fn reads_album_hints_from_the_users_folders() {
 fn skips_system_folders_and_says_why() {
     let t = Tree::new();
     t.add("Windows/Web/Wallpaper/img0.jpg", &plain_jpeg(1));
-    t.add("Users/mark/AppData/Local/cache.jpg", &plain_jpeg(2));
-    t.add("Users/mark/Pictures/keep.jpg", &plain_jpeg(3));
-    t.add("Users/mark/Pictures/._keep.jpg", &plain_jpeg(4));
+    t.add("Users/you/AppData/Local/cache.jpg", &plain_jpeg(2));
+    t.add("Users/you/Pictures/keep.jpg", &plain_jpeg(3));
+    t.add("Users/you/Pictures/._keep.jpg", &plain_jpeg(4));
     let r = t.scan();
     let names: Vec<_> = r
         .items

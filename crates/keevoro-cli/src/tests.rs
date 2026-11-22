@@ -346,15 +346,15 @@ fn a_first_backup_from_start_to_finish() {
 
     let ran = at.keevoro(&["backups"]);
     assert!(ran.out.contains("There are no backups yet"), "{}", ran.out);
-    let ran = at.keevoro(&["backups", "start", "Drone footage"]);
+    let ran = at.keevoro(&["backups", "start", "Holiday videos"]);
     assert_eq!(ran.code, Code::Worked);
     assert!(
-        ran.out.starts_with("Started the backup \"Drone footage\"."),
+        ran.out.starts_with("Started the backup \"Holiday videos\"."),
         "{}",
         ran.out
     );
 
-    let ran = at.keevoro(&["look", &text(&card), "-b", "drone footage"]);
+    let ran = at.keevoro(&["look", &text(&card), "-b", "holiday videos"]);
     assert_eq!(ran.code, Code::Worked, "{}", ran.err);
     assert!(ran.out.contains("Looked through Card: found"), "{}", ran.out);
 
@@ -708,11 +708,11 @@ fn the_app_and_the_command_line_see_each_others_backups_at_once() {
     let app = keevoro_in(dir.path(), FrontEnd::App);
     app.start_backup("Family photos").unwrap();
     assert!(at.keevoro(&["backups"]).out.starts_with("Family photos"));
-    at.keevoro(&["backups", "start", "Drone footage"]);
+    at.keevoro(&["backups", "start", "Holiday videos"]);
     at.keevoro(&["backups", "rename", "Family photos", "Family"]);
     let names: Vec<String> = app.list_backups().into_iter().map(|b| b.name).collect();
-    assert_eq!(names, ["Family", "Drone footage"]);
-    app.forget_backup("Drone footage", false).unwrap();
+    assert_eq!(names, ["Family", "Holiday videos"]);
+    app.forget_backup("Holiday videos", false).unwrap();
     assert_eq!(at.keevoro(&["backups", "--json"]).json().as_array().unwrap().len(), 1);
 }
 
@@ -792,9 +792,9 @@ fn smaller_things_a_backup_can_be_asked() {
     assert_eq!(ran.out.trim(), "This backup is for photos and videos.");
     let ran = at.keevoro(&["wants", "music"]);
     assert_eq!(ran.code, Code::NotUnderstood, "{}", ran.err);
-    let ran = at.keevoro(&["backups", "start", "Drone", "--wants", "videos", "--json"]);
+    let ran = at.keevoro(&["backups", "start", "Beach", "--wants", "videos", "--json"]);
     assert_eq!(ran.code, Code::Worked, "{}", ran.err);
-    let ran = at.keevoro(&["-b", "Drone", "wants"]);
+    let ran = at.keevoro(&["-b", "Beach", "wants"]);
     assert_eq!(ran.out.trim(), "This backup is for videos only.");
     // Other files are offered as a choice once a kind of them is listed.
     let ran = at.keevoro(&["kinds", "add", "flac", "--other"]);
@@ -803,9 +803,9 @@ fn smaller_things_a_backup_can_be_asked() {
         "{}",
         ran.out
     );
-    let ran = at.keevoro(&["-b", "Drone", "wants", "--json"]);
+    let ran = at.keevoro(&["-b", "Beach", "wants", "--json"]);
     assert_eq!(ran.json()["offersOthers"], true, "{}", ran.out);
-    let ran = at.keevoro(&["-b", "Drone", "wants", "videos", "others"]);
+    let ran = at.keevoro(&["-b", "Beach", "wants", "videos", "others"]);
     assert!(
         ran.out.starts_with("This backup is for videos and other files only."),
         "{}",

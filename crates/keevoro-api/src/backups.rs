@@ -1,6 +1,6 @@
 //! Named backups, and the settings file that lists them.
 //!
-//! A backup is one job the person comes back to: "Drone footage" or
+//! A backup is one job the person comes back to: "Holiday videos" or
 //! "Family photos", each with its own sources, its own choices and its own
 //! places to send things, none of which affect the others. Everything a
 //! backup knows lives in its home folder. Keevoro's settings file, in its
@@ -559,7 +559,7 @@ mod tests {
         );
 
         let backups = Backups::load(&config, &dir.path().join("data"));
-        let started = backups.start("Drone footage").unwrap();
+        let started = backups.start("Holiday videos").unwrap();
         assert_eq!(Settings::load(&config), backups.read());
         assert_eq!(Backups::load(&config, dir.path()).all(), [started]);
         let mut left: Vec<String> = std::fs::read_dir(&config)
@@ -710,12 +710,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join(FILE),
-            r#"{"sessions":[{"id":"session-1","name":"Drone footage","home":"/data/sessions/session-1"}],"current":"session-1"}"#,
+            r#"{"sessions":[{"id":"session-1","name":"Holiday videos","home":"/data/sessions/session-1"}],"current":"session-1"}"#,
         )
         .unwrap();
         let settings = Settings::load(dir.path());
         let open = settings.open_backup().unwrap();
-        assert_eq!((open.name.as_str(), open.id.as_str()), ("Drone footage", "session-1"));
+        assert_eq!((open.name.as_str(), open.id.as_str()), ("Holiday videos", "session-1"));
         // Saved again, it is written the new way and reads back the same.
         settings.save(dir.path()).unwrap();
         let text = std::fs::read_to_string(dir.path().join(FILE)).unwrap();
@@ -730,7 +730,7 @@ mod tests {
   "backups": [
     {
       "id": "backup-1",
-      "name": "Drone footage",
+      "name": "Holiday videos",
       "home": "/data/backups/backup-1"
     }
   ],
@@ -755,14 +755,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let backups = Backups::load(&dir.path().join("config"), dir.path());
         assert_eq!(backups.current(), None);
-        let drone = backups.start("Drone footage").unwrap();
+        let beach = backups.start("Holiday videos").unwrap();
         let family = backups.start("  Family photos ").unwrap();
         assert_eq!(family.name, "Family photos");
-        assert_ne!(drone.home, family.home, "each has its own folder");
-        assert!(drone.home.join(".keevoro").join("catalog.sqlite").is_file());
+        assert_ne!(beach.home, family.home, "each has its own folder");
+        assert!(beach.home.join(".keevoro").join("catalog.sqlite").is_file());
         assert_eq!(
             backups.current(),
-            Some(drone.clone()),
+            Some(beach.clone()),
             "starting another does not change which is open"
         );
 
@@ -772,7 +772,7 @@ mod tests {
         assert_eq!(backups.current(), Some(family));
 
         // Names are never confused, and a blank one gets a sensible default.
-        assert_eq!(backups.start("drone footage").unwrap().name, "drone footage 2");
+        assert_eq!(backups.start("holiday videos").unwrap().name, "holiday videos 2");
         assert_eq!(backups.start("").unwrap().name, "My photos");
     }
 
@@ -780,13 +780,13 @@ mod tests {
     fn a_backup_is_found_by_its_name_or_its_id() {
         let dir = tempfile::tempdir().unwrap();
         let backups = Backups::load(&dir.path().join("config"), dir.path());
-        let drone = backups.start("Drone footage").unwrap();
+        let beach = backups.start("Holiday videos").unwrap();
         backups.start("Family").unwrap();
-        assert_eq!(backups.find("DRONE FOOTAGE "), Some(drone.clone()));
-        assert_eq!(backups.find(&drone.id), Some(drone.clone()));
+        assert_eq!(backups.find("HOLIDAY VIDEOS "), Some(beach.clone()));
+        assert_eq!(backups.find(&beach.id), Some(beach.clone()));
         assert_eq!(backups.find("Holidays"), None);
 
-        assert_eq!(backups.named_or_open(None).unwrap(), drone);
+        assert_eq!(backups.named_or_open(None).unwrap(), beach);
         assert_eq!(backups.named_or_open(Some("family")).unwrap().name, "Family");
         let e = backups.named_or_open(Some("Holidays")).unwrap_err();
         assert_eq!(e.kind, crate::Kind::NotFound);
@@ -805,33 +805,33 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let config = dir.path().join("config");
         let backups = Backups::load(&config, dir.path());
-        let drone = backups.start("Drone footage").unwrap();
+        let beach = backups.start("Holiday videos").unwrap();
         backups.start("Family").unwrap();
 
-        let renamed = backups.rename("drone footage", "  Drone ").unwrap();
+        let renamed = backups.rename("holiday videos", "  Beach ").unwrap();
         assert_eq!(
             (renamed.id.as_str(), renamed.name.as_str()),
-            (drone.id.as_str(), "Drone")
+            (beach.id.as_str(), "Beach")
         );
-        assert_eq!(renamed.home, drone.home, "its folder stays where it is");
-        assert_eq!(Backups::load(&config, dir.path()).find("Drone"), Some(renamed));
+        assert_eq!(renamed.home, beach.home, "its folder stays where it is");
+        assert_eq!(Backups::load(&config, dir.path()).find("Beach"), Some(renamed));
         // Changing only the case of its own name is fine.
-        assert_eq!(backups.rename("Drone", "DRONE").unwrap().name, "DRONE");
+        assert_eq!(backups.rename("Beach", "BEACH").unwrap().name, "BEACH");
 
-        let e = backups.rename("DRONE", "family").unwrap_err();
+        let e = backups.rename("BEACH", "family").unwrap_err();
         assert_eq!(e.kind, crate::Kind::Refused);
         assert_eq!(
             e.message,
             "There is already a backup called \"family\". Choose another name."
         );
         assert_eq!(
-            backups.rename("DRONE", "  ").unwrap_err().message,
+            backups.rename("BEACH", "  ").unwrap_err().message,
             "Give the backup a name."
         );
         assert_eq!(backups.rename("Holidays", "x").unwrap_err().kind, crate::Kind::NotFound);
         assert_eq!(
-            backups.find("DRONE").unwrap().name,
-            "DRONE",
+            backups.find("BEACH").unwrap().name,
+            "BEACH",
             "a refusal changes nothing"
         );
     }
@@ -842,14 +842,14 @@ mod tests {
         let config = dir.path().join("config");
         let data = dir.path().join("data");
         let backups = Backups::load(&config, &data);
-        let drone = backups.start("Drone footage").unwrap();
+        let beach = backups.start("Holiday videos").unwrap();
         let family = backups.start("Family").unwrap();
-        std::fs::write(drone.home.join("a note.txt"), "kept").unwrap();
+        std::fs::write(beach.home.join("a note.txt"), "kept").unwrap();
 
-        let note = backups.remove("drone footage", 100).unwrap();
+        let note = backups.remove("holiday videos", 100).unwrap();
         assert_eq!(
             (note.id.as_str(), note.name.as_str()),
-            (drone.id.as_str(), "Drone footage")
+            (beach.id.as_str(), "Holiday videos")
         );
         assert_eq!(backups.all(), std::slice::from_ref(&family));
         assert_eq!(
@@ -858,19 +858,19 @@ mod tests {
             "the open one moves to what is left"
         );
         assert_eq!(Backups::load(&config, &data).all().len(), 1);
-        assert!(!drone.home.exists(), "its folder is set aside");
+        assert!(!beach.home.exists(), "its folder is set aside");
         assert_eq!(
-            backups.remove("Drone footage", 100).unwrap_err().kind,
+            backups.remove("Holiday videos", 100).unwrap_err().kind,
             crate::Kind::NotFound
         );
         // Its id is not given to a new backup while it could be put back.
         let next = backups.start("Holidays").unwrap();
-        assert_ne!(next.id, drone.id);
+        assert_ne!(next.id, beach.id);
 
         let back = backups.put_back(&note).unwrap();
-        assert_eq!(back, drone, "exactly as it was");
-        assert_eq!(std::fs::read_to_string(drone.home.join("a note.txt")).unwrap(), "kept");
-        assert!(drone.home.join(".keevoro").join("catalog.sqlite").is_file());
+        assert_eq!(back, beach, "exactly as it was");
+        assert_eq!(std::fs::read_to_string(beach.home.join("a note.txt")).unwrap(), "kept");
+        assert!(beach.home.join(".keevoro").join("catalog.sqlite").is_file());
     }
 
     #[test]
@@ -897,14 +897,14 @@ mod tests {
     fn a_name_is_never_empty_too_long_or_on_two_lines() {
         let dir = tempfile::tempdir().unwrap();
         let backups = Backups::load(&dir.path().join("config"), &dir.path().join("data"));
-        backups.start("Drone").unwrap();
+        backups.start("Beach").unwrap();
         let long = "x".repeat(LONGEST_NAME + 1);
         for (bad, why) in [
             ("   ", "Give the backup a name."),
             (long.as_str(), "Keep the name to 60 letters or fewer."),
             ("Family\nphotos", "A name can't have a line break or a tab in it."),
         ] {
-            let e = backups.rename("Drone", bad).unwrap_err();
+            let e = backups.rename("Beach", bad).unwrap_err();
             assert_eq!((e.kind, e.message.as_str()), (crate::Kind::Refused, why));
         }
         assert_eq!(
@@ -913,7 +913,7 @@ mod tests {
         );
         // Sixty letters in any language is fine.
         let sixty = "é".repeat(LONGEST_NAME);
-        assert_eq!(backups.rename("Drone", &sixty).unwrap().name, sixty);
+        assert_eq!(backups.rename("Beach", &sixty).unwrap().name, sixty);
         assert_eq!(backups.all().len(), 1, "nothing refused was started");
     }
 
@@ -938,7 +938,7 @@ mod tests {
         let in_the_way = dir.path().join("file");
         std::fs::write(&in_the_way, "x").unwrap();
         let backups = Backups::load(&in_the_way.join("config"), dir.path());
-        let e = backups.start("Drone").unwrap_err();
+        let e = backups.start("Beach").unwrap_err();
         assert!(e.message.starts_with("Keevoro couldn't save its settings"), "{e}");
         assert!(backups.all().is_empty());
     }
@@ -950,21 +950,21 @@ mod tests {
         let app = Backups::load(&config, dir.path());
         let command_line = Backups::load(&config, dir.path());
 
-        let drone = app.start("Drone footage").unwrap();
+        let beach = app.start("Holiday videos").unwrap();
         assert_eq!(
             command_line.all(),
-            std::slice::from_ref(&drone),
+            std::slice::from_ref(&beach),
             "seen without opening again"
         );
         let family = command_line.start("Family").unwrap();
         assert_eq!(app.find("family"), Some(family.clone()));
-        assert_ne!(family.id, drone.id, "an id is never given twice");
+        assert_ne!(family.id, beach.id, "an id is never given twice");
 
-        command_line.rename("Drone footage", "Drone").unwrap();
-        assert_eq!(app.find(&drone.id).unwrap().name, "Drone");
+        command_line.rename("Holiday videos", "Beach").unwrap();
+        assert_eq!(app.find(&beach.id).unwrap().name, "Beach");
         app.remove("Family", 1).unwrap();
         assert_eq!(command_line.all().len(), 1);
-        assert_eq!(command_line.current().unwrap().id, drone.id);
+        assert_eq!(command_line.current().unwrap().id, beach.id);
     }
 
     #[test]
@@ -997,7 +997,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let config = dir.path().join("config");
         let backups = Backups::load(&config, dir.path());
-        backups.start("Drone").unwrap();
+        backups.start("Beach").unwrap();
         std::fs::remove_file(config.join(FILE)).unwrap();
         assert!(backups.all().is_empty(), "reset by another program");
     }

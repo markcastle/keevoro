@@ -1,8 +1,8 @@
-//! A destination that goes away part-way through a backup, as the owner's
-//! network share did for a stretch of a fifteen-hour run, and files that
-//! fail on two runs in a row.
+//! A destination that goes away part-way through a backup, as a network
+//! share can for a stretch of a long run, and files that fail on two runs
+//! in a row.
 //!
-//! The owner's first run said 176 lines of "Couldn't read it from its
+//! Once, such a run said one line per file of "Couldn't read it from its
 //! source (The media is write protected...)". These tests hold what it says
 //! now: the trouble is said as the destination's, in one sentence with a
 //! count and the first few names; the place is not tried file by file once
@@ -28,7 +28,7 @@ impl Run {
         let dir = tempfile::tempdir().unwrap();
         let card = dir.path().join("CARD");
         for n in 0..20u8 {
-            let p = card.join("DCIM").join(format!("IMG_{:04}.JPG", 6129 + u32::from(n)));
+            let p = card.join("DCIM").join(format!("IMG_{:04}.JPG", 412 + u32::from(n)));
             std::fs::create_dir_all(p.parent().unwrap()).unwrap();
             std::fs::write(p, crate::discover::tests::real_jpeg(5 + n * 12)).unwrap();
         }
@@ -100,7 +100,7 @@ fn a_destination_that_goes_away_part_way_is_said_once_as_the_destinations_and_no
     assert!(
         said.contains(&format!(
             "Couldn't back up 8 files, because {place} went away part-way, as a drive that is unplugged does: \
-             IMG_6134.JPG, IMG_6135.JPG, IMG_6136.JPG and 5 more."
+             IMG_0417.JPG, IMG_0418.JPG, IMG_0419.JPG and 5 more."
         )),
         "{said}"
     );
@@ -142,7 +142,7 @@ fn a_destination_that_goes_away_part_way_is_said_once_as_the_destinations_and_no
 fn the_same_files_failing_on_a_second_run_are_said_as_failing_again() {
     let run = Run::new();
     let card = run.dir.path().join("CARD/DCIM");
-    let unreadable: Vec<PathBuf> = ["IMG_6140.JPG", "IMG_6141.JPG"].iter().map(|n| card.join(n)).collect();
+    let unreadable: Vec<PathBuf> = ["IMG_0423.JPG", "IMG_0424.JPG"].iter().map(|n| card.join(n)).collect();
     let aside: Vec<PathBuf> = unreadable.iter().map(|p| p.with_extension("away")).collect();
     for (from, to) in unreadable.iter().zip(&aside) {
         std::fs::rename(from, to).unwrap();
@@ -156,7 +156,7 @@ fn the_same_files_failing_on_a_second_run_are_said_as_failing_again() {
     assert!(
         second.contains(
             "These 2 files could not be backed up again, because they were no longer where they were found: \
-             IMG_6140.JPG and IMG_6141.JPG."
+             IMG_0423.JPG and IMG_0424.JPG."
         ),
         "{second}"
     );

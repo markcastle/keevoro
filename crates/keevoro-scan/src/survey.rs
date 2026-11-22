@@ -789,14 +789,14 @@ mod tests {
             &[
                 tally("/d", 0, 0, 0),
                 tally("/d/Users", 0, 0, 0),
-                tally("/d/Users/Mark", 0, 0, 20),
-                tally("/d/Users/Mark/Documents", 0, 0, 5000),
-                tally("/d/Users/Mark/Pictures", 800, 0, 3),
-                tally("/d/Users/Mark/Videos", 0, 40, 0),
+                tally("/d/Users/You", 0, 0, 20),
+                tally("/d/Users/You/Documents", 0, 0, 5000),
+                tally("/d/Users/You/Pictures", 800, 0, 3),
+                tally("/d/Users/You/Videos", 0, 40, 0),
             ],
         );
         // Videos is the bigger, so it comes first.
-        assert_eq!(folders(&hints), ["/d/Users/Mark/Videos", "/d/Users/Mark/Pictures"]);
+        assert_eq!(folders(&hints), ["/d/Users/You/Videos", "/d/Users/You/Pictures"]);
     }
 
     #[test]

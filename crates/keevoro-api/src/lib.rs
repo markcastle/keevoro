@@ -1032,8 +1032,8 @@ mod tests {
     fn backups_are_listed_started_renamed_and_forgotten_by_name() {
         let (_dir, _card, keevoro) = one_keevoro();
         let k = &keevoro;
-        let started = call(k, op("backups.start"), None, json!({ "name": "Drone footage" })).unwrap();
-        assert_eq!(started["name"], "Drone footage");
+        let started = call(k, op("backups.start"), None, json!({ "name": "Holiday videos" })).unwrap();
+        assert_eq!(started["name"], "Holiday videos");
         let list = call(k, op("backups.list"), None, Value::Null).unwrap();
         assert_eq!(list[0]["name"], "Card photos");
         assert_eq!(list[0]["open"], true);
@@ -1044,19 +1044,19 @@ mod tests {
             k,
             op("backups.rename"),
             None,
-            json!({ "backup": "drone footage", "to": "Drone" }),
+            json!({ "backup": "holiday videos", "to": "Beach" }),
         )
         .unwrap();
         let e = call(
             k,
             op("backups.rename"),
             None,
-            json!({ "backup": "Drone", "to": "card photos" }),
+            json!({ "backup": "Beach", "to": "card photos" }),
         )
         .unwrap_err();
         assert_eq!(e.kind, Kind::Refused);
-        let gone = call(k, op("backups.forget"), None, json!({ "backup": "Drone" })).unwrap();
-        assert_eq!(gone["name"], "Drone");
+        let gone = call(k, op("backups.forget"), None, json!({ "backup": "Beach" })).unwrap();
+        assert_eq!(gone["name"], "Beach");
         assert_eq!(
             call(k, op("backups.list"), None, Value::Null)
                 .unwrap()
@@ -1100,9 +1100,9 @@ mod tests {
         assert_eq!(access["lookIn"], json!([photos]));
         assert_eq!(access["mayChange"], true);
 
-        k.start_backup("Drone").unwrap();
+        k.start_backup("Beach").unwrap();
         let done = call(k, op("keevoro.reset"), None, Value::Null).unwrap();
-        assert_eq!(done["removed"], json!(["Drone"]));
+        assert_eq!(done["removed"], json!(["Beach"]));
         assert_eq!(
             call(k, op("agents.access"), None, Value::Null).unwrap()["mayChange"],
             false,

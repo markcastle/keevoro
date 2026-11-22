@@ -105,11 +105,11 @@ fn what_has_gone_is_said_plainly_with_what_will_happen() {
     );
     // The owner's words, read aloud: "gave they" is gone.
     assert_eq!(
-        gone_words("the folder Y:\\personal", gone(71_769, 15, 64), false, true),
+        gone_words("the folder Z:\\Photos", gone(48_025, 12, 41), false, true),
         [
-            "The folder Y:\\personal no longer holds 15 of the 71,848 files Keevoro backed up there. They will be sent \
+            "The folder Z:\\Photos no longer holds 12 of the 48,078 files Keevoro backed up there. They will be sent \
              again.",
-            "The folder Y:\\personal has 64 files under the names Keevoro gave them, but not the sizes they were \
+            "The folder Z:\\Photos has 41 files under the names Keevoro gave them, but not the sizes they were \
              backed up at, so they are not counted as safe. Keevoro never replaces a file in a backup: \"Put this \
              backup right\" moves those copies aside there, into a folder of their own, then sends them again and \
              proves each one."
@@ -630,7 +630,7 @@ fn keys_of(t: &Tester) -> Vec<String> {
 #[test]
 fn a_listing_that_leaves_files_out_or_gives_stale_sizes_is_checked_file_by_file_before_anything_is_believed() {
     // The owner's second run: the listing of a share that had dropped out
-    // said 15 files had gone and 64 were another size. Each was in fact
+    // said 12 files had gone and 41 were another size. Each was in fact
     // there and exact, as the backup that followed proved by reading them.
     let t = Tester::new();
     t.run();
@@ -1053,7 +1053,7 @@ fn card_photos(t: &Tester) -> Vec<PathBuf> {
 #[test]
 fn the_owners_second_screen_now_tells_one_truth() {
     // The first run: one file can't be read and is missed. (The owner's
-    // 176 were missed at the share, which the history now says; here the
+    // were missed at a share, which the history now says; here the
     // card is simplest.)
     let t = Tester::new();
     let photo = card_photos(&t)[3].clone();
