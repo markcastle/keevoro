@@ -8,7 +8,9 @@
 // Add ?demo=new to the address to start as a first-time user with no
 // backup, or ?demo=empty for a backup with nothing found yet, or
 // ?demo=scans for a new backup with a folder of family scans in it, as our
-// first outside tester had, not yet asked how to arrange it.
+// first outside tester had, not yet asked how to arrange it. Add
+// ?page=settings (or a place in it, such as settings/byItself) to open
+// there, as the icon by the clock does.
 
 import { demoMap } from './demoMap'
 import type {
@@ -250,11 +252,14 @@ export function demoBackend(): Backend {
       'Its icon is by the clock, at the bottom right of the screen (it may be under the ^ arrow there). Open or quit Keevoro from there.',
   }
   const opening = new URLSearchParams(window.location.search)
+  // `?page=settings/advanced/kinds` opens on a page, as the icon by the clock's "Settings…" does.
   let windowAsked: WindowAsk | null = opening.has('closing')
     ? { closing: keepRunning.whereTheIconIs }
     : opening.has('quitting')
       ? { quitting: 'A backup is running. Stop it after the file in hand and quit? Nothing is lost.' }
-      : null
+      : opening.get('page')
+        ? { page: opening.get('page') ?? undefined }
+        : null
   const firstHome = 'C:\\Users\\You\\AppData\\Keevoro\\backups\\s1'
   let library: string | null = mode === 'new' ? null : firstHome
   const collections: Collection[] = mode === 'new' || mode === 'empty' ? [] : FOUND.slice(0, 5).map((make) => make())

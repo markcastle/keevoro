@@ -37,7 +37,7 @@ use std::path::Path;
 /// What a refusal says while agents may only look. The agent passes it on
 /// to its person, so it says what they can do about it.
 pub const LOOK_ONLY: &str = "Keevoro lets AI agents only look for now, not make changes. The person can allow changes \
-     in the Keevoro app, under Settings, AI agents, or by typing: keevoro agents allow-changes on";
+     in the Keevoro app, under Settings, Advanced, AI agents, or by typing: keevoro agents allow-changes on";
 
 /// What an agent is told when it would read from cloud storage that is a
 /// source. The folders a person allows an agent cannot hold a bucket, and
@@ -48,7 +48,8 @@ pub const BUCKET_FOR_THE_PERSON: &str = "This reads from cloud storage that is a
      AI agent is allowed cannot hold a bucket.";
 
 /// How a person allows a folder, for the end of a refusal.
-const HOW_TO_ALLOW: &str = "The person can allow folders in the Keevoro app, under Settings, AI agents, or with \
+const HOW_TO_ALLOW: &str =
+    "The person can allow folders in the Keevoro app, under Settings, Advanced, AI agents, or with \
      `keevoro agents allow`. my_access lists the folders allowed now.";
 
 /// Does `op` for an AI agent, if the person's rules allow it, and writes

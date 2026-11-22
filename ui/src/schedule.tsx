@@ -169,8 +169,8 @@ export function ScheduleCard(props: {
   )
 }
 
-/** Sets when a backup backs up by itself, or stops it. */
-function ScheduleDialog(props: {
+/** Sets when a backup backs up by itself, or stops it: from the card here, and from Settings. */
+export function ScheduleDialog(props: {
   name: string
   view: ScheduleView
   onSave: (request: SetSchedule) => void

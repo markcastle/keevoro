@@ -1,4 +1,5 @@
-// The open source licences, reached from About. Keevoro is built on other
+// The open source licences, reached from About and from Settings, Help.
+// Keevoro is built on other
 // people's work, and this names every piece shipped in the app with its
 // licence. The list is `licences.json`, made by `cargo xtask licences` from
 // Cargo.lock and package-lock.json, and a test fails when it is out of date,
@@ -19,9 +20,6 @@ export function matching(entries: Licensed[], typed: string): Licensed[] {
 }
 
 export function OpenSourceLicences(props: { onBack: () => void }) {
-  const [typed, setTyped] = useState('')
-  const rust = useMemo(() => matching(LISTS.rust, typed), [typed])
-  const npm = useMemo(() => matching(LISTS.npm, typed), [typed])
   return (
     <section className="about licences">
       <header>
@@ -29,26 +27,36 @@ export function OpenSourceLicences(props: { onBack: () => void }) {
           ‹ Back to About
         </button>
         <h1>Open source licences</h1>
-        <p className="status">
-          Keevoro is built on the work of many open source projects. Each one in the app is listed here with its
-          licence. Thank you to everyone who made them.
-        </p>
+        <p className="status">{THANKS}</p>
       </header>
-
-      <div className="panel">
-        <label className="find">
-          Find by name
-          <input type="search" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="For example, react" />
-        </label>
-        <Listed
-          title="The app and the keevoro command"
-          about="Rust crates, from crates.io."
-          entries={rust}
-          of={LISTS.rust.length}
-        />
-        <Listed title="The app’s screens" about="Packages from npm." entries={npm} of={LISTS.npm.length} />
-      </div>
+      <LicencesList />
     </section>
+  )
+}
+
+const THANKS =
+  'Keevoro is built on the work of many open source projects. Each one in the app is listed here with its licence. Thank you to everyone who made them.'
+
+/** The list itself, with a box to find one by name: About's page, and a page in Settings. */
+export function LicencesList(props: { withThanks?: boolean }) {
+  const [typed, setTyped] = useState('')
+  const rust = useMemo(() => matching(LISTS.rust, typed), [typed])
+  const npm = useMemo(() => matching(LISTS.npm, typed), [typed])
+  return (
+    <div className="panel licences">
+      {props.withThanks && <p className="quiet">{THANKS}</p>}
+      <label className="find">
+        Find by name
+        <input type="search" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="For example, react" />
+      </label>
+      <Listed
+        title="The app and the keevoro command"
+        about="Rust crates, from crates.io."
+        entries={rust}
+        of={LISTS.rust.length}
+      />
+      <Listed title="The app’s screens" about="Packages from npm." entries={npm} of={LISTS.npm.length} />
+    </div>
   )
 }
 

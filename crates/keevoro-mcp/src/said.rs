@@ -420,7 +420,7 @@ fn access(answer: &Value) -> String {
     let changes = if answer.get("mayChange").and_then(Value::as_bool) == Some(true) {
         "You may make changes."
     } else {
-        "You may only look, not make changes. The person can allow changes in the Keevoro app, under Settings, AI agents, or with: keevoro agents allow-changes on"
+        "You may only look, not make changes. The person can allow changes in the Keevoro app, under Settings, Advanced, AI agents, or with: keevoro agents allow-changes on"
     };
     format!(
         "You may look in {}, and back up to {}. {changes}",

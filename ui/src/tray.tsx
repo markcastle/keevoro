@@ -10,6 +10,9 @@ import type { ReactNode } from 'react'
 import type { Backend, WindowAsk } from './backend'
 import { Toggle } from './toggle'
 
+/** Where the choices about closing are in Settings, as a page name (settings/places.ts). */
+const SETTINGS_WHEN_CLOSED = 'settings/byItself/keepRunning'
+
 /** Asks the app what waits for the window, as it opens and whenever it is told to, and shows it. */
 export function WindowAsks(props: { api: Backend; onPage: (page: string) => void; onProblem: (error: unknown) => void }) {
   const { api, onProblem } = props
@@ -46,6 +49,10 @@ export function WindowAsks(props: { api: Backend; onPage: (page: string) => void
         whereTheIconIs={asked.closing}
         onQuitAsked={(question) => setAsked({ ...asked, closing: undefined, quitting: question })}
         onDone={() => setAsked({ ...asked, closing: undefined })}
+        onSettings={() => {
+          setAsked({ ...asked, closing: undefined })
+          onPage.current(SETTINGS_WHEN_CLOSED)
+        }}
         onProblem={onProblem}
       />
     )
@@ -82,6 +89,8 @@ export function CloseExplained(props: {
   whereTheIconIs: string
   onQuitAsked: (question: string) => void
   onDone: () => void
+  /** Leaves the window open, on these choices in Settings. */
+  onSettings: () => void
   onProblem: (error: unknown) => void
 }) {
   const { api, onProblem } = props
@@ -95,7 +104,13 @@ export function CloseExplained(props: {
       <div className="ask-tick">
         <Toggle on={withComputer} label="Start Keevoro when this computer starts" onChange={setWithComputer} />
       </div>
-      <p className="quiet small">You can change these in Settings, under “When you close Keevoro”.</p>
+      <p className="quiet small">
+        You can change these in{' '}
+        <button className="link" onClick={props.onSettings}>
+          Settings, Backing up by itself
+        </button>
+        .
+      </p>
       <p className="choices">
         <button
           onClick={() =>

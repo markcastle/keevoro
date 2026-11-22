@@ -794,7 +794,8 @@ impl Op {
                  each is a photo, a video or an other file carried along, whether it came with Keevoro or the person \
                  added it, and whether it is \
                  switched on. A search only finds files of kinds switched on, and a survey only counts them. You \
-                 cannot change the list; the person can, in Settings or with the keevoro command. Changes nothing.",
+                 cannot change the list; the person can, in Settings, Advanced, Kinds of file, or with the keevoro \
+                 command. Changes nothing.",
             ),
             Op::ScheduleShow => (
                 "backup_schedule",

@@ -4,8 +4,8 @@
 //! said when there was nothing new, when the person stopped it, or when it
 //! waited for a better moment, and nothing while the window is in front of
 //! them, where the backup screen says it already. At most one notice for a
-//! run. "Tell me when a backup by itself finishes" in Settings turns them
-//! off (`notify` in `window.json`).
+//! run. "Tell me when a backup by itself finishes" (Settings, Backing up
+//! by itself) turns them off (`notify` in `window.json`).
 //!
 //! What is said is decided by [`notice`], pure, from the run's last word,
 //! in the run's own sentences. A click on the notice brings the window

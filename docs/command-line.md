@@ -375,7 +375,7 @@ A source is named by its number, its place or its name, as `keevoro sources` lis
 
 ### The kinds of file Keevoro looks for
 
-One list for the whole of Keevoro, the same as Settings, Advanced, in the app. A change counts from the next time a source is looked through (`keevoro look --again`) or a place surveyed, and never takes away anything already found or backed up.
+One list for the whole of Keevoro, the same as Settings, Advanced, Kinds of file, in the app. A change counts from the next time a source is looked through (`keevoro look --again`) or a place surveyed, and never takes away anything already found or backed up.
 
 | Command | What it does |
 | --- | --- |
@@ -420,7 +420,7 @@ A collection is named by its whole name, such as "Holidays / Cornwall", or by it
 | `keevoro destinations add --r2 ACCOUNT --bucket NAME` | The same for cloud storage, with `--s3 REGION` or `--endpoint URL` for others. |
 | `keevoro destinations remove DESTINATION` | Stops backing up there, by its number, folder or name; `--all` for every one. Nothing backed up there is touched; Keevoro's own unfinished copies there are cleared. |
 | `keevoro room` | What is waiting for each place, and whether it has the room. |
-| `keevoro tidy FOLDER [--dry-run]` | Clears away the unfinished copies a stopped backup left in a backup folder's working folder (`.keevoro-uploads`), whether or not a backup still goes there, and says what was cleared and what was left and why. Nothing that was backed up is touched; anything written to in the last hour is left, in case it is in use. `--dry-run` only says what it would clear. The app has the same as a button beside a folder destination, and in Settings, Advanced. |
+| `keevoro tidy FOLDER [--dry-run]` | Clears away the unfinished copies a stopped backup left in a backup folder's working folder (`.keevoro-uploads`), whether or not a backup still goes there, and says what was cleared and what was left and why. Nothing that was backed up is touched; anything written to in the last hour is left, in case it is in use. `--dry-run` only says what it would clear. The app has the same as a button beside a folder destination, and in Settings, Advanced, "Unfinished copies in a folder". |
 
 ### Backing up
 
@@ -481,7 +481,7 @@ keevoro agents allow --look "D:\" --back-up-to "F:\Family Backup"
 keevoro agents allow-changes on
 ```
 
-`keevoro agents` shows what is allowed now, and Settings in the app shows the same. The folders given replace those allowed before, so name them all each time; `--none` takes them all away. A change counts at once, even while an agent is at work. An agent can read what it is allowed, but can never change it. How to set up an AI app, and what an agent can and cannot do, is in [docs/mcp.md](mcp.md).
+`keevoro agents` shows what is allowed now, and Settings, Advanced, AI agents, in the app shows the same. The folders given replace those allowed before, so name them all each time; `--none` takes them all away. A change counts at once, even while an agent is at work. An agent can read what it is allowed, but can never change it. How to set up an AI app, and what an agent can and cannot do, is in [docs/mcp.md](mcp.md).
 
 ## Where Keevoro keeps its things
 
