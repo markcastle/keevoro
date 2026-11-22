@@ -127,7 +127,8 @@ fn allowed(keevoro: &Keevoro, op: Op, backup: Option<&str>, mut request: Value) 
                 if source.bucket.is_some() {
                     return Err(Error::refused(BUCKET_FOR_THE_PERSON));
                 }
-                may_look_in(&access, &source.root)?;
+                // One set aside is looked for where it was.
+                may_look_in(&access, source.set_aside_from.as_ref().unwrap_or(&source.root))?;
             }
         }
         Op::PhotosPicture if !text(&request, "file").is_empty() => look_in(&access, &mut request, "file")?,

@@ -439,7 +439,29 @@ pub struct Went {
     pub destinations: Vec<crate::history::DestinationRecord>,
     /// The previews made, when this backup makes them.
     pub previews: Option<crate::history::PreviewsMade>,
+    /// For a backup nobody is watching: destinations not sent to because
+    /// they need the person's say, a sentence each.
+    pub held: Vec<String>,
 }
+
+/// The start of what is said of a destination held for the person's say.
+fn held_words(name: &str) -> String {
+    format!("{} looks emptied or replaced.", crate::confirm::capitalised(name))
+}
+
+/// How a backup is run: by a person watching it, or by itself (on a
+/// schedule, or for a system scheduler), when anything that needs the
+/// person's say is held back rather than settled.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct HowToSend {
+    /// Nobody is watching. A destination that looks emptied or replaced is
+    /// not sent to (a person watching is told, and sending puts it right; a
+    /// drive swapped for another overnight must not be filled silently).
+    pub unattended: bool,
+}
+
+/// What is said of a destination an unattended backup did not send to.
+pub const NOT_SENT_THERE: &str = "Keevoro has not sent anything there. Open Keevoro to decide.";
 
 /// Backs up to every destination of this backup, one after another, the
 /// originals first each time. A destination that cannot be reached (a
@@ -458,9 +480,38 @@ pub fn everywhere(
     on_progress: &mut dyn FnMut(&str),
     after_each: &mut dyn FnMut(Turn<'_>),
 ) -> Result<Went> {
+    everywhere_as(
+        &HowToSend::default(),
+        out,
+        catalog,
+        home,
+        world,
+        video_tools,
+        stop,
+        tracker,
+        on_progress,
+        after_each,
+    )
+}
+
+/// [`everywhere`], run as `how` says.
+#[allow(clippy::too_many_arguments)]
+pub fn everywhere_as(
+    how: &HowToSend,
+    out: &mut dyn Write,
+    catalog: &Catalog,
+    home: &Path,
+    world: &crate::connect::World<'_>,
+    video_tools: Option<&keevoro_media::VideoTools>,
+    stop: &Stop,
+    tracker: &Tracker,
+    on_progress: &mut dyn FnMut(&str),
+    after_each: &mut dyn FnMut(Turn<'_>),
+) -> Result<Went> {
     // Cloud storage this backup reads from, opened once with its keys.
     let buckets = crate::bucket::Buckets::open(catalog, home, world)?;
     everywhere_reading(
+        how,
         out,
         catalog,
         home,
@@ -477,6 +528,7 @@ pub fn everywhere(
 /// [`everywhere`], reading from bucket sources already opened.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn everywhere_reading(
+    how: &HowToSend,
     out: &mut dyn Write,
     catalog: &Catalog,
     home: &Path,
@@ -495,7 +547,11 @@ pub(crate) fn everywhere_reading(
     // at, and what has gone from one is said before anything is sent.
     let looked = crate::confirm::look_everywhere(catalog, world)?;
     let now = crate::confirm::now();
-    for (to, _) in &looked {
+    for (to, seen) in &looked {
+        // One held for the person's say is said where it is passed over.
+        if how.unattended && seen.reached && seen.emptied {
+            continue;
+        }
         if let Some(view) = crate::confirm::as_it_stands(catalog, to, now)? {
             if view.reached {
                 for line in &view.said {
@@ -525,6 +581,17 @@ pub(crate) fn everywhere_reading(
         let before = keevoro_core::meter::totals().0;
         let mut record = crate::history::DestinationRecord::new(&name);
         let mut cleared = keevoro_storage_folder::Swept::default();
+        // Nobody is watching, and it looks emptied or replaced: what has
+        // gone was said above, and nothing is sent there until the person
+        // says so.
+        if how.unattended && seen.reached && seen.emptied {
+            writeln!(out, "{NOT_SENT_THERE}")?;
+            went.held.push(format!("{} {NOT_SENT_THERE}", held_words(&name)));
+            record.problem = Some(NOT_SENT_THERE.to_string());
+            went.destinations.push(record);
+            tracker.could_not_finish_at(&name, NOT_SENT_THERE);
+            continue;
+        }
         let turn = (|| {
             // One that could not be looked at is not backed up to: what is
             // there cannot be known, and a folder that has gone is far more
@@ -622,8 +689,9 @@ pub(crate) fn everywhere_reading(
         went.refused = None;
         // A backup never asked how to arrange its files (started from the
         // command line or by an agent) went by date: that is said once, at
-        // the end, and it is not asked afterwards.
-        if catalog.arrange()?.is_none() {
+        // the end, and it is not asked afterwards. One nobody is watching
+        // never settles it: it is held back before it starts.
+        if catalog.arrange()?.is_none() && !how.unattended {
             writeln!(out, "{}", summary::ARRANGED_BY_DATE_UNASKED)?;
             catalog.set_arrange(keevoro_core::Arrange::ByDate)?;
         }

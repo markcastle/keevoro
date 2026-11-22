@@ -455,7 +455,7 @@ pub fn as_it_stands(catalog: &Catalog, saved: &Saved, now: i64) -> Result<Option
 }
 
 /// "The folder D:\\Backup" from "the folder D:\\Backup".
-fn capitalised(name: &str) -> String {
+pub(crate) fn capitalised(name: &str) -> String {
     let mut chars = name.chars();
     match chars.next() {
         Some(first) => first.to_uppercase().chain(chars).collect(),

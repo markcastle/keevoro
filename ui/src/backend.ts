@@ -206,6 +206,9 @@ export type Source = {
   /** Other sources whose folders go into that same folder, and that in words. */
   sharesFolderWith?: string[]
   sharedSaid?: string
+  /** Set aside when a different drive was plugged in at its place: that place, and this in words. Everything found on it is kept. */
+  setAsideFrom?: string
+  setAsideSaid?: string
 }
 
 /** How photos and videos are arranged in a backup. */
@@ -390,7 +393,74 @@ export type ScanEvent = {
   onlineOnlySaid?: string
   /** On the last event: the drive was unplugged part-way, in a sentence. What was found so far is kept. */
   unplugged?: string
+  /** On the last event of looking again: sources not looked through, as they are not plugged in or were set aside, each in a sentence. */
+  passedOver?: string[]
+  /** On the last event: sources whose place holds a different drive now, so they were not looked through, each with the question to ask. */
+  differentDrive?: DifferentDrive[]
 }
+
+/** How a backup's schedule is kept: every day, week or month, at a time in this computer's own time. */
+export type ScheduleChoice = {
+  v: number
+  every: 'day' | 'week' | 'month'
+  /** "02:30" */
+  at: string
+  /** For a week: mon to sun. */
+  weekday?: string
+  /** For a month: 1 to 31, the last day of shorter months. */
+  day?: number
+  paused: boolean
+}
+
+/** One run by itself, or one passed over. */
+export type ScheduleAttempt = {
+  at: number
+  /** "on its schedule", "when you pressed Run now". */
+  why: string
+  outcome: 'worked' | 'someFiles' | 'unreachable' | 'refused' | 'stopped' | 'heldBack' | 'notNow' | 'skipped'
+  said: string
+}
+
+/** When a backup backs up by itself, when next, and its last few runs. */
+export type ScheduleView = {
+  /** "Every day at 02:30"; absent when it has no schedule. */
+  every?: string
+  choice?: ScheduleChoice
+  paused: boolean
+  /** "Tonight at 02:30" */
+  next?: string
+  nextAt?: number
+  skipping: boolean
+  last: ScheduleAttempt[]
+  /** A schedule this version could not read: it is kept, and counts as none. */
+  unreadable?: boolean
+}
+
+/** What to set: `every` off for none; only `paused` to pause or carry on. */
+export type SetSchedule = {
+  every?: 'day' | 'week' | 'month' | 'off'
+  at?: string
+  weekday?: string
+  day?: number
+  paused?: boolean
+}
+
+/** What pressing Update did: started installing, or waits for the work in hand to finish, said in `waiting`. */
+export type UpdateStarted = { waiting?: string }
+
+/** A source whose place holds a different drive from the one looked through there before. */
+export type DifferentDrive = {
+  source: number
+  name: string
+  place: string
+  /** "This looks like a different drive from the one called Card. Add it as a new source, or look through it as Card anyway?" */
+  asked: string
+  /** What happened, said when nobody answers: it was passed over and nothing found on it is lost. */
+  said: string
+}
+
+/** The answer to that question. */
+export type OtherDrive = 'lookAnyway' | 'addAsNew'
 
 /** Sent while files a quick search only sampled are read in the background. */
 export type CheckEvent = {
@@ -419,6 +489,10 @@ export type SendEvent = {
   problem?: string
   /** On the last event: how it ended, in a word. */
   outcome?: 'worked' | 'someFiles' | 'unreachable' | 'refused' | 'stopped'
+  /** On the last event of a backup that ran by itself: what waits for your say, a sentence each. */
+  heldBack?: string[]
+  /** On the last event of a backup that ran by itself and did not run now, why. */
+  notNow?: string
 }
 
 /** What the "connect" form collects. Keys go to the system keychain. */
@@ -505,6 +579,18 @@ export type RunDetail = {
   previews?: PreviewsMade
   /** What it said at the end, exactly as it was shown. */
   summary: string[]
+  /** For a backup that ran by itself: why, what it looked through and passed over, what was new, and what waits for your say. */
+  byItself?: ByItself
+}
+
+/** What a backup that ran by itself did before it sent anything. */
+export type ByItself = {
+  /** "on its schedule", "from the command line". */
+  why: string
+  lookedAgain?: string[]
+  passedOver?: string[]
+  found?: string[]
+  waiting?: string[]
 }
 
 export type StageKind =
@@ -962,6 +1048,16 @@ export interface Backend {
   onDrives(listener: () => void): () => void
   /** Starts looking through the drive or folder at this path. */
   scanPlace(path: string): Promise<void>
+  /** When this backup backs up by itself, when next, and its last few runs. */
+  schedule(): Promise<ScheduleView>
+  setSchedule(request: SetSchedule): Promise<ScheduleView>
+  skipNextRun(undo: boolean): Promise<ScheduleView>
+  /** Runs it now as its schedule does; heard as `send` events. */
+  runScheduledNow(): Promise<void>
+  /** The person is using the window, so a backup by itself waits until they have finished. */
+  windowUsed(): Promise<void>
+  /** Looks through one source again, or every one; a source not plugged in is passed over and said, and `differentDrive` answers the question about one. */
+  lookAgain(source?: number, differentDrive?: OtherDrive): Promise<void>
   /**
    * Finds which folders in a drive hold photos and videos, by reading
    * folder listings only. Quick, and no file is opened.
@@ -979,7 +1075,8 @@ export interface Backend {
   /** A newer Keevoro this computer can install, or null. */
   checkUpdate(): Promise<Update | null>
   /** Downloads, checks and starts the update. On Windows the app then closes. */
-  installUpdate(): Promise<void>
+  /** Installs the update, unless work is in hand: then it answers `waiting`, unless `stopFirst` stops that work first. */
+  installUpdate(stopFirst?: boolean): Promise<UpdateStarted>
   /** Opens a release's "What's new" page in the browser. */
   openReleasePage(page: string): Promise<void>
   keepCollection(key: string, keep: boolean): Promise<void>
@@ -1130,13 +1227,19 @@ async function tauriBackend(): Promise<Backend> {
     placesIfChanged: (known, asked) => invoke('places_if_changed', { known, asked }),
     onDrives: (listener) => subscribe('drives', () => listener()),
     scanPlace: (path) => invoke('scan_place', { path }),
+    lookAgain: (source, differentDrive) => invoke('look_again', { source, differentDrive }),
+    schedule: () => invoke('schedule'),
+    setSchedule: (request) => invoke('set_schedule', { request }),
+    skipNextRun: (undo) => invoke('skip_next_run', { undo }),
+    runScheduledNow: () => invoke('run_scheduled_now'),
+    windowUsed: () => invoke('window_used'),
     surveyPlace: (path) => invoke('survey_place', { path }),
     stopSurvey: () => invoke('stop_survey'),
     onSurvey: (listener) => subscribe('survey', listener),
     logTail: () => invoke('log_tail'),
     openLog: () => invoke('open_log'),
     checkUpdate: () => invoke('check_update'),
-    installUpdate: () => invoke('install_update'),
+    installUpdate: (stopFirst) => invoke('install_update', { stopFirst }),
     openReleasePage: (page) => invoke('open_release_page', { page }),
     pickPlace: () => pickFolder('Choose a source: a drive or folder to look through'),
     keepCollection: (key, keep) => invoke('keep_collection', { key, keep }),

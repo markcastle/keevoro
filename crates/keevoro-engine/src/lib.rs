@@ -71,6 +71,22 @@ pub fn scan_into(
     scan_into_with(catalog, source, name, &ScanOptions::default(), on_progress, &mut || {})
 }
 
+/// The full form a place would have if it were there. A source is kept
+/// under its real path (`/private/var/...` on a Mac, `\\?\C:\...` on
+/// Windows), which cannot be asked for once its folder has gone. So the
+/// folder above it, which is still there, is asked instead, and the name
+/// put back on the end. Then a source that is not plugged in is still
+/// recognised as the one the catalog knows.
+fn where_it_would_be(place: &Path) -> PathBuf {
+    match (place.parent(), place.file_name()) {
+        (Some(above), Some(name)) if !above.as_os_str().is_empty() => match std::fs::canonicalize(above) {
+            Ok(real) => real.join(name),
+            Err(_) => place.to_path_buf(),
+        },
+        _ => place.to_path_buf(),
+    }
+}
+
 /// As [`scan_into`], with a say in how the search is done (a quick search
 /// samples large files; see [`deep`]). `on_saving` is called once the
 /// looking is over and what was found is about to be written down, which on
@@ -86,7 +102,17 @@ pub fn scan_into_with(
     let _busy = keevoro_core::doing::doing(keevoro_core::doing::Work::LookingThroughASource);
     // A remembered drive is recognised by its full path, so `D:` and
     // `D:\.` must come out the same.
-    let root = std::fs::canonicalize(source).unwrap_or_else(|_| source.to_path_buf());
+    let root = std::fs::canonicalize(source).unwrap_or_else(|_| where_it_would_be(source));
+    // A source that is not there now (a card in a drawer) is not looked
+    // through: a look would find nothing, and saving nothing would forget
+    // everything found on it. It is said as a drive gone, which keeps all.
+    if !root.is_dir() && catalog.sources()?.iter().any(|s| s.root == root || s.root == source) {
+        return Ok(ScanReport {
+            root,
+            gone: true,
+            ..ScanReport::default()
+        });
+    }
     let mut report = scan(&root, options, on_progress);
     // A search that was stopped has only seen part of the source. Saving
     // that would make the rest look as if it were not there, so nothing
@@ -471,6 +497,42 @@ mod tests {
             before,
             "nothing found on it before is forgotten"
         );
+        fs::rename(&away, &card).unwrap();
+    }
+
+    #[test]
+    fn a_source_not_plugged_in_is_not_looked_through_and_nothing_found_on_it_is_forgotten() {
+        let dir = tempfile::tempdir().unwrap();
+        let card = dir.path().join("Card");
+        fs::create_dir_all(card.join("DCIM")).unwrap();
+        fs::write(card.join("DCIM/a.jpg"), crate::discover::tests::real_jpeg(1)).unwrap();
+        let mut catalog = Catalog::in_memory().unwrap();
+        let options = ScanOptions::default();
+        scan_into_with(&mut catalog, &card, Some("Card"), &options, &mut |_| {}, &mut || {}).unwrap();
+        let before = catalog.sources().unwrap();
+        let away = dir.path().join("In a drawer");
+        fs::rename(&card, &away).unwrap();
+        let (mut looked, mut saved) = (false, false);
+        let report = scan_into_with(
+            &mut catalog,
+            &card,
+            Some("Card"),
+            &options,
+            &mut |_| looked = true,
+            &mut || {
+                saved = true;
+            },
+        )
+        .unwrap();
+        assert!(report.gone && report.items.is_empty() && !looked && !saved);
+        assert_eq!(
+            catalog.sources().unwrap(),
+            before,
+            "the same source, with the same files"
+        );
+        // A place that is no source is looked through as ever.
+        let nowhere = dir.path().join("Nowhere");
+        scan_into_with(&mut catalog, &nowhere, None, &options, &mut |_| {}, &mut || {}).unwrap();
         fs::rename(&away, &card).unwrap();
     }
 

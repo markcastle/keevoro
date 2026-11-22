@@ -471,11 +471,27 @@ pub static ROWS: &[Row] = &[
         args: |c| {
             c.arg(arg("place", "A drive or folder; with --again, one of the sources").required_unless_present("again"))
                 .arg(flag("again", "Look through the sources again for what is new"))
+                .arg(
+                    arg(
+                        "different-drive",
+                        "When the drive at a source's place is not the one looked through there before: anyway, to look through it as that source, or new, to keep the source as it was and add the drive as a new source",
+                    )
+                    .long("different-drive")
+                    .value_parser(["anyway", "new"])
+                    .requires("place")
+                    .requires("again"),
+                )
         },
         ask: |c, m, _| {
             if m.get_flag("again") {
                 let source = text(m, "place").map(|typed| source(c, &typed)).transpose()?;
-                Ok((Op::SourcesLookAgain, json!({ "source": source })))
+                let mut ask = json!({ "source": source });
+                match text(m, "different-drive").as_deref() {
+                    Some("anyway") => ask["differentDrive"] = json!("lookAnyway"),
+                    Some("new") => ask["differentDrive"] = json!("addAsNew"),
+                    _ => {}
+                }
+                Ok((Op::SourcesLookAgain, ask))
             } else {
                 Ok((Op::SourcesLook, json!({ "place": required(m, "place") })))
             }
@@ -793,10 +809,44 @@ pub static ROWS: &[Row] = &[
     },
     Row {
         words: &["run"],
-        ops: &[Op::BackupRun],
-        about: None,
-        args: none,
-        ask: |c, m, io| nothing(c, m, io, Op::BackupRun),
+        ops: &[Op::BackupRun, Op::ScheduleRun],
+        about: Some(
+            "Backs up to every destination, originals first. With --unattended, runs as a schedule does, for a system scheduler: looks through the sources again, holds back what needs your say, waits while this computer is on battery or busy, and sends what is new.",
+        ),
+        args: |c| {
+            c.arg(flag(
+                "unattended",
+                "Run by itself, with nobody watching: hold back what needs your say, and never start on battery or while the computer is busy",
+            ))
+            .arg(
+                flag(
+                    "if-due",
+                    "With --unattended, only when the backup's schedule says a run is due: once however many were missed, and never twice with the app",
+                )
+                .requires("unattended"),
+            )
+            .arg(
+                arg("wait", "With --unattended, how many minutes to wait at most for a good moment; none by default")
+                    .long("wait")
+                    .value_name("MINUTES")
+                    .value_parser(clap::value_parser!(u32))
+                    .requires("unattended"),
+            )
+        },
+        ask: |_, m, _| {
+            if m.get_flag("unattended") {
+                let mut ask = json!({});
+                if let Some(minutes) = m.get_one::<u32>("wait") {
+                    ask["waitMinutes"] = json!(minutes);
+                }
+                if m.get_flag("if-due") {
+                    ask["ifDue"] = json!(true);
+                }
+                Ok((Op::ScheduleRun, ask))
+            } else {
+                Ok((Op::BackupRun, json!({})))
+            }
+        },
         show: show::nothing_more,
     },
     Row {
@@ -806,6 +856,64 @@ pub static ROWS: &[Row] = &[
         args: none,
         ask: |c, m, io| nothing(c, m, io, Op::BackupCheck),
         show: show::nothing_more,
+    },
+    Row {
+        words: &["schedule"],
+        ops: &[Op::ScheduleShow],
+        about: None,
+        args: none,
+        ask: |c, m, io| nothing(c, m, io, Op::ScheduleShow),
+        show: show::schedule,
+    },
+    Row {
+        words: &["schedule", "set"],
+        ops: &[Op::ScheduleSet],
+        about: Some(
+            "Sets when the backup backs up by itself, in this computer's own time: daily 02:30, weekly sun 09:00, monthly 31 02:30 (the last day of shorter months), or off. pause and carry-on pause it and carry on; carrying on never catches up what was missed while paused. Saving never runs it at once. Keevoro runs it while the app is open; for your own scheduler, see keevoro run --unattended --if-due.",
+        ),
+        args: |c| {
+            c.arg(
+                arg("how", "daily, weekly, monthly, off, pause or carry-on")
+                    .required(true)
+                    .value_parser(["daily", "weekly", "monthly", "off", "pause", "carry-on"]),
+            )
+            .arg(arg("first", "For daily, the time; for weekly, the day (mon to sun); for monthly, the day of the month (1 to 31)"))
+            .arg(arg("second", "For weekly and monthly, the time, such as 02:30"))
+        },
+        ask: |_, m, _| {
+            let first = text(m, "first");
+            let second = text(m, "second");
+            let wanted = |what: Option<String>, name: &str| {
+                what.ok_or_else(|| Failure::not_understood(format!("give the {name} too")))
+            };
+            let ask = match required(m, "how").as_str() {
+                "daily" => json!({ "every": "day", "at": wanted(first, "time, such as 02:30")? }),
+                "weekly" => json!({
+                    "every": "week",
+                    "weekday": wanted(first, "day of the week, such as sun")?,
+                    "at": wanted(second, "time, such as 09:00")?,
+                }),
+                "monthly" => {
+                    let day: u8 = wanted(first, "day of the month, such as 31")?
+                        .parse()
+                        .map_err(|_| Failure::not_understood("the day of the month should be 1 to 31"))?;
+                    json!({ "every": "month", "day": day, "at": wanted(second, "time, such as 02:30")? })
+                }
+                "off" => json!({ "every": "off" }),
+                "pause" => json!({ "paused": true }),
+                _ => json!({ "paused": false }),
+            };
+            Ok((Op::ScheduleSet, ask))
+        },
+        show: show::schedule,
+    },
+    Row {
+        words: &["schedule", "skip"],
+        ops: &[Op::ScheduleSkipNext],
+        about: None,
+        args: |c| c.arg(flag("undo", "Stop skipping it")),
+        ask: |_, m, _| Ok((Op::ScheduleSkipNext, json!({ "undo": m.get_flag("undo") }))),
+        show: show::schedule,
     },
     Row {
         words: &["history"],

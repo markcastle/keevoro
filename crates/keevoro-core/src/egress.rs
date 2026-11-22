@@ -120,6 +120,19 @@ pub fn cost_said(kind: &str, place: &str, bytes: u64, size: &str) -> String {
     }
 }
 
+/// About what reading `bytes` out of a provider costs, in pounds, for a
+/// rule to weigh: its usual price, with no free allowance counted (the
+/// careful way), and storage whose price is not known at 7p a gigabyte.
+pub fn estimated_pounds(kind: &str, place: &str, bytes: u64) -> f64 {
+    #[allow(clippy::cast_precision_loss)]
+    let gigabytes = bytes as f64 / GIGABYTE;
+    match provider(kind, place).1 {
+        Price::PerGigabyte(dollars) => gigabytes * dollars * POUNDS_PER_DOLLAR,
+        Price::Free | Price::FreeUpTo { .. } => 0.0,
+        Price::Unknown => gigabytes * 0.07,
+    }
+}
+
 /// The days from 1 January 1970 to a date, for knowing how old the table
 /// is. The usual civil calendar arithmetic.
 pub fn days_since_1970(year: i64, month: u32, day: u32) -> i64 {
@@ -141,6 +154,13 @@ mod tests {
     use super::*;
 
     const GB: u64 = 1024 * 1024 * 1024;
+
+    #[test]
+    fn what_reading_costs_is_weighed_the_careful_way() {
+        assert!((estimated_pounds("s3", "eu-west-2", 100 * GB) - 7.11).abs() < 0.01);
+        assert!(estimated_pounds("r2", "acc", 100 * GB).abs() < f64::EPSILON);
+        assert!((estimated_pounds("endpoint", "https://example.com", 100 * GB) - 7.0).abs() < 0.01);
+    }
 
     #[test]
     fn reading_out_of_amazon_is_said_in_pounds_with_about_and_cloudflare_beside_it() {

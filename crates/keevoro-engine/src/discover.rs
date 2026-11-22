@@ -70,6 +70,21 @@ pub struct SourceView {
     /// E:\Photos."
     #[serde(skip_serializing_if = "Option::is_none")]
     pub shared_said: Option<String>,
+    /// For a source set aside because a different drive took its place:
+    /// the place it was at, as a person writes it, where it is looked for
+    /// again.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub set_aside_from: Option<String>,
+    /// The same in words.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub set_aside_said: Option<String>,
+}
+
+/// What is said of a source set aside, kept until its own drive is back.
+pub fn set_aside_words(place: &str) -> String {
+    format!(
+        "Set aside when a different drive was plugged in at {place}. Everything found on it is kept; plug its own drive in and look again to bring it back."
+    )
 }
 
 fn is_zero(n: &u64) -> bool {
@@ -191,6 +206,10 @@ pub struct FromCloud {
     pub bytes: u64,
     /// About what reading it costs, in a sentence or two, each with "about".
     pub cost: String,
+    /// The same in pence, the careful way, for a backup that runs by
+    /// itself to weigh (`keevoro_core::unattended`). Not shown.
+    #[serde(skip)]
+    pub pence: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -499,33 +518,43 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
         .iter()
         .cloned()
         .zip(kept_as)
-        .map(|(s, (kept_as, shares_folder_with, shared_said))| SourceView {
-            arrange: choices
-                .sources
-                .iter()
-                .find(|c| keevoro_core::places::same_place(&c.root, &s.root))
-                .and_then(|c| c.arrange),
-            kept_as,
-            shares_folder_with,
-            shared_said,
-            left_out: left_out
-                .iter()
-                .filter(|f| keevoro_core::places::within(f, &s.root) || keevoro_core::places::within(&s.root, f))
-                .map(|f| friendly_path(f))
-                .collect(),
-            id: s.id,
-            name: s.name,
-            root: friendly_path(&s.root),
-            items: s.items,
-            bytes: s.bytes,
-            online_only: s.online_only,
-            online_only_said: crate::summary::online_only(
-                usize::try_from(s.online_only).unwrap_or(usize::MAX),
-                s.online_only_bytes,
-                &s.root,
-            ),
-            online_only_bytes: s.online_only_bytes,
-            bucket: crate::bucket::place_of(s.bucket.as_deref()).map(|p| p.describe()),
+        .map(|(s, (kept_as, shares_folder_with, shared_said))| {
+            let set_aside_from = catalog
+                .source_mark(&s.root)
+                .ok()
+                .flatten()
+                .and_then(|m| m.was_at)
+                .map(|at| friendly_path(Path::new(&at)));
+            SourceView {
+                set_aside_said: set_aside_from.as_deref().map(set_aside_words),
+                set_aside_from,
+                arrange: choices
+                    .sources
+                    .iter()
+                    .find(|c| keevoro_core::places::same_place(&c.root, &s.root))
+                    .and_then(|c| c.arrange),
+                kept_as,
+                shares_folder_with,
+                shared_said,
+                left_out: left_out
+                    .iter()
+                    .filter(|f| keevoro_core::places::within(f, &s.root) || keevoro_core::places::within(&s.root, f))
+                    .map(|f| friendly_path(f))
+                    .collect(),
+                id: s.id,
+                name: s.name,
+                root: friendly_path(&s.root),
+                items: s.items,
+                bytes: s.bytes,
+                online_only: s.online_only,
+                online_only_said: crate::summary::online_only(
+                    usize::try_from(s.online_only).unwrap_or(usize::MAX),
+                    s.online_only_bytes,
+                    &s.root,
+                ),
+                online_only_bytes: s.online_only_bytes,
+                bucket: crate::bucket::place_of(s.bucket.as_deref()).map(|p| p.describe()),
+            }
         })
         .collect();
     Ok(Discover {
@@ -561,6 +590,9 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
             .map(|(place, bytes)| FromCloud {
                 name: place.describe(),
                 cost: keevoro_core::egress::cost_said(&place.kind, &place.place, bytes, &crate::summary::bytes(bytes)),
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                pence: (keevoro_core::egress::estimated_pounds(&place.kind, &place.place, bytes) * 100.0).round()
+                    as u64,
                 bytes,
             })
             .collect(),

@@ -263,6 +263,19 @@ pub struct Keevoro {
     pub(crate) jobs: Arc<Jobs>,
     /// The last few folders looked inside (`places.files`).
     pub(crate) listings: crate::inside::Listings,
+    /// Keevoro's own data folder, where the one-at-a-time lock for
+    /// backups that run by themselves is kept.
+    pub(crate) data: PathBuf,
+    /// What the computer says about itself, for a backup that runs by
+    /// itself to decide whether to start: the real computer, or a test's.
+    pub(crate) signals: Arc<dyn crate::jobs::Signals>,
+    /// When Keevoro's own window was last used, in seconds since 1970;
+    /// zero when it has not been.
+    pub(crate) window_used: Arc<std::sync::atomic::AtomicI64>,
+    /// What the scheduler knows of each backup's schedule between looks.
+    pub(crate) schedules: Arc<crate::schedule::Known>,
+    /// The time and time zone, for schedules: the computer's, or a test's.
+    pub(crate) clock: Arc<dyn crate::schedule::Clock>,
 }
 
 impl Keevoro {
@@ -290,6 +303,11 @@ impl Keevoro {
             web: Box::new(GitHub::from_env()),
             jobs,
             listings: crate::inside::Listings::default(),
+            data: folders.data.clone(),
+            signals: Arc::new(crate::jobs::ThisComputer::default()),
+            window_used: Arc::default(),
+            schedules: Arc::default(),
+            clock: Arc::new(crate::schedule::SystemClock),
         };
         keevoro.apply_saved_choices();
         // Pictures kept for quick showing are kept within bounds, quietly,
@@ -311,6 +329,34 @@ impl Keevoro {
     pub fn with_environment(mut self, environment: impl Fn(&str) -> Option<String> + Send + Sync + 'static) -> Self {
         self.environment = Arc::new(environment);
         self
+    }
+
+    /// Reads what the computer says about itself (battery, how busy it
+    /// is) somewhere else: for tests, made up.
+    #[must_use]
+    pub fn with_signals(mut self, signals: impl crate::jobs::Signals + 'static) -> Self {
+        self.signals = Arc::new(signals);
+        self
+    }
+
+    /// Reads the time and time zone somewhere else, for schedules: for
+    /// tests, a clock the test moves.
+    #[must_use]
+    pub fn with_clock(mut self, clock: impl crate::schedule::Clock + 'static) -> Self {
+        self.clock = Arc::new(clock);
+        self
+    }
+
+    /// The time now, as schedules read it.
+    pub fn now(&self) -> jiff::Timestamp {
+        self.clock.now()
+    }
+
+    /// Notes that the person is using Keevoro's own window now, so a
+    /// backup that runs by itself waits until they have finished.
+    pub fn note_window_used(&self) {
+        self.window_used
+            .store(crate::jobs::seconds_now(), std::sync::atomic::Ordering::SeqCst);
     }
 
     /// Says which front end this is, so a job can say who started it. The

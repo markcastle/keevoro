@@ -337,6 +337,12 @@ fn left_out_key(root: &str) -> String {
     format!("left_out_types:{root}")
 }
 
+/// What the drive at a source's place was last seen as
+/// (`keevoro_core::recognise::Mark`), as JSON.
+fn mark_key(root: &str) -> String {
+    format!("mark:{root}")
+}
+
 /// The ending of a file's name, lower case, without the dot.
 fn ending_of(path: &Path) -> String {
     path.extension()
@@ -359,6 +365,32 @@ pub struct Unhashed {
 
 pub struct Catalog {
     conn: Connection,
+}
+
+/// A path kept under `from`, as it reads once `from` has become `to`.
+/// Anything not under `from` is left as it is. Only the front is swapped,
+/// so the rest keeps exactly the separators it was written with.
+fn moved_under(text: &str, from: &str, to: &str) -> String {
+    let Some(rest) = text.strip_prefix(from) else {
+        return text.to_string();
+    };
+    let from_ends_in_separator = from.ends_with(['/', '\\']);
+    if rest.is_empty() {
+        to.to_string()
+    } else if from_ends_in_separator {
+        // `E:\` and what follows it: keep `to` ending as it does.
+        if to.ends_with(['/', '\\']) {
+            format!("{to}{rest}")
+        } else {
+            let separator = if text.contains('\\') { '\\' } else { '/' };
+            format!("{to}{separator}{rest}")
+        }
+    } else if rest.starts_with(['/', '\\']) {
+        format!("{}{rest}", to.trim_end_matches(['/', '\\']))
+    } else {
+        // `/media/card2` is not under `/media/card`.
+        text.to_string()
+    }
 }
 
 impl Catalog {
@@ -672,8 +704,102 @@ impl Catalog {
         if let Some(root) = &root {
             self.conn
                 .execute("DELETE FROM settings WHERE key = ?1", [online_only_key(root)])?;
+            self.conn
+                .execute("DELETE FROM settings WHERE key = ?1", [mark_key(root)])?;
         }
         Ok(self.conn.execute("DELETE FROM sources WHERE id = ?1", [id])? > 0)
+    }
+
+    /// What the drive at a source's place was last seen as, if it was
+    /// remembered (from 0.42; a source looked through before has none). A
+    /// mark that cannot be read counts as none, so the source is looked
+    /// through as it was before marks were kept.
+    pub fn source_mark(&self, root: &Path) -> Result<Option<keevoro_core::recognise::Mark>> {
+        Ok(self
+            .setting(&mark_key(&path_text(root)))?
+            .and_then(|text| serde_json::from_str(&text).ok()))
+    }
+
+    /// A few of the files found on a source, spread through them, each
+    /// with its size: what is looked for to tell whether a drive at its
+    /// place is still the source (`keevoro_core::recognise`). Asked only
+    /// when the drive there has a different volume, so it may take a
+    /// query per file.
+    pub fn some_files_of(&self, source: i64) -> Result<Vec<(PathBuf, u64)>> {
+        let count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM items WHERE source_id = ?1", [source], |r| {
+                r.get(0)
+            })?;
+        let mut q = self
+            .conn
+            .prepare("SELECT path, bytes FROM items WHERE source_id = ?1 ORDER BY id LIMIT 1 OFFSET ?2")?;
+        let mut files = Vec::new();
+        for at in keevoro_core::recognise::files_to_look_for(usize::try_from(count).unwrap_or(0)) {
+            let found = q
+                .query_row(params![source, to_i64(at as u64)], |r| {
+                    Ok((
+                        PathBuf::from(r.get::<_, String>(0)?),
+                        u64::try_from(r.get::<_, i64>(1)?).unwrap_or(0),
+                    ))
+                })
+                .optional()?;
+            files.extend(found);
+        }
+        Ok(files)
+    }
+
+    /// Remembers what the drive at a source's place is now.
+    pub fn set_source_mark(&self, root: &Path, mark: &keevoro_core::recognise::Mark) -> Result<()> {
+        self.set_setting(
+            &mark_key(&path_text(root)),
+            &serde_json::to_string(mark).map_err(damaged)?,
+        )
+    }
+
+    /// Moves a source, with everything found on it and every choice made
+    /// for it, to another place: its files, the settings kept by its place
+    /// (what it is for, how it is arranged, the endings left out, its mark,
+    /// what was only online), and the lists of what was passed by. Nothing
+    /// on any disk is touched; this is Keevoro's own record only. Refused
+    /// when another source is at `to` already.
+    pub fn move_source(&mut self, id: i64, to: &Path) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        let from: Option<String> = tx
+            .query_row("SELECT root FROM sources WHERE id = ?1", [id], |r| r.get(0))
+            .optional()?;
+        let Some(from) = from else { return Ok(()) };
+        let to_text = path_text(to);
+        let taken: Option<i64> = tx
+            .query_row("SELECT id FROM sources WHERE root = ?1", [&to_text], |r| r.get(0))
+            .optional()?;
+        if taken.is_some_and(|other| other != id) {
+            return Err(CatalogError::Damaged(format!("another source is at {to_text} already")));
+        }
+        // Worked on the text as it is kept, never rebuilt part by part: a
+        // path keeps the separators it was found with, whatever this
+        // computer would use to join one.
+        let moved = |text: &str| -> String { moved_under(text, &from, &to_text) };
+        for table in ["items", "skipped", "unreadable", "online_only"] {
+            let rows: Vec<(i64, String)> = {
+                let mut q = tx.prepare(&format!("SELECT rowid, path FROM {table} WHERE source_id = ?1"))?;
+                let rows = q.query_map([id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+                rows.collect::<rusqlite::Result<_>>()?
+            };
+            let mut update = tx.prepare(&format!("UPDATE {table} SET path = ?2 WHERE rowid = ?1"))?;
+            for (row, path) in rows {
+                update.execute(params![row, moved(&path)])?;
+            }
+        }
+        tx.execute("UPDATE sources SET root = ?2 WHERE id = ?1", params![id, to_text])?;
+        for key in [wants_key, arrange_key, online_only_key, left_out_key, mark_key] {
+            tx.execute(
+                "UPDATE OR REPLACE settings SET key = ?2 WHERE key = ?1",
+                params![key(&from), key(&to_text)],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
     }
 
     /// The kinds of file found on a source, most numerous first, and

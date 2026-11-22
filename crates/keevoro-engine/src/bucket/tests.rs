@@ -181,6 +181,7 @@ impl Bench {
         let buckets = Buckets::given(&self.home, vec![(self.place.clone(), self.read.clone())]);
         let mut said = Vec::new();
         let went = everywhere_reading(
+            &crate::send::HowToSend::default(),
             &mut said,
             &self.catalog,
             &self.home,

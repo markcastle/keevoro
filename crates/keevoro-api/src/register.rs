@@ -231,6 +231,20 @@ register! {
     BackupLastSummary = "backup.last_summary",
         "What the last backup said when it ended",
         changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
+
+    // Backing up by itself
+    ScheduleShow = "schedule.show",
+        "When a backup runs by itself, when it runs next, and its last few runs",
+        changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
+    ScheduleSet = "schedule.set",
+        "Sets or stops a backup running by itself: every day, week or month at a time, or pauses it",
+        changes: Always, job: false, command_line: true, agents: Agents::No, implemented: true;
+    ScheduleSkipNext = "schedule.skip_next",
+        "Skips a backup's next run by itself, or stops skipping it",
+        changes: Always, job: false, command_line: true, agents: Agents::No, implemented: true;
+    ScheduleRun = "schedule.run",
+        "Backs up by itself: looks through sources again, holds back what needs your say, sends what is new",
+        changes: Always, job: true, command_line: true, agents: Agents::No, implemented: true;
     BackupWants = "backup.wants",
         "What a backup is for: photos, videos, other files, or some of them, and changing it",
         changes: OnlyWhenAsked, job: false, command_line: true, agents: Agents::Yes, implemented: true;
@@ -438,6 +452,9 @@ impl Op {
             Op::KeevoroSettings => schema::<SettingsRequest>(),
             Op::AgentsAccess => schema::<Agents>(),
             Op::BackupHistory => schema::<HistoryRequest>(),
+            Op::ScheduleRun => schema::<crate::RunByItselfRequest>(),
+            Op::ScheduleSet => schema::<crate::schedule::SetScheduleRequest>(),
+            Op::ScheduleSkipNext => schema::<crate::schedule::SkipNextRequest>(),
             Op::BackupWants => schema::<crate::wants::BackupWantsRequest>(),
             Op::BackupArrange => schema::<crate::arrange::BackupArrangeRequest>(),
             Op::SourcesArrange => schema::<crate::arrange::SourceArrangeRequest>(),
@@ -459,6 +476,7 @@ impl Op {
             | Op::BackupRehearse
             | Op::BackupRun
             | Op::BackupCheck
+            | Op::ScheduleShow
             | Op::BackupLastSummary
             | Op::DuplicatesCheck
             | Op::KeevoroAbout
@@ -770,7 +788,17 @@ impl Op {
                  switched on. A search only finds files of kinds switched on, and a survey only counts them. You \
                  cannot change the list; the person can, in Settings or with the keevoro command. Changes nothing.",
             ),
+            Op::ScheduleShow => (
+                "backup_schedule",
+                "Says whether a backup backs up by itself, and when: every day, week or month at a time, whether it \
+                 is paused, when it runs next, and how its last few runs went. You cannot set, skip or pause a \
+                 schedule, or start a run by itself: a run by itself happens long after this conversation, with \
+                 nobody watching, so only the person sets one up. Changes nothing.",
+            ),
             Op::DuplicatesCheck
+            | Op::ScheduleRun
+            | Op::ScheduleSet
+            | Op::ScheduleSkipNext
             | Op::BackupsForget
             | Op::BackupsRemoved
             | Op::BackupsPutBack
@@ -835,7 +863,7 @@ mod tests {
 
     #[test]
     fn the_register_has_every_operation_in_the_plan() {
-        assert_eq!(Op::ALL.len(), 62);
+        assert_eq!(Op::ALL.len(), 66);
         // Each entry is the one for its own operation.
         for op in Op::ALL {
             assert_eq!(op.entry().op, *op);
@@ -909,6 +937,12 @@ mod tests {
             Op::FileKindsRemove,
             Op::FileKindsReset,
             Op::DestinationsTidy,
+            // A backup that runs by itself runs long after an agent's
+            // conversation has ended, with nobody watching: only the
+            // person starts one, or sets, skips or pauses a schedule.
+            Op::ScheduleRun,
+            Op::ScheduleSet,
+            Op::ScheduleSkipNext,
         ]
         .into();
         assert_eq!(kept_from_agents, plan);
@@ -949,6 +983,7 @@ mod tests {
             "sources.look",
             "sources.look_again",
             "backup.run",
+            "schedule.run",
             "backup.check",
             "duplicates.check",
         ]
@@ -993,6 +1028,7 @@ mod tests {
         "check_arrived",
         "backup_history",
         "last_summary",
+        "backup_schedule",
         "backup_wants",
         "backup_arrange",
         "set_previews",

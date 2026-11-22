@@ -47,6 +47,7 @@ mod rates;
 pub mod register;
 pub mod removing;
 pub mod reset;
+pub mod schedule;
 pub mod space;
 pub mod synced;
 pub mod wants;
@@ -65,6 +66,7 @@ pub use for_agents::{call_for_agent, read_for_agent};
 pub use jobs::{Event, FrontEnd, JobHandle, JobId, JobKind, JobStatus, Listener, Outcome, Said, Which, PROGRESS_EVERY};
 pub use keevoro::{BackupListing, Codecs, Folders, Keevoro, Offer, SettingsView};
 pub use keevoro_core::estimate;
+pub use keevoro_core::unattended::Occasion;
 pub use keevoro_core::{FileKind, KindChange, MediaKind, OTHER_FILES_SAID};
 pub use keevoro_engine::connect::SecretStore;
 pub use keevoro_engine::history;
@@ -199,6 +201,30 @@ pub struct LookAgainRequest {
     /// source is looked through again.
     #[serde(default)]
     pub source: Option<i64>,
+    /// For the one source named, when the drive at its place is not the
+    /// one looked through there before: `lookAnyway` replaces what was
+    /// found on it with what is there now; `addAsNew` keeps the source as
+    /// it was, set aside until its own drive is back, and adds the drive
+    /// there as a new source. Left out, such a source is passed over and
+    /// asked about.
+    #[serde(default)]
+    pub different_drive: Option<crate::jobs::OtherDrive>,
+}
+
+/// `schedule.run`: how a backup that runs by itself is run.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RunByItselfRequest {
+    /// How many minutes to wait, at most, while this computer is on
+    /// battery or busy, before giving up for now. Left out, it does not
+    /// wait.
+    #[serde(default)]
+    pub wait_minutes: Option<u32>,
+    /// Only when the backup's schedule says a run is due (once, however
+    /// many were missed), so a system scheduler that calls this every hour
+    /// and the Keevoro app never both run it.
+    #[serde(default)]
+    pub if_due: bool,
 }
 
 /// `jobs.follow`, `jobs.stop`: one job by its id, or every one running on
@@ -586,11 +612,33 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
         }
         Op::SourcesLookAgain => {
             let r: LookAgainRequest = read(request)?;
-            answer(keevoro.look_again(&named()?, r.source, None)?)
+            answer(keevoro.look_again(&named()?, r.source, r.different_drive, None)?)
         }
         Op::BackupRun => {
             read::<Nothing>(request)?;
             answer(keevoro.run_backup(&named()?, None)?)
+        }
+        Op::ScheduleRun => {
+            let r: RunByItselfRequest = read(request)?;
+            answer(keevoro.run_by_itself_if_due(
+                &named()?,
+                keevoro_core::unattended::Occasion::CommandLine,
+                r.wait_minutes.unwrap_or(0),
+                r.if_due,
+                None,
+            )?)
+        }
+        Op::ScheduleShow => {
+            read::<Nothing>(request)?;
+            answer(keevoro.schedule(&named()?)?)
+        }
+        Op::ScheduleSet => {
+            let r: schedule::SetScheduleRequest = read(request)?;
+            answer(keevoro.set_schedule(&named()?, &r)?)
+        }
+        Op::ScheduleSkipNext => {
+            let r: schedule::SkipNextRequest = read(request)?;
+            answer(keevoro.skip_next_run(&named()?, r.undo)?)
         }
         Op::BackupCheck => {
             read::<Nothing>(request)?;

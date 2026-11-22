@@ -575,17 +575,26 @@ Already answered
 
 Today a backup runs when someone presses "Back up now". These make it run by itself, which is what turns a one-off rescue into something that keeps photos safe as new ones are taken.
 
-- [ ] Repeat a backup on a schedule: every day, every week, or every month, at a time the person chooses
-- [ ] Each run looks through the sources again first, then sends only what is new
+- [x] Repeat a backup on a schedule: every day, every week, or every month, at a time the person chooses (0.42, while the app is open)
+- [x] Each run looks through the sources again first, then sends only what is new (0.42; a full look each time until quick looking-again, below)
 - [ ] Run when a known source is plugged in (a camera card, a drone's drive), with a choice of "ask me" or "just do it". The first half is built: Keevoro notices a drive arriving (`keevoro_api::places::if_changed` gives the drives that `arrived`, and on Windows `watch_for_drives` hears the system's notice); what is left is matching an arrival against each backup's sources and asking
 - [ ] Run when a destination comes back (a backup drive plugged in, the network returns) if a run was missed
 - [ ] Carry on in the background with the window closed: an icon by the clock, and a way to start with the computer
 - [ ] Say what happened: a notification when a run finishes, and louder when one fails or a destination has not been reached for a while
 - [ ] Be a good guest: wait while on battery, on a metered connection, or while the computer is busy, and never start two runs at once
-- [ ] Never back up without the person's say on anything new: files a schedule finds are backed up, but newly found duplicates and set-aside pictures still follow the same rules
-- [ ] Show the next run and the last few on the backup screen, with "Run now" and "Skip the next one"
-- [ ] A missed run (the computer was off) is caught up at the next chance, once, not once per run missed
-- [ ] Command line: a single command a system scheduler can call, for those who prefer their own
+- [x] Never back up without the person's say on anything new: files a schedule finds are backed up, but newly found duplicates and set-aside pictures still follow the same rules (0.42: `keevoro run --unattended` holds back a backup never asked how to arrange it, reading from cloud storage costing about £1 or more, and a backup drive that looks emptied or replaced; lists set-aside pictures, new copies and another drive at a source's place)
+- [x] Show the next run and the last few on the backup screen, with "Run now" and "Skip the next one" (0.42)
+- [x] A missed run (the computer was off) is caught up at the next chance, once, not once per run missed (0.42, when the app is next open)
+- [x] Command line: a single command a system scheduler can call, for those who prefer their own (0.42: `keevoro run --unattended [--if-due] [--wait MINUTES]`; Keevoro never writes system scheduler entries)
+
+What is left of backing up by itself, in the order of the plan (the owner's decisions are in the plan's section 9):
+
+- [ ] Quick looking-again: a file whose path, size and modified time match the last look is not opened (catalog step 15, `items.modified`), with a full look every 30 days and "Look through every file again" under Advanced
+- [ ] Running with the window closed: the tray icon and menu, hiding to the tray, one instance, starting with the computer (`--in-background`), notifications from Rust, the first-close dialog ("Start Keevoro when this computer starts" ticked by default), quitting while a run is going, `background.json` (new file; on battery and metered both off by default, tell about sent and problems), Settings "Backing up by itself", off by default on Linux. Updates: "Update when this backup finishes" and `resume.json`
+- [ ] Catching up when a destination returns (`owed`, `Saved::reachable_now`, backoff), louder notices when one has not been reached for `NOT_REACHED_FOR`, and "While you were away" (`schedule.away`, `keevoro away`); "Also when a backup drive comes back" ticked by default
+- [ ] A known source plugged in: `sources.on_arrival` (ask, or just do it), the settle time and one run per ten minutes, Linux and macOS volume ids for `mark:`, moving a source whose drive got a new letter (`Catalog::move_source` is there); "just do it" on battery waits, with "Back up now anyway" (the owner's decision)
+- [ ] The rest of the good guest: a metered connection (`keevoro_frame::network::metered`, WinRT on Windows, Network.framework on a Mac; nothing says a connection is metered yet, so a run never waits for one), macOS battery, the per-file hold in `Going` when the laptop goes onto battery mid-run, and the first run's size and time in the schedule dialog
+- [ ] `keevoro run --unattended` with no backup named running every backup with a schedule, one after another
 
 ### The catalog (Keevoro's own record of a backup)
 

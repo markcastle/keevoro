@@ -43,6 +43,7 @@
 
 pub(crate) mod across;
 mod backing_up;
+mod by_itself;
 mod duplicates;
 mod looking;
 pub mod own;
@@ -66,8 +67,13 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
+pub use by_itself::{Signals, ThisComputer, LOCK as BY_ITSELF_LOCK, ONE_AT_A_TIME};
 pub use duplicates::DuplicatesLeft;
-pub use said::{CheckEvent, HintView, Outcome, Said, ScanEvent, SendEvent, SurveyEvent, SurveyView, TopView};
+pub use keevoro_core::background::StartFacts;
+pub use looking::OtherDrive;
+pub use said::{
+    CheckEvent, DifferentDrive, HintView, Outcome, Said, ScanEvent, SendEvent, SurveyEvent, SurveyView, TopView,
+};
 
 /// How often a running job says how it is getting on. Often enough to feel
 /// alive, not so often that drawing it slows the job down. What it last
@@ -225,6 +231,11 @@ pub struct JobHandle {
     /// Seconds since 1970.
     pub started_at: i64,
     pub started_by: FrontEnd,
+    /// For a backup that runs by itself, why it started. A field of its
+    /// own, never a new word in `job` or `startedBy`, so older programs
+    /// still read the file this is shared in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by_itself: Option<keevoro_core::unattended::Occasion>,
 }
 
 /// A [`JobHandle`] as another program wrote it down.
@@ -237,6 +248,8 @@ struct HandleRead {
     backup: Option<JobBackup>,
     started_at: i64,
     started_by: FrontEnd,
+    #[serde(default)]
+    by_itself: Option<keevoro_core::unattended::Occasion>,
 }
 
 impl<'de> Deserialize<'de> for JobHandle {
@@ -251,6 +264,7 @@ impl<'de> Deserialize<'de> for JobHandle {
             backup: read.backup,
             started_at: read.started_at,
             started_by: read.started_by,
+            by_itself: read.by_itself,
         })
     }
 }
@@ -397,6 +411,9 @@ pub(crate) struct Job {
     /// True once a person, or another program for one, asked it to stop:
     /// not when it gives way, or its program closes.
     asked_to_stop: AtomicBool,
+    /// True for a backup that runs by itself, which looks through the
+    /// sources again first: no search may start beside it.
+    also_looks: bool,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -451,6 +468,12 @@ impl Job {
     /// at a time may run on a backup.
     fn needs_the_backup(&self) -> bool {
         self.kind().slot().is_some() && self.handle.backup.is_some()
+    }
+
+    /// True while it holds this slot on its backup.
+    fn holds(&self, slot: Slot) -> bool {
+        self.holding.load(Ordering::SeqCst)
+            && (self.kind().slot() == Some(slot) || (self.also_looks && slot == Slot::Looking))
     }
 }
 
@@ -566,7 +589,18 @@ impl Jobs {
     /// Registers a new job, unless another already holds the slot it needs
     /// on that backup, here or in another program.
     fn begin(self: &Arc<Self>, kind: JobKind, backup: Option<&Named>, listener: Option<Listener>) -> Result<Arc<Job>> {
-        self.begin_unless(kind, backup, listener, false)
+        self.begin_unless(kind, backup, listener, false, None)
+    }
+
+    /// Registers a backup that runs by itself, which looks through the
+    /// sources first, so it needs both slots on its backup.
+    fn begin_by_itself(
+        self: &Arc<Self>,
+        backup: &Named,
+        occasion: keevoro_core::unattended::Occasion,
+        listener: Option<Listener>,
+    ) -> Result<Arc<Job>> {
+        self.begin_unless(JobKind::BackUp, Some(backup), listener, false, Some(occasion))
     }
 
     /// As [`Jobs::begin`]; with `only_one`, refused too while another job
@@ -577,6 +611,7 @@ impl Jobs {
         backup: Option<&Named>,
         listener: Option<Listener>,
         only_one: bool,
+        by_itself: Option<keevoro_core::unattended::Occasion>,
     ) -> Result<Arc<Job>> {
         let _starting = lock(&self.starting);
         {
@@ -590,11 +625,19 @@ impl Jobs {
                 return Err(Error::busy("That is running already."));
             }
             if let (Some(slot), Some(backup)) = (kind.slot(), backup) {
-                let taken = registry.running.iter().any(|job| {
-                    job.holding.load(Ordering::SeqCst) && job.on_backup(&backup.id) && job.kind().slot() == Some(slot)
-                });
-                if taken {
-                    return Err(Error::busy(slot.refusal()));
+                let needs = if by_itself.is_some() {
+                    vec![Slot::Looking, slot]
+                } else {
+                    vec![slot]
+                };
+                for slot in needs {
+                    let taken = registry
+                        .running
+                        .iter()
+                        .any(|job| job.on_backup(&backup.id) && job.holds(slot));
+                    if taken {
+                        return Err(Error::busy(slot.refusal()));
+                    }
                 }
             }
         }
@@ -623,7 +666,11 @@ impl Jobs {
             handle: JobHandle {
                 id: JobId::next(),
                 job: kind,
-                op: kind.op().map(Op::name),
+                op: match by_itself {
+                    Some(_) => Some(Op::ScheduleRun.name()),
+                    None => kind.op().map(Op::name),
+                },
+                by_itself,
                 backup: backup.map(|b| JobBackup {
                     id: b.id.clone(),
                     name: b.name.clone(),
@@ -640,6 +687,7 @@ impl Jobs {
             gone: AtomicBool::new(false),
             held: AtomicBool::new(false),
             asked_to_stop: AtomicBool::new(false),
+            also_looks: by_itself.is_some(),
         });
         lock(&self.registry).running.push(job.clone());
         self.changed.notify_all();
@@ -650,7 +698,7 @@ impl Jobs {
     /// Registers the background check, unless one is running already, or
     /// another program is working on that backup.
     fn begin_only_one(self: &Arc<Self>, kind: JobKind, backup: &Named) -> Option<Arc<Job>> {
-        self.begin_unless(kind, Some(backup), None, true).ok()
+        self.begin_unless(kind, Some(backup), None, true, None).ok()
     }
 
     /// Writes what this program's jobs on `job`'s backup are doing for
@@ -1268,6 +1316,9 @@ pub(crate) struct Context {
     pub(crate) rates: std::path::PathBuf,
     /// Keevoro's cache folder, where surveys are remembered.
     pub(crate) cache: std::path::PathBuf,
+    /// What the computer says about itself, for work done by itself to be
+    /// a good guest.
+    pub(crate) signals: Arc<dyn Signals>,
 }
 
 /// Ends a job however its thread ends, even by a panic, so its slot is
@@ -1328,7 +1379,7 @@ pub(crate) fn spawn(
 }
 
 impl Keevoro {
-    fn context(&self) -> Context {
+    pub(in crate::jobs) fn context(&self) -> Context {
         Context {
             jobs: self.jobs.clone(),
             log: self.log_shared(),
@@ -1336,6 +1387,7 @@ impl Keevoro {
             environment: self.environment_shared(),
             rates: self.rates_file(),
             cache: self.cache_folder(),
+            signals: self.signals.clone(),
         }
     }
 
@@ -1392,10 +1444,15 @@ impl Keevoro {
             must_be_there(place)?;
         }
         looking::not_left_out(backup, place)?;
+        let to_look = if keevoro_core::bucket::is_bucket_path(place) {
+            looking::ToLook::one(place.to_path_buf())
+        } else {
+            looking::place_to_look(backup, place)?
+        };
         looking::start(
             &self.context(),
             backup,
-            vec![place.to_path_buf()],
+            to_look,
             JobKind::Look,
             self.how_to_look(backup),
             listener,
@@ -1403,13 +1460,22 @@ impl Keevoro {
     }
 
     /// `sources.look_again`: looks through one source, or every one in
-    /// turn, for what is new.
-    pub fn look_again(&self, backup: &Named, source: Option<i64>, listener: Option<Listener>) -> Result<JobHandle> {
-        let places = looking::sources_to_look_again(backup, source)?;
+    /// turn, for what is new. A source that is not there is passed over,
+    /// and one whose place holds a different drive is asked about, unless
+    /// `other_drive` answers for the one source asked for: nothing found
+    /// on either is forgotten.
+    pub fn look_again(
+        &self,
+        backup: &Named,
+        source: Option<i64>,
+        other_drive: Option<OtherDrive>,
+        listener: Option<Listener>,
+    ) -> Result<JobHandle> {
+        let to_look = looking::sources_to_look_again(backup, source, other_drive)?;
         looking::start(
             &self.context(),
             backup,
-            places,
+            to_look,
             JobKind::LookAgain,
             self.how_to_look(backup),
             listener,
@@ -1419,7 +1485,7 @@ impl Keevoro {
     /// How a search of `backup` looks, as this program asks for it now. An
     /// AI agent's search keeps the check that follows to the folders the
     /// agent may look in when it asks.
-    fn how_to_look(&self, backup: &Named) -> looking::HowToLook {
+    pub(in crate::jobs) fn how_to_look(&self, backup: &Named) -> looking::HowToLook {
         looking::HowToLook {
             kinds: self.kinds_to_look_for(),
             skip: self.skip_rules_for(Some(backup)),

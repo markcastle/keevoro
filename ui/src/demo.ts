@@ -41,6 +41,9 @@ import type {
   Arrange,
   ArrangeView,
   SourceArrangeView,
+  ScheduleAttempt,
+  ScheduleChoice,
+  ScheduleView,
 } from './backend'
 import { count, size } from './format'
 import { PictureQueue, fileKey } from './pictureQueue'
@@ -235,7 +238,16 @@ export function demoBackend(): Backend {
   const firstHome = 'C:\\Users\\You\\AppData\\Keevoro\\backups\\s1'
   let library: string | null = mode === 'new' ? null : firstHome
   const collections: Collection[] = mode === 'new' || mode === 'empty' ? [] : FOUND.slice(0, 5).map((make) => make())
-  const sources: { id: number; name: string; root: string; items: number; bytes: number; bucket?: string }[] =
+  const sources: {
+    id: number
+    name: string
+    root: string
+    items: number
+    bytes: number
+    bucket?: string
+    setAsideFrom?: string
+    setAsideSaid?: string
+  }[] =
     collections.length > 0 ? [{ id: 1, name: 'Family hard drive', root: 'E:\\', items: 240, bytes: 1.4 * 1024 ** 3 }] : []
   // The files inside each collection are made up the first time it is opened.
   const inside = new Map<string, PhotoChoice[]>()
@@ -411,6 +423,11 @@ export function demoBackend(): Backend {
   let sendingTo: string | null = null
   const said = () => {
     sendingTo = dests.length === 0 ? null : dests.length === 1 ? dests[0].name : `${dests.length} places`
+  }
+  // A backup that already goes somewhere, for `?byitself`.
+  if (new URLSearchParams(window.location.search).has('byitself')) {
+    dests = [{ name: 'the folder \\\\NAS\\Photos', kind: 'folder', folder: '\\\\NAS\\Photos', there: 0 }]
+    said()
   }
   let stopAsked = false
   let stopLooking = false
@@ -625,6 +642,91 @@ export function demoBackend(): Backend {
     },
     { finishedAt: Date.UTC(2026, 10, 9, 14, 2) / 1000, seconds: 41 * 60, bytes: 30.1 * GB, to: 'the folder F:\\Family Backup', stopped: false },
   ]
+  // `?byitself` adds a backup that ran by itself, from the command line,
+  // with what it passed over and what waits for the person's say.
+  if (new URLSearchParams(window.location.search).has('byitself')) {
+    sends.unshift({
+      finishedAt: Date.UTC(2026, 10, 20, 2, 33) / 1000,
+      seconds: 180,
+      bytes: 96 * MB,
+      to: nas,
+      stopped: false,
+      detail: {
+        startedAt: Date.UTC(2026, 10, 20, 2, 30) / 1000,
+        pausedSeconds: 0,
+        ended: 'finished',
+        startedBy: 'the command line',
+        version: '0.42.0',
+        stages: [
+          { kind: 'sendingOriginals', to: nas, unit: 'bytes', done: 96 * MB, seconds: 150, finished: true, perSecond: (96 * MB) / 150, slowest: null, fastest: null },
+        ],
+        destinations: [
+          {
+            to: nas,
+            overNetwork: true,
+            reached: true,
+            seconds: 150,
+            bytes: 96 * MB,
+            originals: { sent: 23, sentBytes: 96 * MB, alreadyThere: 11_243, notSent: [], notSentMore: 0 },
+          },
+        ],
+        duplicates: 0,
+        duplicateBytes: 0,
+        summary: [
+          'KINGSTON (E:) is not plugged in, so it was not looked through. What was found on it before is kept.',
+          'Safely backed up 23 files (96.0 MB).',
+        ],
+        byItself: {
+          why: 'for a system scheduler or a script',
+          lookedAgain: ['Family hard drive'],
+          passedOver: ['KINGSTON (E:) is not plugged in, so it was not looked through. What was found on it before is kept.'],
+          found: ['New since the last look: 23 photos and 2 videos.'],
+          waiting: ['2 new pictures were set aside as probably not photos, and not backed up. Look at them in Keevoro to keep any.'],
+        },
+      },
+    })
+  }
+  // Backing up by itself: `?schedule` starts with one set, and its last
+  // few runs, one of which could not reach the backup drive.
+  const scheduled = new URLSearchParams(window.location.search).has('schedule')
+  let scheduleChoice: ScheduleChoice | null = scheduled ? { v: 1, every: 'day', at: '02:30', paused: false } : null
+  let skippingNext = false
+  const hoursAgo = (h: number) => Math.floor(Date.now() / 1000) - h * 3600
+  const scheduleLast: ScheduleAttempt[] = scheduled
+    ? [
+        { at: hoursAgo(6), why: 'on its schedule', outcome: 'worked', said: 'Safely backed up 23 files (96.0 MB).' },
+        { at: hoursAgo(30), why: 'on its schedule', outcome: 'worked', said: 'Nothing new to back up.' },
+        {
+          at: hoursAgo(54),
+          why: 'on its schedule',
+          outcome: 'unreachable',
+          said: 'Keevoro can’t find the folder F:\\Family Backup. Is it plugged in? It will catch up when it is.',
+        },
+      ]
+    : []
+  const ordinalOf = (n: number) =>
+    `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : n % 10 === 1 ? 'st' : n % 10 === 2 ? 'nd' : n % 10 === 3 ? 'rd' : 'th'}`
+  const DAYS: Record<string, string> = { mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday' }
+  const scheduleView = (): ScheduleView => {
+    const c = scheduleChoice
+    if (!c) return { paused: false, skipping: false, last: scheduleLast }
+    const every =
+      c.every === 'day'
+        ? `Every day at ${c.at}`
+        : c.every === 'week'
+          ? `Every week on ${DAYS[c.weekday ?? 'sun']} at ${c.at}`
+          : `Every month on the ${ordinalOf(c.day ?? 1)}${(c.day ?? 1) > 28 ? ' (or the last day of shorter months)' : ''} at ${c.at}`
+    const next =
+      c.every === 'day' ? `Tonight at ${c.at}` : c.every === 'week' ? `${DAYS[c.weekday ?? 'sun']} at ${c.at}` : `On ${c.day ?? 1} December at ${c.at}`
+    return {
+      every,
+      choice: c,
+      paused: c.paused,
+      ...(c.paused ? {} : { next, nextAt: hoursAgo(-8) }),
+      skipping: skippingNext && !c.paused,
+      last: scheduleLast,
+    }
+  }
   let pausedNow = false
   let tick = 0
   const usage: Sample[] = Array.from({ length: 60 }, (_, i) => ({
@@ -1343,6 +1445,66 @@ export function demoBackend(): Backend {
       surveyListeners.add(listener)
       return () => surveyListeners.delete(listener)
     },
+    // `?drives=away` has a second source whose card is in a drawer, and
+    // `?drives=different` another card at the first source's place.
+    async lookAgain(source, differentDrive) {
+      const drives = new URLSearchParams(window.location.search).get('drives')
+      const first = sources[0]
+      if (!first) throw new Error('This backup has no sources to look through again. Add one first.')
+      if (drives === 'away') {
+        void later(400 * pace).then(() =>
+          scanListeners.forEach((l) =>
+            l({
+              name: first.name,
+              photos: 240,
+              videos: 0,
+              files: 8880,
+              finished: true,
+              passedOver: ['KINGSTON (E:) is not plugged in, so it was not looked through. What was found on it before is kept.'],
+            }),
+          ),
+        )
+        return
+      }
+      if (drives === 'different' && differentDrive === undefined) {
+        void later(300 * pace).then(() =>
+          scanListeners.forEach((l) =>
+            l({
+              name: 'Card photos',
+              photos: 0,
+              videos: 0,
+              finished: true,
+              differentDrive: [
+                {
+                  source: first.id,
+                  name: first.name,
+                  place: first.root,
+                  asked: `This looks like a different drive from the one called ${first.name}. Add it as a new source, or look through it as ${first.name} anyway?`,
+                  said: `A different drive is plugged in where ${first.name} was (${first.root}), so ${first.name} was not looked through. What was found on it before is kept.`,
+                },
+              ],
+            }),
+          ),
+        )
+        return
+      }
+      if (differentDrive === 'addAsNew') {
+        const at = sources.findIndex((s) => s.id === source)
+        if (at >= 0) {
+          const was = sources[at]
+          sources[at] = {
+            ...was,
+            root: `set aside ${was.id}`,
+            setAsideFrom: was.root,
+            setAsideSaid: `Set aside when a different drive was plugged in at ${was.root}. Everything found on it is kept; plug its own drive in and look again to bring it back.`,
+          }
+          look('KINGSTON (E:)', was.root)
+          return
+        }
+      }
+      const one = sources.find((s) => s.id === source) ?? first
+      look(one.name, one.root)
+    },
     async scanPlace(path) {
       const name = path.startsWith('E')
         ? 'KINGSTON (E:)'
@@ -1367,8 +1529,16 @@ export function demoBackend(): Backend {
       new URLSearchParams(window.location.search).has('update')
         ? { version: '9.9.0', page: 'https://github.com/markcastle/keevoro/releases' }
         : null,
-    installUpdate: async () => {
+    // `?update&busy` has a backup in hand, so the update waits for it.
+    installUpdate: async (stopFirst) => {
+      if (new URLSearchParams(window.location.search).has('busy') && !stopFirst) {
+        return {
+          waiting:
+            'Keevoro will update once the work in hand finishes, so nothing is cut short. You can stop it and update now instead.',
+        }
+      }
       await later(600 * pace)
+      return {}
     },
     openReleasePage: async () => {},
     async keepCollection(key, keep) {
@@ -1616,6 +1786,24 @@ export function demoBackend(): Backend {
       if (dests.length > 0 && dests.every((d) => d.there >= all)) collections.forEach((c) => c.kept && (c.gathered = c.photos + c.videos))
       said()
     },
+    schedule: async () => scheduleView(),
+    setSchedule: async (request) => {
+      if (request.every === 'off') scheduleChoice = null
+      else if (request.every)
+        scheduleChoice = { v: 1, every: request.every, at: request.at ?? '02:30', weekday: request.weekday, day: request.day, paused: false }
+      else if (scheduleChoice) scheduleChoice = { ...scheduleChoice, paused: request.paused ?? scheduleChoice.paused }
+      skippingNext = false
+      return scheduleView()
+    },
+    skipNextRun: async (undo) => {
+      skippingNext = !undo
+      return scheduleView()
+    },
+    async runScheduledNow() {
+      scheduleLast.unshift({ at: hoursAgo(0), why: 'when you pressed Run now', outcome: 'worked', said: 'Safely backed up 12 files (41.0 MB).' })
+      await this.send()
+    },
+    windowUsed: async () => {},
     async send() {
       const kept = collections.filter((c) => c.kept)
       const keptOthers = otherFolders().flatMap((f) => otherRowsIn(f.key)).filter((r) => r.kept)

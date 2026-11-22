@@ -123,6 +123,74 @@ fn forgetting_a_source_removes_everything_found_on_it() {
 }
 
 #[test]
+fn a_source_remembers_its_drive_and_forgets_it_with_the_source() {
+    use keevoro_core::recognise::Mark;
+    let mut c = Catalog::in_memory().unwrap();
+    c.save_scan("Card", &report("/media/card"), 100).unwrap();
+    let root = Path::new("/media/card");
+    assert_eq!(c.source_mark(root).unwrap(), None, "none before it is remembered");
+    let mark = Mark {
+        volume: Some("device 7".into()),
+        drive: Some("KINGSTON".into()),
+        was_at: None,
+    };
+    c.set_source_mark(root, &mark).unwrap();
+    assert_eq!(c.source_mark(root).unwrap(), Some(mark.clone()));
+    let id = c.sources().unwrap()[0].id;
+    let some = c.some_files_of(id).unwrap();
+    assert_eq!(some.len(), 3, "all of so few");
+    assert!(some.iter().all(|(p, _)| p.starts_with(root)));
+    assert!(c.some_files_of(9999).unwrap().is_empty());
+    // Looking through it again keeps what its drive was.
+    let id = c.save_scan("Card", &report("/media/card"), 200).unwrap();
+    assert_eq!(c.source_mark(root).unwrap(), Some(mark));
+    // A mark that cannot be read is no mark, so it is looked through as before.
+    c.set_setting("mark:/media/card", "not json").unwrap();
+    assert_eq!(c.source_mark(root).unwrap(), None);
+    c.forget_source(id).unwrap();
+    assert_eq!(c.setting("mark:/media/card").unwrap(), None);
+}
+
+#[test]
+fn a_source_moved_keeps_everything_found_on_it_and_every_choice() {
+    use keevoro_core::recognise::Mark;
+    use keevoro_core::Wants;
+    let mut c = Catalog::in_memory().unwrap();
+    let id = c.save_scan("Card", &report("/media/card"), 100).unwrap();
+    c.set_source_wants(id, Some(Wants::only(MediaKind::Video))).unwrap();
+    c.set_source_arrange(id, Some(Arrange::Folders)).unwrap();
+    let mark = Mark {
+        volume: Some("a".into()),
+        ..Mark::default()
+    };
+    c.set_source_mark(Path::new("/media/card"), &mark).unwrap();
+    let before = c.load_reports_as_found().unwrap();
+    let away = Path::new("/home/me/.keevoro/away/1");
+    c.move_source(id, away).unwrap();
+    let s = c.sources().unwrap();
+    assert_eq!((s.len(), s[0].id, s[0].root.as_path(), s[0].items), (1, id, away, 3));
+    let after = c.load_reports_as_found().unwrap();
+    let rest = |r: &[ScanReport], root: &str| -> Vec<PathBuf> {
+        r[0].items
+            .iter()
+            .map(|i| i.path.strip_prefix(root).unwrap().to_path_buf())
+            .collect()
+    };
+    assert_eq!(rest(&after, "/home/me/.keevoro/away/1"), rest(&before, "/media/card"));
+    assert_eq!(c.source_wants(id).unwrap(), Some(Wants::only(MediaKind::Video)));
+    assert_eq!(c.source_arrange(id).unwrap(), Some(Arrange::Folders));
+    assert_eq!(c.source_mark(away).unwrap(), Some(mark));
+    assert_eq!(c.source_mark(Path::new("/media/card")).unwrap(), None);
+    // And back again, as it was.
+    c.move_source(id, Path::new("/media/card")).unwrap();
+    assert_eq!(json(&c.load_reports_as_found().unwrap()), json(&before));
+    // Never onto another source.
+    let other = c.save_scan("Other", &report("/media/other"), 100).unwrap();
+    assert!(c.move_source(other, Path::new("/media/card")).is_err());
+    assert_eq!(c.sources().unwrap().len(), 2);
+}
+
+#[test]
 fn choices_belong_to_the_file_and_survive_a_rescan() {
     let mut c = Catalog::in_memory().unwrap();
     let hash = "a".repeat(64);
@@ -1178,4 +1246,28 @@ fn a_backup_made_before_the_choice_is_by_date_and_not_asked_and_an_empty_one_is_
             "{name}"
         );
     }
+}
+
+#[test]
+fn a_path_moved_under_a_new_place_keeps_the_separators_it_was_written_with() {
+    use super::moved_under;
+    assert_eq!(
+        moved_under("/media/card/DCIM/a.jpg", "/media/card", "/set/aside"),
+        "/set/aside/DCIM/a.jpg"
+    );
+    assert_eq!(
+        moved_under(r"E:\DCIM\a.jpg", r"E:\", r"C:\kept\card"),
+        r"C:\kept\card\DCIM\a.jpg"
+    );
+    assert_eq!(moved_under(r"E:\DCIM\a.jpg", r"E:\", r"F:\"), r"F:\DCIM\a.jpg");
+    assert_eq!(
+        moved_under(r"\\nas\photos\2019\a.jpg", r"\\nas\photos", r"C:\kept"),
+        r"C:\kept\2019\a.jpg"
+    );
+    assert_eq!(moved_under("/media/card", "/media/card", "/set/aside"), "/set/aside");
+    assert_eq!(
+        moved_under("/media/card2/a.jpg", "/media/card", "/set/aside"),
+        "/media/card2/a.jpg",
+        "a neighbour with a like name is not under it"
+    );
 }

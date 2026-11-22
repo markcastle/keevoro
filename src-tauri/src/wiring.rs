@@ -398,6 +398,10 @@ fn the_screens_commands_start_the_apis_jobs_and_their_events_reach_the_window() 
     // held before its first file by pausing, which stopping lifts.
     invoke(&window, "pause_work", json!({ "paused": true })).unwrap();
     invoke(&window, "scan_place", json!({ "path": card_path })).unwrap();
+    // Updating would close the app and cut the search short, so it waits.
+    let update = invoke(&window, "install_update", json!({})).unwrap();
+    fits(&update, "UpdateStarted");
+    assert_eq!(update["waiting"].as_str(), Some(crate::updates::WAITING));
     invoke(&window, "stop_scanning", json!({})).unwrap();
     let stopped = heard.wait_for("scan", |e| e["finished"] == true);
     assert_eq!(stopped["stopped"], true, "{stopped}");
@@ -415,6 +419,42 @@ fn the_screens_commands_start_the_apis_jobs_and_their_events_reach_the_window() 
     keevoro();
     let discover = invoke(&window, "discover", json!({})).unwrap();
     assert_eq!(discover["photos"], 1, "{discover}");
+    // Looking again with the card in a drawer passes it over, says so, and
+    // forgets nothing found on it.
+    let drawer = dir.path().join("In a drawer");
+    fs::rename(&card, &drawer).unwrap();
+    let refused = invoke(&window, "look_again", json!({})).unwrap_err();
+    assert!(
+        refused.as_str().is_some_and(|said| said.contains("plugged in")),
+        "{refused}"
+    );
+    fs::rename(&drawer, &card).unwrap();
+    invoke(&window, "look_again", json!({ "source": discover["sources"][0]["id"] })).unwrap();
+    let again = heard.wait_for_nth("scan", 2, |e| e["finished"] == true);
+    fits(&again, "ScanEvent");
+    keevoro();
+    let discover = invoke(&window, "discover", json!({})).unwrap();
+    assert_eq!(discover["photos"], 1, "{discover}");
+
+    // Backing up by itself: set, shown, skipped, and stopped.
+    let none = invoke(&window, "schedule", json!({})).unwrap();
+    fits(&none, "ScheduleView");
+    assert_eq!(none["every"], Value::Null);
+    let set = invoke(
+        &window,
+        "set_schedule",
+        json!({ "request": { "every": "day", "at": "02:30" } }),
+    )
+    .unwrap();
+    fits(&set, "ScheduleView");
+    fits(&set["choice"], "ScheduleChoice");
+    assert_eq!(set["every"], "Every day at 02:30");
+    let skipped = invoke(&window, "skip_next_run", json!({ "undo": false })).unwrap();
+    assert_eq!(skipped["skipping"], true);
+    invoke(&window, "window_used", json!({})).unwrap();
+    let off = invoke(&window, "set_schedule", json!({ "request": { "every": "off" } })).unwrap();
+    assert_eq!(off["every"], Value::Null);
+    assert_eq!(off["last"], json!([]));
 
     // How it is arranged, asked once something is found, by the names and
     // shapes the screens use.

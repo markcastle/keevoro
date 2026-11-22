@@ -62,9 +62,20 @@ impl keevoro_update::Web for Offline {
     }
 }
 
+/// The computer as a test says it is, so a backup run by itself never
+/// waits on this computer's own battery or load.
+struct Says(keevoro_api::jobs::StartFacts);
+
+impl keevoro_api::jobs::Signals for Says {
+    fn now(&self) -> keevoro_api::jobs::StartFacts {
+        self.0
+    }
+}
+
 /// Keevoro's folders, as one of its programs would open them.
 fn keevoro_in(dir: &Path, front_end: FrontEnd) -> Keevoro {
     Keevoro::open(&keevoro_api::Folders::under(&dir.join("home")))
+        .with_signals(Says(keevoro_api::jobs::StartFacts::default()))
         .as_front_end(front_end)
         .with_secrets(KeysInMemory::default())
         .with_environment(|_| None)
@@ -92,6 +103,8 @@ struct At<'a> {
     stdin: String,
     watched: bool,
     keyboard: bool,
+    /// The computer is on battery, for a backup run by itself.
+    on_battery: bool,
 }
 
 impl<'a> At<'a> {
@@ -102,6 +115,7 @@ impl<'a> At<'a> {
             stdin: String::new(),
             watched: false,
             keyboard: false,
+            on_battery: false,
         }
     }
 
@@ -122,9 +136,14 @@ impl<'a> At<'a> {
         let dir = self.dir.to_path_buf();
         // Keevoro reads the same environment the command line was given.
         let env = self.env.clone();
+        let on_battery = self.on_battery;
         let opener = move |_: &Io<'_>| -> Result<Keevoro, Failure> {
             let env = env.clone();
             Ok(keevoro_in(&dir, FrontEnd::CommandLine)
+                .with_signals(Says(keevoro_api::jobs::StartFacts {
+                    on_battery: Some(on_battery),
+                    ..Default::default()
+                }))
                 .with_environment(move |name| env.iter().find(|(n, _)| *n == name).map(|(_, v)| v.clone())))
         };
         let mut all = vec!["keevoro".into()];
@@ -476,6 +495,113 @@ fn json_is_exactly_what_the_api_answers() {
         .all(|e| e["job"] == lines[0]["id"] && e["event"] == "scan"));
     assert_eq!(lines.last().unwrap()["said"]["finished"], true);
     assert!(ran.err.is_empty(), "nothing else is said: {}", ran.err);
+}
+
+#[test]
+fn a_source_not_plugged_in_is_said_and_kept_when_looking_again() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let card = card(dir.path());
+    let phone = dir.path().join("Phone");
+    std::fs::create_dir_all(&phone).unwrap();
+    std::fs::write(phone.join("IMG_20190101_120000.jpg"), jpeg(30)).unwrap();
+    let at = At::new(dir.path());
+    at.keevoro(&["backups", "start", "Card photos"]);
+    at.keevoro(&["look", &text(&card)]);
+    at.keevoro(&["look", &text(&phone)]);
+    let before = at.keevoro(&["sources", "--json"]).json();
+    std::fs::rename(&card, dir.path().join("Card in a drawer")).unwrap();
+    let ran = at.keevoro(&["look", "--again"]);
+    assert_eq!(ran.code, Code::Worked, "{}", ran.err);
+    assert!(
+        ran.out.contains("can't be found, so it was not looked through. Is its drive plugged in? What was found in it before is kept."),
+        "{}",
+        ran.out
+    );
+    let after = at.keevoro(&["sources", "--json"]).json();
+    let card_of = |v: &Value| {
+        v.as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["name"] == "Card")
+            .cloned()
+            .unwrap()
+    };
+    assert_eq!(card_of(&after)["items"], card_of(&before)["items"]);
+    let alone = at.keevoro(&["look", "--again", "Card"]);
+    assert_eq!(alone.code, Code::Unreachable);
+    assert!(alone.err.contains("so it was not looked through"), "{}", alone.err);
+}
+
+#[test]
+fn a_backup_run_by_itself_for_a_system_scheduler_says_in_its_exit_code_what_happened() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let card = card(dir.path());
+    let usb = dir.path().join("USB");
+    let mut at = At::new(dir.path());
+    at.keevoro(&["backups", "start", "Card photos"]);
+    at.keevoro(&["look", &text(&card)]);
+    at.keevoro(&["destinations", "add", "--folder", &text(&usb)]);
+
+    // Never asked how to arrange it: held back, and said.
+    let ran = at.keevoro(&["run", "--unattended"]);
+    assert_eq!(ran.code, Code::Waiting, "{}{}", ran.out, ran.err);
+    assert!(ran.out.contains("Waiting for your say:\n  Keevoro needs one answer before it can back up \"Card photos\" by itself: how to arrange it."), "{}", ran.out);
+
+    // On battery: not now.
+    at.keevoro(&["arrange", "by-date"]);
+    at.on_battery = true;
+    let ran = at.keevoro(&["run", "--unattended"]);
+    assert_eq!(ran.code, Code::NotNow, "{}{}", ran.out, ran.err);
+    assert!(
+        ran.out
+            .contains("Not backed up now. Waiting while this computer is on battery."),
+        "{}",
+        ran.out
+    );
+
+    // Plugged in: it backs up.
+    at.on_battery = false;
+    let ran = at.keevoro(&["run", "--unattended"]);
+    assert_eq!(ran.code, Code::Worked, "{}{}", ran.out, ran.err);
+    assert!(usb.join("originals").is_dir());
+
+    // With --if-due, only when its schedule says so: none yet, then not
+    // due, as saving a schedule never runs it at once.
+    let ran = at.keevoro(&["run", "--unattended", "--if-due"]);
+    assert_eq!(ran.code, Code::Worked, "{}{}", ran.out, ran.err);
+    assert!(
+        ran.out.contains("Not backed up: this backup has no schedule."),
+        "{}",
+        ran.out
+    );
+    let none = at.keevoro(&["schedule"]);
+    assert!(none.out.contains("keevoro schedule set daily 02:30"), "{}", none.out);
+    let set = at.keevoro(&["schedule", "set", "weekly", "sun", "09:00"]);
+    assert_eq!(set.code, Code::Worked, "{}", set.err);
+    assert!(
+        set.out.starts_with("Every week on Sunday at 09:00\nNext: "),
+        "{}",
+        set.out
+    );
+    let skipped = at.keevoro(&["schedule", "skip"]);
+    assert!(
+        skipped.out.contains("which will be skipped, as you asked"),
+        "{}",
+        skipped.out
+    );
+    let ran = at.keevoro(&["run", "--unattended", "--if-due"]);
+    assert_eq!(ran.code, Code::Worked, "{}{}", ran.out, ran.err);
+    assert!(ran.out.contains("Not due yet. Next: "), "{}", ran.out);
+    assert!(at.keevoro(&["schedule", "set", "pause"]).out.contains("Paused."));
+    assert_eq!(at.keevoro(&["schedule", "set", "weekly"]).code, Code::NotUnderstood);
+    at.keevoro(&["schedule", "set", "off"]);
+
+    // The backup drive unplugged: out of reach, as for any backup.
+    std::fs::rename(&usb, dir.path().join("USB in a drawer")).unwrap();
+    let ran = at.keevoro(&["run", "--unattended", "--wait", "0"]);
+    assert_eq!(ran.code, Code::Unreachable, "{}{}", ran.out, ran.err);
 }
 
 #[test]

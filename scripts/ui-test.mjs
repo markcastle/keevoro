@@ -931,6 +931,106 @@ try {
   assert.equal(await page.locator('.kept li.source').count(), 1, 'what was found so far is kept')
   await shot('9j1-search-drive-unplugged')
 
+  // --- A backup that ran by itself says so in its history, with what it
+  // passed over and what waits for the person's say.
+  await page.goto(`${base}/?byitself&fast`)
+  await page.getByRole('heading', { name: 'Where should they go?', level: 1 }).waitFor()
+  await page.getByText('How earlier backups went').click()
+  const byItselfRun = page.locator('.sends > .sends-scroll > table > tbody > tr').first()
+  await byItselfRun.getByRole('button', { name: /^Show everything/ }).click()
+  const byItselfPanel = page.locator('.run-detail')
+  assert.match(await byItselfPanel.innerText(), /Started by itself for a system scheduler or a script, \d+ Nov, \d\d:\d\d, from the command line, with Keevoro 0\.42\.0\. It finished\./)
+  assert.match(await byItselfPanel.innerText(), /It looked through Family hard drive again first\./)
+  assert.match(await byItselfPanel.innerText(), /KINGSTON \(E:\) is not plugged in, so it was not looked through\./)
+  assert.match(await byItselfPanel.innerText(), /Waiting for your say\s+2 new pictures were set aside as probably not photos/)
+  await byItselfPanel.scrollIntoViewIfNeeded()
+  await shot('9v1-a-backup-that-ran-by-itself')
+  await fitsNarrow('A backup that ran by itself, in its history')
+
+  // --- Backing up by itself: set up from the backup screen, in Keevoro's
+  // own words, with Skip the next one and Run now.
+  await page.goto(`${base}/?byitself&fast`)
+  await page.getByRole('heading', { name: 'Where should they go?', level: 1 }).waitFor()
+  const scheduleCard = page.locator('.schedule-card')
+  await scheduleCard.getByText('Keevoro can back this up by itself, every day, week or month, while it is open.').waitFor()
+  await scheduleCard.getByRole('button', { name: 'Set it up…' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Back up “My photos” by itself?' })
+  await dialog.waitFor()
+  assert.equal(await dialog.getByRole('radio', { name: /^Every day at/ }).isChecked(), true, 'every day, at 02:30, to begin with')
+  assert.equal(await dialog.getByLabel('Time each day').inputValue(), '02:30')
+  assert.match(await dialog.innerText(), /Pictures it sets aside, and anything else that needs your say, wait for you\./)
+  await dialog.scrollIntoViewIfNeeded()
+  await shot('9x1-backing-up-by-itself-set-up')
+  await fitsNarrow('Setting up backing up by itself')
+  await dialog.getByRole('radio', { name: /^Every week on/ }).check()
+  await dialog.getByLabel('Day of the week').selectOption('sun')
+  await dialog.getByLabel('Time each week').selectOption('09:00')
+  await dialog.getByRole('button', { name: 'Save' }).click()
+  await scheduleCard.getByText('Every week on Sunday at 09:00').waitFor()
+  assert.match(await scheduleCard.innerText(), /Next: sunday at 09:00/)
+  await scheduleCard.getByRole('button', { name: 'Skip the next one' }).click()
+  await scheduleCard.getByText(/which will be skipped, as you asked/).waitFor()
+  await scheduleCard.getByRole('button', { name: 'Don’t skip it' }).click()
+  await scheduleCard.getByRole('button', { name: 'Skip the next one' }).waitFor()
+
+  await page.goto(`${base}/?byitself&schedule&fast`)
+  await page.getByRole('heading', { name: 'Where should they go?', level: 1 }).waitFor()
+  await scheduleCard.getByText('Every day at 02:30').waitFor()
+  assert.deepEqual(await scheduleCard.locator('.schedule-last .mark').allInnerTexts(), ['Done', 'Done', 'Couldn’t reach it'])
+  assert.match(await scheduleCard.locator('.schedule-last li').last().innerText(), /Keevoro can’t find the folder F:\\Family Backup\. Is it plugged in\? It will catch up when it is\./)
+  await scheduleCard.scrollIntoViewIfNeeded()
+  await shot('9x2-backing-up-by-itself')
+  await fitsNarrow('Backing up by itself, with its last few runs')
+  await scheduleCard.getByRole('button', { name: 'Run now' }).click()
+  await scheduleCard.locator('.schedule-last li').first().getByText('Safely backed up 12 files (41.0 MB).').waitFor()
+  await scheduleCard.getByRole('button', { name: 'Pause' }).click()
+  await scheduleCard.getByText('(paused)').waitFor()
+  await scheduleCard.getByRole('button', { name: 'Carry on' }).click()
+  await scheduleCard.getByText(/^Next: tonight at 02:30/).waitFor()
+
+  // --- Looking again with a source's card in a drawer passes it over and
+  // says so: what was found on it is kept.
+  await page.goto(`${base}/?drives=away&fast`)
+  await page.getByRole('button', { name: /^Find your photos/ }).click()
+  await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
+  await page.getByRole('button', { name: 'Look again for new photos' }).click()
+  await page.locator('.passed-over').waitFor()
+  assert.equal(
+    await text('.passed-over'),
+    'KINGSTON (E:) is not plugged in, so it was not looked through. What was found on it before is kept.',
+  )
+  await page.locator('.passed-over').scrollIntoViewIfNeeded()
+  await shot('9j2-look-again-not-plugged-in')
+  await fitsNarrow('Looking again with a source not plugged in')
+
+  // --- Another card at a source's place is asked about, never taken for it.
+  await page.goto(`${base}/?drives=different&fast`)
+  await page.getByRole('button', { name: /^Find your photos/ }).click()
+  await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
+  await page.getByRole('button', { name: 'Look again for new photos' }).click()
+  const asked = page.getByRole('alertdialog', { name: 'Is this Family hard drive?' })
+  await asked.waitFor()
+  assert.match(
+    await asked.innerText(),
+    /This looks like a different drive from the one called Family hard drive\. Add it as a new source, or look through it as Family hard drive anyway\?/,
+  )
+  assert.deepEqual(await asked.getByRole('button').allInnerTexts(), [
+    'Add it as a new source',
+    'Look through it as Family hard drive anyway',
+    'Not now',
+  ])
+  assert.equal(await page.locator('.panel.found-it').count(), 0, 'nothing was looked through, so nothing is said to be found')
+  await shot('9j3-a-different-drive-asked')
+  await fitsNarrow('The question about a different drive')
+  await asked.getByRole('button', { name: 'Add it as a new source' }).click()
+  await page.getByRole('heading', { name: /^Found .* on KINGSTON \(E:\)$/ }).waitFor()
+  const aside = page.locator('.kept li.source').filter({ hasText: 'Family hard drive' })
+  assert.match(await aside.innerText(), /Set aside when a different drive was plugged in at E:\\\. Everything found on it is kept/)
+  assert.equal(await page.locator('.kept li.source').count(), 2, 'the new drive is a source of its own beside it')
+  await aside.scrollIntoViewIfNeeded()
+  await shot('9j4-a-source-set-aside')
+  await fitsNarrow('A source set aside')
+
   // --- The check for duplicates that follows a stopped search says what it
   // is doing, has its own Pause and Stop, and offers to be stopped too.
   await page.goto(`${base}/?slow&slowcheck`)
@@ -1164,6 +1264,15 @@ try {
   assert.match(await text('.update'), /A new version of Keevoro is ready \(9\.9\.0\)/)
   await shot('9c-update-ready')
   await page.getByRole('button', { name: 'Update now' }).click()
+  await page.getByText(/has been downloaded and opened/).waitFor()
+  // While a backup is in hand the update waits for it, rather than closing
+  // Keevoro part-way, and offers to stop it instead.
+  await page.goto(`${base}/?fast&update&busy`)
+  await page.getByRole('button', { name: 'Update now' }).click()
+  await page.getByText(/^Keevoro will update once the work in hand finishes, so nothing is cut short\./).waitFor()
+  await shot('9c2-update-waits-for-the-backup')
+  await fitsNarrow('An update waiting for the backup in hand')
+  await page.getByRole('button', { name: 'Stop it and update now' }).click()
   await page.getByText(/has been downloaded and opened/).waitFor()
   await page.goto(`${base}/?fast&update`)
   await page.getByRole('button', { name: 'Later' }).click()

@@ -12,6 +12,7 @@ anyhow.workspace = true
 dirs.workspace = true
 fs4.workspace = true
 keevoro-catalog.workspace = true
+jiff.workspace = true
 keevoro-core.workspace = true
 keevoro-engine.workspace = true
 keevoro-frame.workspace = true

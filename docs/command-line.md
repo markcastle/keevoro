@@ -266,7 +266,48 @@ The exit code says what happened, without reading the words:
 | 3 | No such backup, source, collection, photo or job, or no backup chosen yet. |
 | 4 | Something is already being done to that backup, here or in another program. |
 | 5 | Refused, such as a destination without the room, or nowhere to back up to yet. |
+| 6 | A backup that ran by itself (`keevoro run --unattended`) held something back for your say. Other things may still have been sent. |
+| 7 | A backup that runs by itself did not run now: this computer was on battery or busy, and `--wait` ran out. |
 | 64 | The command was not understood. |
+
+When more than one thing happened, the most serious decides: 2, then 5, then 1, then 6, then 7.
+
+### For a system scheduler
+
+`keevoro run --unattended` backs up the way a schedule does, for those who would rather use their computer's own scheduler (Task Scheduler on Windows, launchd on a Mac, a systemd timer or cron on Linux). Keevoro itself never writes anything into the system's scheduler. Each time it:
+
+1. Waits while this computer is on battery or busy, for at most `--wait MINUTES` (none by default), and otherwise ends with code 7: "Not backed up now. Waiting while this computer is on battery."
+2. Looks through every source again. A source that is not plugged in is passed over and said, and what was found on it is kept. A different drive where a source's drive was is passed over and said, never taken for it.
+3. Holds back what needs your say. A backup never asked how to arrange its files, or one whose reading from cloud storage would cost about £1 or more, sends nothing. New pictures set aside as probably not photos are not sent (as always) and are listed; new copies of other files are sent once (as always) and listed.
+4. Sends what is new. A backup drive that looks emptied or swapped for another is not sent to: "Keevoro has not sent anything there. Open Keevoro to decide."
+5. Says what waits for your say under "Waiting for your say:", ends with code 6 if anything does, and writes it all into the backup's history (`keevoro history 1`).
+
+Only one backup runs by itself at a time on a computer; a second one asked for meanwhile ends with code 4. It works at a low priority, and so does the check for duplicates that follows it, which also gives way while the computer is on battery or busy.
+
+A daily run at 02:30 in Task Scheduler, on Windows, with the `keevoro` command installed (`install.ps1` puts it on your PATH):
+
+```bat
+schtasks /Create /SC DAILY /ST 02:30 /TN "Keevoro Family photos" /TR "keevoro run --unattended -b \"Family photos\" --wait 60"
+```
+
+As a systemd user timer on Linux, `~/.config/systemd/user/keevoro.service` and `keevoro.timer`:
+
+```ini
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/keevoro run --unattended -b "Family photos" --wait 60
+
+[Timer]
+OnCalendar=*-*-* 02:30
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+With cron, `30 2 * * * $HOME/.local/bin/keevoro run --unattended -b "Family photos"`.
+
+To follow the schedule set in Keevoro (`keevoro schedule set`, or "Backing up by itself" on the backup screen) rather than your scheduler's own times, add `--if-due` and call it as often as you like, every hour say: it runs only when the backup's schedule says a run is due, once however many were missed, and never a second time when the app has already run it. When nothing is due it says when the next run is ("Not due yet. Next: Tonight at 02:30.") and ends with 0. The Keevoro app runs a backup's schedule by itself while it is open, so this is only needed when the app is not left open.
 
 To try Keevoro out without touching your real backups, set `KEEVORO_HOME` to an empty folder. Keevoro then keeps its settings, its notes about each backup and its log under that folder instead.
 
@@ -297,7 +338,8 @@ The words each command shows in `keevoro --help` come from the same list the app
 | `keevoro map PLACE [--folder FOLDER] [--depth N] [--kinds]` | Where the space goes in a surveyed place: every folder and the biggest files, photos or not, by size, or with `--kinds` by ending. Nothing is opened or changed. |
 | `keevoro forget-maps` | Forgets every survey Keevoro remembers, and so every map. Nothing on any drive is touched. |
 | `keevoro look PLACE` | Looks through a drive or folder and adds it as a source. |
-| `keevoro look --again [SOURCE]` | Looks through one source, or all of them, for what is new. |
+| `keevoro look --again [SOURCE]` | Looks through one source, or all of them, for what is new. A source that is not plugged in is passed over and said ("KINGSTON (E:) is not plugged in, so it was not looked through. What was found on it before is kept."). A source whose place holds a different drive from the one looked through there before (another card in the same reader) is passed over and said too, never replaced. |
+| `keevoro look --again SOURCE --different-drive anyway\|new` | Answers for that source: `anyway` looks through the drive there as the source, replacing what was found on it; `new` keeps the source as it was, set aside until its own drive is plugged in again, and adds the drive there as a new source. |
 | `keevoro sources add-bucket --r2 ID\|--s3 REGION\|--endpoint URL --bucket NAME [--prefix FOLDER] [--name NAME]` | Adds cloud storage as a source, after checking its keys can read it. Nothing in it is ever changed. Then `keevoro look --again NAME` lists it. |
 | `keevoro sources` | The backup's sources, each with its number. |
 | `keevoro sources forget SOURCE` | Takes a source off the backup. Nothing on it is touched. |
@@ -364,6 +406,10 @@ A collection is named by its whole name, such as "Holidays / Cornwall", or by it
 | --- | --- |
 | `keevoro rehearse` | What backing up now would do: how many files, how much, to where, after looking at what is really at each place. Sends nothing. |
 | `keevoro run` | Backs up to every destination, originals first. |
+| `keevoro schedule` | When the backup backs up by itself, when it runs next, and how its last few runs went. |
+| `keevoro schedule set daily 02:30` | Backs it up by itself every day at that time, in this computer's own time. Also `weekly sun 09:00`, `monthly 31 02:30` (the last day of shorter months), `off`, `pause` and `carry-on` (which never catches up what was missed while paused). Saving never runs it at once. The app runs it while it is open; see [For a system scheduler](#for-a-system-scheduler) for when it is not. |
+| `keevoro schedule skip [--undo]` | Skips the next run by itself, or stops skipping it. |
+| `keevoro run --unattended [--if-due] [--wait MINUTES]` | Backs up by itself, as a schedule does, for a system scheduler: waits while the computer is on battery or busy, looks through the sources again, holds back what needs your say, and sends what is new. See [For a system scheduler](#for-a-system-scheduler). |
 | `keevoro check` | Confirms what is at each destination. |
 | `keevoro history` | How earlier backups went: when, where, how much, how long, numbered from the newest. |
 | `keevoro history N` | Everything recorded about one of them, by its number. |

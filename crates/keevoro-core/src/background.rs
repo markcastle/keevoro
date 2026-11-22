@@ -91,6 +91,171 @@ pub fn waiting_because(c: &Conditions) -> Option<&'static str> {
     }
 }
 
+/// What decides whether a backup that runs by itself may start now.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct StartFacts {
+    /// `None` when the platform cannot say.
+    pub on_battery: Option<bool>,
+    /// Other programs' share of the processor, 0 to 100, averaged over a
+    /// little while.
+    pub others_cpu: Option<f32>,
+    /// Whether the connection is metered (a phone's hotspot), when known.
+    pub metered: Option<bool>,
+    /// True when the run reads or sends over the internet: a cloud
+    /// destination or a bucket source. A run to a USB drive does not.
+    pub needs_internet: bool,
+    /// Seconds since the person last used Keevoro's own window, when it
+    /// is open and has been used.
+    pub window_used: Option<u64>,
+    /// The person allowed running on battery, or on a metered connection.
+    pub allow_battery: bool,
+    pub allow_metered: bool,
+    /// The person asked for this run (Run now), so their being in
+    /// Keevoro's window is no reason to wait.
+    pub person_asked: bool,
+}
+
+/// Seconds since the window was last used within which a run by itself
+/// waits, so it never starts sending while the person is choosing.
+pub const WINDOW_IN_USE: u64 = 10 * 60;
+
+/// Why a backup that runs by itself waits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Wait {
+    OnBattery,
+    Metered,
+    Busy,
+    WindowInUse,
+}
+
+impl Wait {
+    /// In words, as the backup screen, the tray and the command line say it.
+    pub fn words(self) -> &'static str {
+        match self {
+            Wait::OnBattery => "Waiting while this computer is on battery",
+            Wait::Metered => "Waiting for a connection that isn't metered",
+            Wait::Busy => "Waiting for a quieter moment",
+            Wait::WindowInUse => "Waiting until you have finished in Keevoro",
+        }
+    }
+}
+
+/// Whether a backup that runs by itself may start now. A signal the
+/// computer cannot give is never a reason to wait.
+pub fn may_start(f: &StartFacts) -> Result<(), Wait> {
+    if f.on_battery == Some(true) && !f.allow_battery {
+        return Err(Wait::OnBattery);
+    }
+    if f.needs_internet && f.metered == Some(true) && !f.allow_metered {
+        return Err(Wait::Metered);
+    }
+    if f.others_cpu.is_some_and(|cpu| cpu >= FAIRLY_BUSY) {
+        return Err(Wait::Busy);
+    }
+    if !f.person_asked && f.window_used.is_some_and(|secs| secs < WINDOW_IN_USE) {
+        return Err(Wait::WindowInUse);
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod may_start_tests {
+    use super::*;
+
+    #[test]
+    fn a_quiet_computer_on_the_mains_starts_at_once() {
+        assert_eq!(may_start(&StartFacts::default()), Ok(()));
+        let quiet = StartFacts {
+            on_battery: Some(false),
+            others_cpu: Some(3.0),
+            metered: Some(false),
+            needs_internet: true,
+            window_used: Some(3600),
+            ..StartFacts::default()
+        };
+        assert_eq!(may_start(&quiet), Ok(()));
+    }
+
+    #[test]
+    fn it_waits_on_battery_unless_allowed() {
+        let on = StartFacts {
+            on_battery: Some(true),
+            ..StartFacts::default()
+        };
+        assert_eq!(may_start(&on), Err(Wait::OnBattery));
+        assert_eq!(Wait::OnBattery.words(), "Waiting while this computer is on battery");
+        assert_eq!(
+            may_start(&StartFacts {
+                allow_battery: true,
+                ..on
+            }),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn a_metered_connection_matters_only_to_a_run_over_the_internet() {
+        let metered = StartFacts {
+            metered: Some(true),
+            ..StartFacts::default()
+        };
+        assert_eq!(may_start(&metered), Ok(()), "a USB drive needs no connection");
+        let cloud = StartFacts {
+            needs_internet: true,
+            ..metered
+        };
+        assert_eq!(may_start(&cloud), Err(Wait::Metered));
+        assert_eq!(
+            may_start(&StartFacts {
+                allow_metered: true,
+                ..cloud
+            }),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn it_waits_for_a_quieter_moment_and_for_the_person_to_finish_in_keevoro() {
+        let busy = StartFacts {
+            others_cpu: Some(FAIRLY_BUSY),
+            ..StartFacts::default()
+        };
+        assert_eq!(may_start(&busy), Err(Wait::Busy));
+        let choosing = StartFacts {
+            window_used: Some(30),
+            ..StartFacts::default()
+        };
+        assert_eq!(may_start(&choosing), Err(Wait::WindowInUse));
+        assert_eq!(
+            may_start(&StartFacts {
+                person_asked: true,
+                ..choosing
+            }),
+            Ok(())
+        );
+        assert_eq!(
+            may_start(&StartFacts {
+                window_used: Some(WINDOW_IN_USE),
+                ..StartFacts::default()
+            }),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn what_the_computer_cannot_say_is_no_reason_to_wait() {
+        let unknown = StartFacts {
+            on_battery: None,
+            others_cpu: None,
+            metered: None,
+            needs_internet: true,
+            window_used: None,
+            ..StartFacts::default()
+        };
+        assert_eq!(may_start(&unknown), Ok(()));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

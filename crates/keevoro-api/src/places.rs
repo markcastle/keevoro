@@ -199,7 +199,8 @@ pub fn watch_for_drives(notice: impl Fn() + Send + Sync + 'static) -> bool {
 /// network share. `None` for a folder that is not a drive of its own.
 pub fn drive_name(path: &std::path::Path) -> Option<String> {
     let bare = |p: &str| p.trim_end_matches(['\\', '/']).to_string();
-    let wanted = bare(&path.display().to_string());
+    // A source is kept by its real path, which Windows writes `\\?\E:\`.
+    let wanted = bare(&keevoro_engine::friendly_path(path));
     let disks = Disks::new_with_refreshed_list_specifics(DiskRefreshKind::nothing());
     disks
         .list()

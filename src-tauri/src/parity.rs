@@ -105,6 +105,12 @@ const BACKED: &[(&str, &[Op])] = &[
     ("survey_place", &[Op::PlacesSurvey]),
     ("stop_survey", &[Op::JobsStop]),
     ("scan_place", &[Op::SourcesLook]),
+    ("look_again", &[Op::SourcesLookAgain]),
+    // Backing up by itself.
+    ("schedule", &[Op::ScheduleShow]),
+    ("set_schedule", &[Op::ScheduleSet]),
+    ("skip_next_run", &[Op::ScheduleSkipNext]),
+    ("run_scheduled_now", &[Op::ScheduleRun]),
     ("stop_scanning", &[Op::JobsStop]),
     // The second half of looking through a source: reading in full, in the
     // background, what the quick search only sampled. The API starts it
@@ -124,6 +130,9 @@ const BACKED: &[(&str, &[Op])] = &[
 /// Commands that are about being a window: nothing in them is Keevoro's to
 /// share with the command line or an agent.
 const WINDOW_ONLY: &[&str] = &[
+    // The person is using the window, so a backup by itself waits until
+    // they have finished. Only a window has a person in it.
+    "window_used",
     // Which backup the window shows. The API keeps the choice in the
     // settings file, but it is not an operation: the command line and an
     // agent name the backup they mean each time.

@@ -46,6 +46,12 @@ pub enum Code {
     Busy = 4,
     /// Refused, such as not enough room.
     Refused = 5,
+    /// A backup that ran by itself held something back for your say (other
+    /// things may still have been sent).
+    Waiting = 6,
+    /// A backup that runs by itself did not run now: on battery or busy,
+    /// and the time it could wait ran out.
+    NotNow = 7,
     /// The command was not understood.
     NotUnderstood = 64,
 }
