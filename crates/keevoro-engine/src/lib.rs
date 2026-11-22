@@ -72,6 +72,22 @@ pub fn scan_into(
     scan_into_with(catalog, source, name, &ScanOptions::default(), on_progress, &mut || {})
 }
 
+/// The full form a place would have if it were there. A source is kept
+/// under its real path (`/private/var/...` on a Mac, `\\?\C:\...` on
+/// Windows), which cannot be asked for once its folder has gone. So the
+/// folder above it, which is still there, is asked instead, and the name
+/// put back on the end. Then a source that is not plugged in is still
+/// recognised as the one the catalog knows.
+fn where_it_would_be(place: &Path) -> PathBuf {
+    match (place.parent(), place.file_name()) {
+        (Some(above), Some(name)) if !above.as_os_str().is_empty() => match std::fs::canonicalize(above) {
+            Ok(real) => real.join(name),
+            Err(_) => place.to_path_buf(),
+        },
+        _ => place.to_path_buf(),
+    }
+}
+
 /// As [`scan_into`], with a say in how the search is done (a quick search
 /// samples large files; see [`deep`]). `on_saving` is called once the
 /// looking is over and what was found is about to be written down, which on
@@ -87,7 +103,7 @@ pub fn scan_into_with(
     let _busy = keevoro_core::doing::doing(keevoro_core::doing::Work::LookingThroughASource);
     // A remembered drive is recognised by its full path, so `D:` and
     // `D:\.` must come out the same.
-    let root = std::fs::canonicalize(source).unwrap_or_else(|_| source.to_path_buf());
+    let root = std::fs::canonicalize(source).unwrap_or_else(|_| where_it_would_be(source));
     // A source that is not there now (a card in a drawer) is not looked
     // through: a look would find nothing, and saving nothing would forget
     // everything found on it. It is said as a drive gone, which keeps all.

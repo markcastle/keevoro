@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.43.0] - 2026-11-22
+
 ### Added
 
 - **Put this backup right, with one button.** When a look or "Check they all arrived" finds files at a backup missing, cut short, the wrong size or not the same as they were sent (a network share that drops out part-way can leave them so), the backup screen offers "Put this backup right". It first says what it will do and about how long ("about 16 hours over this connection" for half a terabyte on a network share), then, in the background while you use the rest of Keevoro: it reads back in full every copy at the backup and compares it with its original; moves any damaged copy aside, into a folder there called "Set aside by Keevoro" with the date, keeping the folders it was in, with a note saying what it is (nothing is ever deleted or replaced, and you can delete that folder once you are happy); sends those and anything missing again; reads back each new copy; and ends by saying plainly that every file you are keeping is there and proved, or exactly which are not and why. It puts right what is already known first, in minutes, and "Only the 79 known" does just that. It can be stopped, and if the share drops out again it stops by itself; pressing it again carries on from where it was without reading again what it proved. Nothing on your sources is touched. In cloud storage a damaged copy is said, with what you can do, as moving it would mean copying and deleting. When nothing is known to be wrong, "Prove every copy…" beneath does the same full check, for a backup made through a share that dropped out. At the command line: `keevoro repair plan`, `keevoro repair` and `keevoro repair --quick`. An AI agent cannot do it.
@@ -712,7 +716,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.42.0...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.43.0...HEAD
+[0.43.0]: https://github.com/markcastle/keevoro/compare/v0.42.0...v0.43.0
 [0.42.0]: https://github.com/markcastle/keevoro/compare/v0.41.0...v0.42.0
 [0.41.0]: https://github.com/markcastle/keevoro/compare/v0.40.0...v0.41.0
 [0.40.0]: https://github.com/markcastle/keevoro/compare/v0.39.1...v0.40.0
