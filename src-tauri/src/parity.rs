@@ -65,6 +65,11 @@ const BACKED: &[(&str, &[Op])] = &[
     ("set_previews_wanted", &[Op::BackupPreviews]),
     ("activity", &[Op::KeevoroActivity]),
     ("log_tail", &[Op::KeevoroLog]),
+    // Reporting a problem or an idea: made and shown, then sent as shown.
+    ("prepare_report", &[Op::ReportsPrepare]),
+    ("send_report", &[Op::ReportsSend]),
+    ("reports", &[Op::ReportsList]),
+    ("refresh_reports", &[Op::ReportsRefresh]),
     ("acceleration", &[Op::KeevoroSettings]),
     ("set_acceleration", &[Op::KeevoroSettings]),
     // What an AI agent may do: for the person, never the agent.

@@ -1085,6 +1085,75 @@ pub static ROWS: &[Row] = &[
         show: show::log,
     },
     Row {
+        words: &["report"],
+        ops: &[Op::ReportsSend, Op::ReportsPrepare],
+        about: Some(
+            "Tells Keevoro's maker about a problem or an idea, in your words. Only Keevoro's version, the operating system and your words go, unless you add the end of the log or a way to reach you. --dry-run shows exactly what would go, and sends nothing.",
+        ),
+        args: |c| {
+            c.arg(
+                Arg::new("problem")
+                    .long("problem")
+                    .value_name("WORDS")
+                    .help("Something went wrong: say what happened"),
+            )
+            .arg(
+                Arg::new("idea")
+                    .long("idea")
+                    .value_name("WORDS")
+                    .help("An idea for Keevoro")
+                    .conflicts_with("problem"),
+            )
+            .group(clap::ArgGroup::new("what").args(["problem", "idea"]).required(true))
+            .arg(flag(
+                "with-log",
+                "Include the end of Keevoro's log, with your home folder and user name taken out. It can name your folders and files",
+            ))
+            .arg(
+                Arg::new("contact")
+                    .long("contact")
+                    .value_name("HOW")
+                    .help("A way to reach you, such as an email address"),
+            )
+            .arg(flag("dry-run", "Only show exactly what would be sent, and send nothing"))
+        },
+        ask: |c, m, _| {
+            let (kind, words) = match text(m, "idea") {
+                Some(words) => ("idea", words),
+                None => ("problem", required(m, "problem")),
+            };
+            let request = json!({
+                "kind": kind,
+                "message": words,
+                "withLog": m.get_flag("with-log"),
+                "contact": text(m, "contact"),
+                "screen": "The command line",
+            });
+            if m.get_flag("dry-run") {
+                return Ok((Op::ReportsPrepare, request));
+            }
+            // What is sent is exactly what was made, as in the app.
+            let prepared = c.ask(Op::ReportsPrepare, request)?;
+            Ok((Op::ReportsSend, json!({ "prepared": prepared["body"] })))
+        },
+        show: show::report,
+    },
+    Row {
+        words: &["reports"],
+        ops: &[Op::ReportsRefresh, Op::ReportsList],
+        about: Some("The reports sent from this computer, and how each is getting on."),
+        args: |c| c.arg(flag("offline", "Say how they were last heard of, without asking")),
+        ask: |_, m, _| {
+            let op = if m.get_flag("offline") {
+                Op::ReportsList
+            } else {
+                Op::ReportsRefresh
+            };
+            Ok((op, json!({})))
+        },
+        show: show::reports,
+    },
+    Row {
         words: &["settings"],
         ops: &[Op::KeevoroSettings],
         about: Some("Keevoro's settings, such as using this computer's own picture codecs."),

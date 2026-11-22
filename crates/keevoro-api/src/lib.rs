@@ -47,6 +47,7 @@ pub mod places;
 mod rates;
 pub mod register;
 pub mod removing;
+pub mod reports;
 pub mod reset;
 pub mod schedule;
 pub mod space;
@@ -557,6 +558,22 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
         Op::KeevoroLog => {
             let r: LogRequest = read(request)?;
             answer(keevoro.log_tail(r.lines.unwrap_or(LOG_LINES)))
+        }
+        Op::ReportsPrepare => {
+            let r: reports::PrepareReportRequest = read(request)?;
+            answer(keevoro.prepare_report(&r)?)
+        }
+        Op::ReportsSend => {
+            let r: reports::SendReportRequest = read(request)?;
+            answer(keevoro.send_report(&r.prepared)?)
+        }
+        Op::ReportsList => {
+            read::<Nothing>(request)?;
+            answer(keevoro.reports())
+        }
+        Op::ReportsRefresh => {
+            read::<Nothing>(request)?;
+            answer(keevoro.refresh_reports())
         }
         Op::KeevoroSettings => {
             let r: SettingsRequest = read(request)?;

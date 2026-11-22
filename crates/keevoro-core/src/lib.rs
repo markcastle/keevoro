@@ -24,6 +24,7 @@ pub mod meter;
 pub mod pause;
 pub mod places;
 pub mod recognise;
+pub mod report;
 pub mod schedule;
 pub mod skip;
 pub mod synced;

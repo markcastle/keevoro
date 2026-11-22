@@ -6,7 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Report a problem or suggest an idea, from inside Keevoro.** Choose "Report a problem or idea" at the foot of the window, or Settings, Help, "Report a problem or suggest an idea". Say whether something went wrong or you have an idea, write it in your own words and press Send, and Keevoro says "Thank you. Your reference is K-1042." It goes to a private list that only Keevoro's maker reads. Only your words, Keevoro's version, which system your computer runs and the screen you were on are sent, unless you switch on "Include the end of Keevoro's log" (it can name your folders and files; your home folder and user name are taken out first, and anything that looks like a key or a password is hidden) or "Include a way to reach me". "See exactly what will be sent" shows the report word for word, and that is exactly what goes. If it cannot be sent, your words stay, with why and Try again. "Your reports", on the same page, lists each one you sent with how it is getting on: Received, Accepted, Being worked on, "Done in version 0.47.0" or Not planned, with any note, and says "Couldn't check just now" when the computer is offline. At the command line: `keevoro report --problem "..."` or `--idea "..."`, with `--with-log`, `--contact` and `--dry-run`, and `keevoro reports`. An AI agent cannot send one for you. Resetting Keevoro forgets the list of reports you sent.
+
+### Changed
+
+- **Tidier screens throughout.** Wherever a button has a sentence saying what it does, such as "Prove every copy…", "Look again for new photos", "Refresh" and "Stop that too", the sentence now sits in a column of its own with the button beside it, as in Settings, instead of running on from the button and wrapping underneath it; in a narrow window the button goes beneath the sentence. What a backup or one source is for, and each kind of file on a source under File types, are now rows of one panel, with the words on the left and the switch on the right, instead of switches in boxes with their words floating above them. The switch to start Keevoro with the computer, in the first-close explanation, sits beside its words with no box. With two places to back up to, each one's Remove button lines up at the end of its row instead of stretching underneath. A page's opening sentences, and what removing a source does, stay a comfortable length to read in a wide window. Removing a source says "Remove…", since it asks first. In a narrow window the three steps line up, and the links at the top sit on one line. Confirming that you want to remove a source no longer lets the page slide sideways.
 
 ## [0.46.1] - 2026-11-22
 

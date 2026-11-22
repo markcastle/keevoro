@@ -83,6 +83,7 @@ import { certain, mainButtonWords, outOfReachLine } from './thereWords'
 import { SyncedCard } from './synced'
 import { StorageFields } from './storageForm'
 import { AddBucketSource, CloudCost, CloudSourceIcon } from './bucketSource'
+import { Explained } from './explained'
 import { SettingsScreen } from './settings/shell'
 import { parsePlace, placeOfRow } from './settings/places'
 import type { SettingsPlace } from './settings/places'
@@ -211,9 +212,12 @@ export function App() {
     scroller.scrollTop = overlay === null ? wasAt.current : 0
   }, [overlay])
 
+  // The screen a report is about, when the foot of the window opened it.
+  const [reportFrom, setReportFrom] = useState<string | null>(null)
   /** Opens Settings where it was, or at a place asked for: a section, a page, or a row to bring into view. */
   const openSettings = (at?: SettingsPlace) => {
     if (at) setSettingsAt(at)
+    setReportFrom(null)
     show('settings')
   }
 
@@ -388,6 +392,15 @@ export function App() {
   // as part of finding: the side bar stays on Find, and Back goes there.
   const question = !!arranged && !arranged.asked && anythingFound && step !== 'find' && !overlay
   const shownStep: Step = question ? 'find' : step
+  /** The screen in front of the person, in its own words, for a report. */
+  const screenName = () =>
+    overlay === 'activity' ? 'What Keevoro is doing'
+    : overlay === 'about' ? 'About Keevoro'
+    : overlay === 'backups' ? 'Manage backups'
+    : overlay === 'duplicates' ? 'Duplicates'
+    : overlay === 'setAside' ? 'Set aside'
+    : overlay ? 'Choose what to keep, looking inside a collection'
+    : (STEPS.find((s) => s.id === shownStep)?.title ?? '')
 
   // The bars that can show on any page: a newer Keevoro, and a problem.
   const banner = (
@@ -474,6 +487,7 @@ export function App() {
           onBack={() => setOverlay(null)}
           onProblem={report}
           banner={banner}
+          reportFrom={reportFrom}
         />
       </div>
     )
@@ -547,11 +561,21 @@ export function App() {
               </span>
             )}
           </button>
-          <button className="link" onClick={() => show('settings')}>
+          <button className="link" onClick={() => openSettings()}>
             Settings
           </button>
           <button className="link" onClick={() => show('about')}>
             About Keevoro
+          </button>
+          <button
+            className="link"
+            onClick={() => {
+              const from = screenName()
+              openSettings({ section: 'help', detail: 'report' })
+              setReportFrom(from)
+            }}
+          >
+            Report a problem or idea
           </button>
         </div>
       </aside>
@@ -1285,12 +1309,16 @@ function FindScreen(props: {
                     you like, or choose a folder inside it to look through less.
                   </p>
                   {props.checking && (
-                    <p className="still-checking">
-                      Still checking what was found before for duplicates.{' '}
-                      <button className="button small" onClick={() => api.stopChecking().catch(onProblem)}>
-                        Stop that too
-                      </button>
-                    </p>
+                    <Explained
+                      className="still-checking"
+                      action={
+                        <button className="button small" onClick={() => api.stopChecking().catch(onProblem)}>
+                          Stop that too
+                        </button>
+                      }
+                    >
+                      Still checking what was found before for duplicates.
+                    </Explained>
                   )}
                 </>
               ) : (
@@ -1350,16 +1378,18 @@ function FindScreen(props: {
               <PlaceCard key={place.path} place={place} added={done.has(place.path.replace(/[\\/]+$/, ''))} onClick={() => choose(place)} />
             ))}
           </div>
-          <p className="quiet small drives-said">
-            <span>
-              {places && removable.length === 0
-                ? 'No USB or external drive is plugged in right now. Plug one in and it appears here by itself.'
-                : 'A drive, USB stick or memory card appears here by itself when you plug it in.'}
-            </span>
-            <button className="button small" onClick={() => look(true)} aria-label="Refresh the list of drives">
-              Refresh
-            </button>
-          </p>
+          <Explained
+            className="drives-said"
+            action={
+              <button className="button small" onClick={() => look(true)} aria-label="Refresh the list of drives">
+                Refresh
+              </button>
+            }
+          >
+            {places && removable.length === 0
+              ? 'No USB or external drive is plugged in right now. Plug one in and it appears here by itself.'
+              : 'A drive, USB stick or memory card appears here by itself when you plug it in.'}
+          </Explained>
           <p className="quiet small look-first">
             Not sure what is in a folder?{' '}
             <button className="link" onClick={pickToLookInside}>
@@ -1375,14 +1405,16 @@ function FindScreen(props: {
           <h3>Your sources</h3>
           <p className="quiet small">Removing a source only takes it off this list. Keevoro never changes or deletes anything in a source.</p>
           {!scan && !survey && (
-            <p className="choices again">
-              <button className="button small" onClick={lookAgain}>
-                {found.sources.length === 1 ? 'Look again for new photos' : `Look through all ${found.sources.length} again for new photos`}
-              </button>
-              <span className="quiet small">
-                Taken more photos since last time? This finds what is new, and the next backup sends only that.
-              </span>
-            </p>
+            <Explained
+              className="again"
+              action={
+                <button className="button small" onClick={lookAgain}>
+                  {found.sources.length === 1 ? 'Look again for new photos' : `Look through all ${found.sources.length} again for new photos`}
+                </button>
+              }
+            >
+              Taken more photos since last time? This finds what is new, and the next backup sends only that.
+            </Explained>
           )}
           <ul className="kept">
             {found.sources.map((s) => (
@@ -1447,8 +1479,8 @@ function FindScreen(props: {
                     >
                       File types
                     </button>
-                    <button className="button small" onClick={() => setRemoving(s.id)} aria-label={`Remove ${s.name}`}>
-                      Remove
+                    <button className="button small" onClick={() => setRemoving(s.id)} aria-label={`Remove ${s.name}…`}>
+                      Remove…
                     </button>
                   </span>
                 )}
@@ -1570,9 +1602,16 @@ function FileTypes(props: {
         Everything Keevoro found on {source.name} is included. Switch off a kind of file to leave all of those out of
         this backup; nothing on the source is changed, and you can switch it back on at any time.
       </p>
-      <ul>
+      <ul className="kv-panel kinds" aria-label={`Kinds of file on ${source.name}`}>
         {kinds.map((kind) => (
           <li key={kind.ending}>
+            <span className="kind-text">
+              <b>{kind.ending ? kind.ending.toUpperCase() : 'No ending'}</b>
+              <span className="quiet">
+                {count(kind.files, 'file')} · {size(kind.bytes)}
+                {kind.why ? ` · left out: ${kind.why}` : !kind.included && ' · left out'}
+              </span>
+            </span>
             <button
               className={kind.included ? 'kv-switch on' : 'kv-switch'}
               role="switch"
@@ -1586,11 +1625,6 @@ function FileTypes(props: {
             >
               <span className="knob" />
             </button>
-            <b>{kind.ending ? kind.ending.toUpperCase() : 'No ending'}</b>
-            <span className="quiet">
-              {count(kind.files, 'file')} · {size(kind.bytes)}
-              {kind.why ? ` · left out: ${kind.why}` : !kind.included && ' · left out'}
-            </span>
           </li>
         ))}
       </ul>
@@ -1838,8 +1872,9 @@ function AboutScreen(props: { api: Backend; version: string; onBack: () => void;
           <dd>
             There is no Keevoro account and no Keevoro server. Your files go from your source to the destination you
             chose and nowhere else. Storage keys are kept in this computer’s own keychain. The only thing Keevoro
-            contacts by itself is GitHub, to see whether there is a newer version. On this computer it keeps only
-            its working notes: a list of what it found, small previews, and a log of what it did.
+            contacts by itself is GitHub, to see whether there is a newer version. A report of a problem or an idea
+            goes to Keevoro’s maker only when you send one, and you see exactly what it holds first. On this computer
+            it keeps only its working notes: a list of what it found, small previews, and a log of what it did.
           </dd>
         </dl>
         <p className="quiet small">
@@ -2553,7 +2588,7 @@ function SendPanel(props: {
                   )}
                   {!running && (
                     <button
-                      className="button small"
+                      className="button small remove"
                       onClick={() => remove(at)}
                       aria-label={`Stop backing up to ${to.name}`}
                       title="Takes it off this backup. Nothing backed up there is deleted."

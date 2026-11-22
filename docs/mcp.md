@@ -31,6 +31,7 @@ Whatever you allow, an agent can never:
 - read back a storage key. An agent can give Keevoro a key when it adds cloud storage, and the key goes straight into your computer's keychain. No answer, error or line of the log ever contains it;
 - remove a backup (or put back or clear away one removed), forget the remembered maps, reset Keevoro, change its settings (the kinds of file Keevoro looks for among them; it can read that list), or install an update. Those are for you;
 - set, skip or pause a backup's schedule, or start a backup by itself. A schedule runs long after the conversation has ended, with nobody watching, so only you make that promise. An agent can read when a backup runs by itself, when next and how its last few runs went (`backup_schedule`);
+- report a problem or an idea to Keevoro's maker, or read the reports you sent. A report is in your own words, so only you make and send one;
 - change what it is allowed to do. It can ask what it may do, and nothing more.
 
 Everything an agent does is written to Keevoro's log, in plain words: which tool it used, on which backup, and how it went. Settings, Help, "What Keevoro has been doing", shows it.

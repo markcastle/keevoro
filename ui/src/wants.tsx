@@ -13,7 +13,11 @@ import type { Wants, WantsView } from './backend'
 import { Toggle } from './toggle'
 import { shownWords, toggled } from './wantsRule'
 
-/** The tick boxes themselves. */
+/**
+ * The switches themselves, a row each, as Settings lays out its rows: the
+ * kind on the left, its switch on the right, a hairline between them. They
+ * are rows of whatever panel they sit in; that panel is the caller's.
+ */
 function Ticks(props: {
   legend: string
   view: WantsView
@@ -30,6 +34,7 @@ function Ticks(props: {
         return (
           <Toggle
             key={word}
+            row
             on={on}
             label={label}
             // The last one on stays on: a backup is always for something.
@@ -109,16 +114,18 @@ export function SourceWants(props: {
       .catch(onProblem)
   return (
     <div className="source-wants">
-      <div className="follow">
+      {/* One panel: whether it follows the backup, and, once it does not, a row for each kind. */}
+      <div className="kv-panel kv-wants">
         <Toggle
+          row
           on={!view.own}
           label={`From ${props.name}, back up the same as the backup`}
           // On again, it follows the backup; off, its own choice starts as
           // what it follows now.
           onChange={() => choose(view.own ? 'backup' : view.wants)}
         />
+        {view.own && <Ticks legend={`From ${props.name}, back up`} view={view} choose={choose} />}
       </div>
-      {view.own && <Ticks legend={`From ${props.name}, back up`} view={view} choose={choose} />}
       {said && (
         <p className="quiet small" role="status">
           {said} This counts at once, with no need to look again.

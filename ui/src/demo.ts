@@ -48,6 +48,7 @@ import type {
   ScheduleAttempt,
   ScheduleChoice,
   ScheduleView,
+  ReportListed,
 } from './backend'
 import { count, size } from './format'
 import { PictureQueue, fileKey } from './pictureQueue'
@@ -849,6 +850,28 @@ export function demoBackend(): Backend {
     }
   }
   const later = (ms: number) => new Promise((done) => setTimeout(done, ms))
+  // Reports sent from this computer, newest first: two from before.
+  let reportRefused = false
+  const reportsSent: ReportListed[] = [
+    {
+      reference: 'K-1041',
+      kind: 'idea',
+      firstLine: 'Could the map of where the space goes be calmer?',
+      sentAt: 1_794_000_000,
+      status: 'shipped',
+      statusSaid: 'Done in version 0.47.0',
+      shippedIn: '0.47.0',
+      note: 'Thank you. The map is quieter now.',
+    },
+    {
+      reference: 'K-1040',
+      kind: 'problem',
+      firstLine: 'The previews of Family photos were very slow',
+      sentAt: 1_793_000_000,
+      status: 'in_progress',
+      statusSaid: 'Being worked on',
+    },
+  ]
   // Tests can ask for everything to happen at once.
   const pace = mode === 'fast' || new URLSearchParams(window.location.search).has('fast') ? 0 : 1
 
@@ -1575,6 +1598,56 @@ export function demoBackend(): Backend {
         '2026-11-16 14:03:40  Looked through E:\\ in 89 seconds: 238 photos and videos, 11,204 other files, 3 folders skipped, 0 unreadable',
       ].join('\n'),
     openLog: async () => {},
+    // Reports to Keevoro's maker. `?reportFails` refuses the first one sent,
+    // as the service does when too many come from one computer, and
+    // `?reportsOffline` cannot ask after them.
+    async prepareReport(request) {
+      const message = request.message.trim()
+      if (!message) throw new Error(request.kind === 'problem' ? 'Say what went wrong first.' : 'Say what your idea is first.')
+      if ([...message].length > 5000) throw new Error(`Keep it to 5,000 letters or fewer. This is ${[...message].length.toLocaleString('en-GB')}.`)
+      const contact = request.contact?.trim() || undefined
+      if (contact && [...contact].length > 200) throw new Error('Keep the way to reach you to 200 letters or fewer.')
+      const log = [
+        '2026-11-16 14:02:09  Keevoro 9.8.0 started on windows (x86_64)',
+        '2026-11-16 14:02:11  Looking through C:\\Users\\You\\Pictures\\Family photos',
+        '2026-11-16 14:03:40  Looked through it in 89 seconds: 238 photos and videos',
+      ]
+        .join('\n')
+        .replaceAll('C:\\Users\\You', '~')
+      const report = {
+        kind: request.kind,
+        message,
+        appVersion: '9.8.0',
+        os: 'Windows 11 Home (26100)',
+        screen: request.screen || undefined,
+        logTail: request.withLog ? log : undefined,
+        contact,
+      }
+      return { body: JSON.stringify(report, null, 2) }
+    },
+    async sendReport(prepared) {
+      await later(300 * pace)
+      if (opening.has('reportFails') && !reportRefused) {
+        reportRefused = true
+        throw new Error('That’s a lot of reports from one computer today. Please try again tomorrow.')
+      }
+      const report = JSON.parse(prepared) as { kind: 'problem' | 'idea'; message: string }
+      const reference = `K-${1042 + reportsSent.length - 2}`
+      reportsSent.unshift({
+        reference,
+        kind: report.kind,
+        firstLine: report.message.split('\n')[0].slice(0, 80),
+        sentAt: Math.floor(Date.now() / 1000),
+        status: 'new',
+        statusSaid: 'Received',
+      })
+      return { reference, said: `Thank you. Your reference is ${reference}.` }
+    },
+    reports: async () => ({ reports: reportsSent.slice(), checked: false }),
+    refreshReports: async () =>
+      opening.has('reportsOffline')
+        ? { reports: reportsSent.slice(), checked: false, said: 'Couldn’t check just now.' }
+        : { reports: reportsSent.slice(), checked: true },
     checkUpdate: async () =>
       new URLSearchParams(window.location.search).has('update')
         ? { version: '9.9.0', page: 'https://github.com/markcastle/keevoro/releases' }

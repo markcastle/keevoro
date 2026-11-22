@@ -43,4 +43,8 @@ test('a row is found by its name, by other words for it, and by its section', ()
   // A name that starts with what is typed comes first.
   assert.equal(findRows('reset')[0].id, 'reset')
   assert.equal(placeOfRow('agentLookIn').detail, 'agents')
+  // Telling Keevoro's maker about something, by any of the words for it.
+  for (const word of ['feedback', 'bug', 'idea', 'suggest']) assert.equal(findRows(word)[0].id, 'report', word)
+  assert.equal(findRows('problem')[0].id, 'report')
+  assert.deepEqual(placeOfRow('yourReports'), { section: 'help', detail: 'report', row: 'yourReports' })
 })

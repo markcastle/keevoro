@@ -10,6 +10,7 @@
 
 import { useEffect, useState, type ReactNode } from 'react'
 import type { Arrange, ArrangeView, Collection, Source, SourceArrangeView } from './backend'
+import { Explained } from './explained'
 
 /** "“Family Scans”", "“Family Scans” and “Card”", for up to three folders. */
 export function folderNames(tops: string[]): string {
@@ -194,12 +195,16 @@ export function SourceArrange(props: {
         <option value="folders">Keep my folders as they are</option>
       </select>
       {view.suggestion && (
-        <p className="quiet small suggestion">
-          {view.suggestion.said}{' '}
-          <button className="button small" onClick={() => choose(view.suggestion!.arrange)}>
-            {view.suggestion.arrange === 'folders' ? 'Keep its folders' : 'Arrange it by date'}
-          </button>
-        </p>
+        <Explained
+          className="suggestion"
+          action={
+            <button className="button small" onClick={() => choose(view.suggestion!.arrange)}>
+              {view.suggestion.arrange === 'folders' ? 'Keep its folders' : 'Arrange it by date'}
+            </button>
+          }
+        >
+          {view.suggestion.said}
+        </Explained>
       )}
       {said && (
         <p className="quiet small" role="status">

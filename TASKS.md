@@ -607,13 +607,13 @@ Report a problem or suggest something, from inside the app
 
 The owner's words: "At work we now have an icon that allows users to report bugs/ask for features.. then our system allows us to approve those and ai goes off and gets them done... it's the future." Keevoro's first tester sent a PDF and a photo of a screen; this is the front door that was missing.
 
-- [ ] A button: "Report a problem or suggest something". The person says what happened, or what they would like
-- [ ] Keevoro adds the useful facts for them: its version, the system, the screen they were on, and the end of its log. It shows exactly what will be sent before sending, and never sends keys
-- [ ] File names and folder paths are personal: left out unless the person chooses to include them
+- [x] A button: "Report a problem or suggest something". The person says what happened, or what they would like
+- [x] Keevoro adds the useful facts for them: its version, the system, the screen they were on, and the end of its log. It shows exactly what will be sent before sending, and never sends keys
+- [x] File names and folder paths are personal: left out unless the person chooses to include them
 - [ ] No account needed to send one: a small receiving service files it as an issue on the project
 - [ ] The owner approves each one: yes, no, or later
 - [ ] An AI builds what was approved and it goes through the same checks on Windows and a Mac as every release
-- [ ] The person who reported it hears when it ships
+- [ ] The person who reported it hears when it ships. Keevoro's side is done: "Your reports" in Settings, Help, and `keevoro reports`, ask how each is getting on and say "Done in version 0.47.0"
 - [ ] Decided before building: where reports are received; how much may go out without the owner's say (nothing at first; anything touching how files are copied or proved always waits for the owner); and how abuse and repeats are kept out
 
 ### Scheduled and repeat backups

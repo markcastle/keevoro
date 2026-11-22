@@ -1084,6 +1084,43 @@ pub fn open_log<R: Runtime>(app: AppHandle<R>, shared: State<'_, Shared>) -> Sai
         .map_err(say)
 }
 
+/// A report of a problem or an idea, exactly as it would be sent, for the
+/// person to see first. Reading the log is kept off the window's thread.
+#[tauri::command]
+pub async fn prepare_report<R: Runtime>(
+    app: AppHandle<R>,
+    request: keevoro_api::reports::PrepareReportRequest,
+) -> Said<keevoro_api::reports::Prepared> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<Shared>().keevoro.prepare_report(&request))
+        .await
+        .map_err(say)?
+        .map_err(say)
+}
+
+/// Sends a report exactly as it was prepared and shown. It waits on the
+/// network, so never on the window's thread.
+#[tauri::command]
+pub async fn send_report<R: Runtime>(app: AppHandle<R>, prepared: String) -> Said<keevoro_api::reports::Sent> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<Shared>().keevoro.send_report(&prepared))
+        .await
+        .map_err(say)?
+        .map_err(say)
+}
+
+/// The reports sent from this computer, as last heard of.
+#[tauri::command]
+pub fn reports(shared: State<'_, Shared>) -> keevoro_api::reports::ReportsView {
+    shared.keevoro.reports()
+}
+
+/// Asks how each report sent from this computer is getting on.
+#[tauri::command]
+pub async fn refresh_reports<R: Runtime>(app: AppHandle<R>) -> Said<keevoro_api::reports::ReportsView> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<Shared>().keevoro.refresh_reports())
+        .await
+        .map_err(say)
+}
+
 /// A newer Keevoro, if there is one this computer can install.
 #[tauri::command]
 pub async fn check_update<R: Runtime>(app: AppHandle<R>) -> Said<Option<keevoro_api::Offer>> {

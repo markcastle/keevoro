@@ -537,3 +537,60 @@ fn a_backup_0_37_1_kept_remembers_nothing_as_failing_last_time() {
     assert_eq!(catalog.setting(&format!("not_sent:{target}")).unwrap(), None);
     assert_eq!(catalog.setting(&format!("putting_right:{target}")).unwrap(), None);
 }
+
+/// Reports of a problem or an idea sent to Keevoro's maker (0.46) are kept
+/// in a file of their own, `reports.json`, never in `settings.json`. A
+/// Keevoro 0.37.1 left has none: the list is empty, there is nothing to ask
+/// after, and sending one leaves the settings file exactly as it was.
+#[test]
+fn keevoro_0_37_1_left_has_no_reports_and_sending_one_leaves_the_settings_file_alone() {
+    use std::io::{BufRead, BufReader, Read, Write};
+    let dir = tempfile::tempdir().unwrap();
+    let (keevoro, places) = as_0_37_1_left_it(dir.path());
+    // A stand-in for the reports service, which takes one report.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = format!("http://{}", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut length = 0;
+        loop {
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            if line.trim().is_empty() {
+                break;
+            }
+            if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                length = value.trim().parse().unwrap();
+            }
+        }
+        reader.read_exact(&mut vec![0; length]).unwrap();
+        let answer = r#"{"ok":true,"reference":"K-1","token":"abc123"}"#;
+        write!(
+            stream,
+            "HTTP/1.1 201 Created\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{answer}",
+            answer.len()
+        )
+        .unwrap();
+    });
+    let keevoro = keevoro.with_environment(move |name| (name == "KEEVORO_REPORTS_URL").then(|| address.clone()));
+
+    let listed = ask(&keevoro, Op::ReportsList, None, Value::Null);
+    assert_eq!(listed["reports"], json!([]));
+    let settings = places.folders.config.join("settings.json");
+    let before = std::fs::read_to_string(&settings).unwrap();
+    let prepared = ask(
+        &keevoro,
+        Op::ReportsPrepare,
+        None,
+        json!({ "kind": "idea", "message": "Thank you" }),
+    );
+    let sent = ask(&keevoro, Op::ReportsSend, None, json!({ "prepared": prepared["body"] }));
+    assert_eq!(sent["reference"], "K-1");
+    assert_eq!(std::fs::read_to_string(&settings).unwrap(), before);
+    let listed = ask(&keevoro, Op::ReportsList, None, Value::Null);
+    assert_eq!(listed["reports"][0]["reference"], "K-1");
+    // And the backups are all still there, as 0.37.1 left them.
+    let backups = ask(&keevoro, Op::BackupsList, None, Value::Null);
+    assert_eq!(names(&backups), ["Family photos", "Drone footage"]);
+}
