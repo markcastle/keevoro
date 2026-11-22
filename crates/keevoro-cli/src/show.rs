@@ -1003,6 +1003,46 @@ pub fn log(io: &mut Io<'_>, _: &ArgMatches, text: &Value) -> Said_ {
     Ok(Code::Worked)
 }
 
+/// What `keevoro report` made or sent: with --dry-run the report exactly as
+/// it would go, otherwise the reference to quote.
+pub fn report(io: &mut Io<'_>, _: &ArgMatches, answer: &Value) -> Said_ {
+    match answer.get("body").and_then(Value::as_str) {
+        Some(body) => {
+            writeln!(io.out, "This is exactly what would be sent. Nothing has been sent.")?;
+            writeln!(io.out, "{body}")?;
+        }
+        None => writeln!(io.out, "{}", s(answer, "said"))?,
+    }
+    Ok(Code::Worked)
+}
+
+pub fn reports(io: &mut Io<'_>, _: &ArgMatches, view: &Value) -> Said_ {
+    let mut none = true;
+    for one in each(view.get("reports").unwrap_or(&Value::Null)) {
+        none = false;
+        writeln!(
+            io.out,
+            "{}  {}  {}",
+            s(one, "reference"),
+            s(one, "statusSaid"),
+            s(one, "firstLine")
+        )?;
+        if let Some(note) = one.get("note").and_then(Value::as_str) {
+            writeln!(io.out, "  {note}")?;
+        }
+    }
+    if none {
+        writeln!(
+            io.out,
+            "No reports have been sent from this computer. `keevoro report --problem \"...\"` or `--idea \"...\"` sends one."
+        )?;
+    }
+    if let Some(said) = view.get("said").and_then(Value::as_str) {
+        writeln!(io.out, "{said} This is how they were last heard of.")?;
+    }
+    Ok(Code::Worked)
+}
+
 pub fn settings(io: &mut Io<'_>, _: &ArgMatches, settings: &Value) -> Said_ {
     let codecs = settings.get("ownCodecs").unwrap_or(&Value::Null);
     writeln!(

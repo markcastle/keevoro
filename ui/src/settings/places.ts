@@ -8,7 +8,7 @@
 export type SectionId = 'backup' | 'byItself' | 'appearance' | 'updates' | 'advanced' | 'help'
 
 /** The pages that open from a row, each with a way back. */
-export type DetailId = 'kinds' | 'agents' | 'log' | 'licences'
+export type DetailId = 'kinds' | 'agents' | 'report' | 'log' | 'licences'
 
 export type Section = {
   id: SectionId
@@ -29,6 +29,7 @@ export const SECTIONS: Section[] = [
 export const DETAILS: Record<DetailId, { section: SectionId; title: string }> = {
   kinds: { section: 'advanced', title: 'Kinds of file Keevoro looks for' },
   agents: { section: 'advanced', title: 'AI agents' },
+  report: { section: 'help', title: 'Report a problem or suggest an idea' },
   log: { section: 'help', title: 'What Keevoro has been doing' },
   licences: { section: 'help', title: 'Open source licences' },
 }
@@ -67,6 +68,8 @@ export const ROWS: RowInfo[] = [
   { id: 'codecs', section: 'advanced', title: 'Use this computer’s own picture codecs', words: 'codecs decoder heic graphics hardware speed fast previews wrong' },
   { id: 'unfinished', section: 'advanced', title: 'Unfinished copies in a folder', words: 'clear tidy clean working files temporary leftover stopped' },
   { id: 'maps', section: 'advanced', title: 'Remembered maps', words: 'forget maps survey privacy folder names space' },
+  { id: 'report', section: 'help', title: 'Report a problem or suggest an idea', words: 'feedback bug fault suggestion suggest idea problem wrong broken tell contact support send report' },
+  { id: 'yourReports', section: 'help', detail: 'report', title: 'Your reports', words: 'feedback reference status sent report problem idea' },
   { id: 'log', section: 'help', title: 'What Keevoro has been doing', words: 'log record history diagnostics problem wrong slow' },
   { id: 'licences', section: 'help', title: 'Open source licences', words: 'licenses licence credits open source third party' },
   { id: 'reset', section: 'help', title: 'Reset Keevoro', words: 'reset start again erase factory remove everything clear' },

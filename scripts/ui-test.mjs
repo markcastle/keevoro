@@ -2222,6 +2222,98 @@ try {
   assert.equal(overflow, false, 'nothing spills off the side of a narrow window')
   await shot('11-choose-narrow')
 
+  // --- Reporting a problem or an idea, from the foot of the window. Only
+  // the person's words, the version, the system and the screen go unless
+  // they switch more on; what is shown is what is sent; a refusal keeps
+  // their words, says why and offers Try again.
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto(`${base}/?fast&reportFails`)
+  await page.getByRole('heading', { name: 'Which of these should we keep?', level: 1 }).waitFor()
+  await page.getByRole('button', { name: 'Report a problem or idea' }).click()
+  await page.getByRole('heading', { name: 'Report a problem or suggest an idea', level: 2 }).waitFor()
+  const reportKinds = page.getByRole('radiogroup', { name: 'What is it?' })
+  assert.equal(await reportKinds.getByRole('radio', { name: 'Something went wrong' }).getAttribute('aria-checked'), 'true')
+  assert.equal(await reportKinds.getByRole('radio', { name: 'I have an idea' }).getAttribute('aria-checked'), 'false')
+  const withLog = page.getByRole('switch', { name: 'Include the end of Keevoro’s log' })
+  const withContact = page.getByRole('switch', { name: 'Include a way to reach me' })
+  assert.equal(await withLog.getAttribute('aria-checked'), 'false', 'the log is off until switched on')
+  assert.equal(await withContact.getAttribute('aria-checked'), 'false', 'a way to reach them is off until switched on')
+  await page.getByText(/The log can name your folders and files\./).waitFor()
+  assert.equal(await page.getByRole('button', { name: 'Send', exact: true }).isDisabled(), true, 'nothing to send without words')
+  await page.getByLabel('What happened?').fill('The map went blank after a search.')
+  await page.getByText(/the screen you were on \(Choose what to keep\)/).waitFor()
+  await page.getByText('See exactly what will be sent').click()
+  const sentText = () => page.getByLabel('Exactly what will be sent').innerText()
+  await page.waitForFunction(() => document.querySelector('.report-preview pre')?.textContent.includes('"message"'))
+  assert.deepEqual(JSON.parse(await sentText()), {
+    kind: 'problem',
+    message: 'The map went blank after a search.',
+    appVersion: '9.8.0',
+    os: 'Windows 11 Home (26100)',
+    screen: 'Choose what to keep',
+  }, 'by default only the words, the version, the system and the screen')
+  await withLog.click()
+  await page.waitForFunction(() => document.querySelector('.report-preview pre')?.textContent.includes('"logTail"'))
+  assert.match(await sentText(), /Looking through ~\\\\Pictures\\\\Family photos/, 'the home folder is a ~')
+  assert.doesNotMatch(await sentText(), /Users/)
+  await withContact.click()
+  await page.getByLabel('How to reach you').fill('you@example.com')
+  await page.waitForFunction(() => document.querySelector('.report-preview pre')?.textContent.includes('you@example.com'))
+  const shown = await sentText()
+  await shot('13-report-preview')
+  await fitsNarrow('Reporting a problem')
+  await page.setViewportSize({ width: 400, height: 800 })
+  await settled()
+  await shot('13-report-preview-400')
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await settled()
+  await shot('13-report-preview-400-dark')
+  await page.emulateMedia({ colorScheme: 'light' })
+  await page.setViewportSize({ width: 1440, height: 900 })
+  // Refused: the words stay, with why, and Try again.
+  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  const refused = page.getByRole('alert').filter({ hasText: 'Your report wasn’t sent.' })
+  await refused.waitFor()
+  assert.match(await refused.innerText(), /That’s a lot of reports from one computer today\. Please try again tomorrow\./)
+  assert.equal(await page.getByLabel('What happened?').inputValue(), 'The map went blank after a search.', 'their words are kept')
+  assert.equal(await sentText(), shown, 'what was shown is still what will go')
+  await shot('13-report-refused')
+  await fitsNarrow('A report refused')
+  await page.getByRole('button', { name: 'Try again' }).click()
+  await page.getByText('Thank you. Your reference is K-1042.').waitFor()
+  // The list of reports says how each is getting on, newest first.
+  const reportRows = page.locator('#setting-yourReports li')
+  await page.waitForFunction(() => document.querySelectorAll('#setting-yourReports li').length === 3)
+  assert.match(await reportRows.nth(0).innerText(), /^K-1042 The map went blank after a search\.\s+Received$/)
+  assert.match(await reportRows.nth(1).innerText(), /^K-1041 Could the map of where the space goes be calmer\?\s+Done in version 0\.47\.0\s+Thank you\. The map is quieter now\.$/)
+  assert.match(await reportRows.nth(2).innerText(), /Being worked on$/)
+  await shot('13-report-sent')
+  await fitsNarrow('A report sent, and the list of reports')
+  await page.setViewportSize({ width: 400, height: 800 })
+  await settled()
+  await shot('13-report-sent-400')
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await settled()
+  await shot('13-report-sent-400-dark')
+  await page.emulateMedia({ colorScheme: 'light' })
+  await page.setViewportSize({ width: 1440, height: 900 })
+  // Back goes to the screen it came from.
+  await page.getByRole('button', { name: '‹ Back', exact: true }).click()
+  await page.getByRole('heading', { name: 'Which of these should we keep?', level: 1 }).waitFor()
+  // It is the first row of Settings, Help; the list says quietly when it could not check.
+  await page.goto(`${base}/?fast&reportsOffline&page=settings/help`)
+  await page.getByRole('heading', { name: 'Help', level: 2 }).waitFor()
+  assert.equal(await page.locator('.kv-page .kv-panel > *').first().getAttribute('id'), 'setting-report', 'the first row in Help')
+  await page.getByRole('button', { name: 'Report a problem or suggest an idea' }).click()
+  await page.getByText('Couldn’t check just now.').waitFor()
+  await page.getByText(/the screen you were on \(Settings, Help\)/).waitFor()
+  await reportKinds.getByRole('radio', { name: 'I have an idea' }).click()
+  await page.getByLabel('What is your idea?').waitFor()
+  // The search finds it by other words for it.
+  await page.getByLabel('Search Settings').fill('feedback')
+  assert.match(await page.getByRole('list', { name: 'Settings found' }).locator('li').first().innerText(), /^Report a problem or suggest an idea\s+Help$/)
+  await page.getByLabel('Search Settings').fill('')
+
   assert.deepEqual(problems, [], 'the browser reported no errors')
   console.log(`UI test passed. Screenshots are in ${shots}`)
 } finally {

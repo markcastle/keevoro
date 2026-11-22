@@ -416,6 +416,11 @@ impl Keevoro {
         &*self.secrets
     }
 
+    /// One variable of the environment, as this Keevoro reads it.
+    pub(crate) fn environment_variable(&self, name: &str) -> Option<String> {
+        (self.environment)(name)
+    }
+
     pub(crate) fn environment_shared(&self) -> Environment {
         self.environment.clone()
     }
@@ -782,6 +787,9 @@ impl Keevoro {
         // starting with the computer.
         let _ = std::fs::remove_file(&self.rates);
         let _ = std::fs::remove_file(self.backups.config_folder().join(crate::window::FILE));
+        // The list of reports sent from this computer goes too. The reports
+        // themselves were sent, and stay with Keevoro's maker.
+        let _ = std::fs::remove_file(self.backups.config_folder().join(crate::reports::FILE));
         self.log.say(&format!(
             "Reset to how Keevoro was when first installed: {} backups removed, {} folders left where they are",
             done.removed.len(),

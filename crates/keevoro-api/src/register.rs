@@ -301,6 +301,20 @@ register! {
         "Which folders an agent may use, and whether it may make changes",
         changes: OnlyWhenAsked, job: false, command_line: true, agents: Agents::LookOnly, implemented: true;
 
+    // Telling Keevoro's maker about a problem or an idea
+    ReportsPrepare = "reports.prepare",
+        "Makes a report of a problem or an idea, exactly as it would be sent. Changes nothing",
+        changes: Never, job: false, command_line: true, agents: Agents::No, implemented: true;
+    ReportsSend = "reports.send",
+        "Sends a report of a problem or an idea to Keevoro's maker, exactly as it was made",
+        changes: Always, job: false, command_line: true, agents: Agents::No, implemented: true;
+    ReportsList = "reports.list",
+        "The reports sent from this computer, with what was last heard of each",
+        changes: Never, job: false, command_line: true, agents: Agents::No, implemented: true;
+    ReportsRefresh = "reports.refresh",
+        "Asks how each report sent from this computer is getting on",
+        changes: Always, job: false, command_line: true, agents: Agents::No, implemented: true;
+
     // The kinds of file looked for
     FileKindsList = "file_kinds.list",
         "The kinds of file Keevoro looks for, by ending: photo, video or other, built in or added, on or off",
@@ -371,6 +385,10 @@ impl Op {
                 | Op::KeevoroUpdate
                 | Op::KeevoroReset
                 | Op::AgentsAccess
+                | Op::ReportsPrepare
+                | Op::ReportsSend
+                | Op::ReportsList
+                | Op::ReportsRefresh
                 | Op::DestinationsTidy
                 | Op::FileKindsList
                 | Op::FileKindsAdd
@@ -455,6 +473,8 @@ impl Op {
             Op::JobsStatus => schema::<StatusRequest>(),
             Op::JobsFollow | Op::JobsStop | Op::JobsPause | Op::JobsCarryOn => schema::<JobRequest>(),
             Op::KeevoroLog => schema::<LogRequest>(),
+            Op::ReportsPrepare => schema::<crate::reports::PrepareReportRequest>(),
+            Op::ReportsSend => schema::<crate::reports::SendReportRequest>(),
             Op::KeevoroSettings => schema::<SettingsRequest>(),
             Op::AgentsAccess => schema::<Agents>(),
             Op::BackupHistory => schema::<HistoryRequest>(),
@@ -493,6 +513,8 @@ impl Op {
             | Op::KeevoroReset
             | Op::FileKindsList
             | Op::FileKindsReset
+            | Op::ReportsList
+            | Op::ReportsRefresh
             | Op::PlacesForgetMaps => schema::<Nothing>(),
         }
     }
@@ -822,6 +844,10 @@ impl Op {
             | Op::FileKindsChange
             | Op::FileKindsRemove
             | Op::FileKindsReset
+            | Op::ReportsPrepare
+            | Op::ReportsSend
+            | Op::ReportsList
+            | Op::ReportsRefresh
             | Op::PlacesForgetMaps => return None,
         };
         Some(Tool { name, tells })
@@ -874,7 +900,7 @@ mod tests {
 
     #[test]
     fn the_register_has_every_operation_in_the_plan() {
-        assert_eq!(Op::ALL.len(), 68);
+        assert_eq!(Op::ALL.len(), 72);
         // Each entry is the one for its own operation.
         for op in Op::ALL {
             assert_eq!(op.entry().op, *op);
@@ -958,6 +984,12 @@ mod tests {
             Op::ScheduleRun,
             Op::ScheduleSet,
             Op::ScheduleSkipNext,
+            // A report goes to Keevoro's maker in the person's own words, so
+            // only the person makes, sends or asks after one, never an agent.
+            Op::ReportsPrepare,
+            Op::ReportsSend,
+            Op::ReportsList,
+            Op::ReportsRefresh,
         ]
         .into();
         assert_eq!(kept_from_agents, plan);

@@ -5599,6 +5599,206 @@ h3.kv-group-title {
   flex-basis: 8em;
 }
 
+/* ---------- reporting a problem or an idea (settings/report.tsx) ---------- */
+
+.report-form {
+  display: grid;
+  gap: var(--space-4);
+  max-width: 640px;
+  min-width: 0;
+}
+
+.report-form .segmented {
+  justify-self: start;
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+
+.report-words {
+  display: grid;
+  gap: var(--space-2);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.report-words textarea {
+  width: 100%;
+  min-height: 132px;
+  padding: var(--space-3);
+  resize: vertical;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line-strong);
+  background: var(--surface-raised);
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 22px;
+  box-shadow: var(--shadow-sm);
+}
+
+.report-words textarea::placeholder {
+  color: var(--ink-muted);
+}
+
+.report-words textarea:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--surface),
+    0 0 0 4px var(--focus-ring);
+}
+
+.report-words small {
+  font-weight: 400;
+}
+
+/* The two switches are rows of a panel, as everywhere in Settings: the
+   words on the left, the switch on the right. */
+.report-switches > div {
+  padding: 12px var(--space-4);
+}
+
+.report-switches .toggle {
+  display: flex;
+  flex-direction: row-reverse;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.report-switches .toggle:hover {
+  background: transparent;
+}
+
+.report-switches p {
+  margin: 2px 0 0;
+  max-width: 34em;
+}
+
+.report-reach {
+  display: block;
+  margin-top: var(--space-2);
+}
+
+.report-reach input {
+  width: min(100%, 360px);
+}
+
+.report-form > p {
+  margin: 0;
+}
+
+.report-preview summary {
+  cursor: pointer;
+  color: var(--pine);
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.report-preview[open] summary {
+  margin-bottom: var(--space-2);
+}
+
+.kv-settings .report-preview .log {
+  max-height: 40vh;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.report-failed {
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--danger-soft);
+  color: var(--ink);
+}
+
+.report-failed p {
+  margin: 0;
+}
+
+.report-thanks {
+  max-width: 640px;
+  padding: var(--space-4);
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.report-thanks p:last-child {
+  margin-bottom: 0;
+}
+
+.your-reports {
+  max-width: 640px;
+}
+
+.report-thanks p {
+  margin: 0 0 var(--space-2);
+}
+
+.report-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.report-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px var(--space-3);
+  padding: 12px var(--space-4);
+  position: relative;
+}
+
+.report-list li + li::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: var(--space-4);
+  right: 0;
+  border-top: 1px solid var(--line);
+}
+
+.report-line {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.report-status {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-muted);
+  text-align: right;
+}
+
+.report-status.shipped {
+  color: var(--success);
+}
+
+.report-note {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 480px) {
+  .report-list li {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .report-status {
+    text-align: left;
+  }
+}
+
 /* ---------- a narrow window: the list, then a section, a page each ---------- */
 
 @media (max-width: 640px) {

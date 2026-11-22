@@ -1224,3 +1224,106 @@ fn a_folder_is_left_out_of_a_backup_and_put_back_from_the_command_line() {
     assert_ne!(gone.code, Code::Worked);
     assert_eq!(everything_written(&card), before, "the source is exactly as it was");
 }
+
+/// A stand-in for the reports service on this computer, which answers one
+/// report with this reference, and hands back what it was sent.
+fn reports_service(reference: &'static str) -> (String, std::sync::mpsc::Receiver<String>) {
+    use std::io::{BufRead, BufReader, Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = format!("http://{}", listener.local_addr().unwrap());
+    let (tell, heard) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut length = 0;
+        loop {
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            if line.trim().is_empty() {
+                break;
+            }
+            if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                length = value.trim().parse().unwrap();
+            }
+        }
+        let mut body = vec![0; length];
+        reader.read_exact(&mut body).unwrap();
+        tell.send(String::from_utf8(body).unwrap()).unwrap();
+        let answer = format!(r#"{{"ok":true,"reference":"{reference}","token":"abc123"}}"#);
+        write!(
+            stream,
+            "HTTP/1.1 201 Created\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{answer}",
+            answer.len()
+        )
+        .unwrap();
+    });
+    (address, heard)
+}
+
+#[test]
+fn a_report_is_shown_before_it_is_sent_and_then_sent_exactly_so() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut at = At::new(dir.path());
+    // Nothing answers here, so a dry run that tried to send would fail.
+    let nowhere = {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        format!("http://{}", listener.local_addr().unwrap())
+    };
+    at.env.push(("KEEVORO_REPORTS_URL", nowhere.clone()));
+    let shown = at.keevoro(&[
+        "report",
+        "--idea",
+        "A calmer map",
+        "--contact",
+        "you@example.com",
+        "--dry-run",
+    ]);
+    assert_eq!(shown.code, Code::Worked, "{}", shown.err);
+    assert!(shown
+        .out
+        .starts_with("This is exactly what would be sent. Nothing has been sent.\n"));
+    assert!(shown.out.contains("\"kind\": \"idea\""), "{}", shown.out);
+    assert!(shown.out.contains("\"screen\": \"The command line\""), "{}", shown.out);
+    assert!(shown.out.contains("you@example.com"));
+    assert!(!shown.out.contains("logTail"), "no log unless asked");
+
+    let failed = at.keevoro(&["report", "--problem", "It stopped"]);
+    assert_ne!(failed.code, Code::Worked);
+    assert!(
+        failed.err.contains("Couldn't reach Keevoro's reports service"),
+        "{}",
+        failed.err
+    );
+    let neither = at.keevoro(&["report"]);
+    assert_ne!(neither.code, Code::Worked);
+    let empty = at.keevoro(&["report", "--problem", "  "]);
+    assert!(empty.err.contains("Say what went wrong first."), "{}", empty.err);
+
+    let (address, heard) = reports_service("K-1042");
+    at.env[0].1 = address;
+    let sent = at.keevoro(&["report", "--problem", "The map went blank", "--with-log"]);
+    assert_eq!(sent.code, Code::Worked, "{}", sent.err);
+    assert_eq!(sent.out, "Thank you. Your reference is K-1042.\n");
+    let body = heard.recv().unwrap();
+    assert!(body.contains("\"message\": \"The map went blank\""), "{body}");
+
+    let listed = at.keevoro(&["reports", "--offline"]);
+    assert_eq!(listed.out, "K-1042  Received  The map went blank\n");
+    // Asked after, with nothing answering, it says so and lists them as they were.
+    at.env[0].1 = nowhere;
+    let asked = at.keevoro(&["reports"]);
+    assert_eq!(asked.code, Code::Worked);
+    assert!(
+        asked
+            .out
+            .ends_with("Couldn't check just now. This is how they were last heard of.\n"),
+        "{}",
+        asked.out
+    );
+    let none = At::new(tempfile::tempdir().unwrap().path()).keevoro(&["reports", "--offline"]);
+    assert!(
+        none.out.starts_with("No reports have been sent from this computer."),
+        "{}",
+        none.out
+    );
+}

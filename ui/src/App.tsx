@@ -211,9 +211,12 @@ export function App() {
     scroller.scrollTop = overlay === null ? wasAt.current : 0
   }, [overlay])
 
+  // The screen a report is about, when the foot of the window opened it.
+  const [reportFrom, setReportFrom] = useState<string | null>(null)
   /** Opens Settings where it was, or at a place asked for: a section, a page, or a row to bring into view. */
   const openSettings = (at?: SettingsPlace) => {
     if (at) setSettingsAt(at)
+    setReportFrom(null)
     show('settings')
   }
 
@@ -388,6 +391,15 @@ export function App() {
   // as part of finding: the side bar stays on Find, and Back goes there.
   const question = !!arranged && !arranged.asked && anythingFound && step !== 'find' && !overlay
   const shownStep: Step = question ? 'find' : step
+  /** The screen in front of the person, in its own words, for a report. */
+  const screenName = () =>
+    overlay === 'activity' ? 'What Keevoro is doing'
+    : overlay === 'about' ? 'About Keevoro'
+    : overlay === 'backups' ? 'Manage backups'
+    : overlay === 'duplicates' ? 'Duplicates'
+    : overlay === 'setAside' ? 'Set aside'
+    : overlay ? 'Choose what to keep, looking inside a collection'
+    : (STEPS.find((s) => s.id === shownStep)?.title ?? '')
 
   // The bars that can show on any page: a newer Keevoro, and a problem.
   const banner = (
@@ -474,6 +486,7 @@ export function App() {
           onBack={() => setOverlay(null)}
           onProblem={report}
           banner={banner}
+          reportFrom={reportFrom}
         />
       </div>
     )
@@ -547,11 +560,21 @@ export function App() {
               </span>
             )}
           </button>
-          <button className="link" onClick={() => show('settings')}>
+          <button className="link" onClick={() => openSettings()}>
             Settings
           </button>
           <button className="link" onClick={() => show('about')}>
             About Keevoro
+          </button>
+          <button
+            className="link"
+            onClick={() => {
+              const from = screenName()
+              openSettings({ section: 'help', detail: 'report' })
+              setReportFrom(from)
+            }}
+          >
+            Report a problem or idea
           </button>
         </div>
       </aside>
@@ -1838,8 +1861,9 @@ function AboutScreen(props: { api: Backend; version: string; onBack: () => void;
           <dd>
             There is no Keevoro account and no Keevoro server. Your files go from your source to the destination you
             chose and nowhere else. Storage keys are kept in this computer’s own keychain. The only thing Keevoro
-            contacts by itself is GitHub, to see whether there is a newer version. On this computer it keeps only
-            its working notes: a list of what it found, small previews, and a log of what it did.
+            contacts by itself is GitHub, to see whether there is a newer version. A report of a problem or an idea
+            goes to Keevoro’s maker only when you send one, and you see exactly what it holds first. On this computer
+            it keeps only its working notes: a list of what it found, small previews, and a log of what it did.
           </dd>
         </dl>
         <p className="quiet small">

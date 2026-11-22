@@ -1010,6 +1010,44 @@ export type WindowAsk = {
 /** What quitting answered: nothing when it quits, or the question to ask first. */
 export type QuitAnswer = { asked?: string }
 
+/** Whether a report is about something that went wrong, or an idea. */
+export type ReportKind = 'problem' | 'idea'
+
+/** What the person chose to send to Keevoro's maker. */
+export type ReportRequest = {
+  kind: ReportKind
+  message: string
+  /** Include the end of Keevoro's log, scrubbed. */
+  withLog: boolean
+  /** A way to reach them, when they switched that on. */
+  contact: string | null
+  /** Which screen they were on. */
+  screen: string
+}
+
+/** A report made and not yet sent: `body` is exactly what will go. */
+export type PreparedReport = { body: string }
+
+/** A report sent: its reference, and the thank you to say. */
+export type SentReport = { reference: string; said: string }
+
+/** One report sent from this computer, as last heard of. */
+export type ReportListed = {
+  reference: string
+  kind: ReportKind
+  firstLine: string
+  /** When it was sent, in seconds since 1970. */
+  sentAt: number
+  status?: string
+  /** How it is getting on, in plain words: "Received", "Done in version 0.47.0". */
+  statusSaid: string
+  note?: string
+  shippedIn?: string
+}
+
+/** The reports sent from this computer; `checked` when each was asked after just now. */
+export type ReportsView = { reports: ReportListed[]; checked: boolean; said?: string }
+
 /** A newer version of Keevoro that is ready to install. */
 export type Update = { version: string; page: string }
 
@@ -1138,6 +1176,14 @@ export interface Backend {
   logTail(): Promise<string>
   /** Opens the log file in the computer's text editor. */
   openLog(): Promise<void>
+  /** A report of a problem or an idea, made exactly as it would be sent. Nothing is sent. */
+  prepareReport(request: ReportRequest): Promise<PreparedReport>
+  /** Sends a report exactly as `prepareReport` made it. */
+  sendReport(prepared: string): Promise<SentReport>
+  /** The reports sent from this computer, as last heard of. Nothing is asked. */
+  reports(): Promise<ReportsView>
+  /** Asks how each report sent from this computer is getting on. */
+  refreshReports(): Promise<ReportsView>
   /** A newer Keevoro this computer can install, or null. */
   checkUpdate(): Promise<Update | null>
   /** Downloads, checks and starts the update. On Windows the app then closes. */
@@ -1319,6 +1365,10 @@ async function tauriBackend(): Promise<Backend> {
     onSurvey: (listener) => subscribe('survey', listener),
     logTail: () => invoke('log_tail'),
     openLog: () => invoke('open_log'),
+    prepareReport: (request) => invoke('prepare_report', { request }),
+    sendReport: (prepared) => invoke('send_report', { prepared }),
+    reports: () => invoke('reports'),
+    refreshReports: () => invoke('refresh_reports'),
     checkUpdate: () => invoke('check_update'),
     installUpdate: (stopFirst) => invoke('install_update', { stopFirst }),
     openReleasePage: (page) => invoke('open_release_page', { page }),

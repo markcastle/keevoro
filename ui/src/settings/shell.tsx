@@ -9,8 +9,9 @@
 //
 // Each section is a column of rounded panels of rows (parts.tsx); anything
 // long (the kinds of file, the AI agents' folders, the log, the licences)
-// is a page of its own inside its section, with a way back. Where Settings
-// was is remembered for as long as Keevoro is open, and a link from
+// is a page of its own inside its section, with a way back, and so is
+// reporting a problem or an idea, in Help, which the foot of the window
+// also opens. Where Settings was is remembered for as long as Keevoro is open, and a link from
 // elsewhere in the app, the icon by the clock or a search lands on the
 // right section with its row brought into view and marked for a moment.
 
@@ -25,6 +26,7 @@ import { BackingUpSection } from './backingUp'
 import { FileKindsPage } from './fileKinds'
 import { HelpSection } from './help'
 import { LogPage } from './log'
+import { ReportPage } from './report'
 import { SectionIcon } from './parts'
 import { DETAILS, SECTIONS, findRows, placeOfRow, sectionTitle } from './places'
 import type { DetailId, SectionId, SettingsPlace } from './places'
@@ -64,6 +66,8 @@ export function SettingsScreen(props: {
   onProblem: (error: unknown) => void
   /** The bars that can show on any page: an update ready, a problem. */
   banner: ReactNode
+  /** The screen the person was on, when they came here to report something. */
+  reportFrom?: string | null
 }) {
   const { api, state, place, onPlace, onProblem } = props
   const section: SectionId = place.section ?? 'backup'
@@ -175,6 +179,8 @@ export function SettingsScreen(props: {
         )
       case 'agents':
         return <AgentsPage api={api} onProblem={onProblem} />
+      case 'report':
+        return <ReportPage api={api} from={props.reportFrom ?? 'Settings, Help'} />
       case 'log':
         return <LogPage api={api} onProblem={onProblem} />
       case 'licences':

@@ -1,4 +1,5 @@
-// Settings, Help: what Keevoro has been doing, the open source work it is
+// Settings, Help: telling Keevoro's maker about a problem or an idea, what
+// Keevoro has been doing, the open source work it is
 // built on, and, set apart at the bottom, putting Keevoro back as it was
 // when first installed. Resetting asks first, in the page, and says
 // exactly what it does and does not do.
@@ -23,6 +24,11 @@ export function HelpSection(props: {
   return (
     <>
       <Group>
+        <OpenRow
+          id="report"
+          about="Tell Keevoro’s maker in your own words, and see how your reports are getting on."
+          onOpen={() => props.onOpen('report')}
+        />
         <OpenRow
           id="log"
           about="Keevoro’s plain record of what it did and when."
@@ -52,8 +58,8 @@ export function HelpSection(props: {
                 <h4 id="reset-title">Reset Keevoro?</h4>
                 <p>
                   <b>This removes:</b> {backups === 1 ? 'your backup' : `all ${backups} of your backups`} from Keevoro,
-                  with what was found and what you chose to keep; the previews and maps Keevoro made; and any storage
-                  keys it saved.
+                  with what was found and what you chose to keep; the previews and maps Keevoro made; any storage
+                  keys it saved; and its list of reports you sent.
                 </p>
                 <p>
                   <b>This does not touch:</b> anything on your sources, or any photo or video you have already sent

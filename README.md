@@ -98,6 +98,19 @@ These are rules the code is built around and automated tests guard, not hopes.
 
 ![The same screen in the dark theme](docs/screens/10-choose-dark.png)
 
+## 💬 Tell us about a problem or an idea
+
+Something went wrong, or you wish Keevoro did something it does not? Choose **Report a problem or idea** at the foot of the window, or **Settings, Help, Report a problem or suggest an idea**, say it in your own words, and press Send. You get a reference, such as K-1042, and the same page shows how each of your reports is getting on: Received, Accepted, Being worked on, "Done in version 0.47.0" or Not planned, with a note if there is one.
+
+**What is sent:** your words, Keevoro's version, which system your computer runs (such as Windows 11) and which screen you were on. Nothing else, unless you switch it on:
+
+- **Include the end of Keevoro's log.** It helps to see what Keevoro was doing, but the log can name your folders and files, such as `~\Pictures\Family photos`. Your home folder and user name are taken out first, so `C:\Users\You` becomes `~`, and anything that looks like a key or a password is hidden, though Keevoro never writes those in its log anyway.
+- **Include a way to reach me**, in your words, such as an email address.
+
+**What is never sent:** your photos and videos, your storage keys, or anything you did not see. "See exactly what will be sent" shows the report as it will go, word for word, before you send it.
+
+Your report goes to a private list that only Keevoro's maker reads. Nothing is sent unless you press Send, and an AI agent cannot send one for you. At the command line it is `keevoro report --problem "What happened"` (or `--idea`), with `--dry-run` to see it first, and `keevoro reports` to see how they are getting on.
+
 ## ⬇️ Install
 
 ### The app
