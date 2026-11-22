@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.51.0] - 2026-11-22
+
 ### Added
 
 - **Your backup can be picked up on a new computer.** After every backup Keevoro now keeps a copy of its notes about that backup beside it, wherever it goes: what was backed up, where each file went, its size and fingerprint, and when it was last proved, in a file called "Keevoro notes.jsonl.gz" (with the copy before it kept too). "What is in this backup.txt" says what the file is. On a new computer, or after reinstalling, choose Manage backups, then "Open a backup that is already somewhere" (or "I already have a Keevoro backup" on the first screen), point Keevoro at the drive, folder or cloud storage, and it says what it found: the backup's name, how many files and how big, when it was last backed up and proved, and which Keevoro wrote the notes. "Open this backup" makes it a backup here that knows every file already there, so nothing is sent again. Keevoro then asks you to connect each source again, because it does not know where those photos live on this computer, and once you have, the next backup sends only what is new. If the newest notes are damaged, the copy before them is used, and said; notes made by a newer Keevoro are refused plainly, with "update first". The same backup is never opened twice. If two computers back up to the same place, each learns the files the other sent, so the notes never forget a file that is there. Your existing backups get their notes at their next backup, with nothing to do. At the command line: `keevoro backups find-at --folder F:\Family Backup`, `keevoro backups open-from` with the same place, and `keevoro sources connect-again 1 D:\Photos`; an AI agent can look at what is in a folder it has been allowed. Help, How do I… "Move to a new computer" now says how, with a button straight there.
@@ -819,7 +823,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.50.0...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.51.0...HEAD
+[0.51.0]: https://github.com/markcastle/keevoro/compare/v0.50.0...v0.51.0
 [0.50.0]: https://github.com/markcastle/keevoro/compare/v0.49.0...v0.50.0
 [0.49.0]: https://github.com/markcastle/keevoro/compare/v0.48.0...v0.49.0
 [0.48.0]: https://github.com/markcastle/keevoro/compare/v0.47.0...v0.48.0
