@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.48.0] - 2026-11-22
+
 ### Added
 
 - **Google Cloud Storage, by name.** "Where should they go?" now offers Google Cloud Storage beside Cloudflare R2 and Amazon S3, and so does "Add cloud storage as a source…". It asks only for the bucket and its two keys: Keevoro fills in Google's address, and says where the keys are made (in the Google Cloud console, Cloud Storage, Settings, Interoperability). The keys are kept in your computer's keychain like the others, and never shown. Keevoro asks Google not to replace any original already there, as it asks the others. Before a backup from Google Cloud Storage, Keevoro says about what reading it out will cost, and files kept in Google's Nearline, Coldline or Archive storage, which cost more to read, are counted and said, and backed up all the same. Backing up to Google, Keevoro suggests keeping the bucket in the Standard class, since the colder ones charge each time a file is read back to check it. At the command line: `keevoro destinations add --gcs --bucket NAME` and `keevoro sources add-bucket --gcs --bucket NAME`.
@@ -773,7 +777,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.47.0...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.48.0...HEAD
+[0.48.0]: https://github.com/markcastle/keevoro/compare/v0.47.0...v0.48.0
 [0.47.0]: https://github.com/markcastle/keevoro/compare/v0.46.1...v0.47.0
 [0.46.1]: https://github.com/markcastle/keevoro/compare/v0.46.0...v0.46.1
 [0.46.0]: https://github.com/markcastle/keevoro/compare/v0.45.1...v0.46.0
