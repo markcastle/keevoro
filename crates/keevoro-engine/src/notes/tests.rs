@@ -539,7 +539,11 @@ mod a_new_computer {
         // nothing, loses nothing from the index, and keeps the notes.
         let source = catalog.sources().unwrap().remove(0);
         let waiting = catalog.elsewhere(&source.root).unwrap().unwrap();
-        assert_eq!(waiting.was_at, card.to_string_lossy());
+        assert_eq!(
+            std::fs::canonicalize(&waiting.was_at).unwrap(),
+            std::fs::canonicalize(&card).unwrap(),
+            "where it was on the old computer, as history"
+        );
         assert!(waiting_words(&waiting.was_at).starts_with("Keevoro does not know where these photos live"));
         let (said, went) = back_up(&catalog, &home, &secrets);
         assert_eq!(went.destinations[0].originals.sent, 0, "{said}");

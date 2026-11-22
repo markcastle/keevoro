@@ -491,6 +491,10 @@ pub fn connect_again(catalog: &mut Catalog, source: i64, folder: &Path) -> Resul
             crate::friendly_path(folder)
         );
     }
+    // Kept by its real path, as every look through a source keeps it, so
+    // the next look finds this source there and not a new one.
+    let real = std::fs::canonicalize(folder).unwrap_or_else(|_| folder.to_path_buf());
+    let folder = real.as_path();
     if catalog
         .sources()?
         .iter()

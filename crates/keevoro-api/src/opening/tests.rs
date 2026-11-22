@@ -4,6 +4,11 @@ use crate::{call, call_for_agent, Kind, Op, Said};
 use serde_json::{json, Value};
 use std::path::PathBuf;
 
+/// Is `was_at`, as a catalog kept it (a source's real path), the folder `place`?
+fn same_folder(was_at: &Value, place: &Path) -> bool {
+    std::fs::canonicalize(was_at.as_str().unwrap()).ok() == std::fs::canonicalize(place).ok()
+}
+
 fn at(place: &Path) -> Value {
     json!({ "kind": "folder", "place": place.display().to_string() })
 }
@@ -63,7 +68,7 @@ fn a_backup_is_opened_on_a_new_computer_from_its_destination_and_carries_on_with
     assert_eq!(found["found"], "notes");
     assert_eq!(found["name"], "Card photos");
     assert_eq!(found["files"], sent);
-    assert_eq!(found["sources"][0]["wasAt"], card.display().to_string());
+    assert!(same_folder(&found["sources"][0]["wasAt"], &card), "{found}");
     assert!(found["madeBy"].as_str().unwrap().starts_with("Keevoro "));
     assert!(found["lastBackedUpSaid"].is_string());
     assert!(found.get("alreadyOpen").is_none());
@@ -74,7 +79,7 @@ fn a_backup_is_opened_on_a_new_computer_from_its_destination_and_carries_on_with
     // Opened: a backup here, going to the same place, waiting for its source.
     let opened = call(&new, Op::BackupsOpenFrom, None, at(&usb)).unwrap();
     assert_eq!(opened["name"], "Card photos");
-    assert_eq!(opened["waiting"][0]["wasAt"], card.display().to_string());
+    assert!(same_folder(&opened["waiting"][0]["wasAt"], &card), "{opened}");
     let named = new.backups().current().unwrap();
     assert_eq!(named.name, "Card photos");
     let destinations = call(&new, Op::DestinationsList, None, json!({})).unwrap();

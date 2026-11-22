@@ -1382,7 +1382,10 @@ fn a_backup_is_opened_on_a_new_computer_from_the_command_line_and_its_card_conne
     let ran = at.keevoro(&["backups", "find-at", "--folder", &text(&usb)]);
     assert_eq!(ran.code, Code::Worked, "{}", ran.err);
     assert!(ran.out.starts_with("\"Family photos\": 3 files"), "{}", ran.out);
-    assert!(ran.out.contains(&format!("  Card ({})", text(&card))), "{}", ran.out);
+    // Where it was, as the old computer kept it: its real path, which a
+    // temporary folder on a Mac reaches by another spelling.
+    let real = std::fs::canonicalize(&card).unwrap();
+    assert!(ran.out.contains(&format!("  Card ({})", text(&real))), "{}", ran.out);
     assert!(ran.out.contains("keevoro backups open-from"), "{}", ran.out);
 
     let ran = at.keevoro(&["backups", "open-from", "--folder", &text(&usb)]);
