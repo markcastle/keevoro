@@ -89,6 +89,8 @@ import { GoogleClassNote, StorageFields } from './storageForm'
 import { CompareSheet, CompareStorage } from './compare'
 import { AddBucketSource, CloudCost, CloudSourceIcon } from './bucketSource'
 import { Explained } from './explained'
+import { InfoTip, MoreAbout } from './infoTip'
+import { splitSummary } from './summaryLines'
 import { PlaceScreen } from './settings/shell'
 import { parsePlace, placeOfRow } from './settings/places'
 import type { Place as PlaceAt, Where } from './settings/places'
@@ -924,21 +926,27 @@ function Welcome(props: { onStart: (name: string) => void; onAlready: () => void
     >
       <Logo large />
       <h1>Let’s find your photos</h1>
-      <p>
-        Keevoro looks through drives, memory cards and folders, finds your photos and videos, and sends the ones you
-        want somewhere safe: a folder, another disk, or cloud storage. It never changes or deletes anything it looks at.
-      </p>
-      <label className="naming">
-        What shall we call this backup?
-        <input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} autoFocus />
-      </label>
+      <p>Keevoro finds your photos and videos, and keeps them safe.</p>
+      <MoreAbout className="screen-about">
+        <p>
+          Keevoro looks through drives, memory cards and folders, finds your photos and videos, and sends the ones you
+          want somewhere safe: a folder, another disk, or cloud storage. It never changes or deletes anything it looks
+          at.
+        </p>
+      </MoreAbout>
+      <div className="naming">
+        <span className="with-tip">
+          <label htmlFor="welcome-name">What shall we call this backup?</label>
+          <InfoTip about="naming a backup">
+            A name such as “Family photos” or “Holiday videos”. You can have several backups, each with its own sources
+            and its own place to send things, and come back to any of them later.
+          </InfoTip>
+        </span>
+        <input id="welcome-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} autoFocus />
+      </div>
       <button className="primary big" type="submit">
         Get started
       </button>
-      <p className="quiet small">
-        A name such as “Family photos” or “Holiday videos”. You can have several backups, each with its own sources
-        and its own place to send things, and come back to any of them later.
-      </p>
       <p className="quiet small already">
         <button className="link" type="button" onClick={props.onAlready}>
           I already have a Keevoro backup
@@ -1300,7 +1308,13 @@ function FindScreen(props: {
     <section className="find">
       <header>
         <h1>Where are your photos?</h1>
-        <p className="status">A source is anywhere your photos might be. Plug in an old drive, USB stick or memory card, then choose it here.</p>
+        <p className="status">
+          Plug in a drive, USB stick or memory card, then choose it.
+          <InfoTip about="sources">
+            A source is anywhere your photos might be: a drive, a USB stick, a memory card or a folder. Keevoro only
+            ever reads it.
+          </InfoTip>
+        </p>
       </header>
 
       {scan ? (
@@ -1308,7 +1322,10 @@ function FindScreen(props: {
           <Spinner />
           <h2>Looking through {scan.name}…</h2>
           <p className="big-count">{files(scan.photos, scan.videos, scan.others ?? 0)}</p>
-          <p className="quiet">found so far. Nothing on it is being changed. You can leave this running.</p>
+          <p className="quiet">
+            found so far.
+            <InfoTip about="looking through">Nothing on it is being changed. You can leave this running.</InfoTip>
+          </p>
           {!scan.saving && (
             <p className="choices stop">
               {queue.length > 0 && (
@@ -1354,13 +1371,19 @@ function FindScreen(props: {
             {survey.progress ? files(survey.progress.photos, survey.progress.videos, survey.progress.others ?? 0) : 'Starting…'}
           </p>
           <p className="quiet">
-            spotted so far, by name. This only reads the list of what is in each folder. No file is opened.
+            spotted so far, by name.
+            <InfoTip about="finding where the photos are">
+              This only reads the list of what is in each folder. No file is opened.
+            </InfoTip>
           </p>
           <LiveMap name={survey.name} top={survey.progress?.top} />
           {survey.progress?.sizing && (
             <p className="quiet">
               Every folder with {(survey.progress.others ?? 0) > 0 ? 'photos, videos and other files' : 'photos and videos'} is
-              found. Now measuring the rest, such as system and app folders, so you can see where the space goes.
+              found. Now measuring the rest.
+              <InfoTip about="measuring the rest">
+                Such as system and app folders, so you can see where the space goes.
+              </InfoTip>
             </p>
           )}
           <p className="choices stop">
@@ -1401,18 +1424,22 @@ function FindScreen(props: {
         <div className="panel asking" role="alertdialog" aria-labelledby="asking-title">
           <h2 id="asking-title">Look through all of {asking.name}?</h2>
           <p>
-            That is a whole disk{asking.detail ? ` (${asking.detail.split(' · ').pop()})` : ''}, and most of what is on
-            it will not be photos. It can take anything from a few minutes to an hour or more. You can leave it
-            running, and nothing on it is changed.
-          </p>
-          <p className="quiet">
-            Not sure where your photos are? Keevoro can find the folders that hold them first. That takes seconds, not
-            hours, because it only reads the list of what is in each folder and opens nothing.
+            A whole disk{asking.detail ? ` (${asking.detail.split(' · ').pop()})` : ''} takes a few minutes to an hour or
+            more.
+            <InfoTip about="looking through a whole disk">
+              Most of what is on it will not be photos. You can leave it running, and nothing on it is changed.
+            </InfoTip>
           </p>
           <p className="choices whole-disk">
-            <button className="primary" onClick={() => findFolders(asking)}>
-              Find the folders with photos
-            </button>
+            <span className="with-tip">
+              <button className="primary" onClick={() => findFolders(asking)}>
+                Find the folders with photos
+              </button>
+              <InfoTip about="finding the folders with photos">
+                Not sure where your photos are? This finds the folders that hold them first. It takes seconds, not
+                hours, because it only reads the list of what is in each folder and opens nothing.
+              </InfoTip>
+            </span>
             <button onClick={pick}>Choose a folder inside it</button>
             <button onClick={() => start(asking.path)}>Look through all of it</button>
             {/* Quiet, so it sits on the same row as the choices. */}
@@ -1443,8 +1470,7 @@ function FindScreen(props: {
                 <>
                   <h2>Stopped looking through {justFound.name}</h2>
                   <p className="quiet">
-                    Nothing from it was added, because only part of it had been looked at. Choose it again whenever
-                    you like, or choose a folder inside it to look through less.
+                    Nothing was added, as only part of it was looked at. Choose it again, or a folder inside it.
                   </p>
                   {props.checking && (
                     <Explained
@@ -1464,19 +1490,21 @@ function FindScreen(props: {
                   <h2>
                     Found {files(justFound.photos, justFound.videos, justFound.others ?? 0)} on {justFound.name}
                   </h2>
-                  <p className="quiet">You can add another place below, or carry on.</p>
                   {(justFound.unreadable ?? 0) > 0 && (
                     <p className="quiet small unreadable">
                       {count(justFound.unreadable ?? 0, 'file')} could not be read and{' '}
-                      {justFound.unreadable === 1 ? 'was' : 'were'} left out, usually because the file is damaged or
-                      this account is not allowed to open it:{' '}
+                      {justFound.unreadable === 1 ? 'was' : 'were'} left out:{' '}
                       <span className="where">{(justFound.unreadableNames ?? []).join(', ')}</span>
-                      {(justFound.unreadable ?? 0) > (justFound.unreadableNames ?? []).length && ' and more'}. The full
-                      list is in{' '}
+                      {(justFound.unreadable ?? 0) > (justFound.unreadableNames ?? []).length && ' and more'}. Full list
+                      in{' '}
                       <button className="link" onClick={props.onLog}>
                         the log
                       </button>
-                      , in Help.
+                      .
+                      <InfoTip about="files that could not be read">
+                        Usually because the file is damaged or this account is not allowed to open it. The log is in
+                        Help.
+                      </InfoTip>
                     </p>
                   )}
                   {justFound.onlineOnlySaid && <p className="online-only">{justFound.onlineOnlySaid}</p>}
@@ -1525,33 +1553,42 @@ function FindScreen(props: {
             }
           >
             {places && removable.length === 0
-              ? 'No USB or external drive is plugged in right now. Plug one in and it appears here by itself.'
-              : 'A drive, USB stick or memory card appears here by itself when you plug it in.'}
+              ? 'No USB or external drive is plugged in. One appears here when plugged in.'
+              : 'A drive or card appears here when you plug it in.'}
           </Explained>
           <p className="quiet small look-first">
             Not sure what is in a folder?{' '}
             <button className="link" onClick={pickToLookInside}>
               Look inside one first
             </button>
-            . You see its photos and videos, and nothing is added until you choose.
+            <InfoTip about="looking inside a folder first">
+              You see its photos and videos, and nothing is added until you choose.
+            </InfoTip>
           </p>
         </>
       )}
 
       {found && found.sources.length > 0 && (
         <>
-          <h3>Your sources</h3>
-          <p className="quiet small">Removing a source only takes it off this list. Keevoro never changes or deletes anything in a source.</p>
+          <h3 className="with-tip">
+            Your sources
+            <InfoTip about="your sources">
+              A source is anywhere your photos might be. Removing a source only takes it off this list. Keevoro never
+              changes or deletes anything in a source.
+            </InfoTip>
+          </h3>
           {!scan && !survey && (
             <Explained
               className="again"
+              tipAbout="looking again"
+              tip="This finds what is new, and the next backup sends only that."
               action={
                 <button className="button small" onClick={lookAgain}>
                   {found.sources.length === 1 ? 'Look again for new photos' : `Look through all ${found.sources.length} again for new photos`}
                 </button>
               }
             >
-              Taken more photos since last time? This finds what is new, and the next backup sends only that.
+              Taken more photos since last time?
             </Explained>
           )}
           <ul className="kept">
@@ -1660,7 +1697,7 @@ function FindScreen(props: {
                 {removing === s.id && (
                   <p className="quiet small explain">
                     Keevoro will forget what it found in {s.name}. Nothing in {s.name} itself is changed or deleted, and
-                    photos you have already gathered stay in your library. You can add it again at any time.
+                    photos already gathered stay. You can add it again.
                   </p>
                 )}
               </li>
@@ -1750,8 +1787,11 @@ function FileTypes(props: {
         onProblem={onProblem}
       />
       <p className="quiet small">
-        Everything Keevoro found on {source.name} is included. Switch off a kind of file to leave all of those out of
-        this backup; nothing on the source is changed, and you can switch it back on at any time.
+        Switch a kind off to leave it out of this backup.
+        <InfoTip about="kinds of file on this source">
+          Everything Keevoro found on {source.name} is included until you switch it off. Nothing on the source is
+          changed, and you can switch it back on at any time.
+        </InfoTip>
       </p>
       <ul className="kv-panel kinds" aria-label={`Kinds of file on ${source.name}`}>
         {kinds.map((kind) => (
@@ -2084,9 +2124,11 @@ function ChooseScreen(props: {
       <header>
         <h1>Which of these should we keep?</h1>
         <p className="status">
-          Keevoro has sorted what it found into collections: by folder name where your folders have names, and by
-          month where they don’t. So one source often makes several. Everything is kept unless you say otherwise;
-          click a collection to look inside and choose photo by photo.
+          Everything is kept unless you say otherwise. Click one to look inside.
+          <InfoTip about="collections">
+            Keevoro has sorted what it found into collections: by folder name where your folders have names, and by
+            month where they don’t. So one source often makes several. Look inside one to choose photo by photo.
+          </InfoTip>
           {keptSaid(kept) && ` ${keptSaid(kept)}`}
         </p>
       </header>
@@ -2225,10 +2267,12 @@ function SendScreen(props: {
     <section className="archive">
       <header>
         <h1>Where should they go?</h1>
-        <p className="status">
-          Keevoro copies what you are keeping straight from your sources to the place you choose, checks every copy, and
-          never replaces a file that is already there. Your sources are not changed.
-        </p>
+        <MoreAbout className="screen-about">
+          <p>
+            Keevoro copies what you are keeping straight from your sources to the place you choose, checks every copy,
+            and never replaces a file that is already there. Your sources are not changed.
+          </p>
+        </MoreAbout>
       </header>
       <AwayPanel api={props.api} onProblem={props.onProblem} />
       {props.found && <Tally found={props.found} onDuplicates={props.onDuplicates} />}
@@ -2556,8 +2600,11 @@ function SendPanel(props: {
             <div className="adding">
               <h2 tabIndex={-1}>Add another destination</h2>
               <p className="quiet">
-                Keevoro will back up to this one as well as {where}. It starts empty and catches up on the next
-                backup. A photo only counts as safe once it is at every destination.
+                Keevoro will back up to this one as well as {where}.
+                <InfoTip about="another destination">
+                  It starts empty and catches up on the next backup. A photo only counts as safe once it is at every
+                  destination.
+                </InfoTip>
               </p>
               <p>
                 <button
@@ -2575,8 +2622,8 @@ function SendPanel(props: {
           )}
           {room && room.needed > 0 && (
             <p className="needs">
-              You are backing up {props.waiting.toLocaleString('en-GB')} {props.waiting === 1 ? 'file' : 'files'}, about{' '}
-              <b>{size(room.needed)}</b>. Wherever you choose needs at least that much free.
+              {props.waiting.toLocaleString('en-GB')} {props.waiting === 1 ? 'file' : 'files'} · about{' '}
+              <b>{size(room.needed)}</b>. Wherever you choose needs that much free.
             </p>
           )}
           {!form && (
@@ -2644,8 +2691,11 @@ function SendPanel(props: {
                 <StorageFields form={{ ...form, kind: form.kind }} onChange={(answers) => setForm({ ...form, ...answers })} />
               )}
               <p className="quiet">
-                Use a key that can read and write this one bucket only. It is kept in your computer’s keychain, not in
-                your library.
+                Use a key for this one bucket only.
+                <InfoTip about="the key">
+                  A key that can read and write this one bucket only. It is kept in your computer’s keychain, not in
+                  your library.
+                </InfoTip>
               </p>
               <GoogleClassNote kind={form.kind} />
               {refused && (
@@ -2732,12 +2782,12 @@ function SendPanel(props: {
                 </>
               ) : room.enough ? (
                 <>
-                  They need about <b>{size(room.needed)}</b>. That disk has {size(room.free)} free, so there is room.
+                  Needs about <b>{size(room.needed)}</b> · {size(room.free)} free there.
                 </>
               ) : (
                 <>
-                  <b>There isn’t enough room there.</b> These files need about {size(room.needed)} and that disk has
-                  only {size(room.free)} free. Free up some space, or back them up somewhere else.
+                  <b>There isn’t enough room there.</b> Needs about {size(room.needed)}; only {size(room.free)} free.
+                  Free up some space, or back them up somewhere else.
                 </>
               )}
             </p>
@@ -2774,12 +2824,11 @@ function SendPanel(props: {
               )}
               {estimate?.stages.some((stage) => stage.kind === 'makingPreviews' || stage.kind === 'sendingPreviews') && (
                 <p className="quiet small">
-                  Previews are made in the background while your files are backed up, and sent after them. To back
-                  up the originals alone next time, switch off Previews for a gallery in{' '}
-                  <button className="link" onClick={() => props.onSettings('previews')}>
-                    Settings, This backup
-                  </button>{' '}
-                  once this backup ends.
+                  Previews are made in the background, and sent after your files.
+                  <InfoTip about="previews">
+                    To back up the originals alone next time, switch off Previews for a gallery in Settings, This
+                    backup, once this backup ends.
+                  </InfoTip>
                 </p>
               )}
             </div>
@@ -2809,9 +2858,12 @@ function SendPanel(props: {
           ) : (
             <>
             <p className="quiet small previews-line">
-              {previews
-                ? 'Previews for a gallery are made as well, in the background.'
-                : 'Only your original files are backed up, with no previews.'}{' '}
+              {previews ? 'With previews for a gallery.' : 'Originals only, with no previews.'}
+              <InfoTip about="previews for a gallery">
+                {previews
+                  ? 'Previews for a gallery are made as well, in the background.'
+                  : 'Only your original files are backed up, with no previews.'}
+              </InfoTip>{' '}
               <button className="link" onClick={() => props.onSettings('previews')}>
                 Change
               </button>
@@ -2854,11 +2906,18 @@ function SendPanel(props: {
           )}
           {/* What the last backup said is about that one, so it steps aside while another runs. */}
           {!running &&
-            said?.summary?.map((line) => (
+            splitSummary(said?.summary ?? []).shown.map((line) => (
               <p className="done" key={line}>
                 {line}
               </p>
             ))}
+          {!running && splitSummary(said?.summary ?? []).more.length > 0 && (
+            <MoreAbout className="done-more" label="More about this backup">
+              {splitSummary(said?.summary ?? []).more.map((line) => (
+                <p key={line}>{line}</p>
+              ))}
+            </MoreAbout>
+          )}
           {!running && said?.problem && (
             <p className="refused" role="alert">
               {said.problem}
@@ -3438,10 +3497,13 @@ function SurveyResult(props: {
           : `${count(found.hints.length, 'folder')} on ${props.name} ${found.hints.length === 1 ? 'seems' : 'seem'} to hold ${what}`}
       </h2>
       <p className="quiet">
-        Looked at {count(found.files, 'file')} in {count(found.folders, 'folder')} in{' '}
-        {found.seconds < 10 ? found.seconds.toFixed(1) : Math.round(found.seconds)} seconds, without opening any of
-        them{found.stopped ? ', and stopped before the end, so there may be more' : ''}. This goes by file names, so
-        it is a good guess, not a promise. Tick the folders you want and Keevoro will look through those properly.
+        {found.stopped && 'Stopped before the end, so there may be more. '}Tick the folders you want, and Keevoro will
+        look through those properly.
+        <InfoTip about="how these were found">
+          Looked at {count(found.files, 'file')} in {count(found.folders, 'folder')} in{' '}
+          {found.seconds < 10 ? found.seconds.toFixed(1) : Math.round(found.seconds)} seconds, without opening any of
+          them. This goes by file names, so it is a good guess, not a promise.
+        </InfoTip>
       </p>
       {found.hints.length > 0 && (
         <ul className="hints">

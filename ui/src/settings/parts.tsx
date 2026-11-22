@@ -4,7 +4,9 @@
 //   Group   a rounded panel of rows, with an optional small heading above
 //           and a sentence of footnote below
 //   Row     one setting: its name on the left, at most one short sentence
-//           beneath it in quieter type, and its control on the right
+//           beneath it in quieter type, and its control on the right. What
+//           more there is to say about it waits behind an "i" beside its
+//           name (`tip`), the same place on every row.
 //   OpenRow a row that opens a page of its own, with a chevron
 //
 // A row's control is named by the row's name and described by its
@@ -14,6 +16,7 @@
 
 import { createContext, useContext, useId } from 'react'
 import type { ReactNode } from 'react'
+import { InfoTip, MoreAbout } from '../infoTip'
 import { rowInfo } from './places'
 import type { SectionId } from './places'
 
@@ -23,7 +26,11 @@ const RowIds = createContext<Ids | null>(null)
 /** A rounded panel of rows, with a small heading above and a footnote below. */
 export function Group(props: {
   title?: ReactNode
+  /** More about the whole group, behind an "i" beside its heading. */
+  tip?: ReactNode
   footnote?: ReactNode
+  /** The longer story, opened in place under the panel. */
+  more?: ReactNode
   /** Something that cannot be undone lives here, set apart. */
   danger?: boolean
   children: ReactNode
@@ -37,12 +44,16 @@ export function Group(props: {
       aria-labelledby={props.title ? id : undefined}
     >
       {props.title && (
-        <h3 className="kv-group-title" id={id}>
-          {props.title}
-        </h3>
+        <div className="kv-group-head">
+          <h3 className="kv-group-title" id={id}>
+            {props.title}
+          </h3>
+          {props.tip && typeof props.title === 'string' && <InfoTip about={props.title}>{props.tip}</InfoTip>}
+        </div>
       )}
       <div className={props.danger ? 'kv-panel danger' : 'kv-panel'}>{props.children}</div>
       {props.footnote && <div className="kv-footnote">{props.footnote}</div>}
+      {props.more && <MoreAbout className="kv-more">{props.more}</MoreAbout>}
     </div>
   )
 }
@@ -57,6 +68,10 @@ export function Row(props: {
   /** The row's name, when it is not the one in places.ts (a version number, say). */
   title?: ReactNode
   about?: ReactNode
+  /** More about it, behind an "i" beside its name. */
+  tip?: ReactNode
+  /** What the "i" is named after, when the title is not plain words. */
+  tipAbout?: string
   /** What it is set to, in words, before the control. */
   value?: ReactNode
   control?: ReactNode
@@ -74,8 +89,15 @@ export function Row(props: {
     >
       <div className="kv-row-main">
         <div className="kv-row-text">
-          <span className="kv-row-title" id={ids.title}>
-            {props.title ?? rowInfo(props.id).title}
+          <span className="kv-row-head">
+            <span className="kv-row-title" id={ids.title}>
+              {props.title ?? rowInfo(props.id).title}
+            </span>
+            {props.tip && (
+              <InfoTip about={props.tipAbout ?? (typeof props.title === 'string' ? props.title : rowInfo(props.id).title)}>
+                {props.tip}
+              </InfoTip>
+            )}
           </span>
           {props.about && (
             <span className="kv-row-about" id={ids.about}>

@@ -48,7 +48,7 @@ export function BackingUpSection(props: {
       {schedule && name !== null && (
         <Group
           title={`Schedule for “${name}”`}
-          footnote="Run now, skipping the next one and the last few runs are on the backup screen."
+          tip="Run now, skipping the next one and the last few runs are on the backup screen."
         >
           <Row
             id="schedule"
@@ -73,16 +73,22 @@ export function BackingUpSection(props: {
       {manners && (
         <Group
           title="Waiting for a good moment"
-          footnote="A backup you start yourself, or Back up now anyway, never waits."
+          tip="These apply only to a backup by itself. A backup you start yourself, or Back up now anyway, never waits."
         >
           <Row
             id="waitOnBattery"
-            about="While this computer is on battery and less than half charged, a backup by itself waits for it to be plugged in."
+            about="Until it is plugged in, when under half charged."
+            tip="While this computer is on battery and less than half charged, a backup by itself waits for it to be plugged in."
             control={<RowSwitch on={manners.waitOnBattery} onChange={(on) => mind({ waitOnBattery: on })} />}
           />
           <Row
             id="waitOnMetered"
             about={
+              manners.meteredKnown
+                ? 'Such as a phone’s hotspot, for cloud storage.'
+                : 'This computer can’t tell, so this is off.'
+            }
+            tip={
               manners.meteredKnown
                 ? 'A backup to or from cloud storage waits while the connection is metered, such as a phone’s hotspot.'
                 : 'This computer can’t say whether its connection is metered, so a backup to cloud storage doesn’t wait for one.'
@@ -98,6 +104,9 @@ export function BackingUpSection(props: {
           <Row
             id="between"
             about={
+              manners.between ? `Starts only ${manners.betweenSaid}.` : 'Starts at any hour.'
+            }
+            tip={
               manners.between
                 ? `A run that comes round by itself starts only ${manners.betweenSaid}, in this computer’s own time.`
                 : 'A run that comes round by itself starts at any hour.'
@@ -145,7 +154,7 @@ export function BackingUpSection(props: {
           <Group title="Notifications">
             <Row
               id="notify"
-              about="Only when something was backed up, something waits for your say, or a backup could not be done; never while Keevoro’s window is in front of you."
+              tip="Only when something was backed up, something waits for your say, or a backup could not be done; never while Keevoro’s window is in front of you."
               control={<RowSwitch on={view.notify} onChange={(on) => change({ notify: on })} />}
             />
           </Group>
@@ -153,19 +162,21 @@ export function BackingUpSection(props: {
           <Group title="When the window is closed" footnote={view.said}>
             <Row
               id="keepRunning"
-              about={`So backups by themselves happen on time. ${view.whereTheIconIs}`}
+              about="So backups by themselves happen on time."
+              tip={view.whereTheIconIs}
               control={<RowSwitch on={view.keepRunning} disabled={noIcon} onChange={(on) => change({ keepRunning: on })} />}
             />
             <Row
               id="minimise"
-              about="Minimising then hides the window there, instead of leaving it on the taskbar."
+              tip="Minimising then hides the window there, instead of leaving it on the taskbar."
               control={
                 <RowSwitch on={view.minimiseToTray} disabled={noIcon} onChange={(on) => change({ minimiseToTray: on })} />
               }
             />
             <Row
               id="startWithComputer"
-              about="Quietly, as an icon by the clock with no window, so backups by themselves happen without you opening it. Your computer lists it among the programs it starts, as Keevoro."
+              about="Quietly, as an icon by the clock."
+              tip="With no window, so backups by themselves happen without you opening it. Your computer lists it among the programs it starts, as Keevoro."
               control={
                 <RowSwitch on={view.startWithComputer} onChange={(on) => change({ startWithComputer: on })} />
               }

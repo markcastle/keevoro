@@ -17,6 +17,7 @@
 import { useCallback, useRef, useState } from 'react'
 import type { Backend, FilesShow, FilesSort, FileView, LeftOutFolder } from './backend'
 import { files, size, thousands } from './format'
+import { InfoTip } from './infoTip'
 import { LeaveOutButton, LeftOutSaid } from './leaveOut'
 import { fileKey } from './pictureQueue'
 import { Picture, Viewer } from './pictures'
@@ -178,7 +179,8 @@ export function LookInside(props: {
         </button>
         <h1>Inside {name}</h1>
         <p className="status">
-          {`${files(outline.photos, outline.videos, outline.others ?? 0)}, ${size(outline.bytes)}. Nothing here is added or changed until you choose.`}
+          {`${files(outline.photos, outline.videos, outline.others ?? 0)} · ${size(outline.bytes)}`}
+          <InfoTip about="looking inside">Nothing here is added or changed until you choose.</InfoTip>
         </p>
         {outline.onlineOnly > 0 && (
           <p className="online-only small">
@@ -236,8 +238,11 @@ export function LookInside(props: {
         )}
         {sort !== 'name' && (
           <p className="quiet small">
-            A file’s date is when it was last changed or copied, which is not always when it was taken. Each folder
-            stays together.
+            By when each file was last changed or copied.
+            <InfoTip about="the dates shown">
+              A file’s date is when it was last changed or copied, which is not always when it was taken. Each folder
+              stays together.
+            </InfoTip>
           </p>
         )}
       </header>

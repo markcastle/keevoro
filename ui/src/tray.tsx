@@ -99,7 +99,7 @@ export function CloseExplained(props: {
   return (
     <Over labelledBy="close-explained-title">
       <h2 id="close-explained-title">Keevoro keeps running</h2>
-      <p>Keevoro will keep running by the clock so your backups happen on time.</p>
+      <p>It stays by the clock, so your backups happen on time.</p>
       <p>{props.whereTheIconIs}</p>
       <div className="ask-tick">
         <Toggle on={withComputer} label="Start Keevoro when this computer starts" onChange={setWithComputer} />

@@ -163,7 +163,7 @@ export function PlaceScreen(props: {
       }
       found.scrollIntoView({ block: 'center' })
       found.dataset.marked = ''
-      const control = found.matches('button') ? found : found.querySelector<HTMLElement>('button:not(:disabled), input, select')
+      const control = found.matches('button') ? found : found.querySelector<HTMLElement>('button:not(:disabled):not(.info-tip-button), input, select')
       control?.focus({ preventScroll: true })
       unmark = window.setTimeout(() => {
         delete found.dataset.marked

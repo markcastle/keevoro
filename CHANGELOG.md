@@ -6,7 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **Fewer words on every screen, with the detail one press away.** Each setting and choice now has a name and at most one short line. The full explanation is behind a small “i” beside it (point at it, tab to it, or tap it) or under “More about this”. Warnings before removing or resetting, costs, and anything that went wrong stay in plain sight.
 
 ## [0.51.2] - 2026-11-22
 

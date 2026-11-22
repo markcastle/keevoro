@@ -203,6 +203,22 @@ const moreChoice = async (label) => {
   await page.locator('.panel.send .choices.actions').getByRole('button', { name: 'More' }).click()
   await page.getByRole('menu', { name: 'More' }).getByRole('menuitem', { name: label, exact: true }).click()
 }
+// What an "i" says: opened with a click or tap, read, and put away with
+// Escape, which leaves the focus on the "i". `about` is what it is named
+// after ("More about <about>"); `within` narrows where to look.
+const tipSays = async (about, within = page) => {
+  const button = within.getByRole('button', { name: `More about ${about}`, exact: true }).first()
+  await button.click()
+  const id = await button.getAttribute('aria-describedby')
+  assert.ok(id, `the “i” for ${about} is described by what it says, once open`)
+  const said = await page.locator(`[id="${id}"]`).innerText()
+  await page.keyboard.press('Escape')
+  await page.locator(`[id="${id}"]`).waitFor({ state: 'detached' })
+  assert.equal(await button.evaluate((b) => b === document.activeElement), true, `the focus stays on the “i” for ${about}`)
+  // Put down again, so no screenshot after shows a focus ring that was only the test's.
+  await button.evaluate((b) => b.blur())
+  return said
+}
 // A switch's words sit beside it, centred on it, never above or below.
 const centredOnSwitch = (switches) =>
   switches.evaluateAll((all) =>
@@ -222,7 +238,7 @@ try {
   await page.getByRole('heading', { name: 'Let’s find your photos' }).waitFor()
   assert.equal(await page.locator('.welcome .primary').count(), 1, 'one way forward')
   assert.deepEqual(
-    await page.locator('.welcome').getByRole('button').allInnerTexts(),
+    (await page.locator('.welcome').getByRole('button').allInnerTexts()).filter((t) => t !== ''),
     ['Get started', 'I already have a Keevoro backup'],
     'and a quiet second choice for a backup made before',
   )
@@ -334,7 +350,10 @@ try {
   assert.match(await text('.arrange-choice.on'), /Suggested/)
   assert.equal(await text('.arrange-why'), 'Suggested because the photos in KINGSTON (E:) look like they came straight from a camera.')
   assert.match(await text('.arrange-question'), /starting with “KINGSTON”/)
-  assert.match(await text('.arrange-question'), /You can change this later in Settings, and for each source beside it on the first step\. It only changes where\s+files go from then on\./)
+  // That it can be changed later, and how, waits behind its "i".
+  assert.match(await text('.arrange-question'), /You can change this later\./)
+  assert.match(await tipSays('changing this later'), /You can change this later in Settings, and for each source beside it on the first step\. It only changes where\s+files go from then on\./)
+  assert.match(await tipSays('Keep my folders as they are'), /Best for scans, and for folders you have already sorted\./)
   await shot('3d-how-to-arrange')
   await fitsNarrow('the question how to arrange')
   // Back goes to finding; moving on asks again until it is answered.
@@ -346,7 +365,8 @@ try {
 
   // --- Step 2 shows collections, all kept, with one switch each.
   await page.getByRole('heading', { name: 'Which of these should we keep?', level: 1 }).waitFor()
-  assert.match(await text('.status'), /sorted what it found into collections.*one source often makes several/s, 'why there is more than one')
+  assert.equal(await text('.status'), 'Everything is kept unless you say otherwise. Click one to look inside.')
+  assert.match(await tipSays('collections'), /sorted what it found into collections.*one source often makes several/s, 'why there is more than one')
   assert.match(await currentStep(), /Choose what to keep/)
   assert.equal(await page.locator('.hero .picture img').count(), 3, 'the hero shows three pictures')
   const collage = await page.locator('.hero .collage').boundingBox()
@@ -449,7 +469,11 @@ try {
   const kinds = page.locator('.destinations .place b')
   assert.deepEqual(await kinds.allInnerTexts(), ['A folder', 'Cloudflare R2', 'Amazon S3', 'Google Cloud Storage', 'Other storage'])
   // It says how much room the files will need before a place is chosen.
-  assert.match(await text('.send .needs'), /^You are backing up [\d,]+ files, about [\d.]+ (MB|GB)\. Wherever you choose needs at least that much free\.$/)
+  assert.match(await text('.send .needs'), /^[\d,]+ files · about [\d.]+ (MB|GB)\. Wherever you choose needs that much free\.$/)
+  // Why the whole screen is there waits behind one quiet disclosure under its heading.
+  await page.locator('.archive .screen-about summary').click()
+  assert.match(await text('.archive .screen-about'), /checks every copy,\s+and never replaces a file that is already there\. Your sources are not changed\./)
+  await page.locator('.archive .screen-about summary').click()
   await shot('7-where-should-they-go')
   await footHere('Where should they go?')
   // Not sure where to buy cloud storage? One quiet line, and nothing is
@@ -517,8 +541,14 @@ try {
   for (const asked of ['Cloudflare account ID', 'Region', 'Address']) {
     assert.equal(await googleForm.getByLabel(asked).count(), 0, `Google Cloud Storage is not asked its ${asked}`)
   }
+  // Where to make the keys is a step-by-step, so it opens in place when asked for.
+  assert.doesNotMatch(await googleForm.innerText(), /Interoperability/)
+  await googleForm.getByText('Where to make the keys').click()
   assert.match(await googleForm.innerText(), /Make the keys in the Google Cloud console under Cloud Storage, Settings, Interoperability/)
-  assert.match(await googleForm.innerText(), /Keep this bucket in Google’s Standard class\. Nearline, Coldline and Archive charge each time Keevoro reads a file back to check it/)
+  // What costs money stays in sight; the detail is behind its "i".
+  assert.match(await googleForm.innerText(), /Keep this bucket in Google’s Standard class\. Colder classes charge each time Keevoro checks a file\./)
+  assert.match(await tipSays('Google’s bucket classes', googleForm), /Nearline, Coldline and Archive charge each time Keevoro reads a file back to check it/)
+  assert.match(await tipSays('the key', googleForm), /kept in your computer’s keychain, not in\s+your library/)
   assert.equal(await googleForm.getByLabel('Access key ID').getAttribute('placeholder'), 'GOOG…')
   assert.equal(await googleForm.getByLabel('Secret access key').getAttribute('type'), 'password', 'the secret is hidden')
   await googleForm.scrollIntoViewIfNeeded()
@@ -532,13 +562,19 @@ try {
   await page.getByText(/^[\d,]+ files are waiting to be backed up\.$/).waitFor()
   // The folder's name opens the folder, and the room is weighed against the disk.
   assert.ok(await page.getByRole('button', { name: 'F:\\Family Backup' }).isVisible())
-  assert.match(await text('.send .needs'), /^They need about [\d.]+ (MB|GB)\. That disk has [\d.]+ GB free, so there is room\.$/)
+  assert.match(await text('.send .needs'), /^Needs about [\d.]+ (MB|GB) · [\d.]+ GB free there\.$/)
   await page.getByRole('button', { name: 'Back up now' }).click()
   await page.locator('.send .done').first().waitFor()
   assert.match(await text('.send .done'), /^Safely backed up [\d,]+ files\.$/)
+  // The routine figures (previews added, how long it took and how fast)
+  // wait under More about this backup, shut until asked for.
+  const doneMore = page.locator('.send .done-more')
+  assert.equal(await page.getByText(/^Previews added: /).isVisible(), false)
+  await doneMore.getByText('More about this backup').click()
   await page.getByText(/^Previews added: [\d,]+ files\.$/).waitFor()
   // When it is done, it says how long it took and how fast it went.
   await page.getByText(/^That took about \d+ minutes: [\d.]+ GB at an average of [\d.]+ MB a second\.$/).waitFor()
+  await doneMore.getByText('More about this backup').click()
   // The backup's folders are explained, a rendition included.
   await page.getByText('What is in the backup', { exact: true }).click()
   assert.match(await text('.sends.layout'), /A rendition is a version of a photo or video made for looking at, not for keeping\./)
@@ -546,23 +582,36 @@ try {
   await shot('9n-what-is-in-the-backup')
   // A backup can be the originals alone. One quiet line says which, and
   // Change goes to the switch, in Settings, brought into view and marked.
-  assert.equal(await text('.previews-line'), 'Previews for a gallery are made as well, in the background. Change')
+  assert.equal(await text('.previews-line'), 'With previews for a gallery. Change')
+  assert.equal(await tipSays('previews for a gallery', page.locator('.previews-line')), 'Previews for a gallery are made as well, in the background.')
   await page.locator('.previews-line').getByRole('button', { name: 'Change' }).click()
   await page.getByRole('heading', { name: 'This backup', level: 2 }).waitFor()
   await page.locator('#setting-previews[data-marked]').waitFor()
   const withPreviews = page.getByRole('switch', { name: 'Previews for a gallery' })
   assert.equal(await withPreviews.getAttribute('aria-checked'), 'true', 'previews are made unless switched off')
   assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('role')), 'switch', 'its switch has the focus')
-  assert.match(await withPreviews.evaluate((el) => document.getElementById(el.getAttribute('aria-describedby')).textContent), /Off, only the originals are backed up, which is quicker/)
+  assert.equal(await withPreviews.evaluate((el) => document.getElementById(el.getAttribute('aria-describedby')).textContent), 'Small copies for looking through. Off is quicker.')
+  // The rest of what it means is behind the "i" beside its name, reached from the keyboard.
+  await page.keyboard.press('Shift+Tab')
+  const previewsTip = page.locator('#setting-previews').getByRole('button', { name: 'More about Previews for a gallery' })
+  assert.equal(await previewsTip.evaluate((el) => el === document.activeElement), true, 'the “i” is next to the switch, going back')
+  assert.equal(await previewsTip.getAttribute('aria-expanded'), 'true', 'and opens as the focus reaches it')
+  assert.match(await page.getByRole('tooltip').innerText(), /Off, only the originals are backed up, which is quicker; switched on again, they are added on the next backup\./)
+  await shot('9m2-settings-previews-tip')
+  await page.keyboard.press('Escape')
+  assert.equal(await previewsTip.getAttribute('aria-expanded'), 'false', 'Escape puts it away')
+  assert.equal(await previewsTip.evaluate((el) => el === document.activeElement), true, 'and leaves the focus on the “i”')
+  assert.equal(await page.getByRole('heading', { name: 'This backup', level: 2 }).count(), 1, 'without leaving Settings')
+  await page.keyboard.press('Tab')
   await shot('9m-settings-previews-marked')
   await page.keyboard.press('Space')
   assert.equal(await withPreviews.getAttribute('aria-checked'), 'false', 'switched from the keyboard')
   await page.getByRole('button', { name: '‹ Back', exact: true }).click()
-  assert.equal(await text('.previews-line'), 'Only your original files are backed up, with no previews. Change')
+  assert.equal(await text('.previews-line'), 'Originals only, with no previews. Change')
   await page.locator('.previews-line').getByRole('button', { name: 'Change' }).click()
   await withPreviews.click()
   await page.getByRole('button', { name: '‹ Back', exact: true }).click()
-  await page.locator('.previews-line').getByText('Previews for a gallery are made as well, in the background.').waitFor()
+  await page.locator('.previews-line').getByText('With previews for a gallery.').waitFor()
   await page.getByText('How earlier backups went').click()
   const runs = page.locator('.sends > .sends-scroll > table > tbody > tr')
   assert.deepEqual(await page.locator('.sends > .sends-scroll > table > thead th').allInnerTexts(), ['When', 'Where', 'Backed up', 'Took', 'Average speed', 'Details'])
@@ -623,7 +672,8 @@ try {
   // added beside the first, starts empty, and catches up on the next backup.
   await moreChoice('Add another destination')
   await page.getByRole('heading', { name: 'Add another destination' }).waitFor()
-  assert.match(await text('.send .adding'), /as well as the folder F:\\Family Backup\. It starts empty/)
+  assert.match(await text('.send .adding'), /as well as the folder F:\\Family Backup\.\n/)
+  assert.match(await tipSays('another destination'), /^It starts empty and catches up on the next backup\. A photo only counts as safe once it is at every\s+destination\.$/)
   await page.getByRole('button', { name: /Cloudflare R2/ }).click()
   await page.getByLabel('Cloudflare account ID').fill('0123456789abcdef0123456789abcdef')
   await page.getByLabel('Bucket name').fill('family-photos')
@@ -697,7 +747,9 @@ try {
   await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
   await page.getByRole('button', { name: /Windows \(C:\)/ }).click()
   await page.getByRole('heading', { name: 'Look through all of Windows (C:)?' }).waitFor()
-  assert.match(await text('.asking'), /whole disk \(512 GB\).*a few minutes to an hour or more/s)
+  assert.match(await text('.asking'), /whole disk \(512 GB\).*a few minutes to an hour or\s+more/s)
+  assert.match(await tipSays('looking through a whole disk'), /nothing on it is changed/)
+  assert.match(await tipSays('finding the folders with photos'), /takes seconds, not\s+hours/)
   // Its choices sit on one row, Cancel a quiet link at the end of it.
   const wholeDisk = page.locator('.asking .choices')
   const tops = await wholeDisk.getByRole('button').evaluateAll((all) => all.map((b) => Math.round(b.getBoundingClientRect().top + b.getBoundingClientRect().height / 2)))
@@ -717,10 +769,11 @@ try {
   // opening nothing, and the ticked ones are looked through one by one.
   await page.goto(`${base}/?demo=empty&fast`)
   await page.getByRole('button', { name: /Windows \(C:\)/ }).click()
-  assert.match(await text('.asking'), /Keevoro can find the folders that hold them first\. That takes seconds/)
+  assert.match(await tipSays('finding the folders with photos'), /This finds the folders that hold them first\. It takes seconds/)
   await page.getByRole('button', { name: 'Find the folders with photos' }).click()
   await page.getByRole('heading', { name: '4 folders on Windows (C:) seem to hold photos and videos' }).waitFor()
-  assert.match(await text('.survey'), /Looked at 352,640 files in 28,915 folders in 5\.4 seconds, without opening any of them/)
+  assert.match(await text('.survey'), /Tick the folders you want, and Keevoro will\s+look through those properly\./)
+  assert.match(await tipSays('how these were found', page.locator('.survey')), /Looked at 352,640 files in 28,915 folders in 5\.4 seconds, without opening any of\s+them\. This goes by file names/)
   const ticks = page.locator('.survey .hints input')
   assert.deepEqual(
     await ticks.evaluateAll((boxes) => boxes.map((b) => b.checked)),
@@ -956,19 +1009,20 @@ try {
   // Advanced says it is safe to leave alone. The computer's own codecs are
   // used unless switched off, and it says what that means.
   await settingsSection('Advanced')
-  assert.match(await text('.kv-intro'), /^Most people never need anything here\. Keevoro works well if you leave all of it as it is\.$/)
+  assert.equal(await text('.kv-intro'), 'Most people never need anything here.')
   assert.equal(await page.locator('.kinds-table').count(), 0, 'the kinds of file are a page of their own')
   const codecs = page.getByRole('switch', { name: 'Use this computer’s own picture codecs' })
   assert.equal(await codecs.getAttribute('aria-checked'), 'true', 'on unless switched off')
   assert.match(await codecs.evaluate((el) => document.getElementById(el.getAttribute('aria-describedby')).textContent), /Switch this off only if previews look wrong\./, 'described by its sentence')
-  assert.match(await text('.kv-settings'), /Photos are opened by: this computer’s own codecs, then the built-in decoder/)
+  assert.match(await tipSays('Opening photos'), /Photos are opened by: this computer’s own codecs, then the built-in decoder/)
   await codecs.click()
   assert.equal(await codecs.getAttribute('aria-checked'), 'false')
-  await page.getByText(/Photos are opened by: the built-in decoder, then/).waitFor()
+  await page.waitForFunction(() => document.querySelector('#setting-codecs [role=switch]')?.getAttribute('aria-checked') === 'false')
+  assert.match(await tipSays('Opening photos'), /Photos are opened by: the built-in decoder, then/)
   await codecs.click()
   await shot('9g-settings-advanced')
   // AI agents: a page of its own, looking only and no folders until the person says.
-  assert.match(await page.locator('#setting-agents').innerText(), /AI agents\s+What an AI app, such as Claude, may do with Keevoro for you\.\s+Looking only/)
+  assert.match(await page.locator('#setting-agents').innerText(), /AI agents\s+What an AI app, such as Claude, may do\.\s+Looking only/)
   await page.getByRole('button', { name: 'AI agents Looking only' }).click()
   await page.getByRole('heading', { name: 'AI agents', level: 2 }).waitFor()
   assert.equal(await page.evaluate(() => document.activeElement?.textContent), 'AI agents', 'the page’s heading has the focus')
@@ -1171,7 +1225,8 @@ try {
   await page.getByRole('button', { name: 'Add a kind of file…' }).click()
   await addOther.getByLabel('Ending').fill('flac')
   await addOther.getByLabel('They are').selectOption('other')
-  await addOther.getByText('Keevoro will back these up exactly, but cannot show them or group them by date.').waitFor()
+  await addOther.getByText('Backed up exactly, but not shown or grouped by date.').waitFor()
+  assert.match(await tipSays('other files', addOther), /such as music or documents\. Keevoro will back\s+these up exactly, but cannot show them or group them by date\./)
   await addOther.scrollIntoViewIfNeeded()
   await shot('9v-settings-kinds-other-file')
   await addOther.getByRole('button', { name: 'Add' }).click()
@@ -1197,7 +1252,8 @@ try {
   const otherFiles = page.getByRole('region', { name: 'Other files' })
   await otherFiles.waitFor()
   assert.deepEqual(await otherFiles.locator('.folder-words b').allInnerTexts(), ['Documents', 'Tax 2019', 'Holiday mix'], 'by folder, as they were arranged')
-  assert.match(await otherFiles.innerText(), /^Other files\s+11 files in 3 folders, [\d.]+ MB, kept as you arranged them\./)
+  assert.match(await otherFiles.innerText(), /^Other files\s+11 files in 3 folders · [\d.]+ MB\. Open a folder to choose file\s+by file\./)
+  assert.match(await tipSays('other files', otherFiles), /^Kept as you arranged them\. Keevoro backs these up exactly/)
   assert.match(await text('.tally'), /of [\d,]+ photos, [\d,]+ videos and 11 other files found/)
   assert.match(await text('.next .say'), /^Keeping [\d,]+ files in \d+ collections and 3 folders of other files\.$/)
   await otherFiles.scrollIntoViewIfNeeded()
@@ -1255,7 +1311,7 @@ try {
   await page.getByRole('button', { name: 'Choose where they go' }).click()
   await page.getByRole('button', { name: /^A folder/ }).click()
   await page.getByText('There isn’t enough room there.').waitFor()
-  assert.match(await text('.send .needs.short'), /need about [\d.]+ (MB|GB) and that disk has only 90\.0 MB free/)
+  assert.match(await text('.send .needs.short'), /Needs about [\d.]+ (MB|GB); only 90\.0 MB free\. Free up some space, or back them up somewhere else\./)
   assert.ok(await page.getByRole('button', { name: 'Back up now' }).isDisabled(), 'sending waits until there is room')
   await shot('9g-not-enough-room')
 
@@ -1506,10 +1562,11 @@ try {
   // away, its sentence in a column of its own beside it: never running on
   // from the button, and never wrapping beneath it.
   const prove = page.getByRole('button', { name: 'Prove every copy…' })
-  assert.equal(await prove.getAttribute('aria-describedby').then((id) => page.locator(`[id="${id}"]`).innerText()), 'Reads every file back from where it was sent and compares it with its original, and puts right anything that is not.')
+  assert.equal(await prove.getAttribute('aria-describedby').then((id) => page.locator(`[id="${id}"]`).innerText()), 'The thorough check, file by file.')
+  assert.equal(await tipSays('proving every copy'), 'Reads every file back from where it was sent and compares it with its original, and puts right anything that is not.')
   const beside = await page.locator('.explained.prove').evaluate((row) => {
     const said = row.querySelector('.explained-said').getBoundingClientRect()
-    const button = row.querySelector('button').getBoundingClientRect()
+    const button = row.querySelector('.explained-action button').getBoundingClientRect()
     return { gap: Math.round(button.left - said.right), sameRow: button.top < said.bottom }
   })
   assert.ok(beside.sameRow && beside.gap >= 12, `the button sits clear of its sentence (${JSON.stringify(beside)})`)
@@ -1544,7 +1601,7 @@ try {
   await page.getByRole('button', { name: /KINGSTON/ }).click()
   await page.getByRole('button', { name: 'Stop looking' }).click()
   await page.getByRole('heading', { name: 'Stopped looking through KINGSTON (E:)' }).waitFor()
-  assert.match(await text('.panel'), /Nothing from it was added/)
+  assert.match(await text('.panel'), /Nothing was added, as only part of it was looked at\. Choose it again, or a folder inside it\./)
   assert.equal(await page.locator('.kept li.source').count(), 0, 'the source was not added')
   assert.ok(await page.locator('.steps button').nth(1).isDisabled(), 'and there is nothing to choose from')
   await shot('9j-search-stopped')
@@ -1601,13 +1658,18 @@ try {
   await page.goto(`${base}/?byitself&fast`)
   await page.getByRole('heading', { name: 'Where should they go?', level: 1 }).waitFor()
   const scheduleCard = page.locator('.schedule-card')
-  await scheduleCard.getByText('Keevoro can back this up by itself, every day, week or month, while it is open.').waitFor()
+  await scheduleCard.getByText('Every day, week or month, while Keevoro is open.').waitFor()
   await scheduleCard.getByRole('button', { name: 'Set it up…' }).click()
   const dialog = page.getByRole('dialog', { name: 'Back up “My photos” by itself?' })
   await dialog.waitFor()
   assert.equal(await dialog.getByRole('radio', { name: /^Every day at/ }).isChecked(), true, 'every day, at 02:30, to begin with')
   assert.equal(await dialog.getByLabel('Time each day').inputValue(), '02:30')
-  assert.match(await dialog.innerText(), /Pictures it sets aside, and anything else that needs your say, wait for you\./)
+  assert.match(await dialog.innerText(), /Each time, Keevoro backs up anything new from your sources\./)
+  // The rest of how it behaves opens in place, under More about this.
+  assert.doesNotMatch(await dialog.innerText(), /Pictures it sets aside/)
+  await dialog.locator('.more-about summary').click()
+  assert.match(await dialog.innerText(), /Pictures it sets aside, and\s+anything else that needs your say, wait for you\./)
+  assert.match(await dialog.innerText(), /Saving does not start a backup\./)
   await dialog.scrollIntoViewIfNeeded()
   await shot('9x1-backing-up-by-itself-set-up')
   await fitsNarrow('Setting up backing up by itself')
@@ -1690,15 +1752,17 @@ try {
   assert.equal(await waits.getByRole('switch', { name: 'Wait while on battery' }).getAttribute('aria-checked'), 'true')
   assert.equal(await waits.getByRole('switch', { name: 'Wait on a metered connection' }).getAttribute('aria-checked'), 'true')
   await waits.getByRole('switch', { name: 'Only between these hours' }).click()
-  await waits.getByText('A run that comes round by itself starts only between 22:00 and 07:00, in this computer’s own time.').waitFor()
+  await waits.getByText('Starts only between 22:00 and 07:00.').waitFor()
+  assert.equal(await tipSays('Only between these hours', waits), 'A run that comes round by itself starts only between 22:00 and 07:00, in this computer’s own time.')
   await waits.locator('.between-times select').first().selectOption('23:00')
-  await waits.getByText(/starts only between 23:00 and 07:00/).waitFor()
+  await waits.getByText(/starts only between 23:00 and 07:00/i).waitFor()
+  assert.match(await tipSays('Waiting for a good moment', waits), /A backup you start yourself, or Back up now anyway, never waits\./)
   await waits.scrollIntoViewIfNeeded()
   await shot('9x4b-settings-waiting-for-a-good-moment')
   await fitsNarrow('Settings, waiting for a good moment')
   await narrowShots('9x4b-settings-waiting-for-a-good-moment', waits)
   await waits.getByRole('switch', { name: 'Only between these hours' }).click()
-  await waits.getByText('A run that comes round by itself starts at any hour.').waitFor()
+  await waits.getByText('Starts at any hour.').waitFor()
 
   // --- Keevoro by the clock. The first time the window is closed, it says
   // Keevoro keeps running, and where its icon is; starting with the
@@ -1706,7 +1770,7 @@ try {
   await page.goto(`${base}/?closing&fast`)
   const explained = page.getByRole('dialog', { name: 'Keevoro keeps running' })
   await explained.waitFor()
-  await explained.getByText('Keevoro will keep running by the clock so your backups happen on time.').waitFor()
+  await explained.getByText('It stays by the clock, so your backups happen on time.').waitFor()
   await explained.getByText(/may be under the \^ arrow there/).waitFor()
   assert.equal(await explained.getByRole('switch', { name: 'Start Keevoro when this computer starts' }).isChecked(), false)
   assert.deepEqual(await centredOnSwitch(explained.getByRole('switch')), [], 'its words beside the switch, with no box around them')
@@ -1759,7 +1823,8 @@ try {
   const whenPluggedIn = page.getByRole('switch', { name: /^Back up .* when it is plugged in$/ })
   assert.equal(await whenPluggedIn.getAttribute('aria-checked'), 'false', 'off unless asked')
   await whenPluggedIn.click()
-  await page.getByText('A few seconds after it is plugged in, Keevoro backs it up by itself and tells you, while Keevoro is running.').waitFor()
+  await page.locator('.on-arrival').getByText('Backed up by itself when plugged in.').waitFor()
+  assert.equal(await tipSays('backing up when plugged in'), 'A few seconds after it is plugged in, Keevoro backs it up by itself and tells you, while Keevoro is running.')
   assert.equal(await whenPluggedIn.getAttribute('aria-checked'), 'true')
   assert.deepEqual(await centredOnSwitch(whenPluggedIn), [], 'its words beside the switch, with no box around them')
   await page.locator('.kept li.source').first().scrollIntoViewIfNeeded()
@@ -1767,7 +1832,7 @@ try {
   await fitsNarrow('A source backed up when it is plugged in')
   await narrowShots('3d-back-up-when-plugged-in', page.locator('.on-arrival'))
   await whenPluggedIn.click()
-  await page.getByText('A few seconds after it is plugged in').waitFor({ state: 'detached' })
+  await page.locator('.on-arrival').getByText('Backed up by itself when plugged in.').waitFor({ state: 'detached' })
 
   // --- Looking again with a source's card in a drawer passes it over and
   // says so: what was found on it is kept.
@@ -1870,7 +1935,8 @@ try {
       'Writing the list of what is there',
     ],
   )
-  assert.match(await text('.speed'), /switch off Previews for a gallery in Settings, This backup once this backup\s+ends/)
+  assert.match(await text('.speed'), /Previews are made in the background, and sent after your files\./)
+  assert.match(await tipSays('previews', page.locator('.speed')), /switch off Previews for a gallery in Settings, This\s+backup, once this backup ends/)
   assert.equal(await page.getByText(/^Stopped\./).count(), 0, 'no stale "Stopped" while it runs')
   // The screen says what step the backup is on straight away, in its own
   // words, and the activity page says the same.
@@ -2039,7 +2105,8 @@ try {
   // Reset is set apart, on its own at the foot of Advanced, and asks first in the page.
   await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Advanced' }).click()
   assert.equal(await page.locator('.kv-page .kv-group').last().evaluate((g) => g.classList.contains('kv-danger-zone')), true, 'the last thing in Advanced')
-  assert.match(await page.getByRole('group', { name: 'Start again' }).innerText(), /Reset Keevoro\s+Puts Keevoro back as it was when you first installed it/)
+  assert.match(await page.getByRole('group', { name: 'Start again' }).innerText(), /Reset Keevoro\s+Back to how it was when first installed\./)
+  assert.match(await tipSays('starting again'), /Puts Keevoro back as it was when you first installed it: to clear out a trial run, or before passing the computer on\./)
   await page.getByRole('button', { name: 'Reset Keevoro…' }).click()
   assert.match(await text('.resetting'), /This removes:.*your backup.*This does not touch:.*anything on your sources.*already sent/s)
   await shot('9i-reset')
@@ -2094,7 +2161,8 @@ try {
   await page.locator('.survey .hints input').nth(2).uncheck()
   await page.getByRole('button', { name: 'Look inside C:\\Users\\You\\Pictures' }).click()
   await page.getByRole('heading', { name: 'Inside Pictures', level: 1 }).waitFor()
-  assert.match(await text('.inside .status'), /^1,630 photos and 82 videos, [\d.]+ GB\. Nothing here is added or changed until you choose\.$/)
+  assert.match(await text('.inside .status'), /^1,630 photos and 82 videos · [\d.]+ GB$/)
+  assert.equal(await tipSays('looking inside'), 'Nothing here is added or changed until you choose.')
   assert.match(await text('.inside header .online-only'), /^32 files are in OneDrive only, not on this computer, so Keevoro does not open them/)
   await page.locator('.inside .tile .picture.loading').first().waitFor()
   assert.ok((await page.locator('.inside .tile .picture.loading').count()) > 0, 'a shimmer before the pictures arrive')
@@ -2148,7 +2216,8 @@ try {
   // Only the videos, newest first by the file's date, each with its length.
   await page.getByRole('radiogroup', { name: 'Show' }).getByRole('radio', { name: 'Videos' }).click()
   await page.getByLabel('Sort by').selectOption({ label: 'Newest first (by file date)' })
-  assert.match(await text('.inside header'), /not always when it was taken/)
+  assert.match(await text('.inside header'), /By when each file was last changed or copied\./)
+  assert.match(await tipSays('the dates shown'), /not always when it was taken/)
   await page.getByRole('button', { name: 'Look at VID_0037.mp4' }).first().waitFor()
   assert.deepEqual(
     await page.locator('.inside .tiles-heading b').allInnerTexts(),
@@ -2582,6 +2651,7 @@ try {
   // Google Cloud Storage is offered here too, with no place to ask.
   await bucketForm.getByLabel('Storage').selectOption('gcs')
   assert.equal(await bucketForm.getByLabel('Region').count(), 0)
+  await bucketForm.getByText('Where to make the keys').click()
   assert.match(await bucketForm.innerText(), /Cloud Storage, Settings, Interoperability/)
   await bucketForm.getByLabel('Storage').selectOption('s3')
   await bucketForm.getByLabel('Region').fill('eu-west-2')
@@ -2589,7 +2659,8 @@ try {
   await bucketForm.getByLabel('Folder in the bucket (optional)').fill('Photos')
   await bucketForm.getByLabel('Access key ID').fill('AKIAEXAMPLE')
   await bucketForm.getByLabel('Secret access key').fill('not-a-real-secret')
-  assert.match(await bucketForm.innerText(), /Nothing in it is ever changed or deleted, so a key that can only read is enough\./)
+  assert.match(await bucketForm.innerText(), /Keevoro only reads this bucket, so a key that can only read is enough\./)
+  assert.match(await tipSays('reading from this bucket', bucketForm), /Nothing in it is ever changed or deleted\.\s+The key is kept in your computer’s keychain\./)
   await bucketForm.scrollIntoViewIfNeeded()
   await shot('2e-cloud-storage-as-a-source')
   await fitsNarrow('Adding cloud storage as a source')
@@ -2805,7 +2876,7 @@ try {
   await page.getByRole('heading', { name: 'How files are arranged', level: 3 }).waitFor()
   const settingsArrange = page.getByRole('radiogroup', { name: 'How files are arranged in the backup' })
   assert.equal(await settingsArrange.getByRole('radio', { name: /^Keep my folders as they are/ }).isChecked(), true)
-  assert.match(await text('.kv-arrange'), /Changing this only changes where files go from now on\. Files already backed up stay where they are\./)
+  assert.equal(await tipSays('How files are arranged'), 'Changing this only changes where files go from now on. Files already backed up stay where they are.')
   await settingsArrange.getByRole('radio', { name: /^Arrange by date/ }).check()
   await page.locator('.kv-arrange').getByRole('status').getByText('From now on, new files are arranged by date.').waitFor()
   await shot('9p-settings-arranged')
@@ -3021,7 +3092,8 @@ try {
   await page.getByRole('heading', { name: 'Let’s find your photos' }).waitFor()
   await page.getByRole('button', { name: 'I already have a Keevoro backup' }).click()
   await page.getByRole('heading', { name: 'Where is your backup?', level: 1 }).waitFor()
-  assert.match(await text('.open-from .status'), /Keevoro reads the notes it keeps beside every backup and changes nothing there until you say so\./)
+  assert.equal(await text('.open-from .status'), 'Choose the drive, folder or cloud storage it is in.')
+  assert.match(await tipSays('opening a backup'), /Keevoro reads the notes it keeps beside every backup and changes nothing there until you say so\./)
   await shot('14-open-from-where')
   await fitsNarrow('Where is your backup?')
   await page.emulateMedia({ colorScheme: 'dark' })
@@ -3115,6 +3187,114 @@ try {
   await page.getByRole('heading', { name: 'Where is your backup?', level: 1 }).waitFor()
   await page.getByRole('button', { name: '‹ Back' }).click()
   await page.getByRole('heading', { name: 'Your backups', level: 1 }).waitFor()
+
+  // --- Detail on demand. An "i" beside a name shows a few sentences when
+  // the pointer rests on it, when the keyboard reaches it, and when it is
+  // clicked or tapped; Escape or a click elsewhere puts it away. It is
+  // drawn on top of everything, never cut off by a panel that scrolls.
+  await page.goto(`${base}/?fast&page=settings/byItself`)
+  await page.getByRole('heading', { name: 'Backing up by itself', level: 2 }).waitFor()
+  const batteryTip = page.locator('#setting-waitOnBattery').getByRole('button', { name: 'More about Wait while on battery' })
+  const tooltip = page.getByRole('tooltip')
+  assert.equal(await batteryTip.getAttribute('aria-expanded'), 'false', 'shut until asked for')
+  assert.equal(await tooltip.count(), 0)
+  const tipBox = await batteryTip.boundingBox()
+  assert.ok(tipBox.width >= 24 && tipBox.height >= 24, `the “i” is easy to press (${tipBox.width} by ${tipBox.height})`)
+  // Resting the pointer on it.
+  await batteryTip.hover()
+  await tooltip.waitFor()
+  assert.equal(await tooltip.innerText(), 'While this computer is on battery and less than half charged, a backup by itself waits for it to be plugged in.')
+  assert.equal(await batteryTip.getAttribute('aria-expanded'), 'true')
+  assert.equal(await batteryTip.getAttribute('aria-describedby'), await tooltip.getAttribute('id'), 'and the “i” is described by it')
+  // The pointer can cross into it, and its words can be selected and copied.
+  await tooltip.hover()
+  await tooltip.selectText()
+  assert.match(await page.evaluate(() => String(window.getSelection())), /less than half charged/)
+  assert.ok(await tooltip.isVisible(), 'still open with the pointer over it')
+  await shot('15-info-tip-hover')
+  await page.mouse.move(5, 5)
+  await tooltip.waitFor({ state: 'detached' })
+  // From the keyboard: Tab reaches it and it opens; Escape shuts it, leaves the
+  // focus on the "i", and closes nothing else.
+  await page.locator('#setting-schedule').getByRole('button', { name: /^Set it up/ }).focus()
+  await page.keyboard.press('Tab')
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'More about Waiting for a good moment', 'the group’s own “i” first')
+  await page.keyboard.press('Tab')
+  assert.equal(await batteryTip.evaluate((el) => el === document.activeElement), true, 'then the row’s')
+  await tooltip.waitFor()
+  assert.equal(await batteryTip.getAttribute('aria-expanded'), 'true', 'opened by the keyboard alone')
+  await shot('15-info-tip-keyboard')
+  await page.keyboard.press('Escape')
+  await tooltip.waitFor({ state: 'detached' })
+  assert.equal(await batteryTip.evaluate((el) => el === document.activeElement), true, 'the focus stays on the “i”')
+  assert.equal(await page.getByRole('heading', { name: 'Backing up by itself', level: 2 }).count(), 1, 'Escape closed only the tip')
+  await page.keyboard.press('Enter')
+  await tooltip.waitFor()
+  await page.keyboard.press('Enter')
+  await tooltip.waitFor({ state: 'detached' })
+  // A click keeps it open after the pointer leaves, until a click anywhere else.
+  await batteryTip.click()
+  await page.mouse.move(5, 5)
+  await page.getByRole('heading', { name: 'Backing up by itself', level: 2 }).hover()
+  assert.ok(await tooltip.isVisible(), 'a click keeps it open')
+  await page.getByRole('heading', { name: 'Backing up by itself', level: 2 }).click()
+  await tooltip.waitFor({ state: 'detached' })
+  // Never cut off: low in a panel that scrolls, it is drawn whole, inside the window and on top.
+  const lowTip = page.locator('#setting-startWithComputer').getByRole('button', { name: /^More about / })
+  await lowTip.scrollIntoViewIfNeeded()
+  await lowTip.click()
+  await tooltip.waitFor()
+  await settled()
+  const whole = await tooltip.evaluate((box) => {
+    const r = box.getBoundingClientRect()
+    const corners = [[r.left + 4, r.top + 4], [r.right - 4, r.top + 4], [r.left + 4, r.bottom - 4], [r.right - 4, r.bottom - 4]]
+    return {
+      inside: r.left >= 0 && r.top >= 0 && r.right <= window.innerWidth && r.bottom <= window.innerHeight,
+      onTop: corners.every(([x, y]) => box.contains(document.elementFromPoint(x, y))),
+    }
+  })
+  assert.deepEqual(whole, { inside: true, onTop: true }, 'the tip is drawn whole, inside the window, on top of the page')
+  await page.keyboard.press('Escape')
+  // Dark, too.
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await batteryTip.click()
+  await tooltip.waitFor()
+  await shot('15-info-tip-dark')
+  await page.keyboard.press('Escape')
+  await page.emulateMedia({ colorScheme: 'light' })
+  // On a touch screen 400 pixels wide, a tap opens it, inside the gutters, and another tap shuts it.
+  const touch = await browser.newContext({ hasTouch: true, isMobile: true, viewport: { width: 400, height: 800 } })
+  const phone = await touch.newPage()
+  await phone.goto(`${base}/?fast&page=settings/byItself`)
+  const phoneTip = phone.locator('#setting-waitOnBattery').getByRole('button', { name: 'More about Wait while on battery' })
+  await phoneTip.scrollIntoViewIfNeeded()
+  await phoneTip.tap()
+  const phoneTooltip = phone.getByRole('tooltip')
+  await phoneTooltip.waitFor()
+  const onPhone = await phoneTooltip.boundingBox()
+  assert.ok(onPhone.x >= 16 && onPhone.x + onPhone.width <= 400 - 16 + 1, `inside the gutters at 400 pixels (${JSON.stringify(onPhone)})`)
+  await phone.evaluate(() => document.fonts.ready)
+  await phone.screenshot({ path: join(shots, '15-info-tip-400-touch.png') })
+  await phoneTip.tap()
+  await phoneTooltip.waitFor({ state: 'detached' })
+  await touch.close()
+
+  // A longer story opens in place, under "More about this", and shuts again.
+  await page.goto(`${base}/?fast&page=settings/advanced/kinds`)
+  const moreAbout = page.locator('.kinds .more-about')
+  await moreAbout.waitFor()
+  assert.equal(await moreAbout.locator('summary').innerText(), 'More about this')
+  assert.equal(await moreAbout.evaluate((d) => d.open), false, 'shut to begin with')
+  assert.equal(await page.getByText(/is backed up just the same, exactly as it is/).isVisible(), false)
+  await moreAbout.locator('summary').focus()
+  await page.keyboard.press('Enter')
+  await page.getByText(/is backed up just the same, exactly as it is/).waitFor()
+  assert.match(await moreAbout.innerText(), /by the ending of their names, such as \.jpg/)
+  await shot('15-more-about-open')
+  await fitsNarrow('More about this, open')
+  await narrowShots('15-more-about-open', moreAbout)
+  await page.keyboard.press('Enter')
+  assert.equal(await moreAbout.evaluate((d) => d.open), false, 'and shuts again from the keyboard')
 
   assert.deepEqual(problems, [], 'the browser reported no errors')
   console.log(`UI test passed. Screenshots are in ${shots}`)

@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { Backend, Collection, Photo, PhotoChoice } from './backend'
 import { count, size, thousands } from './format'
+import { InfoTip } from './infoTip'
 import { FILE_MANAGER } from './mapWords'
 
 /** "PDF file", "FLAC file", or "File" for a name with no ending. */
@@ -67,9 +68,11 @@ export function OtherFilesSection(props: {
     <section className="other-files" aria-labelledby="other-files-heading">
       <h2 id="other-files-heading">Other files</h2>
       <p className="quiet">
-        {count(files, 'file')} in {count(props.folders.length, 'folder')}, {size(bytes)}, kept as you arranged them.
-        Keevoro backs these up exactly, but cannot show them or group them by date. Open a folder to choose file by
-        file.
+        {count(files, 'file')} in {count(props.folders.length, 'folder')} · {size(bytes)}. Open a folder to choose file
+        by file.
+        <InfoTip about="other files">
+          Kept as you arranged them. Keevoro backs these up exactly, but cannot show them or group them by date.
+        </InfoTip>
       </p>
       <ul className="folder-rows">
         {props.folders.map((folder) => (
@@ -139,8 +142,9 @@ export function OtherFilesScreen(props: {
         <h1>{folder.title}</h1>
         <p className="status">
           {files
-            ? `Keeping ${thousands(keeping)} of ${thousands(files.length)}. Other files are backed up exactly as they are; click one for its details.`
+            ? `Keeping ${thousands(keeping)} of ${thousands(files.length)}. Click one for its details.`
             : folder.summary}
+          {files && <InfoTip about="other files">Other files are backed up exactly as they are.</InfoTip>}
         </p>
         {files && files.length > 0 && (
           <p className="choices within">
