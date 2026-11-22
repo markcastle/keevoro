@@ -8,6 +8,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- **Fewer words on every screen, with the detail one press away.** Each setting and choice now has a name and at most one short line. The full explanation is behind a small “i” beside it (point at it, tab to it, or tap it) or under “More about this”. Warnings before removing or resetting, costs, and anything that went wrong stay in plain sight.
 - **Backing up by itself sits tidily on the backup screen.** It is now a plain part of the backup's panel under one fine line, not a box inside the box, and while a backup is running the offer to set a schedule waits until it is done.
 - **Text you might want to copy can be selected.** Explanations, paths, what went wrong, the log and the pages in Help and About can now be selected with the mouse and copied. Buttons and switches still cannot, so a double click never leaves a word highlighted.
 - **About says what is true today about servers.** "There is no Keevoro account and no Keevoro server" is now "You need no Keevoro account". Where your files go has not changed.

@@ -230,19 +230,17 @@ pub fn place_went_away_words(place: &str, files: usize, across_a_network: bool) 
 /// The words that mark [`check_advised_words`] among what a backup says.
 pub const CHECK_ADVISED_MARK: &str = "\"Check they all arrived\" looks at each one again";
 
-/// What a backup says when a place's connection was lost during it: every
-/// copy counted was proved at its place, and a check from a fresh
-/// connection is the way to be certain.
+/// What a backup says when a place's connection was lost during it, and
+/// what to do: a check from a fresh connection is the way to be certain.
+/// Two short sentences; that every copy counted was read back at its place
+/// first is said once, in About.
 pub fn check_advised_words(place: &str, across_a_network: bool) -> String {
     let went = if across_a_network {
         format!("The connection to {place} was lost during this backup")
     } else {
         format!("{} went away during this backup", crate::confirm::capitalised(place))
     };
-    format!(
-        "{went}. Every copy Keevoro counted was read back at its place before it was counted; to be certain, \
-         \"Check they all arrived\" looks at each one again from a fresh connection."
-    )
+    format!("{went}. To be certain, \"Check they all arrived\" looks at each one again.")
 }
 
 /// The words that mark [`source_unplugged`] among what a backup says.
@@ -735,6 +733,22 @@ mod tests {
         assert_eq!(
             account_words(place, &one),
             "The 1 file you are keeping is safely at the folder Z:\\Photos."
+        );
+    }
+
+    #[test]
+    fn a_lost_connection_says_what_happened_and_what_to_do_in_two_short_sentences() {
+        let said = check_advised_words("the folder \\\\NAS\\Photos", true);
+        assert_eq!(
+            said,
+            "The connection to the folder \\\\NAS\\Photos was lost during this backup. To be certain, \
+             \"Check they all arrived\" looks at each one again."
+        );
+        assert!(said.contains(CHECK_ADVISED_MARK));
+        assert_eq!(
+            check_advised_words("the folder F:\\Family Backup", false),
+            "The folder F:\\Family Backup went away during this backup. To be certain, \"Check they all arrived\" \
+             looks at each one again."
         );
     }
 }

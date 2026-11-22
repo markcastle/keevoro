@@ -90,6 +90,7 @@ import { CompareSheet, CompareStorage } from './compare'
 import { AddBucketSource, CloudCost, CloudSourceIcon } from './bucketSource'
 import { Explained } from './explained'
 import { InfoTip, MoreAbout } from './infoTip'
+import { splitSummary } from './summaryLines'
 import { PlaceScreen } from './settings/shell'
 import { parsePlace, placeOfRow } from './settings/places'
 import type { Place as PlaceAt, Where } from './settings/places'
@@ -2905,11 +2906,18 @@ function SendPanel(props: {
           )}
           {/* What the last backup said is about that one, so it steps aside while another runs. */}
           {!running &&
-            said?.summary?.map((line) => (
+            splitSummary(said?.summary ?? []).shown.map((line) => (
               <p className="done" key={line}>
                 {line}
               </p>
             ))}
+          {!running && splitSummary(said?.summary ?? []).more.length > 0 && (
+            <MoreAbout className="done-more" label="More about this backup">
+              {splitSummary(said?.summary ?? []).more.map((line) => (
+                <p key={line}>{line}</p>
+              ))}
+            </MoreAbout>
+          )}
           {!running && said?.problem && (
             <p className="refused" role="alert">
               {said.problem}
@@ -3489,10 +3497,13 @@ function SurveyResult(props: {
           : `${count(found.hints.length, 'folder')} on ${props.name} ${found.hints.length === 1 ? 'seems' : 'seem'} to hold ${what}`}
       </h2>
       <p className="quiet">
-        Looked at {count(found.files, 'file')} in {count(found.folders, 'folder')} in{' '}
-        {found.seconds < 10 ? found.seconds.toFixed(1) : Math.round(found.seconds)} seconds, without opening any of
-        them{found.stopped ? ', and stopped before the end, so there may be more' : ''}. This goes by file names, so
-        it is a good guess, not a promise. Tick the folders you want and Keevoro will look through those properly.
+        {found.stopped && 'Stopped before the end, so there may be more. '}Tick the folders you want, and Keevoro will
+        look through those properly.
+        <InfoTip about="how these were found">
+          Looked at {count(found.files, 'file')} in {count(found.folders, 'folder')} in{' '}
+          {found.seconds < 10 ? found.seconds.toFixed(1) : Math.round(found.seconds)} seconds, without opening any of
+          them. This goes by file names, so it is a good guess, not a promise.
+        </InfoTip>
       </p>
       {found.hints.length > 0 && (
         <ul className="hints">

@@ -6,7 +6,8 @@
 //
 //   npm run ui:build && node scripts/word-count.mjs
 //
-// Prints one line per screen. With --json it prints the figures as JSON.
+// Prints one line per screen. With --json it prints the figures as JSON;
+// with --show <part of a screen's name> it also prints the words it counted there.
 
 import { createServer } from 'node:http'
 import { existsSync, readFileSync } from 'node:fs'
@@ -38,6 +39,7 @@ export const visibleWords = (p, within = 'body') =>
   p.evaluate((within) => {
     const skip = (el) => el.closest('.sidebar, .visually-hidden, [aria-hidden="true"], .info-tip-box')
     let words = 0
+    const said = []
     const root = document.querySelector(within) ?? document.body
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
@@ -47,19 +49,22 @@ export const visibleWords = (p, within = 'body') =>
       // Text inside a closed disclosure is not drawn, though the element still has a box in some engines.
       const shut = el.closest('details:not([open])')
       if (shut && !el.closest('summary')) continue
-      words += node.textContent.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length
+      const these = node.textContent.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w))
+      words += these.length
+      said.push(these.join(' '))
     }
     // Words typed into fields count too: a name already suggested is read.
     for (const field of root.querySelectorAll('input[type=text], input:not([type])')) {
       if (field.checkVisibility() && field.value && !skip(field)) words += field.value.split(/\s+/).length
     }
-    return words
+    return { words, said: said.join(' | ') }
   }, within)
 
 const screens = []
 const count = async (name, within) => {
   await page.evaluate(() => document.fonts.ready)
-  screens.push({ screen: name, words: await visibleWords(page, within) })
+  const { words, said } = await visibleWords(page, within)
+  screens.push({ screen: name, words, said })
 }
 const heading = (name) => page.getByRole('heading', { name, level: 1 }).waitFor()
 const settings = async (section) => {
@@ -152,4 +157,10 @@ try {
 }
 
 if (process.argv.includes('--json')) console.log(JSON.stringify(screens, null, 2))
-else for (const { screen, words } of screens) console.log(`${String(words).padStart(5)}  ${screen}`)
+else
+  for (const { screen, words, said } of screens) {
+    console.log(`${String(words).padStart(5)}  ${screen}`)
+    // --show <part of a name> prints the words counted on that screen.
+    const show = process.argv[process.argv.indexOf('--show') + 1]
+    if (process.argv.includes('--show') && screen.includes(show)) console.log(`       ${said}`)
+  }

@@ -2323,7 +2323,7 @@ export function demoBackend(): Backend {
                 `Safely backed up ${n(fresh - 5)} files.`,
                 `Couldn't back up 5 files, because the connection to ${to} was lost for a while: IMG_1001.jpg, IMG_1002.jpg, IMG_1003.jpg and 2 more.`,
                 'Back up again to try them once more.',
-                `The connection to ${to} was lost during this backup. Every copy Keevoro counted was read back at its place before it was counted; to be certain, "Check they all arrived" looks at each one again from a fresh connection.`,
+                `The connection to ${to} was lost during this backup. To be certain, "Check they all arrived" looks at each one again.`,
                 `${n(total - 5)} of the ${n(total)} files you are keeping are safely at ${to}. 5 still need attention: 5 couldn't be sent.`,
               ],
             }),

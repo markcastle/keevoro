@@ -144,7 +144,7 @@ export function ScheduleCard(props: {
           <span className="quiet">
             {view.unreadable
               ? 'This backup has a schedule this version of Keevoro can’t read, so it doesn’t back up by itself.'
-              : 'Keevoro can back this up by itself, every day, week or month, while it is open.'}
+              : 'Every day, week or month, while Keevoro is open.'}
           </span>
           <span className="actions">
             <button className="button small" onClick={() => setChoosing(true)}>

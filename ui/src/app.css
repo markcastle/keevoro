@@ -6364,7 +6364,7 @@ h3.kv-group-title {
 /* Inline, not a flex box, so the sentence it follows reads on without a break. */
 .info-tip {
   display: inline;
-  margin-left: 2px;
+  margin-left: 4px;
 }
 
 .info-tip-button {

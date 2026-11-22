@@ -82,14 +82,15 @@ export function AwayPanel(props: { api: Backend; onProblem: (error: unknown) => 
       )}
       <Explained
         className="away-done"
+        tipAbout="what happened while you were away"
+        tip="Each backup’s last few runs stay below, under Backing up by itself."
         action={
           <button className="button" onClick={done}>
             Done
           </button>
         }
       >
-        That is everything since you last had Keevoro open. Each backup’s last few runs stay below, under Backing up by
-        itself.
+        That is everything since you last had Keevoro open.
       </Explained>
     </section>
   )

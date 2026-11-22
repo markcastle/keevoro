@@ -214,6 +214,9 @@ const tipSays = async (about, within = page) => {
   const said = await page.locator(`[id="${id}"]`).innerText()
   await page.keyboard.press('Escape')
   await page.locator(`[id="${id}"]`).waitFor({ state: 'detached' })
+  assert.equal(await button.evaluate((b) => b === document.activeElement), true, `the focus stays on the “i” for ${about}`)
+  // Put down again, so no screenshot after shows a focus ring that was only the test's.
+  await button.evaluate((b) => b.blur())
   return said
 }
 // A switch's words sit beside it, centred on it, never above or below.
@@ -563,9 +566,15 @@ try {
   await page.getByRole('button', { name: 'Back up now' }).click()
   await page.locator('.send .done').first().waitFor()
   assert.match(await text('.send .done'), /^Safely backed up [\d,]+ files\.$/)
+  // The routine figures (previews added, how long it took and how fast)
+  // wait under More about this backup, shut until asked for.
+  const doneMore = page.locator('.send .done-more')
+  assert.equal(await page.getByText(/^Previews added: /).isVisible(), false)
+  await doneMore.getByText('More about this backup').click()
   await page.getByText(/^Previews added: [\d,]+ files\.$/).waitFor()
   // When it is done, it says how long it took and how fast it went.
   await page.getByText(/^That took about \d+ minutes: [\d.]+ GB at an average of [\d.]+ MB a second\.$/).waitFor()
+  await doneMore.getByText('More about this backup').click()
   // The backup's folders are explained, a rendition included.
   await page.getByText('What is in the backup', { exact: true }).click()
   assert.match(await text('.sends.layout'), /A rendition is a version of a photo or video made for looking at, not for keeping\./)
@@ -763,7 +772,8 @@ try {
   assert.match(await tipSays('finding the folders with photos'), /This finds the folders that hold them first\. It takes seconds/)
   await page.getByRole('button', { name: 'Find the folders with photos' }).click()
   await page.getByRole('heading', { name: '4 folders on Windows (C:) seem to hold photos and videos' }).waitFor()
-  assert.match(await text('.survey'), /Looked at 352,640 files in 28,915 folders in 5\.4 seconds, without opening any of them/)
+  assert.match(await text('.survey'), /Tick the folders you want, and Keevoro will\s+look through those properly\./)
+  assert.match(await tipSays('how these were found', page.locator('.survey')), /Looked at 352,640 files in 28,915 folders in 5\.4 seconds, without opening any of\s+them\. This goes by file names/)
   const ticks = page.locator('.survey .hints input')
   assert.deepEqual(
     await ticks.evaluateAll((boxes) => boxes.map((b) => b.checked)),
@@ -1648,7 +1658,7 @@ try {
   await page.goto(`${base}/?byitself&fast`)
   await page.getByRole('heading', { name: 'Where should they go?', level: 1 }).waitFor()
   const scheduleCard = page.locator('.schedule-card')
-  await scheduleCard.getByText('Keevoro can back this up by itself, every day, week or month, while it is open.').waitFor()
+  await scheduleCard.getByText('Every day, week or month, while Keevoro is open.').waitFor()
   await scheduleCard.getByRole('button', { name: 'Set it up…' }).click()
   const dialog = page.getByRole('dialog', { name: 'Back up “My photos” by itself?' })
   await dialog.waitFor()
