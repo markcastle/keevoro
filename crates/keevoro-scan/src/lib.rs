@@ -31,8 +31,8 @@ pub use online::{ByAttributes, OnlineCheck};
 
 use keevoro_core::{
     best_date, date_from_filename, folder_hints, folder_made_by_keevoro, holds_originals, is_raw_extension, junk_hint,
-    kind_from_mime, library_album_segments, never_media_extension, photo_library, DateGuess, DateSource, FolderHints,
-    JunkInput, JunkReason, Kinds, MediaKind, PartialDate, SkipReason, SkipRules,
+    kind_from_mime, library_album_segments, photo_library, DateGuess, DateSource, FolderHints, JunkInput, JunkReason,
+    Kinds, MediaKind, PartialDate, SkipReason, SkipRules,
 };
 use serde::Serialize;
 use std::fs::File;
@@ -471,13 +471,10 @@ fn walk(
         if !entry.file_type().is_file() || opts.skip.skip_file(&name).is_some() {
             continue;
         }
-        let passed_over = entry.path().extension().is_some_and(|ext| {
-            let ext = ext.to_string_lossy();
-            match opts.kinds.looked_for(&ext) {
-                Some(_) => false,
-                None => opts.kinds.switched_off(&ext) || never_media_extension(&ext),
-            }
-        });
+        let passed_over = entry
+            .path()
+            .extension()
+            .is_some_and(|ext| opts.kinds.passed_over(&ext.to_string_lossy()));
         // Only in online storage: opening it would download it. Asked of
         // what the listing says, and only of files that could be photos.
         let listing = if passed_over { None } else { entry.metadata().ok() };

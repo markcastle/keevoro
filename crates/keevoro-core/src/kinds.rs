@@ -52,7 +52,32 @@ use crate::wants::Wants;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
+use std::hash::{BuildHasherDefault, Hasher};
 use std::sync::OnceLock;
+
+/// A quick hash for endings, which are a few letters long: far less work
+/// per file than the general one. The table it serves is fixed once made,
+/// so nothing read from a drive can crowd it.
+#[derive(Default)]
+struct EndingHasher(u64);
+
+impl Hasher for EndingHasher {
+    fn write(&mut self, bytes: &[u8]) {
+        // FNV-1a.
+        let mut hash = if self.0 == 0 { 0xcbf2_9ce4_8422_2325 } else { self.0 };
+        for byte in bytes {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(0x0100_0000_01b3);
+        }
+        self.0 = hash;
+    }
+
+    fn finish(&self) -> u64 {
+        self.0
+    }
+}
+
+type ByEnding<K, V> = HashMap<K, V, BuildHasherDefault<EndingHasher>>;
 
 /// What Keevoro does with what is inside a file of a built-in kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -319,8 +344,8 @@ const EARLIER: &[&str] = &[
 
 /// The built-in list by ending, made the first time it is asked for and
 /// kept for as long as Keevoro runs.
-fn built_ins() -> &'static HashMap<&'static str, &'static BuiltIn> {
-    static BY_ENDING: OnceLock<HashMap<&'static str, &'static BuiltIn>> = OnceLock::new();
+fn built_ins() -> &'static ByEnding<&'static str, &'static BuiltIn> {
+    static BY_ENDING: OnceLock<ByEnding<&'static str, &'static BuiltIn>> = OnceLock::new();
     BY_ENDING.get_or_init(|| BUILT_IN.iter().map(|b| (b.ending, b)).collect())
 }
 
@@ -706,7 +731,7 @@ struct Looked {
 /// question takes an ending as it comes from a file name, with any case.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Kinds {
-    by_ending: HashMap<String, Looked>,
+    by_ending: ByEnding<String, Looked>,
 }
 
 impl Default for Kinds {
@@ -773,6 +798,17 @@ impl Kinds {
     /// a folder shows, saying of one switched off that it is left out.
     pub fn listed(&self, ending: &str) -> Option<(MediaKind, bool)> {
         self.get(ending).map(|l| (l.kind, l.on))
+    }
+
+    /// Is a file with this ending passed over by a search without being
+    /// opened? Yes for a kind switched off, and for an ending not on the
+    /// list that is plainly a program, a document or music. The question
+    /// asked of every file a search meets, in one look.
+    pub fn passed_over(&self, ending: &str) -> bool {
+        match self.get(ending) {
+            Some(looked) => !looked.on,
+            None => never_media_extension(ending),
+        }
     }
 
     /// True if files with this ending are passed over without being opened.
@@ -1339,6 +1375,23 @@ mod tests {
             assert!(kinds.looked_for(ending).is_some(), "{ending}");
         }
         assert_eq!(kinds.looked_for("JPGX"), None);
+        for (ending, over) in [
+            ("JPG", false),
+            ("txt", true),
+            ("DLL", true),
+            ("tga", false),
+            ("xyz", false),
+            ("ts", true),
+        ] {
+            assert_eq!(kinds.passed_over(ending), over, "{ending}");
+        }
+        let hash = |text: &str| {
+            let mut h = EndingHasher::default();
+            h.write(text.as_bytes());
+            h.finish()
+        };
+        assert_ne!(hash("jpg"), hash("jpe"));
+        assert_eq!(hash("jpg"), hash("jpg"));
         assert_eq!(kinds.looked_for("ABCDEFGHIJKLMNOP"), None);
         let mut mine = FileKinds::default();
         mine.add("ÉCL", MediaKind::Photo).unwrap();
