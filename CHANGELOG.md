@@ -6,7 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Compare providers from the backup screen.** Once a backup has somewhere to go, "Compare providers" is in its More menu too, so you can see what cloud storage costs without starting to add a destination. A choice Keevoro can back up to opens its form as another destination.
+- **Help, a place of its own beside Settings.** The foot of the side band now opens Help, built just like Settings: its own list down the side, a search, and pages with a way back. It holds **How do I…**, short plain answers each with a button that takes you straight there (add another source, back up to a second place, make it back up by itself, back up a card when it is plugged in, check a backup is all there, bring Keevoro back when its window is closed, leave a folder out, change which kinds of file are backed up, and, honestly, what moving to a new computer means today); **Report a problem or suggest an idea**, with your reports; **Compare cloud storage providers**, which opens the same comparison by Stratus, set to the size of your backup; **What Keevoro has been doing**, the log; and **About Keevoro**, with the version and Check for updates, what Keevoro promises, what leaves this computer, the thanks, and the open source licences. The search in either place finds what is in both, and says which place each is in, such as "Help, About Keevoro".
+
+### Changed
+
+- **Settings and Help are always in the same place.** The foot of the side band is the same on every screen, the first screen before any backup included, and in a narrow window where the band is a strip across the top: "What Keevoro is doing" with its line, then Settings, then Help. "About Keevoro" and "Report a problem or idea" have moved from the foot into Help. A link from the icon by the clock or an older Keevoro to Settings, Help, still lands in the right place.
+- **Settings holds only what you set.** Its Help section has gone: reporting a problem, the log and the open source licences are in Help, and **Reset Keevoro** is at the foot of Settings, Advanced, on its own and still marked as something that cannot be undone.
 
 ## [0.49.0] - 2026-11-22
 

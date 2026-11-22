@@ -100,7 +100,7 @@ These are rules the code is built around and automated tests guard, not hopes.
 
 ## 💬 Tell us about a problem or an idea
 
-Something went wrong, or you wish Keevoro did something it does not? Choose **Report a problem or idea** at the foot of the window, or **Settings, Help, Report a problem or suggest an idea**, say it in your own words, and press Send. You get a reference, such as K-1042, and the same page shows how each of your reports is getting on: Received, Accepted, Being worked on, "Done in version 0.47.0" or Not planned, with a note if there is one.
+Something went wrong, or you wish Keevoro did something it does not? Choose **Help** at the foot of the side band, then **Report a problem or suggest an idea**, say it in your own words, and press Send. You get a reference, such as K-1042, and the same page shows how each of your reports is getting on: Received, Accepted, Being worked on, "Done in version 0.47.0" or Not planned, with a note if there is one.
 
 **What is sent:** your words, Keevoro's version, which system your computer runs (such as Windows 11) and which screen you were on. Nothing else, unless you switch it on:
 
@@ -284,7 +284,7 @@ A special thank you to **Adam Sparshott**, for all his help in testing Keevoro a
 - managing your backups;
 - a calmer map of where the space goes.
 
-Keevoro is also built on the work of many open source projects, listed with their licences in the app under About, Open source licences.
+Keevoro is also built on the work of many open source projects, listed with their licences in the app under Help, About Keevoro, Open source licences.
 
 ## ⚖️ Licence
 

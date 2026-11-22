@@ -1,6 +1,7 @@
 // "Not sure where to buy cloud storage?": one quiet line on "Where should
 // they go?" that opens Stratus, by Adam Sparshott, which compares what
-// cloud storage costs, inside a sheet.
+// cloud storage costs, inside a sheet. The same sheet opens from the
+// backup screen's More menu and from Help, Compare cloud storage providers.
 //
 // Nothing is loaded until the person opens it. Then the page is loaded in
 // a frame that may run its own scripts but cannot open windows, move the
@@ -54,11 +55,15 @@ export function CompareStorage(props: {
 
 type Loading = 'waiting' | 'ready' | 'failed'
 
-function CompareSheet(props: {
+/**
+ * The sheet itself. Without `onSetUp` (no backup has been started yet), a
+ * choice Keevoro can back up to is named, with where to set it up later.
+ */
+export function CompareSheet(props: {
   api: Backend
   keptBytes: number
   onClose: () => void
-  onSetUp: (setUp: SetUp) => void
+  onSetUp?: (setUp: SetUp) => void
   onProblem: (error: unknown) => void
 }) {
   const { api, keptBytes, onClose, onProblem } = props
@@ -96,7 +101,12 @@ function CompareSheet(props: {
   })
   useEffect(() => {
     sheet.current?.focus()
-    const escape = (event: KeyboardEvent) => event.key === 'Escape' && close.current()
+    // Said as handled, so the page behind does not go back as well.
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      close.current()
+    }
     window.addEventListener('keydown', escape)
     return () => window.removeEventListener('keydown', escape)
   }, [])
@@ -119,16 +129,21 @@ function CompareSheet(props: {
         </p>
         {choice && (
           <div className="compare-choice" role="status">
-            {setUp ? (
+            {setUp && props.onSetUp ? (
               <Explained
                 action={
-                  <button className="primary" onClick={() => props.onSetUp(setUp)}>
+                  <button className="primary" onClick={() => props.onSetUp?.(setUp)}>
                     Set up {choice.providerName} in Keevoro
                   </button>
                 }
               >
                 You chose {choice.plan}. Once you have a bucket and its keys, Keevoro can back up there.
               </Explained>
+            ) : setUp ? (
+              <p>
+                You chose {choice.plan}. Once you have a bucket and its keys, and have started a backup, Keevoro can
+                back up there: choose it under “Where should they go?”.
+              </p>
             ) : (
               <Explained
                 action={

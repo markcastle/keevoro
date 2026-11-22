@@ -1,39 +1,44 @@
-// Settings: everything that can be changed or looked up, a section at a
-// time.
+// Settings and Help: two places side by side, opened from the foot of the
+// side band, built the same way so they feel like siblings. Settings holds
+// only what you set; Help holds what helps: short answers, reporting a
+// problem or an idea, the comparison of cloud storage, the log, and About.
 //
-// While Settings is open it has the whole window. Its own short list of
-// sections takes the place of the side bar, with a search across every
-// row at the top and a way back to the three steps above it, so there is
-// never a second side bar beside the first. In a narrow window the list
-// is the first page and each section a page you go into, as on a phone.
+// While either is open it has the whole window. Its own short list of
+// sections takes the place of the side band, with a search at the top
+// (which finds rows in both places, and says which each is in) and a way
+// back above it, so there is never a second side band beside the first.
+// In a narrow window the list is the first page and each section a page
+// you go into, as on a phone.
 //
 // Each section is a column of rounded panels of rows (parts.tsx); anything
-// long (the kinds of file, the AI agents' folders, the log, the licences)
-// is a page of its own inside its section, with a way back, and so is
-// reporting a problem or an idea, in Help, which the foot of the window
-// also opens. Where Settings was is remembered for as long as Keevoro is open, and a link from
-// elsewhere in the app, the icon by the clock or a search lands on the
-// right section with its row brought into view and marked for a moment.
+// long (the kinds of file, the AI agents' folders, the licences) is a page
+// of its own inside its section, with a way back. Where each place was is
+// remembered for as long as Keevoro is open, and a link from elsewhere in
+// the app, the icon by the clock or a search lands on the right section
+// with its row brought into view and marked for a moment.
 
 import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent, ReactNode } from 'react'
 import type { AppState, ArrangeView, Backend, Update } from '../backend'
 import { LicencesList } from '../licences'
+import type { SetUp } from '../stratus'
+import { AboutSection } from './about'
 import { AdvancedSection } from './advanced'
 import { AgentsPage } from './agents'
 import { AppearanceSection } from './appearance'
 import { BackingUpSection } from './backingUp'
 import { FileKindsPage } from './fileKinds'
-import { HelpSection } from './help'
+import { CompareSection, HowToSection } from './help'
+import type { Going } from './help'
 import { LogPage } from './log'
 import { ReportPage } from './report'
-import { SectionIcon } from './parts'
-import { DETAILS, SECTIONS, findRows, placeOfRow, sectionTitle } from './places'
-import type { DetailId, SectionId, SettingsPlace } from './places'
+import { Intro, SectionIcon } from './parts'
+import { DETAILS, PLACE_TITLES, findRows, placeOfRow, sectionTitle, sectionsOf, whereSaid } from './places'
+import type { DetailId, Place, SectionId } from './places'
 import { ThisBackupSection } from './thisBackup'
 import { UpdatesSection } from './updates'
 
-/** Narrower than this, the list and a section are a page each (the same width the side bar becomes a band). */
+/** Narrower than this, the list and a section are a page each (the same width the side band becomes a strip). */
 const NARROW = '(max-width: 640px)'
 const narrow = () => window.matchMedia(NARROW).matches
 
@@ -43,7 +48,7 @@ const MARKED_FOR = 2400
 /** How long to wait for a row whose section is still asking Keevoro what to show. */
 const ROW_WAITED_FOR = 3000
 
-export function SettingsScreen(props: {
+export function PlaceScreen(props: {
   api: Backend
   state: AppState
   sendingTo: string | null
@@ -59,9 +64,15 @@ export function SettingsScreen(props: {
   /** Goes to the sources, where they can be looked through again. */
   onSources: () => void
   onBackups: () => void
-  /** Where Settings is, kept by the app so it opens there again. */
-  place: SettingsPlace
-  onPlace: (place: SettingsPlace) => void
+  /** Where an answer in How do I… goes. */
+  onGo: (going: Going) => void
+  /** What the backup keeps, in bytes, for the comparison of cloud storage. */
+  keptBytes: number
+  /** Opens Keevoro's own form for a kind of storage chosen in the comparison; none before a backup is started. */
+  onSetUp?: (setUp: SetUp) => void
+  /** Where Settings or Help is, kept by the app so each opens there again. */
+  place: Place
+  onPlace: (place: Place) => void
   onBack: () => void
   onProblem: (error: unknown) => void
   /** The bars that can show on any page: an update ready, a problem. */
@@ -70,27 +81,47 @@ export function SettingsScreen(props: {
   reportFrom?: string | null
 }) {
   const { api, state, place, onPlace, onProblem } = props
-  const section: SectionId = place.section ?? 'backup'
+  const where = place.where
+  const placeTitle = PLACE_TITLES[where]
+  const sections = sectionsOf(where)
+  const section: SectionId = place.section ?? sections[0].id
   const detail = place.detail
   // In a narrow window: a section's page, rather than the list.
   const atPage = place.section !== null && !place.list
   const [typed, setTyped] = useState('')
   const [kindsChanged, setKindsChanged] = useState(0)
   const heading = useRef<HTMLHeadingElement>(null)
+  const title = useRef<HTMLHeadingElement>(null)
   const list = useRef<HTMLUListElement>(null)
   // What gets focus once the page has changed: the page's heading, a row, or the list.
   const focusNext = useRef<'heading' | 'list' | { row: string } | null>(null)
 
-  const go = (to: SettingsPlace, focus: typeof focusNext.current) => {
+  const go = (to: Place, focus: typeof focusNext.current) => {
     focusNext.current = focus
     onPlace(to)
   }
-  const openSection = (id: SectionId) => go({ section: id }, narrow() ? 'heading' : null)
-  const openDetail = (id: DetailId) => go({ section: DETAILS[id].section, detail: id }, 'heading')
+  const openSection = (id: SectionId) => go({ where, section: id }, narrow() ? 'heading' : null)
+  const openDetail = (id: DetailId) => go({ where, section: DETAILS[id].section, detail: id }, 'heading')
   const back = () => {
-    if (detail) go({ section }, { row: detail })
-    else go({ section, list: true }, 'list')
+    if (detail) go({ where, section }, { row: detail })
+    else go({ where, section, list: true }, 'list')
   }
+  const openFound = (id: string) => {
+    setTyped('')
+    const to = placeOfRow(id)
+    go(to, to.row ? null : 'heading')
+  }
+
+  // Arriving, the focus is on the heading of the page arrived at (or, in
+  // a narrow window showing the list, on the place's name), unless a row
+  // was asked for, which takes it itself.
+  useEffect(() => {
+    if (place.row) return
+    if (narrow() && !atPage) title.current?.focus()
+    else heading.current?.focus()
+    // Only on arriving.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     const next = focusNext.current
@@ -100,16 +131,18 @@ export function SettingsScreen(props: {
     else if (next) document.getElementById(`setting-${next.row}`)?.focus()
   }, [place])
 
-  // Escape leaves a page within a section, and in a narrow window a section too.
+  // Escape goes back: out of a page within a section, out of a section in
+  // a narrow window, and otherwise out of Settings or Help.
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.key !== 'Escape' || e.defaultPrevented) return
       const there = e.target as HTMLElement | null
-      if (there?.closest('input, textarea, select, [role="dialog"], [role="alertdialog"]')) return
-      if (detail || (narrow() && atPage)) {
-        e.preventDefault()
-        back()
-      }
+      if (there?.closest('input, textarea, select, [role="dialog"], [role="alertdialog"], [role="menu"]')) return
+      // A sheet over the page closes first, on its own Escape.
+      if (document.querySelector('[aria-modal="true"]')) return
+      e.preventDefault()
+      if (detail || (narrow() && atPage)) back()
+      else props.onBack()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -134,7 +167,7 @@ export function SettingsScreen(props: {
       control?.focus({ preventScroll: true })
       unmark = window.setTimeout(() => {
         delete found.dataset.marked
-        onPlace({ section: place.section, detail: place.detail })
+        onPlace({ where, section: place.section, detail: place.detail })
       }, MARKED_FOR)
     }
     waiting = requestAnimationFrame(look)
@@ -160,11 +193,12 @@ export function SettingsScreen(props: {
     if (to === null || at < 0) return
     e.preventDefault()
     buttons[to].focus()
-    if (!narrow()) onPlace({ section: buttons[to].dataset.section as SectionId })
+    if (!narrow()) onPlace({ where, section: buttons[to].dataset.section as SectionId })
   }
 
   const found = findRows(typed)
   const searching = typed.trim() !== ''
+  const noBackup = state.backup === null
 
   const page = (() => {
     switch (detail) {
@@ -179,16 +213,14 @@ export function SettingsScreen(props: {
         )
       case 'agents':
         return <AgentsPage api={api} onProblem={onProblem} />
-      case 'report':
-        return <ReportPage api={api} from={props.reportFrom ?? 'Settings, Help'} />
-      case 'log':
-        return <LogPage api={api} onProblem={onProblem} />
       case 'licences':
         return <LicencesList withThanks />
     }
     switch (section) {
       case 'backup':
-        return (
+        return noBackup ? (
+          <Intro>These are set for each backup. Start one first, on the first screen, and its settings appear here.</Intro>
+        ) : (
           <ThisBackupSection
             api={api}
             state={state}
@@ -202,7 +234,7 @@ export function SettingsScreen(props: {
           />
         )
       case 'byItself':
-        return <BackingUpSection api={api} name={state.backup?.name ?? ''} onProblem={onProblem} />
+        return <BackingUpSection api={api} name={state.backup?.name ?? null} onProblem={onProblem} />
       case 'appearance':
         return <AppearanceSection />
       case 'updates':
@@ -210,26 +242,45 @@ export function SettingsScreen(props: {
           <UpdatesSection api={api} version={state.version} update={props.update} onUpdate={props.onUpdate} onProblem={onProblem} />
         )
       case 'advanced':
-        return <AdvancedSection api={api} onOpen={openDetail} onProblem={onProblem} />
-      case 'help':
-        return <HelpSection api={api} state={state} onOpen={openDetail} onReset={props.onReset} onProblem={onProblem} />
+        return <AdvancedSection api={api} state={state} onOpen={openDetail} onReset={props.onReset} onProblem={onProblem} />
+      case 'howTo':
+        return <HowToSection api={api} onGo={props.onGo} onProblem={onProblem} />
+      case 'report':
+        return <ReportPage api={api} from={props.reportFrom ?? 'Help'} />
+      case 'compare':
+        return <CompareSection api={api} keptBytes={props.keptBytes} onSetUp={props.onSetUp} onProblem={onProblem} />
+      case 'log':
+        return <LogPage api={api} onProblem={onProblem} />
+      case 'about':
+        return (
+          <AboutSection
+            api={api}
+            version={state.version}
+            update={props.update}
+            onUpdate={props.onUpdate}
+            onOpen={openDetail}
+            onProblem={onProblem}
+          />
+        )
     }
   })()
 
   return (
     <main className="settings-main">
-      <div className="kv-settings" data-at={atPage ? 'page' : 'list'}>
+      <div className="kv-settings" data-at={atPage ? 'page' : 'list'} data-place={where}>
         <div className="kv-side">
           <button type="button" className="link kv-leave" onClick={props.onBack}>
             ‹ Back
           </button>
-          <h1 className="kv-title">Settings</h1>
+          <h1 className="kv-title" tabIndex={-1} ref={title}>
+            {placeTitle}
+          </h1>
           <input
             className="kv-search"
             type="search"
             value={typed}
             placeholder="Search"
-            aria-label="Search Settings"
+            aria-label={`Search ${placeTitle}`}
             aria-controls="settings-found"
             spellCheck={false}
             onChange={(e) => setTyped(e.target.value)}
@@ -238,8 +289,7 @@ export function SettingsScreen(props: {
                 e.preventDefault()
                 setTyped('')
               } else if (e.key === 'Enter' && found[0]) {
-                setTyped('')
-                go(placeOfRow(found[0].id), null)
+                openFound(found[0].id)
               } else if (e.key === 'ArrowDown' && found[0]) {
                 e.preventDefault()
                 document.querySelector<HTMLElement>('#settings-found button')?.focus()
@@ -249,26 +299,17 @@ export function SettingsScreen(props: {
           {searching ? (
             <div className="kv-found">
               <p className="visually-hidden" role="status">
-                {found.length === 0 ? 'No settings match.' : `${found.length} ${found.length === 1 ? 'setting' : 'settings'} found.`}
+                {found.length === 0 ? 'Nothing matches.' : `${found.length} found.`}
               </p>
               {found.length === 0 ? (
-                <p className="quiet small kv-none">No settings match “{typed.trim()}”.</p>
+                <p className="quiet small kv-none">Nothing in Settings or Help matches “{typed.trim()}”.</p>
               ) : (
-                <ul id="settings-found" aria-label="Settings found">
+                <ul id="settings-found" aria-label="Found in Settings and Help">
                   {found.map((row) => (
                     <li key={row.id}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setTyped('')
-                          go(placeOfRow(row.id), null)
-                        }}
-                      >
+                      <button type="button" onClick={() => openFound(row.id)}>
                         <span>{row.title}</span>
-                        <small>
-                          {sectionTitle(row.section)}
-                          {row.detail && `, ${DETAILS[row.detail].title}`}
-                        </small>
+                        <small>{whereSaid(row)}</small>
                       </button>
                     </li>
                   ))}
@@ -276,9 +317,9 @@ export function SettingsScreen(props: {
               )}
             </div>
           ) : (
-            <nav aria-label="Settings sections">
+            <nav aria-label={`${placeTitle} sections`}>
               <ul ref={list} onKeyDown={onListKey}>
-                {SECTIONS.map((s) => (
+                {sections.map((s) => (
                   <li key={s.id} className={s.apart ? 'apart' : undefined}>
                     <button
                       type="button"
@@ -307,7 +348,7 @@ export function SettingsScreen(props: {
                 </button>
               ) : (
                 <button type="button" className="link kv-back kv-narrow-only" onClick={back}>
-                  ‹ Settings
+                  ‹ {placeTitle}
                 </button>
               )}
               <h2 id="settings-page-title" tabIndex={-1} ref={heading}>

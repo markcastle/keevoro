@@ -1,4 +1,4 @@
-// Settings, Help, What Keevoro has been doing: the last few hundred lines
+// Help, What Keevoro has been doing: the last few hundred lines
 // of Keevoro's plain record of what it did and when, newest at the bottom,
 // and a way to open the whole file.
 

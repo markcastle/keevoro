@@ -13,17 +13,23 @@ import type { Backend, KeepRunningChange, KeepRunningView, MannersChange, Manner
 import { ScheduleDialog, TIMES } from '../schedule'
 import { Group, Row, RowButton, RowSwitch } from './parts'
 
-export function BackingUpSection(props: { api: Backend; name: string; onProblem: (error: unknown) => void }) {
+export function BackingUpSection(props: {
+  api: Backend
+  /** The open backup's name; none before the first backup is started, when there is no schedule to set. */
+  name: string | null
+  onProblem: (error: unknown) => void
+}) {
   const { api, onProblem } = props
   const [schedule, setSchedule] = useState<ScheduleView | null>(null)
   const [choosing, setChoosing] = useState(false)
   const [view, setView] = useState<KeepRunningView | null>(null)
   const [manners, setManners] = useState<MannersView | null>(null)
+  const name = props.name
   useEffect(() => {
-    api.schedule().then(setSchedule).catch(onProblem)
+    if (name !== null) api.schedule().then(setSchedule).catch(onProblem)
     api.keepRunning().then(setView).catch(onProblem)
     api.backgroundSettings().then(setManners).catch(onProblem)
-  }, [api, onProblem])
+  }, [api, name, onProblem])
   const mind = (asked: MannersChange) => api.backgroundSettings(asked).then(setManners).catch(onProblem)
 
   const change = (asked: KeepRunningChange) => api.setKeepRunning(asked).then(setView).catch(onProblem)
@@ -39,9 +45,9 @@ export function BackingUpSection(props: { api: Backend; name: string; onProblem:
 
   return (
     <>
-      {schedule && (
+      {schedule && name !== null && (
         <Group
-          title={`Schedule for “${props.name}”`}
+          title={`Schedule for “${name}”`}
           footnote="Run now, skipping the next one and the last few runs are on the backup screen."
         >
           <Row
@@ -57,7 +63,7 @@ export function BackingUpSection(props: { api: Backend; name: string; onProblem:
             }
             below={
               choosing && (
-                <ScheduleDialog name={props.name} view={schedule} onSave={save} onCancel={() => setChoosing(false)} />
+                <ScheduleDialog name={name} view={schedule} onSave={save} onCancel={() => setChoosing(false)} />
               )
             }
           />

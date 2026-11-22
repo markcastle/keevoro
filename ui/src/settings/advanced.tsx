@@ -2,20 +2,29 @@
 // as it is. The kinds of file Keevoro looks for and what AI agents may do
 // each open a page of their own; how photos are opened, clearing a
 // stopped backup's unfinished copies from a folder, and forgetting the
-// remembered maps are a row each.
+// remembered maps are a row each. Reset Keevoro is at the foot, on its
+// own, marked as something that cannot be undone (reset.tsx).
 //
 // A map lists folder names across a whole drive, so a person may want it
 // gone: forgetting touches nothing on any drive, and a place is simply
 // surveyed again when next asked about. Reset forgets them too.
 
 import { useEffect, useState } from 'react'
-import type { Acceleration, AgentAccess, Backend } from '../backend'
+import type { Acceleration, AgentAccess, AppState, Backend } from '../backend'
 import { count } from '../format'
 import { ClearUnfinished } from '../tidy'
 import { Group, Intro, OpenRow, Row, RowButton, RowSwitch } from './parts'
 import type { DetailId } from './places'
+import { ResetGroup } from './reset'
 
-export function AdvancedSection(props: { api: Backend; onOpen: (detail: DetailId) => void; onProblem: (error: unknown) => void }) {
+export function AdvancedSection(props: {
+  api: Backend
+  state: AppState
+  onOpen: (detail: DetailId) => void
+  /** Called after a reset, with the app as it is when first installed. */
+  onReset: (state: AppState) => void
+  onProblem: (error: unknown) => void
+}) {
   const { api, onProblem } = props
   const [speed, setSpeed] = useState<Acceleration | null>(null)
   const [agents, setAgents] = useState<AgentAccess | null>(null)
@@ -88,6 +97,8 @@ export function AdvancedSection(props: { api: Backend; onOpen: (detail: DetailId
           control={<RowButton onClick={forget}>Forget them</RowButton>}
         />
       </Group>
+
+      <ResetGroup api={api} state={props.state} onReset={props.onReset} onProblem={onProblem} />
     </>
   )
 }

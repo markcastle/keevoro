@@ -1,4 +1,4 @@
-// Settings, Help, Report a problem or suggest an idea: a few words for
+// Help, Report a problem or suggest an idea: a few words for
 // Keevoro's maker, and the reports sent from this computer with how each
 // is getting on.
 //

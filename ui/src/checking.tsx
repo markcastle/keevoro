@@ -1,5 +1,5 @@
 // The background check for duplicates, in a line of its own, wherever it
-// shows: the foot of the window and "What Keevoro is doing".
+// shows: the foot of the side band and "What Keevoro is doing".
 //
 // The first tester stopped a search and found the check that follows it
 // still running, with nothing to say how to stop it and "You can carry on"
@@ -66,7 +66,7 @@ export function CheckLine(props: {
 /**
  * The check, stopped by the person, with files left to read: what that
  * means and when it starts again, and "Check for duplicates now". `brief`
- * says only the first sentence, for the narrow foot of the window.
+ * says only the first sentence, for the narrow foot of the side band.
  */
 export function CheckStopped(props: {
   api: Backend

@@ -34,7 +34,7 @@ Whatever you allow, an agent can never:
 - report a problem or an idea to Keevoro's maker, or read the reports you sent. A report is in your own words, so only you make and send one;
 - change what it is allowed to do. It can ask what it may do, and nothing more.
 
-Everything an agent does is written to Keevoro's log, in plain words: which tool it used, on which backup, and how it went. Settings, Help, "What Keevoro has been doing", shows it.
+Everything an agent does is written to Keevoro's log, in plain words: which tool it used, on which backup, and how it went. Help, "What Keevoro has been doing", shows it.
 
 The keys an agent gives are the ones checked and saved. If it gives none and `KEEVORO_ACCESS_KEY_ID` and `KEEVORO_SECRET_ACCESS_KEY` are set where `keevoro mcp` runs, those are used instead, and the answer says so in words, naming the variables and never the keys.
 
@@ -167,6 +167,6 @@ Every tool an agent sees, with what it does, is the same list as the command lin
 
 **"Keevoro is already working on your backup ... in the Keevoro app".** Another Keevoro program is backing up or looking through that backup. Let it finish, or stop it from the app or with `keevoro stop`.
 
-**Something went wrong and the agent cannot say what.** Keevoro's log has every step, including each thing the agent did. It is in Settings, Help, What Keevoro has been doing, or `keevoro log`.
+**Something went wrong and the agent cannot say what.** Keevoro's log has every step, including each thing the agent did. It is in Help, What Keevoro has been doing, or `keevoro log`.
 
 **You want to take everything back.** `keevoro agents allow --none` and `keevoro agents allow-changes off`, or the same in Settings, Advanced, AI agents. To stop the agent using Keevoro at all, remove the `keevoro` entry from the AI app's settings.
