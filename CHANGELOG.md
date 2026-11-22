@@ -6,7 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **A thank you on the About page.** It says who makes Keevoro, and gives special thanks to Adam Sparshott for all his help in testing and his excellent ideas.
 
 ## [0.44.0] - 2026-11-22
 

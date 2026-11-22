@@ -258,6 +258,20 @@ cargo test --workspace
 npm run lint && npm run ui:test
 ```
 
+## 🙏 Thank you
+
+Keevoro is made by Mark Castle.
+
+A special thank you to **Adam Sparshott**, for all his help in testing Keevoro and for his excellent ideas. He found the faults that mattered most, and many features began as his suggestions:
+
+- keeping your folders as they are;
+- backing up other kinds of file;
+- cloud drives as sources;
+- managing your backups;
+- a calmer map of where the space goes.
+
+Keevoro is also built on the work of many open source projects, listed with their licences in the app under About, Open source licences.
+
 ## ⚖️ Licence
 
 Keevoro's source is open to read, use, change and share under the [Functional Source License](LICENSE.md) (FSL-1.1-MIT). In plain words:

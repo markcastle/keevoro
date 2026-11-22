@@ -1782,6 +1782,21 @@ function AboutScreen(props: { api: Backend; version: string; onBack: () => void;
         </p>
       </div>
 
+      <div className="panel thanks">
+        <h2>Thank you</h2>
+        <p>Keevoro is made by Mark Castle.</p>
+        <p>
+          A special thank you to <b>Adam Sparshott</b>, for all his help in testing Keevoro and for his excellent
+          ideas. He found the faults that mattered most, and many of the things you see here began as his suggestions:
+          keeping your folders as they are, backing up other kinds of file, cloud drives as sources, managing your
+          backups, and a calmer map of where the space goes.
+        </p>
+        <p className="quiet small">
+          Keevoro is also built on the work of many open source projects. They are listed, with their licences, under
+          Open source licences below.
+        </p>
+      </div>
+
       <div className="panel">
         <h2>Licence</h2>
         <p>
