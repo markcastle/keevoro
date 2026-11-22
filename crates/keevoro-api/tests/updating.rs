@@ -675,3 +675,29 @@ fn no_source_0_37_1_kept_is_backed_up_when_plugged_in_until_asked() {
         "nothing in the settings file"
     );
 }
+
+/// How a backup by itself waits for a good moment (0.49) is kept in a file
+/// of its own, `background.json`, never in `settings.json`. Keevoro 0.37.1
+/// left none: it waits on battery and on a metered connection, at any
+/// hour, as before, and choosing leaves the settings file exactly as it was.
+#[test]
+fn keevoro_0_37_1_left_waits_on_battery_at_any_hour_and_choosing_leaves_the_settings_file_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let (keevoro, places) = as_0_37_1_left_it(dir.path());
+    let shown = ask(&keevoro, Op::BackgroundSettings, None, json!({}));
+    assert_eq!(
+        (shown["waitOnBattery"].clone(), shown["waitOnMetered"].clone()),
+        (json!(true), json!(true))
+    );
+    assert_eq!(shown.get("between"), None);
+    let settings = places.folders.config.join("settings.json");
+    let before = std::fs::read_to_string(&settings).unwrap();
+    let changed = ask(
+        &keevoro,
+        Op::BackgroundSettings,
+        None,
+        json!({ "between": { "from": "22:00", "to": "07:00" } }),
+    );
+    assert_eq!(changed["betweenSaid"], "between 22:00 and 07:00");
+    assert_eq!(std::fs::read_to_string(&settings).unwrap(), before);
+}

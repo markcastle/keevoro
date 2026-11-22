@@ -43,6 +43,7 @@ pub mod jobs;
 pub mod keevoro;
 pub mod leave_out;
 pub mod log;
+pub mod manners;
 pub mod picture;
 pub mod places;
 mod rates;
@@ -240,6 +241,10 @@ pub struct RunByItselfRequest {
     /// and the Keevoro app never both run it.
     #[serde(default)]
     pub if_due: bool,
+    /// Start now, without waiting for a good moment: not on battery, a
+    /// metered connection, a busy computer or the hours chosen.
+    #[serde(default)]
+    pub anyway: bool,
 }
 
 /// `jobs.follow`, `jobs.stop`: one job by its id, or every one running on
@@ -532,6 +537,10 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
                 None => answer(backup.source_arrangement(r.source)?),
             }
         }
+        Op::BackgroundSettings => {
+            let r: manners::MannersRequest = read(request)?;
+            answer(keevoro.background_settings(&r)?)
+        }
         Op::SourcesOnArrival => {
             let r: arrival::OnArrivalRequest = read(request)?;
             answer(keevoro.on_arrival(&named()?, r.source, r.on)?)
@@ -655,13 +664,18 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
         }
         Op::ScheduleRun => {
             let r: RunByItselfRequest = read(request)?;
-            answer(keevoro.run_by_itself_if_due(
-                &named()?,
-                keevoro_core::unattended::Occasion::CommandLine,
-                r.wait_minutes.unwrap_or(0),
-                r.if_due,
-                None,
-            )?)
+            let named = named()?;
+            if r.anyway {
+                answer(keevoro.run_by_itself_anyway(&named, keevoro_core::unattended::Occasion::CommandLine)?)
+            } else {
+                answer(keevoro.run_by_itself_if_due(
+                    &named,
+                    keevoro_core::unattended::Occasion::CommandLine,
+                    r.wait_minutes.unwrap_or(0),
+                    r.if_due,
+                    None,
+                )?)
+            }
         }
         Op::ScheduleAway => {
             let r: schedule::AwayRequest = read(request)?;

@@ -10,7 +10,7 @@
 //! | | Windows | macOS | Linux |
 //! | --- | --- | --- | --- |
 //! | Low priority | background mode (processor and disk) | background quality of service (processor and disk) | nice 10 (processor) |
-//! | On battery | `GetSystemPowerStatus` | not known | `/sys/class/power_supply` |
+//! | On battery, and how full | `GetSystemPowerStatus` | not known | `/sys/class/power_supply` |
 //! | Idle time | `GetLastInputInfo` | `CGEventSourceSecondsSinceLastEventType` | not known |
 
 /// Asks for the calling thread to be run at low priority, so it gives way
@@ -23,6 +23,12 @@ pub fn lower_this_threads_priority() -> bool {
 /// True on battery, false on mains, `None` when this computer cannot say.
 pub fn on_battery() -> Option<bool> {
     imp::on_battery()
+}
+
+/// How full the battery is, 0 to 100, or `None` when this computer has
+/// none or cannot say.
+pub fn battery_percent() -> Option<u8> {
+    imp::battery_percent()
 }
 
 /// Seconds since the person last pressed a key or moved the mouse, or
@@ -53,6 +59,14 @@ mod imp {
             1 => Some(false),
             _ => None,
         }
+    }
+
+    pub fn battery_percent() -> Option<u8> {
+        let mut status = SYSTEM_POWER_STATUS::default();
+        // SAFETY: the pointer is to a live, correctly sized struct.
+        unsafe { GetSystemPowerStatus(&mut status) }.ok()?;
+        // 255 means not known.
+        (status.BatteryLifePercent <= 100).then_some(status.BatteryLifePercent)
     }
 
     pub fn idle_seconds() -> Option<u64> {
@@ -93,6 +107,10 @@ mod imp {
         None
     }
 
+    pub fn battery_percent() -> Option<u8> {
+        None
+    }
+
     pub fn idle_seconds() -> Option<u64> {
         // SAFETY: a plain query with constant arguments, no pointers.
         let seconds = unsafe { CGEventSourceSecondsSinceLastEventType(COMBINED_SESSION, ANY_INPUT) };
@@ -120,6 +138,10 @@ mod imp {
         super::on_battery_from(std::path::Path::new("/sys/class/power_supply"))
     }
 
+    pub fn battery_percent() -> Option<u8> {
+        super::battery_percent_from(std::path::Path::new("/sys/class/power_supply"))
+    }
+
     pub fn idle_seconds() -> Option<u64> {
         // X11 and Wayland each have their own way, neither cheap from here.
         None
@@ -134,9 +156,27 @@ mod imp {
     pub fn on_battery() -> Option<bool> {
         None
     }
+    pub fn battery_percent() -> Option<u8> {
+        None
+    }
     pub fn idle_seconds() -> Option<u64> {
         None
     }
+}
+
+/// Reads how full Linux's batteries are, from their `capacity`: the lowest
+/// of them, so a laptop with a second battery nearly empty counts as low.
+#[cfg_attr(not(all(unix, not(target_os = "macos"))), allow(dead_code))]
+fn battery_percent_from(supplies: &std::path::Path) -> Option<u8> {
+    let read = |dir: &std::path::Path, name: &str| std::fs::read_to_string(dir.join(name)).ok();
+    std::fs::read_dir(supplies)
+        .ok()?
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|dir| read(dir, "type").as_deref().map(str::trim) == Some("Battery"))
+        .filter_map(|dir| read(&dir, "capacity")?.trim().parse::<u8>().ok())
+        .filter(|p| *p <= 100)
+        .min()
 }
 
 /// Reads Linux's list of power supplies: on mains when any mains supply is
@@ -173,6 +213,7 @@ mod tests {
     fn the_signals_can_be_asked_for_on_any_computer() {
         // What they answer depends on the computer; asking must never fail.
         let _ = on_battery();
+        let _ = battery_percent();
         let _ = idle_seconds();
         let worker = std::thread::spawn(lower_this_threads_priority);
         let _ = worker.join().unwrap();
@@ -196,5 +237,23 @@ mod tests {
         supply("AC", "Mains", Some("1"));
         assert_eq!(on_battery_from(dir.path()), Some(false));
         assert_eq!(on_battery_from(&dir.path().join("missing")), None);
+    }
+
+    #[test]
+    fn linux_batteries_say_how_full_they_are_the_emptiest_counting() {
+        let dir = tempfile::tempdir().unwrap();
+        let battery = |name: &str, capacity: &str| {
+            let d = dir.path().join(name);
+            std::fs::create_dir_all(&d).unwrap();
+            std::fs::write(d.join("type"), "Battery\n").unwrap();
+            std::fs::write(d.join("capacity"), format!("{capacity}\n")).unwrap();
+        };
+        assert_eq!(battery_percent_from(dir.path()), None, "no battery");
+        battery("BAT0", "87");
+        assert_eq!(battery_percent_from(dir.path()), Some(87));
+        battery("BAT1", "12");
+        assert_eq!(battery_percent_from(dir.path()), Some(12));
+        battery("BAT2", "not a number");
+        assert_eq!(battery_percent_from(dir.path()), Some(12));
     }
 }

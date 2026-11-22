@@ -757,14 +757,36 @@ pub fn skip_next_run(shared: State<'_, Shared>, undo: bool) -> Said<keevoro_api:
 
 /// Runs the open backup now as its schedule does: looks through the
 /// sources again, holds back what needs a say, sends what is new.
+/// With `anyway`, it starts without waiting for a good moment: "Back up
+/// now anyway" beside a run that waits.
 #[tauri::command]
-pub fn run_scheduled_now(shared: State<'_, Shared>) -> Said<()> {
+pub fn run_scheduled_now(shared: State<'_, Shared>, anyway: Option<bool>) -> Said<()> {
     let open = open_backup(&shared)?;
+    if anyway == Some(true) {
+        shared
+            .keevoro
+            .run_by_itself_anyway(&open, keevoro_api::Occasion::RunNow)
+            .map_err(say)?;
+    } else {
+        shared
+            .keevoro
+            .run_by_itself(&open, keevoro_api::Occasion::RunNow, 0, None)
+            .map_err(say)?;
+    }
+    Ok(())
+}
+
+/// How a backup by itself waits: on battery, on a metered connection, and
+/// the hours it may start in; and changing them.
+#[tauri::command]
+pub fn background_settings(
+    shared: State<'_, Shared>,
+    request: Option<keevoro_api::manners::MannersRequest>,
+) -> Said<keevoro_api::manners::MannersView> {
     shared
         .keevoro
-        .run_by_itself(&open, keevoro_api::Occasion::RunNow, 0, None)
-        .map_err(say)?;
-    Ok(())
+        .background_settings(&request.unwrap_or_default())
+        .map_err(say)
 }
 
 /// "While you were away": what every backup did by itself since the

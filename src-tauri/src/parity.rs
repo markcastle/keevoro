@@ -115,6 +115,7 @@ const BACKED: &[(&str, &[Op])] = &[
     ("schedule", &[Op::ScheduleShow]),
     ("away", &[Op::ScheduleAway]),
     ("source_on_arrival", &[Op::SourcesOnArrival]),
+    ("background_settings", &[Op::BackgroundSettings]),
     ("set_schedule", &[Op::ScheduleSet]),
     ("skip_next_run", &[Op::ScheduleSkipNext]),
     ("run_scheduled_now", &[Op::ScheduleRun]),

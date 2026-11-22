@@ -242,6 +242,9 @@ register! {
         changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
 
     // Backing up by itself
+    BackgroundSettings = "background.settings",
+        "How a backup by itself waits: on battery, on a metered connection, and the hours it may start in",
+        changes: OnlyWhenAsked, job: false, command_line: true, agents: Agents::No, implemented: true;
     ScheduleShow = "schedule.show",
         "When a backup runs by itself, when it runs next, and its last few runs",
         changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
@@ -387,6 +390,7 @@ impl Op {
                 | Op::KeevoroAbout
                 | Op::KeevoroActivity
                 | Op::ScheduleAway
+                | Op::BackgroundSettings
                 | Op::KeevoroLog
                 | Op::KeevoroSettings
                 | Op::KeevoroUpdate
@@ -429,6 +433,9 @@ impl Op {
                 Op::BackupWants | Op::SourcesWants => given("wants"),
                 Op::BackupArrange | Op::SourcesArrange => given("arrange"),
                 Op::SourcesOnArrival => given("on"),
+                Op::BackgroundSettings => {
+                    given("waitOnBattery") || given("waitOnMetered") || given("between") || given("anyHour")
+                }
                 Op::KeevoroSettings => given("ownCodecs"),
                 // Asked only what it would clear, it clears nothing.
                 Op::DestinationsTidy | Op::BackupsForget => {
@@ -495,6 +502,7 @@ impl Op {
             Op::BackupArrange => schema::<crate::arrange::BackupArrangeRequest>(),
             Op::SourcesArrange => schema::<crate::arrange::SourceArrangeRequest>(),
             Op::SourcesOnArrival => schema::<crate::arrival::OnArrivalRequest>(),
+            Op::BackgroundSettings => schema::<crate::manners::MannersRequest>(),
             Op::SourcesWants => schema::<crate::wants::SourceWantsRequest>(),
             Op::DestinationsTidy => schema::<crate::keevoro::TidyRequest>(),
             Op::FileKindsAdd => schema::<AddFileKindRequest>(),
@@ -852,6 +860,7 @@ impl Op {
             | Op::ScheduleSet
             | Op::ScheduleSkipNext
             | Op::SourcesOnArrival
+            | Op::BackgroundSettings
             | Op::BackupsForget
             | Op::BackupsRemoved
             | Op::BackupsPutBack
@@ -920,7 +929,7 @@ mod tests {
 
     #[test]
     fn the_register_has_every_operation_in_the_plan() {
-        assert_eq!(Op::ALL.len(), 74);
+        assert_eq!(Op::ALL.len(), 75);
         // Each entry is the one for its own operation.
         for op in Op::ALL {
             assert_eq!(op.entry().op, *op);
@@ -1004,8 +1013,10 @@ mod tests {
             Op::ScheduleRun,
             Op::ScheduleSet,
             Op::ScheduleSkipNext,
-            // Backing up when a source is plugged in is the same promise.
+            // Backing up when a source is plugged in is the same promise,
+            // and so is when a backup by itself may start.
             Op::SourcesOnArrival,
+            Op::BackgroundSettings,
             // A report goes to Keevoro's maker in the person's own words, so
             // only the person makes, sends or asks after one, never an agent.
             Op::ReportsPrepare,

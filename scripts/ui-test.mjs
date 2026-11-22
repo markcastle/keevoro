@@ -1316,6 +1316,34 @@ try {
   await settled()
   assert.equal(await page.locator('.away').count(), 0, 'nothing to say, nothing shown')
 
+  // --- A run due that waits for a good moment says why, with Back up now
+  // anyway beside it; Settings says what it waits for, and the hours.
+  await page.goto(`${base}/?byitself&schedule&waiting&fast`)
+  const waitingCard = page.locator('.schedule-card')
+  await waitingCard.getByText('Waiting while this computer is on battery. The run due will start by itself once it can.').waitFor()
+  await waitingCard.scrollIntoViewIfNeeded()
+  await shot('9x2b-waiting-back-up-anyway')
+  await fitsNarrow('A run waiting for a good moment')
+  await narrowShots('9x2b-waiting-back-up-anyway', waitingCard)
+  await waitingCard.getByRole('button', { name: 'Back up now anyway' }).click()
+  await waitingCard.locator('.schedule-last li').first().getByText('Safely backed up 12 files (41.0 MB).').waitFor()
+  await waitingCard.getByText(/^Waiting while this computer is on battery/).waitFor({ state: 'detached' })
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Backing up by itself' }).click()
+  const waits = page.getByRole('group', { name: 'Waiting for a good moment' })
+  assert.equal(await waits.getByRole('switch', { name: 'Wait while on battery' }).getAttribute('aria-checked'), 'true')
+  assert.equal(await waits.getByRole('switch', { name: 'Wait on a metered connection' }).getAttribute('aria-checked'), 'true')
+  await waits.getByRole('switch', { name: 'Only between these hours' }).click()
+  await waits.getByText('A run that comes round by itself starts only between 22:00 and 07:00, in this computer’s own time.').waitFor()
+  await waits.locator('.between-times select').first().selectOption('23:00')
+  await waits.getByText(/starts only between 23:00 and 07:00/).waitFor()
+  await waits.scrollIntoViewIfNeeded()
+  await shot('9x4b-settings-waiting-for-a-good-moment')
+  await fitsNarrow('Settings, waiting for a good moment')
+  await narrowShots('9x4b-settings-waiting-for-a-good-moment', waits)
+  await waits.getByRole('switch', { name: 'Only between these hours' }).click()
+  await waits.getByText('A run that comes round by itself starts at any hour.').waitFor()
+
   // --- Keevoro by the clock. The first time the window is closed, it says
   // Keevoro keeps running, and where its icon is; starting with the
   // computer is never ticked for the person.

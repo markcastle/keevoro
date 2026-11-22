@@ -50,6 +50,7 @@ import type {
   ScheduleView,
   ReportListed,
   AwayView,
+  MannersView,
 } from './backend'
 import { count, size } from './format'
 import { PictureQueue, fileKey } from './pictureQueue'
@@ -795,6 +796,12 @@ export function demoBackend(): Backend {
         ],
       }
     : { since: hoursAgo(1), backups: [], waiting: [] }
+  // How a backup by itself waits; `?waiting` opens with the run due
+  // waiting while the computer is on battery.
+  let manners: MannersView = { waitOnBattery: true, waitOnMetered: true, meteredKnown: true }
+  let waitingNow: string | null = new URLSearchParams(window.location.search).has('waiting')
+    ? 'Waiting while this computer is on battery'
+    : null
   const ordinalOf = (n: number) =>
     `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : n % 10 === 1 ? 'st' : n % 10 === 2 ? 'nd' : n % 10 === 3 ? 'rd' : 'th'}`
   const DAYS: Record<string, string> = { mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday' }
@@ -815,6 +822,7 @@ export function demoBackend(): Backend {
       paused: c.paused,
       ...(c.paused ? {} : { next, nextAt: hoursAgo(-8) }),
       skipping: skippingNext && !c.paused,
+      ...(waitingNow && !c.paused ? { waiting: waitingNow } : {}),
       last: scheduleLast,
     }
   }
@@ -2001,8 +2009,16 @@ export function demoBackend(): Backend {
       return scheduleView()
     },
     async runScheduledNow() {
+      waitingNow = null
       scheduleLast.unshift({ at: hoursAgo(0), why: 'when you pressed Run now', outcome: 'worked', said: 'Safely backed up 12 files (41.0 MB).' })
       await this.send()
+    },
+    backgroundSettings: async (request) => {
+      if (request?.waitOnBattery !== undefined) manners.waitOnBattery = request.waitOnBattery
+      if (request?.waitOnMetered !== undefined) manners.waitOnMetered = request.waitOnMetered
+      if (request?.between) manners = { ...manners, between: request.between, betweenSaid: `between ${request.between.from} and ${request.between.to}` }
+      if (request?.anyHour) manners = { ...manners, between: undefined, betweenSaid: undefined }
+      return { ...manners }
     },
     windowUsed: async () => {},
     away: async () => awayView,

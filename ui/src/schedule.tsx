@@ -8,9 +8,10 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import type { Backend, ScheduleAttempt, ScheduleView, SetSchedule } from './backend'
+import { Explained } from './explained'
 
 /** The times offered: every quarter of an hour, as a person reads them. */
-const TIMES = Array.from({ length: 96 }, (_, i) => `${String(Math.floor(i / 4)).padStart(2, '0')}:${String((i % 4) * 15).padStart(2, '0')}`)
+export const TIMES = Array.from({ length: 96 }, (_, i) => `${String(Math.floor(i / 4)).padStart(2, '0')}:${String((i % 4) * 15).padStart(2, '0')}`)
 
 const WEEKDAYS: [string, string][] = [
   ['mon', 'Monday'],
@@ -101,6 +102,22 @@ export function ScheduleCard(props: {
               </button>
             </span>
           </p>
+          {view.waiting && !view.paused && (
+            <Explained
+              className="schedule-waiting"
+              action={
+                <button
+                  className="button small"
+                  disabled={props.running}
+                  onClick={() => api.runScheduledNow(true).then(read).catch(onProblem)}
+                >
+                  Back up now anyway
+                </button>
+              }
+            >
+              {view.waiting}. The run due will start by itself once it can.
+            </Explained>
+          )}
           {view.next && !view.paused && (
             <p className="schedule-line">
               <span>

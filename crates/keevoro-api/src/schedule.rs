@@ -224,6 +224,10 @@ pub struct ScheduleView {
     pub next_at: Option<i64>,
     /// True when that next run will be skipped, as asked.
     pub skipping: bool,
+    /// A run due that is waiting for a good moment, and why: "Waiting
+    /// while this computer is on battery". "Back up now anyway" starts it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub waiting: Option<String>,
     /// The last few runs, newest first.
     pub last: Vec<Attempt>,
     /// True when a choice was kept that could not be read; it is kept as it
@@ -244,12 +248,14 @@ pub(crate) fn view(catalog: &Catalog, now: Timestamp, zone: &TimeZone) -> Result
             ..ScheduleView::default()
         });
     };
-    let next = match rules::due(&schedule, &record.rules(), zone, now) {
+    let due = rules::due(&schedule, &record.rules(), zone, now);
+    let next = match due {
         Due::Paused => None,
         Due::NotYet { next } => next,
         Due::Pass { slot, .. } | Due::Now { slot, .. } => Some(slot),
     };
     Ok(ScheduleView {
+        waiting: matches!(due, Due::Now { .. }).then(|| waiting_for(&record)).flatten(),
         every: Some(rules::every_words(&schedule)),
         choice: Some(schedule.stored()),
         paused: schedule.paused,
@@ -259,6 +265,14 @@ pub(crate) fn view(catalog: &Catalog, now: Timestamp, zone: &TimeZone) -> Result
         last: record.last,
         unreadable: false,
     })
+}
+
+/// Why the run due is waiting, when its last try waited for a good
+/// moment: "Waiting while this computer is on battery".
+pub(crate) fn waiting_for(record: &Record) -> Option<String> {
+    let last = record.last.first().filter(|a| a.outcome == "notNow")?;
+    let why = last.said.strip_prefix("Not backed up then. ").unwrap_or(&last.said);
+    Some(why.trim_end_matches('.').to_string())
 }
 
 /// The schedule a request asks for, given the one there is.
@@ -1063,6 +1077,33 @@ mod tests {
             !serde_json::to_string(&record).unwrap().contains("missed"),
             "nothing new written"
         );
+    }
+
+    #[test]
+    fn a_run_due_that_waits_for_a_good_moment_says_why() {
+        let dir = tempfile::tempdir().unwrap();
+        let clock = Moved::at("2026-06-10T12:00");
+        let keevoro = crate::keevoro::tests::keevoro(dir.path()).with_clock(clock.clone());
+        let named = keevoro.start_backup("Family").unwrap();
+        keevoro.set_schedule(&named, &set("day", "02:30")).unwrap();
+        clock.to("2026-06-11T02:31");
+        let catalog = Catalog::open_in_library(&named.home).unwrap();
+        let mut record = record_of(&catalog).unwrap();
+        record.note(attempt(
+            "2026-06-11T02:31",
+            "notNow",
+            "Not backed up then. Waiting while this computer is on battery.",
+        ));
+        keep_record(&catalog, &record).unwrap();
+        let shown = keevoro.schedule(&named).unwrap();
+        assert_eq!(
+            shown.waiting.as_deref(),
+            Some("Waiting while this computer is on battery")
+        );
+        // Once it has run, nothing waits.
+        record.handled_through = Some(wall("2026-06-11T02:30").as_second());
+        keep_record(&catalog, &record).unwrap();
+        assert_eq!(keevoro.schedule(&named).unwrap().waiting, None);
     }
 
     #[test]

@@ -587,6 +587,18 @@ fn a_backup_run_by_itself_for_a_system_scheduler_says_in_its_exit_code_what_happ
         on.err
     );
     at.keevoro(&["sources", "on-arrival", "1", "off"]);
+    // How a backup by itself waits for a good moment.
+    let manners = at.keevoro(&["background", "--between", "22:00", "07:00", "--wait-on-metered", "off"]);
+    assert!(
+        manners.out.contains("Starts by itself only between 22:00 and 07:00."),
+        "{}{}",
+        manners.out,
+        manners.err
+    );
+    assert!(at
+        .keevoro(&["background", "--any-hour"])
+        .out
+        .contains("Starts by itself at any hour."));
 
     // With --if-due, only when its schedule says so: none yet, then not
     // due, as saving a schedule never runs it at once.

@@ -3039,3 +3039,50 @@ fn a_backup_by_itself_looks_again_quickly_and_reads_every_file_again_once_a_mont
     by_itself(&keevoro, &named);
     assert_ne!(hash_now(), first, "read again in full");
 }
+
+#[test]
+fn back_up_now_anyway_starts_on_battery_and_outside_the_hours_chosen() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro(dir.path()).with_signals(on_battery());
+    let (named, _card, usb) = card_going_to_usb(dir.path(), &keevoro);
+    Catalog::open_in_library(&named.home)
+        .unwrap()
+        .set_arrange(keevoro_core::Arrange::ByDate)
+        .unwrap();
+    // As it comes, it waits on battery.
+    let waited = by_itself(&keevoro, &named);
+    assert_eq!(
+        waited.not_now.as_deref(),
+        Some("Waiting while this computer is on battery")
+    );
+    // Allowed on battery, it runs; asked anyway, it runs whatever.
+    keevoro
+        .background_settings(&crate::manners::MannersRequest {
+            wait_on_battery: Some(false),
+            ..Default::default()
+        })
+        .unwrap();
+    let ran = by_itself(&keevoro, &named);
+    assert_eq!(ran.not_now, None, "{ran:?}");
+    keevoro
+        .background_settings(&crate::manners::MannersRequest {
+            wait_on_battery: Some(true),
+            ..Default::default()
+        })
+        .unwrap();
+    std::fs::write(
+        walk_files(&dir.path().join("Card"))[0].with_file_name("IMG_20240601_100000.jpg"),
+        large_photo(30),
+    )
+    .unwrap();
+    let job = keevoro
+        .run_by_itself_anyway(&named, keevoro_core::unattended::Occasion::RunNow)
+        .unwrap();
+    let Some(Said::Send(last)) = keevoro.wait(job.id) else {
+        panic!("a backup ends with how it went")
+    };
+    keevoro.wait_for_jobs();
+    assert_eq!((last.not_now, last.outcome), (None, Some(Outcome::Worked)));
+    assert!(usb.join("originals").is_dir());
+}

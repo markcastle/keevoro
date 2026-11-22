@@ -76,8 +76,9 @@ impl Signals for ThisComputer {
         StartFacts {
             on_battery: conditions.on_battery,
             others_cpu: conditions.others_cpu,
-            // Not known yet on any computer: never a reason to wait.
-            metered: None,
+            // Known on Windows; elsewhere never a reason to wait.
+            metered: keevoro_frame::network::metered(),
+            battery_percent: keevoro_frame::quiet::battery_percent(),
             ..StartFacts::default()
         }
     }
@@ -134,25 +135,51 @@ impl Keevoro {
         if_due: bool,
         listener: Option<Listener>,
     ) -> Result<JobHandle> {
-        self.start_by_itself(backup, occasion, wait_minutes, if_due, None, listener)
+        let asked = Asked {
+            occasion,
+            wait_minutes,
+            if_due,
+            only: None,
+            anyway: false,
+        };
+        self.start_by_itself(backup, asked, listener)
+    }
+
+    /// Backs up by itself now, as the schedule would, without waiting for a
+    /// good moment: "Back up now anyway".
+    pub fn run_by_itself_anyway(&self, backup: &Named, occasion: Occasion) -> Result<JobHandle> {
+        let asked = Asked {
+            occasion,
+            wait_minutes: 0,
+            if_due: false,
+            only: None,
+            anyway: true,
+        };
+        self.start_by_itself(backup, asked, None)
     }
 
     /// Backs up by itself because the source `source` was plugged in:
     /// looks through that source alone, then sends what is new. Waits at
     /// most `wait_minutes` for a good moment.
     pub fn run_by_itself_for_source(&self, backup: &Named, source: i64, wait_minutes: u32) -> Result<JobHandle> {
-        self.start_by_itself(backup, Occasion::SourceArrived, wait_minutes, false, Some(source), None)
+        let asked = Asked {
+            occasion: Occasion::SourceArrived,
+            wait_minutes,
+            if_due: false,
+            only: Some(source),
+            anyway: false,
+        };
+        self.start_by_itself(backup, asked, None)
     }
 
-    fn start_by_itself(
-        &self,
-        backup: &Named,
-        occasion: Occasion,
-        wait_minutes: u32,
-        if_due: bool,
-        only: Option<i64>,
-        listener: Option<Listener>,
-    ) -> Result<JobHandle> {
+    fn start_by_itself(&self, backup: &Named, asked: Asked, listener: Option<Listener>) -> Result<JobHandle> {
+        let Asked {
+            occasion,
+            wait_minutes,
+            if_due,
+            only,
+            anyway,
+        } = asked;
         let lock = OneAtATime::take(&self.data)?.ok_or_else(|| Error::busy(ONE_AT_A_TIME))?;
         let ctx = self.context();
         let job = ctx.jobs.begin_by_itself(backup, occasion, listener)?;
@@ -167,6 +194,8 @@ impl Keevoro {
             occasion,
             if_due,
             only,
+            anyway,
+            config: self.backups().config_folder().to_path_buf(),
             wait: Duration::from_secs(u64::from(wait_minutes) * 60),
             signals: self.signals.clone(),
             window_used: self.window_used.clone(),
@@ -208,6 +237,19 @@ impl Keevoro {
     }
 }
 
+/// How a run by itself was asked for.
+struct Asked {
+    occasion: Occasion,
+    /// How long it may wait for a good moment.
+    wait_minutes: u32,
+    /// Only if its schedule has a run due.
+    if_due: bool,
+    /// Only this source is looked through.
+    only: Option<i64>,
+    /// Start without waiting for a good moment.
+    anyway: bool,
+}
+
 /// What a run by itself does, once it holds the lock.
 enum Plan {
     /// Its schedule has nothing due: what to say, and the slot passed over
@@ -233,6 +275,11 @@ struct Run {
     if_due: bool,
     /// Only this source is looked through (one just plugged in).
     only: Option<i64>,
+    /// Start without waiting for a good moment, as the person asked.
+    anyway: bool,
+    /// Keevoro's config folder, where how a backup by itself behaves as a
+    /// guest is kept (`crate::manners`).
+    config: PathBuf,
     wait: Duration,
     signals: Arc<dyn Signals>,
     window_used: Arc<AtomicI64>,
@@ -387,7 +434,7 @@ impl Run {
         occasion: Occasion,
         said_first: Vec<String>,
     ) -> Said {
-        if let Some(not_now) = self.wait_for_a_good_moment(job) {
+        if let Some(not_now) = self.wait_for_a_good_moment(job, occasion) {
             return self.end(ctx, job, not_now);
         }
         if job.stopped() {
@@ -468,13 +515,20 @@ impl Run {
     /// Waits while the computer is on battery or busy, or the person is in
     /// Keevoro's window, for at most the time allowed. Gives why it did not
     /// run now, if it gave up.
-    fn wait_for_a_good_moment(&self, job: &Arc<Job>) -> Option<Ending> {
+    fn wait_for_a_good_moment(&self, job: &Arc<Job>, occasion: Occasion) -> Option<Ending> {
+        if self.anyway {
+            return None;
+        }
         let started = Instant::now();
         loop {
+            let manners = crate::manners::Manners::read(&self.config);
             let facts = StartFacts {
                 needs_internet: needs_internet(&self.backup.home),
                 window_used: self.window_used_ago(),
                 person_asked: self.occasion.person_asked(),
+                allow_battery: !manners.wait_on_battery,
+                allow_metered: !manners.wait_on_metered,
+                outside_hours: manners.outside_hours(occasion, self.clock.now(), &self.clock.zone()),
                 ..self.signals.now()
             };
             let Err(wait) = may_start(&facts) else {

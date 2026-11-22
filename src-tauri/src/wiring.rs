@@ -464,6 +464,17 @@ fn the_screens_commands_start_the_apis_jobs_and_their_events_reach_the_window() 
     assert_eq!(off["last"], json!([]));
     // While you were away: nothing ran by itself yet, in the shape the
     // screen reads, and Done is heard.
+    // How a backup by itself waits, in the shape the Settings rows read.
+    let manners = invoke(&window, "background_settings", json!({})).unwrap();
+    fits(&manners, "MannersView");
+    assert_eq!(manners["waitOnBattery"], true);
+    let changed = invoke(
+        &window,
+        "background_settings",
+        json!({ "request": { "between": { "from": "22:00", "to": "07:00" } } }),
+    )
+    .unwrap();
+    assert_eq!(changed["betweenSaid"], "between 22:00 and 07:00");
     let away = invoke(&window, "away", json!({})).unwrap();
     fits(&away, "AwayView");
     assert_eq!(

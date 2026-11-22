@@ -62,6 +62,8 @@ pub struct Facts {
     pub all_well: bool,
     /// Some backup has a schedule, paused or not.
     pub any_schedule: bool,
+    /// A backup whose run due is waiting for a good moment, and why.
+    pub waiting: Option<(String, String)>,
 }
 
 /// What is said when something needs the person.
@@ -86,6 +88,9 @@ pub fn said(facts: &Facts, now: Timestamp, zone: &TimeZone) -> (Mood, String) {
     }
     if facts.needs_you {
         return (Mood::NeedsYou, NEEDS_YOU.to_string());
+    }
+    if let Some((name, why)) = &facts.waiting {
+        return (Mood::Calm, format!("{name}: {}", lower_first(why)));
     }
     let line = match (&facts.next, facts.any_schedule) {
         (Some((name, at)), _) => {
@@ -283,7 +288,13 @@ impl Keevoro {
             let Some(schedule) = schedule else { continue };
             facts.any_schedule = true;
             scheduled += 1;
-            let next = match rules::due(&schedule, &record.rules(), &zone, now) {
+            let due = rules::due(&schedule, &record.rules(), &zone, now);
+            if matches!(due, Due::Now { .. }) {
+                if let Some(why) = crate::schedule::waiting_for(&record) {
+                    facts.waiting.get_or_insert((named.name.clone(), why));
+                }
+            }
+            let next = match due {
                 Due::NotYet { next } => next,
                 Due::Pass { slot, .. } | Due::Now { slot, .. } => Some(slot),
                 Due::Paused => None,
@@ -415,6 +426,31 @@ mod tests {
         };
         assert_eq!(line(&paused_schedules).1, "Nothing due: backing up by itself is paused");
         assert_eq!(line(&Facts::default()), (Mood::Calm, "Nothing running now".into()));
+    }
+
+    #[test]
+    fn a_run_waiting_for_a_good_moment_says_why_in_the_tooltip() {
+        let waiting = Facts {
+            next: Some(("Family photos".to_string(), wall("2026-06-11T02:30"))),
+            any_schedule: true,
+            waiting: Some((
+                "Family photos".into(),
+                "Waiting for a connection that isn't metered".into(),
+            )),
+            ..Facts::default()
+        };
+        assert_eq!(
+            line(&waiting),
+            (
+                Mood::Calm,
+                "Family photos: waiting for a connection that isn't metered".into()
+            )
+        );
+        let needs_you = Facts {
+            needs_you: true,
+            ..waiting.clone()
+        };
+        assert_eq!(line(&needs_you).0, Mood::NeedsYou, "what needs the person comes first");
     }
 
     #[test]

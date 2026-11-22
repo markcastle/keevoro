@@ -328,6 +328,7 @@ fn app<R: Runtime>(
             commands::away,
             commands::away_seen,
             commands::source_on_arrival,
+            commands::background_settings,
             commands::stop_scanning,
             commands::survey_place,
             commands::stop_survey,

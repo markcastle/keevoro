@@ -843,6 +843,13 @@ pub static ROWS: &[Row] = &[
                 .requires("unattended"),
             )
             .arg(
+                flag(
+                    "anyway",
+                    "With --unattended, start now without waiting for a good moment: not on battery, a metered connection, a busy computer or the hours chosen",
+                )
+                .requires("unattended"),
+            )
+            .arg(
                 arg("wait", "With --unattended, how many minutes to wait at most for a good moment; none by default")
                     .long("wait")
                     .value_name("MINUTES")
@@ -858,6 +865,9 @@ pub static ROWS: &[Row] = &[
                 }
                 if m.get_flag("if-due") {
                     ask["ifDue"] = json!(true);
+                }
+                if m.get_flag("anyway") {
+                    ask["anyway"] = json!(true);
                 }
                 Ok((Op::ScheduleRun, ask))
             } else {
@@ -1073,6 +1083,49 @@ pub static ROWS: &[Row] = &[
         args: none,
         ask: |c, m, io| nothing(c, m, io, Op::KeevoroAbout),
         show: show::about,
+    },
+    Row {
+        words: &["background"],
+        ops: &[Op::BackgroundSettings],
+        about: Some(
+            "How a backup by itself waits for a good moment: while this computer is on battery and less than half charged, on a metered connection (for cloud storage; only Windows can tell), and outside the hours you choose. With nothing given, says how it is now.",
+        ),
+        args: |c| {
+            c.arg(
+                arg("wait-on-battery", "on or off")
+                    .long("wait-on-battery")
+                    .value_parser(["on", "off"]),
+            )
+            .arg(
+                arg("wait-on-metered", "on or off")
+                    .long("wait-on-metered")
+                    .value_parser(["on", "off"]),
+            )
+            .arg(
+                arg("between", "Only start between these times, such as --between 22:00 07:00")
+                    .long("between")
+                    .num_args(2)
+                    .value_names(["FROM", "TO"]),
+            )
+            .arg(flag("any-hour", "Start at any hour").conflicts_with("between"))
+        },
+        ask: |_, m, _| {
+            let switch = |name: &str| text(m, name).map(|w| w == "on");
+            let between = m
+                .get_many::<String>("between")
+                .map(|times| times.cloned().collect::<Vec<_>>())
+                .map(|t| json!({ "from": t[0], "to": t[1] }));
+            Ok((
+                Op::BackgroundSettings,
+                json!({
+                    "waitOnBattery": switch("wait-on-battery"),
+                    "waitOnMetered": switch("wait-on-metered"),
+                    "between": between,
+                    "anyHour": m.get_flag("any-hour").then_some(true),
+                }),
+            ))
+        },
+        show: show::background,
     },
     Row {
         words: &["away"],

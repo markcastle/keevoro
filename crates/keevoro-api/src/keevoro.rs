@@ -790,6 +790,8 @@ impl Keevoro {
         // starting with the computer.
         let _ = std::fs::remove_file(&self.rates);
         let _ = std::fs::remove_file(self.backups.config_folder().join(crate::window::FILE));
+        // And how a backup by itself waits for a good moment.
+        let _ = std::fs::remove_file(self.backups.config_folder().join(crate::manners::FILE));
         // The list of reports sent from this computer goes too. The reports
         // themselves were sent, and stay with Keevoro's maker.
         let _ = std::fs::remove_file(self.backups.config_folder().join(crate::reports::FILE));

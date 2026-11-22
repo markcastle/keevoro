@@ -480,6 +480,31 @@ export type AwayRun = {
   caughtUp?: string
 }
 
+/** Hours of the day, "22:00" until "07:00"; across midnight when `to` comes first. */
+export type Between = {
+  from: string
+  to: string
+}
+
+/** How a backup by itself waits for a good moment. */
+export type MannersView = {
+  waitOnBattery: boolean
+  waitOnMetered: boolean
+  /** False where this computer cannot say whether its connection is metered. */
+  meteredKnown: boolean
+  between?: Between
+  /** "between 22:00 and 07:00" */
+  betweenSaid?: string
+}
+
+/** What to change in how a backup by itself waits; each part left out stays. */
+export type MannersChange = {
+  waitOnBattery?: boolean
+  waitOnMetered?: boolean
+  between?: Between
+  anyHour?: boolean
+}
+
 /** Whether a source is backed up by itself whenever it is plugged in. */
 export type OnArrivalView = { source: number; on: boolean }
 
@@ -500,6 +525,8 @@ export type ScheduleView = {
   next?: string
   nextAt?: number
   skipping: boolean
+  /** A run due that is waiting for a good moment, and why. */
+  waiting?: string
   last: ScheduleAttempt[]
   /** A schedule this version could not read: it is kept, and counts as none. */
   unreadable?: boolean
@@ -1201,8 +1228,10 @@ export interface Backend {
   schedule(): Promise<ScheduleView>
   setSchedule(request: SetSchedule): Promise<ScheduleView>
   skipNextRun(undo: boolean): Promise<ScheduleView>
-  /** Runs it now as its schedule does; heard as `send` events. */
-  runScheduledNow(): Promise<void>
+  /** Runs it now as its schedule does; heard as `send` events. With `anyway`, without waiting for a good moment. */
+  runScheduledNow(anyway?: boolean): Promise<void>
+  /** How a backup by itself waits for a good moment, and changing it. */
+  backgroundSettings(request?: MannersChange): Promise<MannersView>
   /** The person is using the window, so a backup by itself waits until they have finished. */
   windowUsed(): Promise<void>
   /** "While you were away": what every backup did by itself since the window was last seen. */
@@ -1411,7 +1440,8 @@ async function tauriBackend(): Promise<Backend> {
     schedule: () => invoke('schedule'),
     setSchedule: (request) => invoke('set_schedule', { request }),
     skipNextRun: (undo) => invoke('skip_next_run', { undo }),
-    runScheduledNow: () => invoke('run_scheduled_now'),
+    runScheduledNow: (anyway) => invoke('run_scheduled_now', { anyway }),
+    backgroundSettings: (request) => invoke('background_settings', { request }),
     windowUsed: () => invoke('window_used'),
     away: () => invoke('away'),
     setSourceOnArrival: (source, on) => invoke('source_on_arrival', { source, on }),

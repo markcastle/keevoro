@@ -5078,6 +5078,21 @@ tr[aria-selected='true'] .share-bar .carried {
 }
 
 /* Backing up by itself, on the backup screen (ui/src/schedule.tsx). */
+.schedule-card .schedule-waiting {
+  margin: var(--space-2) 0;
+}
+
+/* Only between these hours, in Settings (ui/src/settings/backingUp.tsx). */
+.between-times {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+}
+
+.between-times select {
+  margin-left: var(--space-1);
+}
+
 .schedule-card {
   margin: var(--space-5) 0;
   padding: var(--space-4) var(--space-5);

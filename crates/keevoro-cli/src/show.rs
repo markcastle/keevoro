@@ -1364,6 +1364,31 @@ pub fn last_word(io: &mut Io<'_>, last: Option<&Said>) -> std::io::Result<()> {
 }
 
 /// When a backup backs up by itself, when next, and its last few runs.
+/// `keevoro background`: how a backup by itself waits for a good moment.
+pub fn background(io: &mut Io<'_>, _: &ArgMatches, view: &Value) -> Said_ {
+    let on = |name: &str| view.get(name).and_then(Value::as_bool) == Some(true);
+    writeln!(
+        io.out,
+        "{}",
+        if on("waitOnBattery") {
+            "Waits while this computer is on battery and less than half charged."
+        } else {
+            "Runs on battery too."
+        }
+    )?;
+    let metered = match (on("meteredKnown"), on("waitOnMetered")) {
+        (false, _) => "This computer can't say whether its connection is metered, so a backup to cloud storage doesn't wait for one.",
+        (true, true) => "A backup to cloud storage waits while the connection is metered.",
+        (true, false) => "A backup to cloud storage runs on a metered connection too.",
+    };
+    writeln!(io.out, "{metered}")?;
+    match view.get("betweenSaid").and_then(Value::as_str) {
+        Some(hours) => writeln!(io.out, "Starts by itself only {hours}.")?,
+        None => writeln!(io.out, "Starts by itself at any hour.")?,
+    }
+    Ok(Code::Worked)
+}
+
 /// `keevoro sources on-arrival`.
 pub fn on_arrival(io: &mut Io<'_>, _: &ArgMatches, view: &Value) -> Said_ {
     if view.get("on").and_then(Value::as_bool) == Some(true) {
