@@ -145,7 +145,25 @@ fn allowed(keevoro: &Keevoro, op: Op, backup: Option<&str>, mut request: Value) 
                 may_look_in(&access, &file.display().to_string())?;
             }
         }
-        Op::DestinationsAdd => match text(&request, "kind") {
+        // Reading what is at a place: one allowed to look in or back up to.
+        Op::BackupsFindAt => match text(&request, "kind") {
+            "r2" | "s3" | "gcs" | "endpoint" => {}
+            _ => {
+                place(&request)?;
+                let real = checked(
+                    &request,
+                    "place",
+                    |p| {
+                        access
+                            .real_place_to_back_up_to(p)
+                            .or_else(|| access.real_place_to_look_in(p))
+                    },
+                    "look in",
+                )?;
+                put(&mut request, "place", real);
+            }
+        },
+        Op::DestinationsAdd | Op::BackupsOpenFrom => match text(&request, "kind") {
             "r2" | "s3" | "gcs" | "endpoint" => {}
             // A folder, or a kind not understood, which the operation will
             // refuse: either way the place is judged as a folder first.

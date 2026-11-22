@@ -229,6 +229,23 @@ pub struct Rehearsal {
     pub said: Vec<String>,
 }
 
+/// The place a request names, as a destination is remembered.
+pub(crate) fn place_of(request: &AddDestinationRequest) -> Result<Saved> {
+    let place = Some(request.place.trim().to_string()).filter(|p| !p.is_empty());
+    let mut flags = Flags {
+        bucket: request.bucket.clone().filter(|b| !b.trim().is_empty()),
+        ..Flags::default()
+    };
+    match request.kind {
+        DestinationKind::Folder => flags.to_folder = place.map(Into::into),
+        DestinationKind::R2 => flags.to_r2 = place,
+        DestinationKind::S3 => flags.to_s3 = place,
+        DestinationKind::Gcs => flags.to_gcs = true,
+        DestinationKind::Endpoint => flags.to_endpoint = place,
+    }
+    Saved::from_flags(&flags).ok_or_else(|| Error::failed("Say where to back up to first.".into()))
+}
+
 impl Backup {
     /// Each place this backup goes, in words, read from its saved list
     /// without counting anything: quick enough to ask at any time.
@@ -277,19 +294,7 @@ impl Backup {
         secrets: &dyn SecretStore,
         environment: &dyn Fn(&str) -> Option<String>,
     ) -> Result<DestinationAdded> {
-        let place = Some(request.place.trim().to_string()).filter(|p| !p.is_empty());
-        let mut flags = Flags {
-            bucket: request.bucket.clone().filter(|b| !b.trim().is_empty()),
-            ..Flags::default()
-        };
-        match request.kind {
-            DestinationKind::Folder => flags.to_folder = place.map(Into::into),
-            DestinationKind::R2 => flags.to_r2 = place,
-            DestinationKind::S3 => flags.to_s3 = place,
-            DestinationKind::Gcs => flags.to_gcs = true,
-            DestinationKind::Endpoint => flags.to_endpoint = place,
-        }
-        let saved = Saved::from_flags(&flags).ok_or_else(|| Error::failed("Say where to back up to first.".into()))?;
+        let saved = place_of(request)?;
         // Half a pair is a mistake to say, not a reason to use other keys.
         let given = Keys::new(access, secret);
         if given.is_none() && !(access.is_empty() && secret.is_empty()) && request.kind != DestinationKind::Folder {

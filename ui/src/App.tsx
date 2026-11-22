@@ -80,6 +80,7 @@ import { OtherFilesScreen, OtherFilesSection } from './otherFiles'
 import { ThereNow, WhatWasFound } from './whatIsThere'
 import { PutRight } from './putRight'
 import { ManageBackups } from './manageBackups'
+import { ConnectAgain, OpenFrom } from './openFrom'
 import { CheckLine, CheckStopped } from './checking'
 import { WindowAsks } from './tray'
 import { certain, mainButtonWords, needingAttention, outOfReachLine } from './thereWords'
@@ -129,6 +130,9 @@ export function App() {
   const [sendAsk, setSendAsk] = useState<SendAsk | null>(null)
   // Manage backups opened from Settings goes back there.
   const [backupsFromSettings, setBackupsFromSettings] = useState(false)
+  // Opening a backup that is already somewhere, from the first screen,
+  // Manage backups or Help.
+  const [openingFrom, setOpeningFrom] = useState(false)
   const [scan, setScan] = useState<ScanEvent | null>(null)
   const [justFound, setJustFound] = useState<ScanEvent | null>(null)
   // Background checking of files a quick search only sampled.
@@ -462,6 +466,16 @@ export function App() {
 
   // Where an answer in Help, How do I…, goes.
   const goTo = (going: Going) => {
+    if ('opening' in going) {
+      setOpeningFrom(true)
+      if (state.backup) {
+        setBackupsFromSettings(true)
+        setOverlay('backups')
+      } else {
+        setOverlay(null)
+      }
+      return
+    }
     if ('row' in going) {
       openSettings(placeOfRow(going.row))
       return
@@ -613,8 +627,21 @@ export function App() {
               {banner}
               {activity}
             </>
+          ) : openingFrom ? (
+            <OpenFrom
+              api={api}
+              onOpened={(s) => {
+                setOpeningFrom(false)
+                void openBackup(Promise.resolve(s))
+              }}
+              onBack={() => setOpeningFrom(false)}
+            />
           ) : (
-            <Welcome onStart={(name) => openBackup(api.startBackup(name))} problem={problem} />
+            <Welcome
+              onStart={(name) => openBackup(api.startBackup(name))}
+              onAlready={() => setOpeningFrom(true)}
+              problem={problem}
+            />
           )}
         </main>
       </div>
@@ -680,7 +707,16 @@ export function App() {
               }
             }}
             onOpen={(id) => openBackup(api.switchBackup(id))}
-            onBack={() => setOverlay(backupsFromSettings ? 'settings' : null)}
+            onOpenedFrom={(s) => {
+              setOpeningFrom(false)
+              void openBackup(Promise.resolve(s))
+            }}
+            opening={openingFrom}
+            onOpeningLeft={() => setOpeningFrom(false)}
+            onBack={() => {
+              setOpeningFrom(false)
+              setOverlay(backupsFromSettings ? 'settings' : null)
+            }}
             onProblem={report}
           />
         ) : overlay === 'activity' ? (
@@ -870,7 +906,7 @@ function useFilledAbove(bar: RefObject<HTMLElement | null>): boolean {
 /** The name being typed on the first screen, kept while Keevoro is open so a look at Help or Settings loses nothing. */
 let welcomeName = 'My photos'
 
-function Welcome(props: { onStart: (name: string) => void; problem: string | null }) {
+function Welcome(props: { onStart: (name: string) => void; onAlready: () => void; problem: string | null }) {
   const [name, setTyped] = useState(welcomeName)
   const setName = (typed: string) => {
     welcomeName = typed
@@ -902,6 +938,11 @@ function Welcome(props: { onStart: (name: string) => void; problem: string | nul
       <p className="quiet small">
         A name such as “Family photos” or “Holiday videos”. You can have several backups, each with its own sources
         and its own place to send things, and come back to any of them later.
+      </p>
+      <p className="quiet small already">
+        <button className="link" type="button" onClick={props.onAlready}>
+          I already have a Keevoro backup
+        </button>
       </p>
       {props.problem && (
         <div className="problem inline" role="alert">
@@ -1521,7 +1562,9 @@ function FindScreen(props: {
                 </span>
                 <div className="what">
                   <b>{sourceTitle(s, places)}</b>
-                  {s.setAsideSaid ? (
+                  {s.waitingFrom ? (
+                    <span className="quiet small set-aside">Not connected on this computer yet</span>
+                  ) : s.setAsideSaid ? (
                     <span className="quiet small set-aside">{s.setAsideSaid}</span>
                   ) : s.bucket ? (
                     <span className="folder bucket">{s.bucket.replace(/^the /, 'In the ')}</span>
@@ -1548,7 +1591,7 @@ function FindScreen(props: {
                   </span>
                 ) : (
                   <span className="row-actions">
-                    {!s.bucket && !s.setAsideFrom && (
+                    {!s.bucket && !s.setAsideFrom && !s.waitingFrom && (
                     <>
                     <button
                       className="button small"
@@ -1581,6 +1624,13 @@ function FindScreen(props: {
                     </button>
                   </span>
                 )}
+                {s.waitingFrom && removing !== s.id && (
+                  <ConnectAgain
+                    api={api}
+                    source={{ id: s.id, name: s.name, wasAt: s.waitingFrom }}
+                    onConnected={props.onChanged}
+                  />
+                )}
                 {s.onlineOnlySaid && <p className="online-only small">{s.onlineOnlySaid}</p>}
                 {s.colderSaid && <p className="online-only small">{s.colderSaid}</p>}
                 {s.keptAs && (
@@ -1588,7 +1638,7 @@ function FindScreen(props: {
                     Kept in its own folders, starting with “{s.keptAs}”.{s.sharedSaid && ` ${s.sharedSaid}`}
                   </p>
                 )}
-                {!s.bucket && !s.setAsideFrom && wholePlace(s.root) && removing !== s.id && (
+                {!s.bucket && !s.setAsideFrom && !s.waitingFrom && wholePlace(s.root) && removing !== s.id && (
                   <OnArrival api={api} source={s} onChanged={props.onChanged} onProblem={onProblem} />
                 )}
                 <LeftOutByYou

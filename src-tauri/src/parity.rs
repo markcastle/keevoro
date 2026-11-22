@@ -23,6 +23,10 @@ const BACKED: &[(&str, &[Op])] = &[
     // gives without opening or counting each backup.
     ("app_state", &[Op::BackupsList]),
     ("start_backup", &[Op::BackupsStart]),
+    // Opening a backup that is already somewhere, from its notes there.
+    ("find_backup_at", &[Op::BackupsFindAt]),
+    ("open_backup_from", &[Op::BackupsOpenFrom]),
+    ("connect_source_again", &[Op::SourcesConnectAgain]),
     // The Discover screen asks for all four in one go.
     (
         "discover",

@@ -54,6 +54,13 @@ pub const OTHER_FILES_PART: &str = "Other files you asked Keevoro to carry along
      with the name of the folder or drive they were on. They are exact copies too, but Keevoro made \
      no renditions of them, and the index lists them in albums named after their folders.";
 
+/// What the guide says of Keevoro's notes beside it.
+pub const NOTES_PART: &str = "\"Keevoro notes.jsonl.gz\" is Keevoro's own record of this backup: what was \
+     backed up, where each file went, its size and its fingerprint. With it, Keevoro on another computer can \
+     pick this backup up again: in Keevoro, choose Manage backups, then \"Open a backup that is already \
+     somewhere\". \"Keevoro notes, earlier.jsonl.gz\" is the copy before it. Keevoro writes both again after \
+     each backup. Your photos and videos do not need them.";
+
 /// What the guide needs to know about what is in the backup.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct GuideFacts {
@@ -161,6 +168,8 @@ pub fn guide(facts: &GuideFacts) -> String {
          Back up to this same place again and Keevoro adds only what is new. It never\r\n\
          replaces or removes a file in \"originals\".\r\n",
     );
+    text.push_str("\r\nKeevoro's notes\r\n---------------\r\n");
+    text.push_str(&wrapped(NOTES_PART, 76));
     text
 }
 
@@ -204,6 +213,9 @@ mod tests {
             "a backup from before the choice gains only this line"
         );
         assert!(guide.contains("You do not need Keevoro"));
+        let one_line = guide.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(one_line.contains(&format!("\"{}\" is Keevoro's own record", crate::notes::NOTES)));
+        assert!(one_line.contains(&format!("\"{}\" is the copy before it", crate::notes::EARLIER)));
     }
 
     #[test]

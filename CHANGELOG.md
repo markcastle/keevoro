@@ -6,7 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Your backup can be picked up on a new computer.** After every backup Keevoro now keeps a copy of its notes about that backup beside it, wherever it goes: what was backed up, where each file went, its size and fingerprint, and when it was last proved, in a file called "Keevoro notes.jsonl.gz" (with the copy before it kept too). "What is in this backup.txt" says what the file is. On a new computer, or after reinstalling, choose Manage backups, then "Open a backup that is already somewhere" (or "I already have a Keevoro backup" on the first screen), point Keevoro at the drive, folder or cloud storage, and it says what it found: the backup's name, how many files and how big, when it was last backed up and proved, and which Keevoro wrote the notes. "Open this backup" makes it a backup here that knows every file already there, so nothing is sent again. Keevoro then asks you to connect each source again, because it does not know where those photos live on this computer, and once you have, the next backup sends only what is new. If the newest notes are damaged, the copy before them is used, and said; notes made by a newer Keevoro are refused plainly, with "update first". The same backup is never opened twice. If two computers back up to the same place, each learns the files the other sent, so the notes never forget a file that is there. Your existing backups get their notes at their next backup, with nothing to do. At the command line: `keevoro backups find-at --folder F:\Family Backup`, `keevoro backups open-from` with the same place, and `keevoro sources connect-again 1 D:\Photos`; an AI agent can look at what is in a folder it has been allowed. Help, How do I… "Move to a new computer" now says how, with a button straight there.
 
 ## [0.50.0] - 2026-11-22
 

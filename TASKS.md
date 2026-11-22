@@ -93,7 +93,11 @@ The next thing a person would notice, and the reason the jobs work came first: a
 
 ### 7. The catalog travels with the backup
 
-A copy of Keevoro's record inside each destination, so a backup can be opened on a new computer or after the record here is lost. This matters more once backups run unattended. See "The catalog".
+A copy of Keevoro's record inside each destination, so a backup can be opened on a new computer or after the record here is lost. This matters more once backups run unattended. See "The catalog" and, in docs/developing.md, "The catalog travels with the backup".
+
+- [x] Keevoro's notes at each destination, written safely after a backup, a check and putting it right, and learnt from when another computer wrote them
+- [x] Open a backup from a folder, and from cloud storage, in the app, at the command line and for an agent; its sources connected again by the person
+- [ ] Make the notes again from the files themselves when there are none or both copies are damaged
 
 ### 8. Cloud storage as sure as a folder
 
@@ -650,8 +654,10 @@ What is left of backing up by itself, in the order of the plan (the owner's deci
 
 The catalog is one SQLite file per backup, `.keevoro/catalog.sqlite`. Losing it never loses a photo, but it does lose choices that cannot be found again by looking: what was unticked, what was rescued from the set-aside list, file-type choices, the destinations and the history.
 
-- [ ] Keep a copy of the catalog inside each destination, written at the end of every backup, so a backup carries its own record
-- [ ] Open a backup from the copy at its destination: on a new computer, or after the catalog here is lost
+- [x] Keep a copy of the catalog inside each destination, written at the end of every backup, so a backup carries its own record
+- [x] Open a backup from the copy at its destination: on a new computer, or after the catalog here is lost
+- [ ] Make the notes again from the files themselves when a backup has none, or both copies are damaged, reading each file for its fingerprint, with Pause and Stop
+- [ ] Connect a cloud storage source again on a new computer, with its keys
 - [ ] Check the catalog for damage when a backup is opened, and say so plainly if it is damaged
 - [ ] Offer to rebuild a damaged catalog: from the copy at a destination if there is one, otherwise by looking through the sources again
 - [x] Use SQLite's write-ahead mode, so the screen can read counts while a backup writes, without queueing

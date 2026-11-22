@@ -41,6 +41,12 @@ pub fn summary(op: Op, answer: &Value) -> String {
             s(answer, "name")
         ),
         Op::BackupsRename => format!("It is now called \"{}\".", s(answer, "name")),
+        // Every sentence the API wrote, in order: what is there, or what
+        // opening it did, and what the person must do next.
+        Op::BackupsFindAt | Op::BackupsOpenFrom => each(answer.get("said").unwrap_or(&Value::Null))
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>()
+            .join(" "),
         Op::SourcesList => listed(answer, "source", |source| {
             let online: String = ["onlineOnlySaid", "colderSaid"]
                 .iter()

@@ -659,6 +659,7 @@ pub(crate) fn everywhere_reading(
                 Destination::Folder(folder) => Some(folder.clone()),
                 Destination::Bucket { .. } => None,
             };
+            let gone = |folder: &Option<PathBuf>| folder.as_ref().is_some_and(|f| !f.is_dir());
             let failed = originals_first(
                 out,
                 catalog,
@@ -682,6 +683,12 @@ pub(crate) fn everywhere_reading(
                     }
                 },
             );
+            // Keevoro's notes about the backup go last, so a new computer
+            // can pick it up from here: whenever the turn reached it, even
+            // stopped part-way, since they say only what is there.
+            if failed.is_ok() && !gone(&folder) {
+                crate::notes::keep_after(out, catalog, to, world);
+            }
             // And again at the end, for anything left by a turn stopped part-way.
             if let Some(folder) = &folder {
                 add_swept(&mut cleared, tidy(folder));

@@ -274,6 +274,26 @@ pub static ROWS: &[Row] = &[
         show: show::started,
     },
     Row {
+        words: &["backups", "find-at"],
+        ops: &[Op::BackupsFindAt],
+        about: Some(
+            "Looks for a Keevoro backup in a folder or in cloud storage, from the notes Keevoro keeps beside every backup, and says what it holds. Changes nothing. Open it with `keevoro backups open-from`.",
+        ),
+        args: crate::keys::args,
+        ask: |_, m, io| Ok((Op::BackupsFindAt, crate::keys::request(m, io)?)),
+        show: show::found_at,
+    },
+    Row {
+        words: &["backups", "open-from"],
+        ops: &[Op::BackupsOpenFrom],
+        about: Some(
+            "Opens a backup that is already somewhere (on a new computer, or after a reinstall) from Keevoro's notes there, as a backup on this computer going to that place. Nothing there is sent again. Keys go to this computer's keychain and are never shown or written down.",
+        ),
+        args: crate::keys::args,
+        ask: |_, m, io| Ok((Op::BackupsOpenFrom, crate::keys::request(m, io)?)),
+        show: show::opened_from,
+    },
+    Row {
         words: &["backups", "rename"],
         ops: &[Op::BackupsRename],
         about: None,
@@ -497,6 +517,24 @@ pub static ROWS: &[Row] = &[
             }
         },
         show: show::nothing_more,
+    },
+    Row {
+        words: &["sources", "connect-again"],
+        ops: &[Op::SourcesConnectAgain],
+        about: Some(
+            "Says where a source of a backup opened from its notes is on this computer. Keevoro never guesses: only you know where these photos live here. Then look through it again with `keevoro look --again`.",
+        ),
+        args: |c| {
+            c.arg(arg("source", "The source's number, place or name").required(true))
+                .arg(arg("place", "The drive or folder where its files are on this computer").required(true))
+        },
+        ask: |c, m, _| {
+            Ok((
+                Op::SourcesConnectAgain,
+                json!({ "source": source(c, &required(m, "source"))?, "place": required(m, "place") }),
+            ))
+        },
+        show: show::connected_again,
     },
     Row {
         words: &["sources", "forget"],

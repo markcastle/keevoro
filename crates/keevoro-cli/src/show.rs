@@ -200,6 +200,58 @@ pub fn said(io: &mut Io<'_>, _: &ArgMatches, answer: &Value) -> Said_ {
     Ok(Code::Worked)
 }
 
+/// Each sentence of `said`, a line each.
+fn said_lines(io: &mut Io<'_>, answer: &Value) -> std::io::Result<()> {
+    for line in each(answer.get("said").unwrap_or(&Value::Null)).filter_map(Value::as_str) {
+        writeln!(io.out, "{line}")?;
+    }
+    Ok(())
+}
+
+pub fn found_at(io: &mut Io<'_>, _: &ArgMatches, found: &Value) -> Said_ {
+    said_lines(io, found)?;
+    let sources: Vec<&Value> = each(found.get("sources").unwrap_or(&Value::Null)).collect();
+    if !sources.is_empty() {
+        writeln!(io.out, "Its sources, on the computer it came from:")?;
+        for source in sources {
+            writeln!(io.out, "  {} ({})", s(source, "name"), s(source, "wasAt"))?;
+        }
+    }
+    if matches!(s(found, "found"), "notes" | "earlierNotes") {
+        writeln!(
+            io.out,
+            "To open it on this computer: keevoro backups open-from, with the same place."
+        )?;
+    }
+    Ok(Code::Worked)
+}
+
+pub fn opened_from(io: &mut Io<'_>, _: &ArgMatches, opened: &Value) -> Said_ {
+    said_lines(io, opened)?;
+    for source in each(opened.get("waiting").unwrap_or(&Value::Null)) {
+        writeln!(
+            io.out,
+            "{} was in {} there. To connect it here: keevoro sources connect-again {} <folder> --backup \"{}\"",
+            s(source, "name"),
+            s(source, "wasAt"),
+            source.get("id").and_then(Value::as_i64).unwrap_or_default(),
+            s(opened, "name")
+        )?;
+    }
+    Ok(Code::Worked)
+}
+
+pub fn connected_again(io: &mut Io<'_>, _: &ArgMatches, connected: &Value) -> Said_ {
+    writeln!(
+        io.out,
+        "{} is now {} on this computer.",
+        s(connected, "name"),
+        s(connected, "place")
+    )?;
+    writeln!(io.out, "{}", s(connected, "said"))?;
+    Ok(Code::Worked)
+}
+
 pub fn forgot_source(io: &mut Io<'_>, _: &ArgMatches, _: &Value) -> Said_ {
     writeln!(
         io.out,

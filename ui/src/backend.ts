@@ -214,6 +214,13 @@ export type Source = {
   setAsideSaid?: string
   /** True when it is backed up by itself whenever it is plugged in. */
   onArrival?: boolean
+  /**
+   * For a source of a backup opened from its notes and not yet connected on
+   * this computer: where it was on the computer the backup came from
+   * (history only, never looked at), and that in words with what to do.
+   */
+  waitingFrom?: string
+  waitingSaid?: string
 }
 
 /** How photos and videos are arranged in a backup. */
@@ -595,6 +602,46 @@ export type SendEvent = {
   /** On the last event of a backup during which a destination's connection was lost: offer "Check they all arrived" first. */
   checkAdvised?: boolean
 }
+
+/** What Keevoro found at a place it was asked to look for a backup in (`backups.find_at`). */
+export type FoundBackup = {
+  /** A backup with notes to open it from, one whose newest notes were damaged (the copy before is used), one a newer Keevoro wrote, one with no notes or only damaged ones, or none at all. */
+  found: 'notes' | 'earlierNotes' | 'newer' | 'noNotes' | 'damaged' | 'nothing'
+  /** The place in words: "the folder F:\Family Backup". */
+  place: string
+  name?: string
+  files?: number
+  bytes?: number
+  lastBackedUp?: number
+  lastBackedUpSaid?: string
+  lastProved?: number
+  lastProvedSaid?: string
+  /** Which Keevoro wrote its notes: "Keevoro 0.49.0". */
+  madeBy?: string
+  /** Its sources as the computer it came from had them. */
+  sources?: { name: string; wasAt: string }[]
+  /** The backup on this computer that is this one already, by name. */
+  alreadyOpen?: string
+  /** All of it in sentences. */
+  said: string[]
+}
+
+/** A source of a backup opened from its notes, waiting to be connected on this computer. */
+export type WaitingSource = { id: number; name: string; wasAt: string }
+
+/** What opening a backup from its notes did (`backups.open_from`). */
+export type OpenedBackup = {
+  id: string
+  name: string
+  /** It was on this computer already, and that one was opened. */
+  alreadyOpen?: boolean
+  files: number
+  waiting?: WaitingSource[]
+  said: string[]
+}
+
+/** A source connected again on this computer (`sources.connect_again`). */
+export type ConnectedAgain = { source: number; name: string; place: string; said: string }
 
 /** What the "connect" form collects. Keys go to the system keychain. */
 export type ConnectRequest = {
@@ -1337,6 +1384,14 @@ export interface Backend {
   chooseDestinationFolder(): Promise<string | null>
   /** Checks a destination works, then remembers it. Returns it in words. */
   connectDestination(request: ConnectRequest): Promise<string>
+  /** Looks for a Keevoro backup at a folder or in cloud storage, from its notes there. Changes nothing. */
+  findBackupAt(request: ConnectRequest): Promise<FoundBackup>
+  /** Opens that backup on this computer, from its notes, going to that place; one already here is opened instead. */
+  openBackupFrom(request: ConnectRequest): Promise<OpenedBackup>
+  /** Asks for the drive or folder a backup is in. Null if they cancel. */
+  chooseWhereBackupIs(): Promise<string | null>
+  /** Says where a source of a backup opened from its notes is on this computer. */
+  connectSourceAgain(source: number, place: string): Promise<ConnectedAgain>
   /** Adds cloud storage as a source, once its keys can read it. Then look through `root`. */
   addBucketSource(request: BucketSourceRequest): Promise<BucketAdded>
   /**
@@ -1503,6 +1558,10 @@ async function tauriBackend(): Promise<Backend> {
     destination: () => invoke('destination'),
     chooseDestinationFolder: () => pickFolder('Choose a folder to back up to'),
     connectDestination: (request) => invoke('connect_destination', { request }),
+    findBackupAt: (request) => invoke('find_backup_at', { request }),
+    openBackupFrom: (request) => invoke('open_backup_from', { request }),
+    chooseWhereBackupIs: () => pickFolder('Choose the drive or folder your backup is in'),
+    connectSourceAgain: (source, place) => invoke('connect_source_again', { source, place }),
     addBucketSource: (request) => invoke('add_bucket_source', { request }),
     disconnectDestination: (at) => invoke('disconnect_destination', { at: at ?? null }),
     send: () => invoke('send'),

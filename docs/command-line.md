@@ -212,6 +212,30 @@ It reads every copy back in full, moves any damaged one aside into `Set aside by
 
 `keevoro history` lists how earlier backups went, numbered from the newest, and `keevoro history 1` shows everything recorded about one of them: each stage with how long it took and how fast it went, what each destination was sent, already had or could not be sent and why, the previews, and what it said at the end. `keevoro last-backup` repeats what the last one said.
 
+## On a new computer
+
+Every backup carries Keevoro's notes about it ("Keevoro notes.jsonl.gz", beside "What is in this backup.txt"). On a new computer, or after reinstalling:
+
+```sh
+keevoro backups find-at --folder "F:\Family Backup"
+```
+
+```sh
+keevoro backups open-from --folder "F:\Family Backup"
+```
+
+Then say where each source is on this computer, and look through it:
+
+```sh
+keevoro sources connect-again 1 D:\Photos
+```
+
+```sh
+keevoro look --again 1
+```
+
+The next `keevoro run` sends only what is new.
+
 ## Running in the background
 
 A long backup does not have to keep a window open. `--detach` starts it as a program of its own and comes back at once:
@@ -353,6 +377,8 @@ The words each command shows in `keevoro --help` come from the same list the app
 | `keevoro backups forget NAME [--dry-run]` | Removes a backup from Keevoro: its record on this computer goes, and its own folder of previews and working files is set aside for a week, then cleared away. Nothing at any source or destination is touched. `--dry-run` only says what it would do. Refused while it is being searched, backed up or checked. |
 | `keevoro backups removed` | The backups removed in the last week, which can still be put back. |
 | `keevoro backups put-back NAME` | Puts back a backup removed in the last week, exactly as it was. |
+| `keevoro backups find-at --folder FOLDER` (or `--r2 ID`, `--s3 REGION`, `--gcs`, `--endpoint URL` with `--bucket NAME`) | Looks for a Keevoro backup there, from the notes Keevoro keeps beside every backup, and says what it holds: its name, how many files and how big, when it was last backed up and proved, which Keevoro wrote the notes, and its sources as they were on the computer that made it. Changes nothing. |
+| `keevoro backups open-from` with the same place | Opens that backup on this computer, as a backup going to that place that already knows every file there, so nothing is sent again. One already on this computer is opened instead. Keys for cloud storage go to the keychain. |
 | `keevoro backups clear-away NAME` | Clears away a removed backup now instead of a week after: its own folder on this computer, and storage keys no other backup uses. It can no longer be put back. |
 
 ### Finding
@@ -370,6 +396,7 @@ The words each command shows in `keevoro --help` come from the same list the app
 | `keevoro look --again SOURCE --different-drive anyway\|new` | Answers for that source: `anyway` looks through the drive there as the source, replacing what was found on it; `new` keeps the source as it was, set aside until its own drive is plugged in again, and adds the drive there as a new source. |
 | `keevoro sources add-bucket --r2 ID\|--s3 REGION\|--gcs\|--endpoint URL --bucket NAME [--prefix FOLDER] [--name NAME]` | Adds cloud storage as a source, after checking its keys can read it. Nothing in it is ever changed. Then `keevoro look --again NAME` lists it. |
 | `keevoro sources` | The backup's sources, each with its number. |
+| `keevoro sources connect-again SOURCE PLACE` | For a backup opened with `backups open-from`: says where one of its sources is on this computer. Keevoro never guesses. Then `keevoro look --again SOURCE` looks through it, and files already backed up are recognised and not sent again. |
 | `keevoro sources forget SOURCE` | Takes a source off the backup. Nothing on it is touched. |
 | `keevoro sources types SOURCE` | The kinds of file on a source, and which are included. |
 | `keevoro sources types SOURCE --leave-out png` | Leaves out one kind of file; `--include png` brings it back. |

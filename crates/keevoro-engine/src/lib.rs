@@ -24,6 +24,7 @@ pub mod discover;
 pub mod history;
 pub mod layout;
 pub mod look;
+pub mod notes;
 pub mod preview;
 pub mod put_right;
 pub mod reach;

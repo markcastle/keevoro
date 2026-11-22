@@ -106,6 +106,10 @@ impl Backup {
         &self.catalog
     }
 
+    pub(crate) fn catalog_mut(&mut self) -> &mut Catalog {
+        &mut self.catalog
+    }
+
     /// Everything the Discover screen shows, read in one go: what
     /// `found.summary`, `sources.list`, `destinations.list` and
     /// `collections.list` give separately.

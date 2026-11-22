@@ -1360,3 +1360,57 @@ fn a_report_is_shown_before_it_is_sent_and_then_sent_exactly_so() {
         none.out
     );
 }
+
+#[test]
+fn a_backup_is_opened_on_a_new_computer_from_the_command_line_and_its_card_connected_again() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let card = card(dir.path());
+    let usb = dir.path().join("USB");
+    let old = dir.path().join("old computer");
+    std::fs::create_dir_all(&old).unwrap();
+    let at = At::new(&old);
+    at.keevoro(&["backups", "start", "Family photos"]);
+    at.keevoro(&["look", &text(&card)]);
+    at.keevoro(&["destinations", "add", "--folder", &text(&usb)]);
+    assert_eq!(at.keevoro(&["run"]).code, Code::Worked);
+    std::fs::remove_dir_all(&old).unwrap();
+
+    let new = dir.path().join("new computer");
+    std::fs::create_dir_all(&new).unwrap();
+    let at = At::new(&new);
+    let ran = at.keevoro(&["backups", "find-at", "--folder", &text(&usb)]);
+    assert_eq!(ran.code, Code::Worked, "{}", ran.err);
+    assert!(ran.out.starts_with("\"Family photos\": 3 files"), "{}", ran.out);
+    // Where it was, as the old computer kept it: its real path, which a
+    // temporary folder on a Mac reaches by another spelling.
+    let real = std::fs::canonicalize(&card).unwrap();
+    assert!(ran.out.contains(&format!("  Card ({})", text(&real))), "{}", ran.out);
+    assert!(ran.out.contains("keevoro backups open-from"), "{}", ran.out);
+
+    let ran = at.keevoro(&["backups", "open-from", "--folder", &text(&usb)]);
+    assert_eq!(ran.code, Code::Worked, "{}", ran.err);
+    assert!(
+        ran.out.starts_with("Opened \"Family photos\" from the folder"),
+        "{}",
+        ran.out
+    );
+    assert!(
+        ran.out.contains("keevoro sources connect-again 1 <folder>"),
+        "{}",
+        ran.out
+    );
+
+    let ran = at.keevoro(&["sources", "connect-again", "1", &text(&card)]);
+    assert_eq!(ran.code, Code::Worked, "{}", ran.err);
+    assert!(ran.out.starts_with("Card is now "), "{}", ran.out);
+    assert_eq!(at.keevoro(&["look", "--again"]).code, Code::Worked);
+    let ran = at.keevoro(&["run"]);
+    assert_eq!(ran.code, Code::Worked, "{}{}", ran.out, ran.err);
+    assert!(
+        !ran.out.contains("Safely backed up"),
+        "nothing is sent again: {}",
+        ran.out
+    );
+    assert!(ran.out.contains("3 files already there"), "{}", ran.out);
+}

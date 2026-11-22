@@ -14,7 +14,9 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import type { AppState, Backend, Backup, BackupListing, Removal, RemovedBackup } from './backend'
+import { Explained } from './explained'
 import { ago, files, size } from './format'
+import { OpenFrom } from './openFrom'
 
 /** The longest name a backup can have, as the API holds it to. */
 const LONGEST_NAME = 60
@@ -25,10 +27,17 @@ export function ManageBackups(props: {
   /** Keevoro's list of backups changed: a rename, a removal or one put back. */
   onState: (state: AppState) => void
   onOpen: (id: string) => void
+  /** A backup opened from its notes at a destination is open now. */
+  onOpenedFrom: (state: AppState) => void
+  /** Opens on "Open a backup that is already somewhere", as Help's answer does. */
+  opening?: boolean
+  /** Back from opening one to the list. */
+  onOpeningLeft?: () => void
   onBack: () => void
   onProblem: (error: unknown) => void
 }) {
   const { api, state, onProblem } = props
+  const [opening, setOpening] = useState(props.opening ?? false)
   const [details, setDetails] = useState<Record<string, BackupListing>>({})
   const [removed, setRemoved] = useState<RemovedBackup[]>([])
   // Said once something is done: what was removed, put back or cleared away.
@@ -60,6 +69,19 @@ export function ManageBackups(props: {
 
   const changed = (next: AppState) => {
     props.onState(next)
+  }
+
+  if (opening) {
+    return (
+      <OpenFrom
+        api={api}
+        onOpened={props.onOpenedFrom}
+        onBack={() => {
+          setOpening(false)
+          props.onOpeningLeft?.()
+        }}
+      />
+    )
   }
 
   return (
@@ -119,6 +141,18 @@ export function ManageBackups(props: {
           />
         ))}
       </ul>
+
+      <Explained
+        className="open-already"
+        action={
+          <button className="button" onClick={() => setOpening(true)}>
+            Open a backup that is already somewhere…
+          </button>
+        }
+      >
+        On a new computer, or after reinstalling: Keevoro reads the notes it keeps beside every backup and picks the
+        backup up again, without sending anything twice.
+      </Explained>
 
       {removed.length > 0 && (
         <div className="removed-recently">

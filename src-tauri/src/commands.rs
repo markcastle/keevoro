@@ -964,6 +964,63 @@ pub async fn connect_destination<R: Runtime>(
     .map_err(|e: keevoro_api::Error| say(e))
 }
 
+/// Looks for a Keevoro backup in a folder or in cloud storage, from the
+/// notes Keevoro keeps beside every backup, and says what it holds.
+/// Changes nothing. Off the window's thread, as cloud storage takes a
+/// moment to answer.
+#[tauri::command]
+pub async fn find_backup_at<R: Runtime>(
+    app: AppHandle<R>,
+    request: ConnectRequest,
+) -> Said<keevoro_api::opening::FoundBackup> {
+    let request = keevoro_api::AddDestinationRequest::from(request);
+    tauri::async_runtime::spawn_blocking(move || app.state::<Shared>().keevoro.find_backup_at(&request))
+        .await
+        .map_err(say)?
+        .map_err(say)
+}
+
+/// Opens a backup found with `find_backup_at` as a backup on this
+/// computer, from its notes, going to that place, and opens it in the
+/// window. One already here is opened instead.
+#[tauri::command]
+pub async fn open_backup_from<R: Runtime>(
+    app: AppHandle<R>,
+    request: ConnectRequest,
+) -> Said<keevoro_api::opening::OpenedBackup> {
+    let request = keevoro_api::AddDestinationRequest::from(request);
+    let opened = tauri::async_runtime::spawn_blocking({
+        let app = app.clone();
+        move || app.state::<Shared>().keevoro.open_backup_from(&request)
+    })
+    .await
+    .map_err(say)?
+    .map_err(say)?;
+    check_in_background(&app.state::<Shared>());
+    Ok(opened)
+}
+
+/// Says where a source of a backup opened from its notes is on this
+/// computer. The window then looks through it again.
+#[tauri::command]
+pub fn connect_source_again(
+    shared: State<'_, Shared>,
+    source: i64,
+    place: String,
+) -> Said<keevoro_api::opening::ConnectedAgain> {
+    let open = open_backup(&shared)?;
+    let request = keevoro_api::opening::ConnectAgainRequest { source, place };
+    let connected = Backup::open(&open.home)
+        .map_err(say)?
+        .connect_again(&request)
+        .map_err(say)?;
+    shared
+        .keevoro
+        .log()
+        .say(&format!("Connected {} again, at {}", connected.name, connected.place));
+    Ok(connected)
+}
+
 /// What the app's form for cloud storage as a source sends. The keys are
 /// only in this request: they go to the system keychain, never to disk or
 /// a log.
