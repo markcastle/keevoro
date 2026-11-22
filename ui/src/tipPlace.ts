@@ -1,6 +1,6 @@
 // Where a small explanation opened from an "i" button is drawn on the
-// window: under the button, centred on it, or above it when there is no
-// room below, and never past the space kept clear at any edge. Kept apart
+// window: above the button, centred on it, or under it when there is no
+// room above, and never past the space kept clear at any edge. Kept apart
 // from the screen so it can be checked without one.
 
 /** The space kept clear at each edge of the window, as everywhere else. */
@@ -23,8 +23,8 @@ export function tipPlace(
   const left = Math.max(GUTTER, Math.min(centre - size.width / 2, window.width - GUTTER - size.width))
   const below = button.bottom + GAP
   const above = button.top - GAP - size.height
-  if (below + size.height <= window.height - GUTTER || above < GUTTER) {
-    return { left, top: Math.max(GUTTER, Math.min(below, window.height - GUTTER - size.height)), above: false }
-  }
-  return { left, top: above, above: true }
+  // Above when there is room: what a label explains is usually the line
+  // right under it, and an explanation should not cover that.
+  if (above >= GUTTER) return { left, top: above, above: true }
+  return { left, top: Math.max(GUTTER, Math.min(below, window.height - GUTTER - size.height)), above: false }
 }

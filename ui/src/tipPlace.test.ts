@@ -5,14 +5,14 @@ import { tipPlace } from './tipPlace.ts'
 const wide = { width: 1440, height: 900 }
 const size = { width: 300, height: 100 }
 
-test('an explanation opens under its button, centred on it', () => {
+test('an explanation opens above its button, centred on it, so the line under the label stays in view', () => {
   const button = { left: 600, right: 624, top: 400, bottom: 424 }
-  assert.deepEqual(tipPlace(button, size, wide), { left: 462, top: 432, above: false })
+  assert.deepEqual(tipPlace(button, size, wide), { left: 462, top: 292, above: true })
 })
 
-test('near the bottom of the window it opens above its button', () => {
-  const button = { left: 600, right: 624, top: 820, bottom: 844 }
-  assert.deepEqual(tipPlace(button, size, wide), { left: 462, top: 712, above: true })
+test('near the top of the window it opens under its button', () => {
+  const button = { left: 600, right: 624, top: 60, bottom: 84 }
+  assert.deepEqual(tipPlace(button, size, wide), { left: 462, top: 92, above: false })
 })
 
 test('it never reaches past the gutter at either side', () => {
