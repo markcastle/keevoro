@@ -15,8 +15,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 - **"Put back the built-in list" is now "Undo my changes…", and says what it will do first.** It appears only when you have changed something. Pressing it lists exactly what will be undone (the kinds you added that will be taken off, the kinds you switched off that will be switched back on, and so on), says that nothing already found or backed up is touched, and waits for "Undo my changes" or "Cancel". Afterwards "Put my changes back" brings them all back while the page is open.
 - **Searches ask less of each file.** Deciding whether a file is a photo or video by its ending now takes one quick look however long the list is, so a search of a big drive is a little quicker than before even with more than twice the kinds.
+- **Two more buttons say what they do.** "Put back" beside a folder you left out is now "Include again", and beside a backup you removed it is "Bring it back".
+
+### Fixed
+
+- **Drawings and scanned documents are no longer taken for photos.** DjVu documents and DWG drawings were being found as photos; they are now left alone unless you add their kind yourself.
+
+## [0.51.3] - 2026-11-22
+
+### Changed
 
 - **Fewer words on every screen, with the detail one press away.** Each setting and choice now has a name and at most one short line. The full explanation is behind a small “i” beside it (point at it, tab to it, or tap it) or under “More about this”. Warnings before removing or resetting, costs, and anything that went wrong stay in plain sight.
+
+## [0.51.2] - 2026-11-22
+
+### Fixed
+
+- **A source stays where it is in your list when it is looked through again.** It used to jump to the end.
+
+## [0.51.1] - 2026-11-22
+
+### Changed
+
 - **Backing up by itself sits tidily on the backup screen.** It is now a plain part of the backup's panel under one fine line, not a box inside the box, and while a backup is running the offer to set a schedule waits until it is done.
 - **Text you might want to copy can be selected.** Explanations, paths, what went wrong, the log and the pages in Help and About can now be selected with the mouse and copied. Buttons and switches still cannot, so a double click never leaves a word highlighted.
 - **About says what is true today about servers.** "There is no Keevoro account and no Keevoro server" is now "You need no Keevoro account". Where your files go has not changed.
@@ -836,7 +856,10 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.51.0...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.51.3...HEAD
+[0.51.3]: https://github.com/markcastle/keevoro/compare/v0.51.2...v0.51.3
+[0.51.2]: https://github.com/markcastle/keevoro/compare/v0.51.1...v0.51.2
+[0.51.1]: https://github.com/markcastle/keevoro/compare/v0.51.0...v0.51.1
 [0.51.0]: https://github.com/markcastle/keevoro/compare/v0.50.0...v0.51.0
 [0.50.0]: https://github.com/markcastle/keevoro/compare/v0.49.0...v0.50.0
 [0.49.0]: https://github.com/markcastle/keevoro/compare/v0.48.0...v0.49.0

@@ -11,7 +11,7 @@ import { useState } from 'react'
 import type { Backend, LeftOut, LeftOutFolder } from './backend'
 
 /**
- * "Leave it out", or "Put back" when it is out, with what that did said
+ * "Leave it out", or "Include again" when it is out, with what that did said
  * beside it. `onChanged` hears the new state, for the screen to follow.
  */
 export function LeaveOutButton(props: {
@@ -39,14 +39,14 @@ export function LeaveOutButton(props: {
       className={props.small ? 'button small' : 'button'}
       onClick={click}
       disabled={busy}
-      aria-label={props.leftOut ? `Put back ${name}` : `Leave out ${name}`}
+      aria-label={props.leftOut ? `Include ${name} again` : `Leave out ${name}`}
       title={
         props.leftOut
           ? 'Include it again in this backup'
           : 'Keep it out of this backup. Nothing in it, or already backed up, is touched.'
       }
     >
-      {props.leftOut ? 'Put back' : (props.words ?? 'Leave it out')}
+      {props.leftOut ? 'Include again' : (props.words ?? 'Leave it out')}
     </button>
   )
 }
@@ -62,7 +62,7 @@ export function LeftOutSaid(props: { done: LeftOutFolder | null }) {
 }
 
 /**
- * The folders the person left out, each with Put back: under a source, or
+ * The folders the person left out, each with Include again: under a source, or
  * as a survey or search passed them by.
  */
 export function LeftOutByYou(props: {

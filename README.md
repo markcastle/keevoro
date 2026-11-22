@@ -23,7 +23,7 @@
 <p align="center">
   <a href="https://github.com/markcastle/keevoro/releases/latest/download/Keevoro-windows-x64-setup.exe"><b>⬇️ Download for Windows</b></a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/markcastle/keevoro/releases/download/v0.23.0/Keevoro-macos-universal.dmg"><b>⬇️ Download for Mac</b> (0.23.0)</a>
+  <a href="https://github.com/markcastle/keevoro/releases/download/v0.51.2/Keevoro-macos-universal.dmg"><b>⬇️ Download for Mac</b> (0.51.2)</a>
   &nbsp;·&nbsp;
   <a href="CHANGELOG.md">What’s new</a>
 </p>
@@ -118,7 +118,7 @@ Your report goes to a private list that only Keevoro's maker reads. Nothing is s
 | Computer | Download |
 | --- | --- |
 | Windows 10 or 11 | [Keevoro-windows-x64-setup.exe](https://github.com/markcastle/keevoro/releases/latest/download/Keevoro-windows-x64-setup.exe) |
-| Mac (Apple silicon or Intel) | [Keevoro-macos-universal.dmg](https://github.com/markcastle/keevoro/releases/download/v0.23.0/Keevoro-macos-universal.dmg) (version 0.23.0) |
+| Mac (Apple silicon or Intel) | [Keevoro-macos-universal.dmg](https://github.com/markcastle/keevoro/releases/download/v0.51.2/Keevoro-macos-universal.dmg) (version 0.51.2) |
 
 While Keevoro is changing quickly, each release is built for Windows, and the Mac version is brought up to date at bigger milestones. That is why the Mac download is an earlier version.
 

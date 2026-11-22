@@ -36,10 +36,17 @@ impl MediaKind {
 pub fn kind_from_mime(mime: &str) -> Option<MediaKind> {
     let mime = mime.to_ascii_lowercase();
     if mime.starts_with("image/") {
-        // Icons and vector images are never photos.
+        // Icons, vector images, documents and drawings are never photos.
         if matches!(
             mime.as_str(),
-            "image/x-icon" | "image/vnd.microsoft.icon" | "image/svg+xml" | "image/vnd.adobe.photoshop"
+            "image/x-icon"
+                | "image/vnd.microsoft.icon"
+                | "image/svg+xml"
+                | "image/vnd.adobe.photoshop"
+                // Scanned documents and technical drawings, which the
+                // detector files under images.
+                | "image/vnd.djvu"
+                | "image/vnd.dwg"
         ) {
             return None;
         }
@@ -148,6 +155,9 @@ mod tests {
         assert_eq!(kind_from_mime("IMAGE/HEIF"), Some(MediaKind::Photo));
         assert_eq!(kind_from_mime("video/quicktime"), Some(MediaKind::Video));
         assert_eq!(kind_from_mime("video/x-msvideo"), Some(MediaKind::Video));
+        // A scanned document and a technical drawing are not photos.
+        assert_eq!(kind_from_mime("image/vnd.djvu"), None);
+        assert_eq!(kind_from_mime("image/vnd.dwg"), None);
     }
 
     #[test]

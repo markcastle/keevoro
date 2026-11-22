@@ -111,7 +111,7 @@ export function ManageBackups(props: {
                 api
                   .putBackBackup(id)
                   .then((s) => {
-                    setDone({ said: 'Put back, exactly as it was.' })
+                    setDone({ said: 'Brought back, exactly as it was.' })
                     changed(s)
                   })
                   .catch(onProblem)
@@ -182,13 +182,13 @@ export function ManageBackups(props: {
                       api
                         .putBackBackup(r.id)
                         .then((s) => {
-                          setDone({ said: `Put back “${r.name}”, exactly as it was.` })
+                          setDone({ said: `Brought back “${r.name}”, exactly as it was.` })
                           changed(s)
                         })
                         .catch(onProblem)
                     }
                   >
-                    Put back
+                    Bring it back
                   </button>
                   <button
                     className="button"
