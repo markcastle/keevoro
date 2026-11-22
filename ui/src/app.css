@@ -5117,17 +5117,25 @@ tr[aria-selected='true'] .share-bar .carried {
   margin-left: var(--space-1);
 }
 
+/* A part of the backup's own panel, set off by one hairline: never a box
+   inside the box. */
 .schedule-card {
-  margin: var(--space-5) 0;
-  padding: var(--space-4) var(--space-5);
-  max-width: 860px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: var(--surface, transparent);
+  margin: var(--space-5) 0 0;
+  padding: var(--space-4) 0 0;
+  align-self: stretch;
+  width: 100%;
+  max-width: none;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  background: none;
 }
 
 .schedule-card h3 {
   margin: 0 0 var(--space-2);
+  padding: 0;
+  border: 0;
+  font-size: 16px;
 }
 
 .schedule-card h4 {
@@ -5135,6 +5143,7 @@ tr[aria-selected='true'] .share-bar .carried {
 }
 
 .schedule-line {
+  max-width: 860px;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
