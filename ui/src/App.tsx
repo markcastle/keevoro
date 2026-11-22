@@ -323,6 +323,12 @@ export function App() {
     <WindowAsks
       api={api}
       onPage={(page) => {
+        // A notice about a backup by itself opens on the backup screen.
+        if (page === 'send') {
+          setOverlay(null)
+          setStep('send')
+          return
+        }
         const at = parsePlace(page)
         if (at) openSettings(at.section === null ? undefined : at)
       }}

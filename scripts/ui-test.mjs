@@ -1196,6 +1196,9 @@ try {
   await page.getByRole('heading', { name: 'Kinds of file Keevoro looks for', level: 2 }).waitFor()
   await page.goto(`${base}/?fast&page=settings`)
   await page.getByRole('heading', { name: 'This backup', level: 2 }).waitFor()
+  // A notice about a backup by itself, clicked, opens on the backup screen.
+  await page.goto(`${base}/?fast&page=send`)
+  await page.getByRole('heading', { name: 'Where should they go?', level: 1 }).waitFor()
   // Quitting with a backup going asks first, over the window.
   await page.goto(`${base}/?quitting&busy&fast`)
   const quitAsked = page.getByRole('dialog', { name: 'A backup is running. Stop it after the file in hand and quit? Nothing is lost.' })
