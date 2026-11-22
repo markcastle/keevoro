@@ -209,7 +209,9 @@ fn app<R: Runtime>(
                 #[cfg(target_os = "macos")]
                 app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             }
-            tray::nudge(handle);
+            // Asked for afresh: on a Mac the line above changes the app,
+            // which the handle taken earlier may not be held across.
+            tray::nudge(app.handle());
             // Where the system says when a drive arrives or leaves
             // (Windows), the first screen hears it at once, as `drives`;
             // elsewhere it looks every couple of seconds while it shows.
