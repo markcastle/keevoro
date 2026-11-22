@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.46.1] - 2026-11-22
+
 ### Changed
 
 - **Settings is calmer, and easier to find your way around.** Settings now fills the window, with six sections down the side and one shown at a time: This backup, Backing up by itself, Appearance and Updates, then Advanced and Help set apart at the end. Each setting is one row, with its name, a short sentence about it, and its switch or button on the right, and every setting that is simply on or off is now the same switch. Anything long (the kinds of file Keevoro looks for, what AI agents may do, the log of what Keevoro has been doing, the open source licences) opens as a page of its own with a way back. Advanced says plainly that most people never need it, and holds the kinds of file, AI agents, "Use this computer's own picture codecs", clearing unfinished copies from a folder and remembered maps. Reset is on its own at the foot of Help. A search box above the sections finds any setting by its name or a word like it, such as "dark mode" or "notifications", says which section it is in, and takes you there. Settings opens where you left it while Keevoro is open, from the window or from "Settings…" by the clock, and "Change" on the backup screen and the first-close explanation take you straight to the right setting and mark it for a moment. In a narrow window the sections are a list you go into, as on a phone. Nothing any setting does has changed.
@@ -752,7 +756,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.46.0...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.46.1...HEAD
+[0.46.1]: https://github.com/markcastle/keevoro/compare/v0.46.0...v0.46.1
 [0.46.0]: https://github.com/markcastle/keevoro/compare/v0.45.1...v0.46.0
 [0.45.1]: https://github.com/markcastle/keevoro/compare/v0.45.0...v0.45.1
 [0.45.0]: https://github.com/markcastle/keevoro/compare/v0.44.0...v0.45.0
