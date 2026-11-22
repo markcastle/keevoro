@@ -11,7 +11,7 @@ Keevoro rescues family photos and videos from old drives for people who are not 
 1. **Never write to a source.** Scanning and collecting open source files read-only. No renames, no metadata writes, no temp files on the source drive.
 2. **Never overwrite or delete an original** in a backup, whether a folder or a bucket. Use `PutOptions { create_only: true, .. }` for originals.
 3. **Verify every copy** by re-reading and comparing the BLAKE3 hash before counting it as collected.
-4. **Nothing leaves the machine** except to storage the user connected. No telemetry, no third-party APIs for image analysis.
+4. **Nothing leaves the machine** except to storage the user connected, and a report the person writes and chooses to send, after seeing exactly what it holds. No telemetry, no third-party APIs for image analysis.
 5. **No `unsafe`.** It is forbidden at the workspace level.
 6. **No `unwrap` or `expect` outside tests.** Return errors. Problems with one file never stop a whole scan; they go in the report.
 
