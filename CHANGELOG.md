@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.42.0] - 2026-11-21
+
 ### Added
 
 - **OneDrive, Dropbox, Google Drive and iCloud Drive on the first screen.** Our first outside tester asked whether Keevoro could back up cloud drives too, and combine several. The first step: the folders these services keep on your computer are now offered by name on "Where are your photos?", beside your drives, for example "OneDrive" with "Synced with Microsoft’s cloud · C:\Users\Mark\OneDrive", or "Dropbox (Acme)" for a work account. Click one to look through it like any folder. Keevoro finds them from what each service itself says about where it keeps them, never by opening anything in them, and the first screen is no slower: it takes well under a millisecond and is remembered for half a minute. `keevoro places` lists them too.
@@ -698,7 +702,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.41.0...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.42.0...HEAD
+[0.42.0]: https://github.com/markcastle/keevoro/compare/v0.41.0...v0.42.0
 [0.41.0]: https://github.com/markcastle/keevoro/compare/v0.40.0...v0.41.0
 [0.40.0]: https://github.com/markcastle/keevoro/compare/v0.39.1...v0.40.0
 [0.39.1]: https://github.com/markcastle/keevoro/compare/v0.39.0...v0.39.1
