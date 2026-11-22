@@ -4,8 +4,8 @@
 // Asked once, the first time a backup is set up, as one question with two
 // large choices (a radio group, the accepted way to choose one of two),
 // the one Keevoro suggests already chosen, and why it suggests it. It can
-// be changed later in Settings, and for each source beside its kinds of
-// file. Every sentence about what a change means comes from the API, so
+// be changed later in Settings, This backup, and for each source under
+// File types beside it on the first step. Every sentence about what a change means comes from the API, so
 // the screens and the command line say the same.
 
 import { useEffect, useState, type ReactNode } from 'react'
@@ -90,7 +90,8 @@ export function ArrangeQuestion(props: {
       {view.suggestion && <p className="arrange-why">{view.suggestion.said}</p>}
       {view.sourcesDiffer && <p className="quiet small">You can choose differently for each source later.</p>}
       <p className="quiet small">
-        You can change this later, and for each source, in Settings. It only changes where files go from then on.
+        You can change this later in Settings, and for each source beside it on the first step. It only changes where
+        files go from then on.
       </p>
       <div className="next">
         <button className="link" onClick={props.onBack}>
@@ -118,16 +119,16 @@ export function ArrangeQuestion(props: {
   )
 }
 
-/** The same choice in Settings, for the whole backup. */
+/** The same choice in Settings, for the whole backup. What a change means is said where Settings chooses. */
 export function BackupArrange(props: {
   load: () => Promise<ArrangeView>
   choose: (arrange: Arrange) => Promise<ArrangeView>
   onChanged?: (view: ArrangeView) => void
+  onSaid: (said: string) => void
   onProblem: (error: unknown) => void
 }) {
   const { load, onProblem } = props
   const [view, setView] = useState<ArrangeView | null>(null)
-  const [said, setSaid] = useState<string | null>(null)
   useEffect(() => {
     load().then(setView).catch(onProblem)
     // Asked once, when it is first shown.
@@ -146,20 +147,12 @@ export function BackupArrange(props: {
             .choose(arrange)
             .then((changed) => {
               setView(changed)
-              setSaid(changed.said)
+              props.onSaid(changed.said)
               props.onChanged?.(changed)
             })
             .catch(onProblem)
         }
       />
-      <p className="quiet small">
-        Changing this only changes where files go from now on. Files already backed up stay where they are.
-      </p>
-      {said && (
-        <p className="quiet small" role="status">
-          {said}
-        </p>
-      )}
     </div>
   )
 }

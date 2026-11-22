@@ -974,7 +974,7 @@ export type MapView = {
   searchedSince?: boolean
 }
 
-/** How closing, minimising and starting with the computer are set (Settings, "When you close Keevoro"). */
+/** How closing, minimising and starting with the computer are set (Settings, Backing up by itself). */
 export type KeepRunningView = {
   /** Closing the window keeps Keevoro running by the clock. */
   keepRunning: boolean
@@ -997,7 +997,7 @@ export type KeepRunningChange = { keepRunning?: boolean; minimiseToTray?: boolea
 
 /** What waits for the window as it opens or comes forward. */
 export type WindowAsk = {
-  /** The page to open: 'settings'. */
+  /** The page to open: 'settings', or a place in it such as 'settings/byItself' (see settings/places.ts). */
   page?: string
   /** Say once that closing keeps Keevoro running, and where its icon is: these words. */
   closing?: string

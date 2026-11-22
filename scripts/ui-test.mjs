@@ -214,7 +214,7 @@ try {
   assert.match(await text('.arrange-choice.on'), /Suggested/)
   assert.equal(await text('.arrange-why'), 'Suggested because the photos in KINGSTON (E:) look like they came straight from a camera.')
   assert.match(await text('.arrange-question'), /starting with “KINGSTON”/)
-  assert.match(await text('.arrange-question'), /You can change this later, and for each source, in Settings\. It only changes where files go from then on\./)
+  assert.match(await text('.arrange-question'), /You can change this later in Settings, and for each source beside it on the first step\. It only changes where\s+files go from then on\./)
   await shot('3d-how-to-arrange')
   await fitsNarrow('the question how to arrange')
   // Back goes to finding; moving on asks again until it is answered.
@@ -353,13 +353,25 @@ try {
   assert.match(await text('.sends.layout'), /A rendition is a version of a photo or video made for looking at, not for keeping\./)
   assert.deepEqual(await page.locator('.sends.layout dt').allInnerTexts(), ['originals', 'renditions', 'index', 'What is in this backup.txt'])
   await shot('9n-what-is-in-the-backup')
-  // A backup can be the originals alone: the switch says what each choice means.
-  const withPreviews = page.getByRole('switch', { name: 'Also make previews for a gallery' })
+  // A backup can be the originals alone. One quiet line says which, and
+  // Change goes to the switch, in Settings, brought into view and marked.
+  assert.equal(await text('.previews-line'), 'Previews for a gallery are made as well, in the background. Change')
+  await page.locator('.previews-line').getByRole('button', { name: 'Change' }).click()
+  await page.getByRole('heading', { name: 'This backup', level: 2 }).waitFor()
+  await page.locator('#setting-previews[data-marked]').waitFor()
+  const withPreviews = page.getByRole('switch', { name: 'Previews for a gallery' })
   assert.equal(await withPreviews.getAttribute('aria-checked'), 'true', 'previews are made unless switched off')
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('role')), 'switch', 'its switch has the focus')
+  assert.match(await withPreviews.evaluate((el) => document.getElementById(el.getAttribute('aria-describedby')).textContent), /Off, only the originals are backed up, which is quicker/)
+  await shot('9m-settings-previews-marked')
+  await page.keyboard.press('Space')
+  assert.equal(await withPreviews.getAttribute('aria-checked'), 'false', 'switched from the keyboard')
+  await page.getByRole('button', { name: '‹ Back', exact: true }).click()
+  assert.equal(await text('.previews-line'), 'Only your original files are backed up, with no previews. Change')
+  await page.locator('.previews-line').getByRole('button', { name: 'Change' }).click()
   await withPreviews.click()
-  assert.equal(await withPreviews.getAttribute('aria-checked'), 'false')
-  assert.match(await text('.switch-row.previews'), /Only your original files will be backed up, exactly as they are/)
-  await withPreviews.click()
+  await page.getByRole('button', { name: '‹ Back', exact: true }).click()
+  await page.locator('.previews-line').getByText('Previews for a gallery are made as well, in the background.').waitFor()
   await page.getByText('How earlier backups went').click()
   const runs = page.locator('.sends > .sends-scroll > table > tbody > tr')
   assert.deepEqual(await page.locator('.sends > .sends-scroll > table > thead th').allInnerTexts(), ['When', 'Where', 'Backed up', 'Took', 'Average speed', 'Details'])
@@ -610,21 +622,50 @@ try {
   await page.getByRole('heading', { name: 'About Keevoro', level: 1 }).waitFor()
   await page.getByRole('button', { name: '‹ Back', exact: true }).click()
 
-  // --- Settings holds everything in one place, including the log.
+  // --- Settings: a short list of sections down the side, one shown at a
+  // time, everyday first, Advanced and Help set apart at the end.
   await page.getByRole('button', { name: 'Settings' }).click()
   await page.getByRole('heading', { name: 'Settings', level: 1 }).waitFor()
-  for (const title of ['This backup', 'Where it backs up to', 'Appearance', 'Speed', 'AI agents', 'Updates', 'What Keevoro has been doing']) {
-    await page.getByRole('heading', { name: title, level: 3 }).waitFor()
+  const sections = page.getByRole('navigation', { name: 'Settings sections' })
+  assert.deepEqual(await sections.getByRole('button').allInnerTexts(), ['This backup', 'Backing up by itself', 'Appearance', 'Updates', 'Advanced', 'Help'])
+  assert.equal(await sections.getByRole('button', { name: 'This backup' }).getAttribute('aria-current'), 'page', 'it opens on the first section')
+  await page.getByRole('heading', { name: 'This backup', level: 2 }).waitFor()
+  assert.equal(await page.locator('.steps').count(), 0, 'the list of sections takes the side bar’s place, never beside it')
+  await shot('9e-settings')
+  // Up and down move through the sections, and the page follows.
+  await sections.getByRole('button', { name: 'This backup' }).focus()
+  await page.keyboard.press('ArrowDown')
+  await page.getByRole('heading', { name: 'Backing up by itself', level: 2 }).waitFor()
+  assert.equal(await page.evaluate(() => document.activeElement?.textContent), 'Backing up by itself', 'the focus moves with it')
+  await page.keyboard.press('End')
+  await page.getByRole('heading', { name: 'Help', level: 2 }).waitFor()
+  await page.keyboard.press('Home')
+  await page.getByRole('heading', { name: 'This backup', level: 2 }).waitFor()
+  // Every row's control is named by the row: a switch by its words, a button described by them.
+  const settingsSection = async (name) => {
+    await sections.getByRole('button', { name, exact: true }).click()
+    await page.getByRole('heading', { name, level: 2 }).waitFor()
   }
-  // Speed: the computer's own codecs are used unless switched off, and it says what that means.
+
+  // Advanced says it is safe to leave alone. The computer's own codecs are
+  // used unless switched off, and it says what that means.
+  await settingsSection('Advanced')
+  assert.match(await text('.kv-intro'), /^Most people never need anything here\. Keevoro works well if you leave all of it as it is\.$/)
+  assert.equal(await page.locator('.kinds-table').count(), 0, 'the kinds of file are a page of their own')
   const codecs = page.getByRole('switch', { name: 'Use this computer’s own picture codecs' })
   assert.equal(await codecs.getAttribute('aria-checked'), 'true', 'on unless switched off')
-  assert.match(await text('.settings'), /Photos are opened by: this computer’s own codecs, then the built-in decoder/)
+  assert.match(await codecs.evaluate((el) => document.getElementById(el.getAttribute('aria-describedby')).textContent), /Switch this off only if previews look wrong\./, 'described by its sentence')
+  assert.match(await text('.kv-settings'), /Photos are opened by: this computer’s own codecs, then the built-in decoder/)
   await codecs.click()
   assert.equal(await codecs.getAttribute('aria-checked'), 'false')
   await page.getByText(/Photos are opened by: the built-in decoder, then/).waitFor()
   await codecs.click()
-  // AI agents: looking only, and no folders, until the person says.
+  await shot('9g-settings-advanced')
+  // AI agents: a page of its own, looking only and no folders until the person says.
+  assert.match(await page.locator('#setting-agents').innerText(), /AI agents\s+What an AI app, such as Claude, may do with Keevoro for you\.\s+Looking only/)
+  await page.getByRole('button', { name: 'AI agents Looking only' }).click()
+  await page.getByRole('heading', { name: 'AI agents', level: 2 }).waitFor()
+  assert.equal(await page.evaluate(() => document.activeElement?.textContent), 'AI agents', 'the page’s heading has the focus')
   const agentChanges = page.getByRole('switch', { name: 'Let AI agents make changes' })
   assert.equal(await agentChanges.getAttribute('aria-checked'), 'false', 'an agent may only look until allowed')
   await page.getByText('None yet, so it cannot look for photos anywhere.').waitFor()
@@ -634,64 +675,115 @@ try {
   await page.getByRole('list', { name: 'Folders an agent may look through' }).getByText('D:\\Photos').waitFor()
   await page.locator('.agent-folders').nth(1).getByRole('button', { name: 'Add a folder…' }).click()
   await page.getByRole('list', { name: 'Folders an agent may back up to' }).getByText('F:\\Family Backup').waitFor()
-  await page.locator('.agent-folders').nth(0).scrollIntoViewIfNeeded()
   await shot('9s-settings-agents')
   await page.getByRole('button', { name: 'Stop allowing D:\\Photos' }).click()
   await page.getByText('None yet, so it cannot look for photos anywhere.').waitFor()
   await agentChanges.click()
   assert.equal(await agentChanges.getAttribute('aria-checked'), 'false')
+  // Escape leaves the page, back to the row that opened it.
+  await page.keyboard.press('Escape')
+  await page.getByRole('heading', { name: 'Advanced', level: 2 }).waitFor()
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'setting-agents', 'back on the row that opened it')
+
   // Appearance: light, dark, or the same as the computer, and it is remembered.
+  await settingsSection('Appearance')
   const ground = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor)
   assert.equal(await ground(), 'rgb(255, 254, 251)', 'the cream ground of the light theme')
   assert.equal(await page.getByRole('button', { name: 'Match my computer' }).getAttribute('aria-pressed'), 'true')
   await page.getByRole('button', { name: 'Dark', exact: true }).click()
   assert.equal(await ground(), 'rgb(16, 39, 37)', 'the deep teal ground of the dark theme')
-  assert.match(await page.locator('.brand img:visible').getAttribute('src'), /lockup-reversed/, 'the logo for dark grounds')
   await shot('9f-settings-dark')
+  await settingsSection('This backup')
+  await shot('9f2-settings-this-backup-dark')
+  await settingsSection('Appearance')
   await page.getByRole('button', { name: 'Light', exact: true }).click()
   assert.equal(await ground(), 'rgb(255, 254, 251)')
-  assert.doesNotMatch(await page.locator('.brand img:visible').getAttribute('src'), /lockup-reversed/)
   assert.equal(await page.evaluate(() => localStorage.getItem('keevoro-theme')), 'light', 'the choice is remembered')
   await page.getByRole('button', { name: 'Match my computer' }).click()
   assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), undefined)
   assert.equal(await page.evaluate(() => getComputedStyle(document.body).fontFamily.includes('Keevoro Sans')), true)
-  await page.getByRole('button', { name: 'Show the log' }).click()
-  assert.match(await text('.settings .log'), /Reading a large file \(3\.9 GB\): E:\\Video\\wedding\.mov/)
+  // Leaving Settings, the logo is the one for dark grounds while dark, and back again.
+  await page.getByRole('button', { name: '‹ Back', exact: true }).click()
+  await page.getByRole('button', { name: 'Settings' }).click()
+  await page.getByRole('heading', { name: 'Appearance', level: 2 }).waitFor()
+  await page.getByRole('button', { name: 'Dark', exact: true }).click()
+  await page.getByRole('button', { name: '‹ Back', exact: true }).click()
+  assert.match(await page.locator('.brand img:visible').getAttribute('src'), /lockup-reversed/, 'the logo for dark grounds')
+  await page.getByRole('button', { name: 'Settings' }).click()
+  // Settings opens where it was left.
+  await page.getByRole('heading', { name: 'Appearance', level: 2 }).waitFor()
+  await page.getByRole('button', { name: 'Match my computer' }).click()
+
+  // Help: the log is a page of its own, newest at the bottom.
+  await settingsSection('Help')
+  await page.getByRole('button', { name: 'What Keevoro has been doing' }).click()
+  await page.getByRole('heading', { name: 'What Keevoro has been doing', level: 2 }).waitFor()
+  await page.locator('.kv-settings .log').getByText(/Reading a large file \(3\.9 GB\): E:\\Video\\wedding\.mov/).waitFor()
+  await shot('9h-settings-log')
+  await page.getByRole('button', { name: '‹ Help' }).click()
+  await page.getByRole('heading', { name: 'Help', level: 2 }).waitFor()
+  // Updates: which Keevoro this is, and a way to ask.
+  await settingsSection('Updates')
   await page.getByRole('button', { name: 'Check for updates' }).click()
   await page.getByText('That is the newest version.').waitFor()
-  await shot('9e-settings')
+  await shot('9j-settings-updates')
 
-  // --- A whole backup can be photos only, or videos only, behind its own Advanced door.
-  await page.locator('.setting').filter({ hasText: 'This backup' }).getByText('Advanced', { exact: true }).click()
+  // --- Search finds a row by its words, or others like them, says which
+  // section it is in, and goes there with the row marked.
+  const searchBox = page.getByRole('searchbox', { name: 'Search Settings' })
+  await searchBox.fill('dark mode')
+  const results = page.getByRole('list', { name: 'Settings found' })
+  assert.match(await results.innerText(), /^Light or dark\s+Appearance$/)
+  await searchBox.fill('notifications')
+  assert.match(await results.getByRole('button').first().innerText(), /^Tell me when a backup by itself finishes\s+Backing up by itself$/)
+  await searchBox.fill('heic')
+  await shot('9k-settings-search')
+  await results.getByRole('button', { name: /own picture codecs/ }).click()
+  await page.getByRole('heading', { name: 'Advanced', level: 2 }).waitFor()
+  await page.locator('#setting-codecs[data-marked]').waitFor()
+  assert.equal(await searchBox.inputValue(), '', 'the search is cleared')
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('role')), 'switch', 'the row’s switch has the focus')
+  await searchBox.fill('zebra')
+  await page.getByText('No settings match “zebra”.').waitFor()
+  await searchBox.press('Escape')
+  assert.equal(await searchBox.inputValue(), '')
+  await sections.waitFor()
+
+  // --- A whole backup can be photos only, or videos only.
+  await settingsSection('This backup')
   const backupWants = page.getByRole('group', { name: 'This backup is for' })
   assert.equal(await backupWants.getByRole('switch', { name: 'Photos' }).isChecked(), true)
   assert.equal(await backupWants.getByRole('switch', { name: 'Videos' }).isChecked(), true)
   assert.equal(await backupWants.getByRole('switch', { name: 'Other files' }).count(), 0, 'no other files to choose until a kind of them is listed')
+  const wantsGroup = page.getByRole('group', { name: 'What it backs up' })
+  const beforeSaid = await page.getByRole('group', { name: 'How files are arranged' }).boundingBox()
   await backupWants.getByRole('switch', { name: 'Photos' }).uncheck()
-  await page.getByRole('status').getByText(/This backup is for videos only\. Anything already backed up stays backed up; it is just no longer kept/).waitFor()
-  await backupWants.scrollIntoViewIfNeeded()
+  await wantsGroup.getByRole('status').getByText(/This backup is for videos only\. Anything already backed up stays backed up; it is just no longer kept/).waitFor()
+  assert.deepEqual(await page.getByRole('group', { name: 'How files are arranged' }).boundingBox(), beforeSaid, 'nothing below moves when it is said')
   await shot('9y-settings-videos-only')
   await backupWants.getByRole('switch', { name: 'Photos' }).check()
-  await page.getByRole('status').getByText(/^This backup is for photos and videos\. This counts at once/).waitFor()
+  await wantsGroup.getByRole('status').getByText(/^This backup is for photos and videos\. This counts at once/).waitFor()
 
-  // --- Advanced: the kinds of file looked for, behind a door of their own.
-  assert.equal(await page.getByRole('heading', { name: 'Kinds of file Keevoro looks for' }).isVisible(), false, 'folded away')
-  await page.locator('details.advanced').last().getByText('Advanced', { exact: true }).click()
-  await page.getByRole('heading', { name: 'Kinds of file Keevoro looks for', level: 3 }).waitFor()
-  // A folder no backup goes to any more can still be cleared of a stopped
-  // backup's working files: chosen, then said, then cleared, in the page.
-  await page.getByRole('button', { name: 'Clear unfinished copies from a folder…' }).click()
+  // --- Advanced: a folder no backup goes to any more can still be cleared
+  // of a stopped backup's working files: chosen, then said, then cleared, in the page.
+  await settingsSection('Advanced')
+  await page.getByRole('button', { name: 'Choose a folder…' }).click()
   const oldFolder = page.getByRole('group', { name: 'Unfinished copies in G:\\Old Keevoro backup' })
   assert.match(await oldFolder.innerText(), /^There are 15\.2 GB of unfinished copies \(583 files\) in G:\\Old Keevoro backup, left by a backup that was stopped part-way\. Clearing them touches nothing that was backed up\./)
   await oldFolder.scrollIntoViewIfNeeded()
   await shot('9z-settings-clear-unfinished')
+  await fitsNarrow('Clearing unfinished copies, in Settings')
   await oldFolder.getByRole('button', { name: 'Clear them' }).click()
   await oldFolder.getByText(/^Cleared 15\.2 GB of unfinished copies \(583 files\) from G:\\Old Keevoro backup\./).waitFor()
   assert.match(await oldFolder.innerText(), /Left 1 thing written to in the last hour, as a backup may be using it right now\. Try again later\./)
   await oldFolder.getByRole('button', { name: 'Done' }).click()
-  await page.getByRole('button', { name: 'Clear unfinished copies from a folder…' }).click()
+  await page.getByRole('button', { name: 'Choose a folder…' }).click()
   await oldFolder.getByText('There are no unfinished copies to clear in G:\\Old Keevoro backup.').waitFor()
   await oldFolder.getByRole('button', { name: 'Done' }).click()
+
+  // --- Advanced, Kinds of file: the kinds looked for, on a page of their own.
+  await page.getByRole('button', { name: 'Kinds of file', exact: true }).click()
+  await page.getByRole('heading', { name: 'Kinds of file Keevoro looks for', level: 2 }).waitFor()
   const kindsTable = page.locator('.kinds-table')
   const row = (ending) => kindsTable.getByRole('row').filter({ has: page.getByRole('cell', { name: ending, exact: true }) })
   assert.match(await row('.jpg').innerText(), /Photo\s+Built in/)
@@ -699,9 +791,11 @@ try {
   assert.equal(await row('.jpg').getByRole('button', { name: 'Remove .jpg' }).count(), 0, 'a built-in kind cannot be removed')
   // Switching one off says when it counts, and offers the way to the sources.
   const avi = page.getByRole('switch', { name: 'Look for .avi files' })
+  const tableAt = await kindsTable.boundingBox()
   await avi.click()
   assert.equal(await avi.getAttribute('aria-checked'), 'false')
   await page.getByRole('status').getByRole('button', { name: 'Go to your sources' }).waitFor()
+  assert.deepEqual(await kindsTable.boundingBox(), tableAt, 'the table does not move when it is said')
   // Adding: a refusal is said beside the box, in plain words.
   await page.getByRole('button', { name: 'Add a kind of file…' }).click()
   const adding = page.getByRole('form', { name: 'Add a kind of file' })
@@ -743,7 +837,8 @@ try {
   await page.getByRole('heading', { name: 'Which of these should we keep?', level: 1 }).waitFor()
   assert.equal(await page.getByRole('heading', { name: 'Other files' }).count(), 0, 'nothing of the sort until a person adds a kind')
   await page.getByRole('button', { name: 'Settings' }).click()
-  await page.locator('details.advanced').last().getByText('Advanced', { exact: true }).click()
+  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Advanced' }).click()
+  await page.getByRole('button', { name: 'Kinds of file', exact: true }).click()
   await page.getByRole('button', { name: 'Add a kind of file…' }).click()
   const addOther = page.getByRole('form', { name: 'Add a kind of file' })
   await addOther.getByLabel('Ending').fill('pdf')
@@ -766,12 +861,15 @@ try {
   await shot('9v2-settings-kinds-with-other-files')
   await fitsNarrow('The kinds list with other files')
   // Now "Other files" is a choice for the backup too.
-  await page.locator('.setting').filter({ hasText: 'This backup' }).getByText('Advanced', { exact: true }).click()
+  await page.getByRole('button', { name: '‹ Advanced' }).click()
+  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'This backup' }).click()
   const forBackup = page.getByRole('group', { name: 'This backup is for' })
   assert.equal(await forBackup.getByRole('switch', { name: 'Other files' }).isChecked(), true, 'everything Keevoro looks for, unless chosen otherwise')
+  await forBackup.getByText('Other files are backed up exactly, but cannot be shown or grouped by date.').waitFor()
   await forBackup.scrollIntoViewIfNeeded()
   await shot('9v3-settings-backup-for-other-files')
-  await page.getByRole('status').getByRole('button', { name: 'Go to your sources' }).click()
+  await page.getByRole('button', { name: '‹ Back', exact: true }).click()
+  await page.locator('.steps button').first().click()
   await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
   await page.getByRole('button', { name: 'Look again for new photos' }).click()
   await page.getByRole('button', { name: 'See what was found' }).click()
@@ -1029,6 +1127,20 @@ try {
   await scheduleCard.getByText(/which will be skipped, as you asked/).waitFor()
   await scheduleCard.getByRole('button', { name: 'Don’t skip it' }).click()
   await scheduleCard.getByRole('button', { name: 'Skip the next one' }).waitFor()
+  // Settings has the same schedule, set with the same dialog.
+  await page.getByRole('button', { name: 'Settings' }).click()
+  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Backing up by itself' }).click()
+  const scheduleRow = page.locator('#setting-schedule')
+  assert.match(await scheduleRow.innerText(), /^Back up by itself\s+Looks through your sources for anything new and backs it up, while Keevoro is open\.\s+Every week on Sunday at 09:00\s+Change…$/)
+  await scheduleRow.getByRole('button', { name: 'Change…' }).click()
+  const settingsDialog = page.getByRole('dialog', { name: 'Back up “My photos” by itself?' })
+  assert.equal(await settingsDialog.getByRole('radio', { name: /^Every week on/ }).isChecked(), true, 'as it is set')
+  await settingsDialog.getByRole('radio', { name: /^Every day at/ }).check()
+  await settingsDialog.getByRole('button', { name: 'Save' }).click()
+  await scheduleRow.getByText('Every day at 02:30').waitFor()
+  await shot('9x2-settings-backing-up-by-itself')
+  await page.getByRole('button', { name: '‹ Back', exact: true }).click()
+  await scheduleCard.getByText('Every day at 02:30').waitFor()
 
   await page.goto(`${base}/?byitself&schedule&fast`)
   await page.getByRole('heading', { name: 'Where should they go?', level: 1 }).waitFor()
@@ -1059,18 +1171,31 @@ try {
   await explained.getByRole('switch', { name: 'Start Keevoro when this computer starts' }).check()
   await explained.getByRole('button', { name: 'OK' }).click()
   await explained.waitFor({ state: 'detached' })
-  // Settings says the same, under a heading a person would look under.
+  // Settings says the same, under Backing up by itself.
   await page.getByRole('button', { name: 'Settings' }).click()
-  await page.getByRole('heading', { name: 'When you close Keevoro' }).waitFor()
-  const keeping = page.locator('.keep-running')
-  assert.equal(await keeping.getByRole('switch', { name: 'Keep Keevoro running by the clock when its window is closed' }).getAttribute('aria-checked'), 'true')
-  assert.equal(await keeping.getByRole('switch', { name: 'Minimise to the tray as well' }).getAttribute('aria-checked'), 'false')
+  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Backing up by itself' }).click()
+  const keeping = page.getByRole('group', { name: 'When the window is closed' })
+  assert.equal(await keeping.getByRole('switch', { name: 'Keep Keevoro running by the clock' }).getAttribute('aria-checked'), 'true')
+  assert.equal(await keeping.getByRole('switch', { name: 'Minimise to the icon by the clock' }).getAttribute('aria-checked'), 'false')
   assert.equal(await keeping.getByRole('switch', { name: 'Start Keevoro when this computer starts' }).getAttribute('aria-checked'), 'true', 'ticked in the explanation')
-  await keeping.getByRole('switch', { name: 'Minimise to the tray as well' }).click()
-  await page.waitForFunction(() => document.querySelector('.keep-running [aria-label="Minimise to the tray as well"]')?.getAttribute('aria-checked') === 'true')
-  await keeping.scrollIntoViewIfNeeded()
+  await keeping.getByRole('switch', { name: 'Minimise to the icon by the clock' }).click()
+  await page.waitForFunction(() => document.querySelector('#setting-minimise [role="switch"]')?.getAttribute('aria-checked') === 'true')
+  assert.equal(await page.getByRole('group', { name: 'Notifications' }).getByRole('switch', { name: 'Tell me when a backup by itself finishes' }).getAttribute('aria-checked'), 'true')
   await shot('9x4-settings-when-you-close')
-  await fitsNarrow('Settings, when you close Keevoro')
+  await fitsNarrow('Settings, Backing up by itself')
+  // The explanation's own words lead to these choices, without closing the window.
+  await page.goto(`${base}/?closing&fast`)
+  await explained.getByRole('button', { name: 'Settings, Backing up by itself' }).click()
+  await explained.waitFor({ state: 'detached' })
+  await page.getByRole('heading', { name: 'Backing up by itself', level: 2 }).waitFor()
+  await page.locator('#setting-keepRunning[data-marked]').waitFor()
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-labelledby') && document.getElementById(document.activeElement.getAttribute('aria-labelledby')).textContent), 'Keep Keevoro running by the clock', 'its switch has the focus')
+  await shot('9x4b-settings-from-the-explanation')
+  // The icon by the clock opens a page by its name.
+  await page.goto(`${base}/?fast&page=settings/advanced/kinds`)
+  await page.getByRole('heading', { name: 'Kinds of file Keevoro looks for', level: 2 }).waitFor()
+  await page.goto(`${base}/?fast&page=settings`)
+  await page.getByRole('heading', { name: 'This backup', level: 2 }).waitFor()
   // Quitting with a backup going asks first, over the window.
   await page.goto(`${base}/?quitting&busy&fast`)
   const quitAsked = page.getByRole('dialog', { name: 'A backup is running. Stop it after the file in hand and quit? Nothing is lost.' })
@@ -1180,7 +1305,7 @@ try {
       'Writing the list of what is there',
     ],
   )
-  assert.match(await text('.speed'), /switch off “Also make previews for a gallery” once this backup\s+ends/)
+  assert.match(await text('.speed'), /switch off Previews for a gallery in Settings, This backup once this backup\s+ends/)
   assert.equal(await page.getByText(/^Stopped\./).count(), 0, 'no stale "Stopped" while it runs')
   // The screen says what step the backup is on straight away, in its own
   // words, and the activity page says the same.
@@ -1339,12 +1464,22 @@ try {
   // --- Starting again: asked first, told exactly what goes and what stays.
   await page.goto(`${base}/?fast`)
   await page.getByRole('button', { name: 'Settings' }).click()
+  // Manage backups opens from This backup, and comes back to it.
+  await page.getByRole('button', { name: 'Manage backups', exact: true }).click()
+  await page.getByRole('heading', { name: 'Your backups', level: 1 }).waitFor()
+  await page.getByRole('button', { name: '‹ Back' }).click()
+  await page.getByRole('heading', { name: 'This backup', level: 2 }).waitFor()
+  // Reset is set apart, at the foot of Help, and asks first in the page.
+  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Help' }).click()
+  assert.match(await page.getByRole('group', { name: 'Start again' }).innerText(), /Reset Keevoro\s+Puts Keevoro back as it was when you first installed it/)
   await page.getByRole('button', { name: 'Reset Keevoro…' }).click()
   assert.match(await text('.resetting'), /This removes:.*your backup.*This does not touch:.*anything on your sources.*already sent/s)
   await shot('9i-reset')
   await page.getByRole('button', { name: 'Cancel' }).click()
   assert.equal(await page.locator('.resetting').count(), 0, 'cancelling changes nothing')
-  assert.match(await text('.backup .current'), /My photos/)
+  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'This backup' }).click()
+  assert.match(await page.locator('#setting-name').innerText(), /My photos/)
+  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Help' }).click()
   await page.getByRole('button', { name: 'Reset Keevoro…' }).click()
   await page.getByRole('button', { name: 'Yes, reset Keevoro' }).click()
   await page.getByRole('heading', { name: 'Let’s find your photos' }).waitFor()
@@ -1850,10 +1985,13 @@ try {
   await page.getByRole('button', { name: '‹ Back' }).click()
   await page.getByRole('button', { name: 'Settings' }).click()
   await page.getByRole('heading', { name: 'Settings', level: 1 }).waitFor()
-  await page.locator('details.advanced').last().getByText('Advanced', { exact: true }).click()
-  await page.getByRole('button', { name: 'Forget remembered maps' }).click()
+  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Advanced' }).click()
+  const mapsRow = page.locator('#setting-maps')
+  const mapsAt = await mapsRow.boundingBox()
+  await mapsRow.getByRole('button', { name: 'Forget them' }).click()
   assert.equal(await page.getByRole('status').filter({ hasText: 'remembered map' }).innerText(), 'Forgot 1 remembered map.')
-  await page.locator('.setting', { hasText: 'Remembered maps' }).scrollIntoViewIfNeeded()
+  assert.deepEqual(await mapsRow.boundingBox(), mapsAt, 'the row does not grow when it is said')
+  await mapsRow.scrollIntoViewIfNeeded()
   await shot('9u-settings-forget-maps')
 
   // --- Cloud storage as a source, from our first outside tester: the same
@@ -1917,10 +2055,57 @@ try {
   assert.equal(await headingUnderBand(), null, 'the backup screen’s heading is not under the band')
   await shot('11b-backup-400')
   await page.setViewportSize({ width: 1440, height: 900 })
+  // Every section of Settings, and every page in one, fits a narrow window,
+  // and is pictured wide and at 400 pixels.
   await page.getByRole('button', { name: 'Settings' }).click()
-  for (const door of await page.locator('details.advanced').all()) await door.locator('summary').click()
-  await fitsNarrow('Settings')
-  await page.getByRole('button', { name: '‹ Back' }).click()
+  const settingsList = page.getByRole('navigation', { name: 'Settings sections' })
+  const settingsPages = [
+    ['This backup', null, 'this-backup'],
+    ['Backing up by itself', null, 'backing-up-by-itself'],
+    ['Appearance', null, 'appearance'],
+    ['Updates', null, 'updates'],
+    ['Advanced', null, 'advanced'],
+    ['Advanced', ['Kinds of file', 'Kinds of file Keevoro looks for'], 'kinds-of-file'],
+    ['Advanced', ['AI agents Looking only', 'AI agents'], 'ai-agents'],
+    ['Help', null, 'help'],
+    ['Help', ['What Keevoro has been doing', 'What Keevoro has been doing'], 'log'],
+    ['Help', ['Open source licences', 'Open source licences'], 'licences'],
+  ]
+  for (const [name, inside, file] of settingsPages) {
+    await settingsList.getByRole('button', { name, exact: true }).click()
+    if (inside) await page.getByRole('button', { name: inside[0], exact: true }).click()
+    await page.getByRole('heading', { name: inside ? inside[1] : name, level: 2, exact: true }).waitFor()
+    await shot(`12-settings-${file}`)
+    await fitsNarrow(`Settings, ${file}`)
+    await page.setViewportSize({ width: 400, height: 800 })
+    await settled()
+    await shot(`12-settings-${file}-400`)
+    // At 400 pixels a page has its way back, and no list beside it.
+    assert.equal(await settingsList.isVisible(), false, `Settings, ${file}, at 400 pixels is a page of its own`)
+    await page.getByRole('button', { name: inside ? `‹ ${name}` : '‹ Settings' }).waitFor()
+    await page.setViewportSize({ width: 1440, height: 900 })
+    if (inside) await page.getByRole('button', { name: `‹ ${name}` }).click()
+  }
+  // At 400 pixels the list is the first page, and a section the next, as on a phone.
+  await page.setViewportSize({ width: 400, height: 800 })
+  await page.getByRole('button', { name: '‹ Settings' }).click()
+  await settingsList.waitFor()
+  assert.equal(await page.locator('#settings-page-title').isVisible(), false, 'the list alone')
+  assert.deepEqual(await spills(), [], 'the list of sections at 400 pixels spills sideways')
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-current')), 'page', 'back on the section it came from')
+  await shot('12-settings-list-400')
+  await settingsList.getByRole('button', { name: 'Updates' }).click()
+  await page.getByRole('heading', { name: 'Updates', level: 2 }).waitFor()
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'settings-page-title', 'the page’s heading has the focus')
+  await page.keyboard.press('Escape')
+  await settingsList.waitFor()
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await settingsList.getByRole('button', { name: 'Backing up by itself' }).click()
+  await settled()
+  await shot('12-settings-backing-up-by-itself-400-dark')
+  await page.emulateMedia({ colorScheme: 'light' })
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.getByRole('button', { name: '‹ Back', exact: true }).click()
   await page.getByRole('button', { name: 'What Keevoro is doing' }).click()
   await fitsNarrow('What Keevoro is doing')
   await page.getByRole('button', { name: '‹ Back' }).click()
@@ -1981,12 +2166,12 @@ try {
   // Settings has the same choice for the whole backup, and says what a
   // change means for what is already safe.
   await page.getByRole('button', { name: 'Settings' }).click()
-  await page.getByText('How files are arranged in the backup', { exact: true }).waitFor()
+  await page.getByRole('heading', { name: 'How files are arranged', level: 3 }).waitFor()
   const settingsArrange = page.getByRole('radiogroup', { name: 'How files are arranged in the backup' })
   assert.equal(await settingsArrange.getByRole('radio', { name: /^Keep my folders as they are/ }).isChecked(), true)
-  assert.match(await text('.backup-arrange'), /Changing this only changes where files go from now on\. Files already backed up stay where they are\./)
+  assert.match(await text('.kv-arrange'), /Changing this only changes where files go from now on\. Files already backed up stay where they are\./)
   await settingsArrange.getByRole('radio', { name: /^Arrange by date/ }).check()
-  await page.locator('.backup-arrange').getByRole('status').getByText('From now on, new files are arranged by date.').waitFor()
+  await page.locator('.kv-arrange').getByRole('status').getByText('From now on, new files are arranged by date.').waitFor()
   await shot('9p-settings-arranged')
   await page.getByRole('button', { name: '‹ Back' }).click()
 
@@ -2012,6 +2197,11 @@ try {
   assert.equal(await text('.arranged'), 'Arranged by date, except Family Scans, which keeps its folders. Change')
   await page.locator('.arranged').getByRole('button', { name: 'Change' }).click()
   await page.getByRole('heading', { name: 'Settings', level: 1 }).waitFor()
+  await page.getByRole('heading', { name: 'This backup', level: 2 }).waitFor()
+  await page.locator('#setting-arrange[data-marked]').waitFor()
+  await shot('9q-settings-arrange-marked')
+  // The mark is for a moment, then goes.
+  await page.waitForFunction(() => !document.querySelector('[data-marked]'))
 
   // --- An existing library opens on the step that still needs doing, in dark mode too.
   await page.emulateMedia({ colorScheme: 'dark' })

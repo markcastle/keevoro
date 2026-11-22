@@ -50,11 +50,12 @@ export function BackupWants(props: {
   load: () => Promise<WantsView>
   choose: (wants: Wants) => Promise<WantsView>
   onChanged?: () => void
+  /** What a change means, for saying somewhere of the caller's choosing. */
+  onSaid: (said: string) => void
   onProblem: (error: unknown) => void
 }) {
   const { load, onProblem } = props
   const [view, setView] = useState<WantsView | null>(null)
-  const [said, setSaid] = useState<string | null>(null)
   useEffect(() => {
     load().then(setView).catch(onProblem)
     // Asked once, when it is first shown.
@@ -71,17 +72,12 @@ export function BackupWants(props: {
             .choose(wants)
             .then((changed) => {
               setView(changed)
-              setSaid(changed.said)
+              props.onSaid(`${changed.said} This counts at once, with no need to look again.`)
               props.onChanged?.()
             })
             .catch(onProblem)
         }
       />
-      {said && (
-        <p className="quiet small" role="status">
-          {said} This counts at once, with no need to look again.
-        </p>
-      )}
     </>
   )
 }

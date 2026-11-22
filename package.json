@@ -12,7 +12,7 @@
     "ui:build": "tsc -b && vite build",
     "lint": "oxlint ui/src",
     "ui:test": "node scripts/ui-test.mjs",
-    "ui:unit": "node --test ui/src/treemap.test.ts ui/src/ringParts.test.ts ui/src/held.test.ts ui/src/format.test.ts ui/src/wantsRule.test.ts ui/src/thereWords.test.ts ui/src/noReload.test.ts",
+    "ui:unit": "node --test ui/src/treemap.test.ts ui/src/ringParts.test.ts ui/src/held.test.ts ui/src/format.test.ts ui/src/wantsRule.test.ts ui/src/thereWords.test.ts ui/src/noReload.test.ts ui/src/settings/places.test.ts",
     "tokens": "node scripts/make-tokens.mjs"
   },
   "dependencies": {

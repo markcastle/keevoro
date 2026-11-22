@@ -26,7 +26,6 @@ import type { ReactNode } from 'react'
 import { backend } from './backend'
 import { scrollerOf } from './scroller'
 import type {
-  Acceleration,
   Arrange,
   ArrangeView,
   Destination,
@@ -34,9 +33,6 @@ import type {
   SurveyProgress,
   Duplicate,
   Activity,
-  AgentAccess,
-  FileKind,
-  ListedAs,
   LeftOut,
   LeftOutFolder,
   StageRecord,
@@ -67,30 +63,29 @@ import lockupDarkLargeUrl from './assets/keevoro-lockup-reversed-large.png'
 import lockupShadowUrl from './assets/keevoro-lockup-shadow.png'
 import lockupDarkUrl from './assets/keevoro-lockup-reversed.png'
 import lockupUrl from './assets/keevoro-lockup.png'
-import { chooseTheme, savedTheme } from './theme'
 import { ClearUnfinished } from './tidy'
 import { FoundPicture, Viewer } from './pictures'
 import { LookInside } from './inside'
 import { SpaceScreen } from './map'
 import { LiveMap } from './liveMap'
-import { ForgetMapsSetting } from './forgetMaps'
 import { OpenSourceLicences } from './licences'
 import { LeaveOutButton, LeftOutByYou, LeftOutSaid, leftOutByYou } from './leaveOut'
 import { VirtualTiles } from './tiles'
-import { BackupWants, SourceWants } from './wants'
-import { ArrangeQuestion, BackupArrange, KeptFoldersSection, SourceArrange, arrangedLine, keptSaid } from './arrange'
+import { SourceWants } from './wants'
+import { ArrangeQuestion, KeptFoldersSection, SourceArrange, arrangedLine, keptSaid } from './arrange'
 import { OtherFilesScreen, OtherFilesSection } from './otherFiles'
 import { ThereNow, WhatWasFound } from './whatIsThere'
 import { PutRight } from './putRight'
 import { ManageBackups } from './manageBackups'
 import { CheckLine, CheckStopped } from './checking'
-import { KeepRunningSetting } from './keepRunning'
 import { WindowAsks } from './tray'
 import { certain, mainButtonWords, outOfReachLine } from './thereWords'
 import { SyncedCard } from './synced'
 import { StorageFields } from './storageForm'
 import { AddBucketSource, CloudCost, CloudSourceIcon } from './bucketSource'
-import type { Theme } from './theme'
+import { SettingsScreen } from './settings/shell'
+import { parsePlace, placeOfRow } from './settings/places'
+import type { SettingsPlace } from './settings/places'
 
 type Step = 'find' | 'choose' | 'send'
 /** Looking inside a collection, or at what was set aside, sits on top of step 2. */
@@ -114,6 +109,10 @@ export function App() {
   const [found, setFound] = useState<Discover | null>(null)
   const [step, setStep] = useState<Step>('find')
   const [overlay, setOverlay] = useState<Overlay>(null)
+  // Where Settings is, remembered while Keevoro is open, so it opens there again.
+  const [settingsAt, setSettingsAt] = useState<SettingsPlace>({ section: null })
+  // Manage backups opened from Settings goes back there.
+  const [backupsFromSettings, setBackupsFromSettings] = useState(false)
   const [scan, setScan] = useState<ScanEvent | null>(null)
   const [justFound, setJustFound] = useState<ScanEvent | null>(null)
   // Background checking of files a quick search only sampled.
@@ -211,6 +210,12 @@ export function App() {
     if (!scroller) return
     scroller.scrollTop = overlay === null ? wasAt.current : 0
   }, [overlay])
+
+  /** Opens Settings where it was, or at a place asked for: a section, a page, or a row to bring into view. */
+  const openSettings = (at?: SettingsPlace) => {
+    if (at) setSettingsAt(at)
+    show('settings')
+  }
 
   const refresh = useCallback((from: Backend) => from.discover().then(setFound).catch(report), [report])
 
@@ -314,7 +319,16 @@ export function App() {
 
   // From the icon by the clock: a page to open, the first-close explanation,
   // the question before quitting, and anything its menu could not do.
-  const asks = <WindowAsks api={api} onPage={(page) => page === 'settings' && show('settings')} onProblem={report} />
+  const asks = (
+    <WindowAsks
+      api={api}
+      onPage={(page) => {
+        const at = parsePlace(page)
+        if (at) openSettings(at.section === null ? undefined : at)
+      }}
+      onProblem={report}
+    />
+  )
 
   if (!state.backup) {
     return (
@@ -369,6 +383,96 @@ export function App() {
   const question = !!arranged && !arranged.asked && anythingFound && step !== 'find' && !overlay
   const shownStep: Step = question ? 'find' : step
 
+  // The bars that can show on any page: a newer Keevoro, and a problem.
+  const banner = (
+    <>
+    {update && (
+      <div className="update" role="status">
+        {updating === 'no' && (
+          <>
+            <span>
+              <strong>A new version of Keevoro is ready</strong> ({update.version}). Updating takes about a minute and
+              your library is not affected.
+            </span>
+            <span className="actions">
+              <button className="link" onClick={() => api.openReleasePage(update.page).catch(report)}>
+                What’s new
+              </button>
+              <button onClick={() => setUpdate(null)}>Later</button>
+              <button className="primary" onClick={() => installUpdate(false)}>
+                Update now
+              </button>
+            </span>
+          </>
+        )}
+        {updating === 'waiting' && (
+          <>
+            <span>{updateWaits}</span>
+            <span className="actions">
+              <button onClick={() => installUpdate(true)}>Stop it and update now</button>
+            </span>
+          </>
+        )}
+        {updating === 'downloading' && (
+          <span>
+            <span className="spinner" /> Downloading the new version. Keevoro will close and reopen by itself.
+          </span>
+        )}
+        {updating === 'opened' && (
+          <span>The new version has been downloaded and opened. Follow the window that appeared to finish.</span>
+        )}
+      </div>
+    )}
+    {problem && (
+      <div className="problem" role="alert">
+        <span>{problem}</span>
+        <button onClick={() => setProblem(null)} aria-label="Dismiss">
+          ×
+        </button>
+      </div>
+    )}
+    </>
+  )
+
+  if (overlay === 'settings') {
+    return (
+      <div className="app settings-open">
+        {asks}
+        <SettingsScreen
+          api={api}
+          state={state}
+          sendingTo={sendingTo ?? null}
+          update={update}
+          onUpdate={setUpdate}
+          onLibrary={(s) => {
+            setState(s)
+            void refresh(api)
+          }}
+          onArranged={setArranged}
+          onSend={() => go('send')}
+          onSources={() => go('find')}
+          onBackups={() => {
+            setBackupsFromSettings(true)
+            setOverlay('backups')
+          }}
+          onReset={(s) => {
+            setOverlay(null)
+            setFound(null)
+            setSendingTo(null)
+            setJustFound(null)
+            setStep('find')
+            setState(s)
+          }}
+          place={settingsAt}
+          onPlace={setSettingsAt}
+          onBack={() => setOverlay(null)}
+          onProblem={report}
+          banner={banner}
+        />
+      </div>
+    )
+  }
+
   return (
     <div className="app">
       {asks}
@@ -381,7 +485,10 @@ export function App() {
           backups={state.backups}
           onSwitch={(id) => openBackup(api.switchBackup(id))}
           onStart={(name) => openBackup(api.startBackup(name))}
-          onManage={() => show('backups')}
+          onManage={() => {
+            setBackupsFromSettings(false)
+            show('backups')
+          }}
         />
         <ol className="steps" aria-label="Steps">
           {STEPS.map((s, i) => (
@@ -444,51 +551,7 @@ export function App() {
       </aside>
 
       <main ref={main}>
-        {update && (
-          <div className="update" role="status">
-            {updating === 'no' && (
-              <>
-                <span>
-                  <strong>A new version of Keevoro is ready</strong> ({update.version}). Updating takes about a minute and
-                  your library is not affected.
-                </span>
-                <span className="actions">
-                  <button className="link" onClick={() => api.openReleasePage(update.page).catch(report)}>
-                    What’s new
-                  </button>
-                  <button onClick={() => setUpdate(null)}>Later</button>
-                  <button className="primary" onClick={() => installUpdate(false)}>
-                    Update now
-                  </button>
-                </span>
-              </>
-            )}
-            {updating === 'waiting' && (
-              <>
-                <span>{updateWaits}</span>
-                <span className="actions">
-                  <button onClick={() => installUpdate(true)}>Stop it and update now</button>
-                </span>
-              </>
-            )}
-            {updating === 'downloading' && (
-              <span>
-                <span className="spinner" /> Downloading the new version. Keevoro will close and reopen by itself.
-              </span>
-            )}
-            {updating === 'opened' && (
-              <span>The new version has been downloaded and opened. Follow the window that appeared to finish.</span>
-            )}
-          </div>
-        )}
-        {problem && (
-          <div className="problem" role="alert">
-            <span>{problem}</span>
-            <button onClick={() => setProblem(null)} aria-label="Dismiss">
-              ×
-            </button>
-          </div>
-        )}
+        {banner}
 
         {overlay === 'backups' ? (
           <ManageBackups
@@ -511,7 +574,7 @@ export function App() {
               }
             }}
             onOpen={(id) => openBackup(api.switchBackup(id))}
-            onBack={() => setOverlay(null)}
+            onBack={() => setOverlay(backupsFromSettings ? 'settings' : null)}
             onProblem={report}
           />
         ) : overlay === 'activity' ? (
@@ -530,37 +593,6 @@ export function App() {
           />
         ) : overlay === 'about' ? (
           <AboutScreen api={api} version={state.version} onBack={() => setOverlay(null)} onProblem={report} />
-        ) : overlay === 'settings' ? (
-          <SettingsScreen
-            api={api}
-            state={state}
-            sendingTo={sendingTo ?? null}
-            update={update}
-            onUpdate={setUpdate}
-            onLibrary={(s) => {
-              setState(s)
-              void refresh(api)
-            }}
-            onArranged={setArranged}
-            onSend={() => {
-              setOverlay(null)
-              setStep('send')
-            }}
-            onSources={() => {
-              setOverlay(null)
-              setStep('find')
-            }}
-            onReset={(s) => {
-              setOverlay(null)
-              setFound(null)
-              setSendingTo(null)
-              setJustFound(null)
-              setStep('find')
-              setState(s)
-            }}
-            onBack={() => setOverlay(null)}
-            onProblem={report}
-          />
         ) : overlay === 'duplicates' ? (
           <DuplicatesScreen api={api} onBack={() => setOverlay(null)} onProblem={report} />
         ) : overlay !== 'setAside' && overlay?.collection.byFolder ? (
@@ -602,6 +634,7 @@ export function App() {
             justFound={justFound}
             checking={check !== null}
             arrange={arranged?.arrange ?? 'byDate'}
+            onLog={() => openSettings({ section: 'help', detail: 'log' })}
             onProblem={report}
             onStarted={() => setJustFound(null)}
             onChanged={() => {
@@ -670,7 +703,7 @@ export function App() {
             onSendingTo={setSendingTo}
             onSent={() => void refresh(api)}
             arrange={arranged?.arrange}
-            onSettings={() => show('settings')}
+            onSettings={(row) => openSettings(placeOfRow(row))}
             next={
               <Next
                 back={() => go('choose')}
@@ -846,6 +879,8 @@ function FindScreen(props: {
   onChanged: () => void
   /** How the backup arranges what it sends, which a source follows unless it has its own way. */
   arrange: Arrange
+  /** Opens the log, in Settings. */
+  onLog: () => void
   next: ReactNode
 }) {
   const { api, found, scan, justFound, onProblem } = props
@@ -1265,7 +1300,11 @@ function FindScreen(props: {
                       this account is not allowed to open it:{' '}
                       <span className="where">{(justFound.unreadableNames ?? []).join(', ')}</span>
                       {(justFound.unreadable ?? 0) > (justFound.unreadableNames ?? []).length && ' and more'}. The full
-                      list is in the log, in Settings.
+                      list is in{' '}
+                      <button className="link" onClick={props.onLog}>
+                        the log
+                      </button>
+                      , in Settings, Help.
                     </p>
                   )}
                   {justFound.onlineOnlySaid && <p className="online-only">{justFound.onlineOnlySaid}</p>}
@@ -1959,641 +1998,6 @@ function UsageChart(props: { title: string; unit: string; about: string; values:
   )
 }
 
-/** Everything that can be changed or looked up, in one place. */
-function SettingsScreen(props: {
-  api: Backend
-  state: AppState
-  sendingTo: string | null
-  update: Update | null
-  onUpdate: (update: Update | null) => void
-  onLibrary: (state: AppState) => void
-  /** Called once how the backup is arranged has changed. */
-  onArranged: (view: ArrangeView) => void
-  /** Called after a reset, with the app as it is when first installed. */
-  onReset: (state: AppState) => void
-  onSend: () => void
-  /** Goes to the sources, where they can be looked through again. */
-  onSources: () => void
-  onBack: () => void
-  onProblem: (error: unknown) => void
-}) {
-  const { api, state, onProblem } = props
-  const [log, setLog] = useState<string | null>(null)
-  // Counts each change to the kinds of file, so what the backup is for is
-  // asked again: "Other files" is a choice once a kind of them is listed.
-  const [kindsChanged, setKindsChanged] = useState(0)
-  const [checked, setChecked] = useState<'no' | 'checking' | 'current'>('no')
-  const [theme, setTheme] = useState<Theme>(savedTheme)
-  const [speed, setSpeed] = useState<Acceleration | null>(null)
-  useEffect(() => {
-    api.acceleration().then(setSpeed).catch(onProblem)
-  }, [api, onProblem])
-  // Resetting asks first, and says exactly what it does and does not do.
-  const [resetting, setResetting] = useState(false)
-  const logBox = useRef<HTMLPreElement>(null)
-
-  const showLog = () =>
-    api
-      .logTail()
-      .then((text) => {
-        setLog(text)
-        // The newest lines are at the bottom, which is what people want.
-        requestAnimationFrame(() => logBox.current?.scrollTo(0, logBox.current.scrollHeight))
-      })
-      .catch(onProblem)
-
-  return (
-    <section className="settings">
-      <header>
-        <button className="link" onClick={props.onBack}>
-          ‹ Back
-        </button>
-        <h1>Settings</h1>
-      </header>
-
-      <div className="setting">
-        <h3>This backup</h3>
-        <p>
-          This is <b>{state.backup?.name}</b>. A backup remembers its own sources, what you chose to keep and where
-          it sends things. To open another or start a new one, use the backup’s name at the top of the side bar.
-        </p>
-        <p className="quiet small">
-          Its notes and previews are kept in{' '}
-          {state.library && <FolderLink api={api} path={state.library} onProblem={onProblem} />}. Your photos themselves
-          are not copied there.
-        </p>
-        <h4 className="arrange-heading">How files are arranged in the backup</h4>
-        <BackupArrange
-          load={() => api.backupArrange()}
-          choose={(arrange) => api.setBackupArrange(arrange)}
-          onChanged={(view) => {
-            props.onArranged(view)
-            props.onLibrary(state)
-          }}
-          onProblem={onProblem}
-        />
-        <p className="quiet small">A source can have its own way, under File types beside it on the first step.</p>
-        <details className="advanced">
-          <summary>Advanced</summary>
-          <BackupWants
-            key={kindsChanged}
-            load={() => api.backupWants()}
-            choose={(wants) => api.setBackupWants(wants)}
-            onChanged={() => props.onLibrary(state)}
-            onProblem={onProblem}
-          />
-          <p className="quiet small">
-            A source can have its own choice, under Kinds of file beside it on the first step.
-          </p>
-        </details>
-      </div>
-
-      <div className="setting">
-        <h3>Where it backs up to</h3>
-        <p>{props.sendingTo ? `This backup sends to ${props.sendingTo}.` : 'Nowhere has been chosen yet.'}</p>
-        <p className="choices">
-          <button onClick={props.onSend}>{props.sendingTo ? 'Go to sending' : 'Choose where'}</button>
-        </p>
-      </div>
-
-      <div className="setting">
-        <h3>Appearance</h3>
-        <p className="quiet">Light, dark, or the same as the rest of your computer.</p>
-        <p className="choices">
-          <span className="themes" role="group" aria-label="Appearance">
-            {(
-              [
-                ['system', 'Match my computer'],
-                ['light', 'Light'],
-                ['dark', 'Dark'],
-              ] as [Theme, string][]
-            ).map(([value, label]) => (
-              <button
-                key={value}
-                className="link"
-                aria-pressed={theme === value}
-                onClick={() => {
-                  chooseTheme(value)
-                  setTheme(value)
-                }}
-              >
-                {label}
-              </button>
-            ))}
-          </span>
-        </p>
-      </div>
-
-      <div className="setting">
-        <h3>Speed</h3>
-        {speed && (
-          <>
-            <label className="switch-row">
-              <button
-                className={speed.on && speed.available ? 'kv-switch on' : 'kv-switch'}
-                role="switch"
-                aria-checked={speed.on && speed.available}
-                aria-label="Use this computer’s own picture codecs"
-                disabled={!speed.available}
-                onClick={() => api.setAcceleration(!speed.on).then(setSpeed).catch(onProblem)}
-              >
-                <span className="knob" />
-              </button>
-              <span>
-                <b>Use this computer’s own picture codecs</b>
-                <span className="quiet small">
-                  {speed.available
-                    ? 'They are usually the fastest way to open a photo, use your graphics hardware where they can, and open kinds of photo Keevoro’s own decoder cannot, such as HEIC. If a photo will not open that way, Keevoro falls back to its own decoder by itself. Switch this off only if previews look wrong.'
-                    : 'On this kind of computer Keevoro uses its own decoder for photos, so there is nothing to switch.'}
-                </span>
-              </span>
-            </label>
-            <p className="quiet small">
-              Photos are opened by: {speed.ways.join(', then ')}. Previews are made {speed.cores} at a time, on half of
-              this computer’s processor cores at most, so the rest stays free for you.
-            </p>
-          </>
-        )}
-      </div>
-
-      <KeepRunningSetting api={api} onProblem={onProblem} />
-
-      <AgentsSetting api={api} onProblem={onProblem} />
-
-      <div className="setting">
-        <h3>Updates</h3>
-        <p>
-          This is Keevoro {state.version}.{' '}
-          {props.update
-            ? `Version ${props.update.version} is ready; see the bar at the top.`
-            : checked === 'current'
-              ? 'That is the newest version.'
-              : ''}
-        </p>
-        <p className="choices">
-          <button
-            disabled={checked === 'checking'}
-            onClick={() => {
-              setChecked('checking')
-              api
-                .checkUpdate()
-                .then((found) => {
-                  props.onUpdate(found)
-                  setChecked(found ? 'no' : 'current')
-                })
-                .catch((e) => {
-                  setChecked('no')
-                  onProblem(e)
-                })
-            }}
-          >
-            {checked === 'checking' ? 'Checking…' : 'Check for updates'}
-          </button>
-        </p>
-      </div>
-
-      <div className="setting">
-        <h3>What Keevoro has been doing</h3>
-        <p className="quiet">
-          Keevoro keeps a plain record of what it did and when: every search, anything it could not read, gathering and
-          backups. It never records keys or passwords. If something seems slow or wrong, this is where to look.
-        </p>
-        <p className="choices">
-          <button onClick={showLog}>{log === null ? 'Show the log' : 'Refresh'}</button>
-          <button className="button" onClick={() => api.openLog().catch(onProblem)}>
-            Open the log file
-          </button>
-        </p>
-        {log !== null && (
-          <pre className="log" ref={logBox} tabIndex={0}>
-            {log || 'Nothing has been recorded yet.'}
-          </pre>
-        )}
-      </div>
-
-      <details className="advanced">
-        <summary>Advanced</summary>
-        <FileKindsSetting
-          api={api}
-          onSources={props.onSources}
-          onChanged={() => setKindsChanged((n) => n + 1)}
-          onProblem={onProblem}
-        />
-        <ForgetMapsSetting api={api} onProblem={onProblem} />
-        <div className="setting">
-          <h3>Unfinished copies</h3>
-          <p className="quiet">
-            A backup that is stopped part-way can leave unfinished copies in a working folder where it was going. Each
-            backup clears its own as it starts and ends. For a folder no backup goes to any more, clear them here.
-            Nothing that was backed up is touched, and Keevoro says how much there is first.
-          </p>
-          <div className="choices">
-            <ClearUnfinished api={api} label="Clear unfinished copies from a folder…" onProblem={onProblem} />
-          </div>
-        </div>
-      </details>
-
-      <div className="setting">
-        <h3>Start again</h3>
-        <p className="quiet">
-          Put Keevoro back as it was when you first installed it. Use this to clear out a trial run, or before passing
-          the computer on.
-        </p>
-        {!resetting ? (
-          <p className="choices">
-            <button className="danger" onClick={() => setResetting(true)}>
-              Reset Keevoro…
-            </button>
-          </p>
-        ) : (
-          <div className="resetting" role="alertdialog" aria-labelledby="reset-title">
-            <h4 id="reset-title">Reset Keevoro?</h4>
-            <p>
-              <b>This removes:</b>{' '}
-              {props.state.backups.length === 1 ? 'your backup' : `all ${props.state.backups.length} of your backups`} from
-              Keevoro, with what was found and what you chose to keep; the previews and maps Keevoro made; and any storage
-              keys it saved.
-            </p>
-            <p>
-              <b>This does not touch:</b> anything on your sources, or any photo or video you have already sent
-              anywhere. Those stay exactly where they are. Keevoro simply forgets about them.
-            </p>
-            <p className="choices">
-              <button
-                className="danger"
-                onClick={() =>
-                  api
-                    .resetEverything()
-                    .then((s) => {
-                      chooseTheme('system')
-                      props.onReset(s)
-                    })
-                    .catch((e) => {
-                      setResetting(false)
-                      onProblem(e)
-                    })
-                }
-              >
-                Yes, reset Keevoro
-              </button>
-              <button onClick={() => setResetting(false)}>Cancel</button>
-            </p>
-          </div>
-        )}
-      </div>
-    </section>
-  )
-}
-
-/**
- * What an AI agent may do through `keevoro mcp`. Nothing until the person
- * says: no folders, and looking only. An agent can never change this itself.
- */
-function AgentsSetting(props: { api: Backend; onProblem: (error: unknown) => void }) {
-  const { api, onProblem } = props
-  const [access, setAccess] = useState<AgentAccess | null>(null)
-  useEffect(() => {
-    api.agentAccess().then(setAccess).catch(onProblem)
-  }, [api, onProblem])
-  const change = (part: Partial<AgentAccess>) => api.setAgentAccess(part).then(setAccess).catch(onProblem)
-  const add = (list: 'lookIn' | 'backUpTo') =>
-    api
-      .chooseAgentFolder()
-      .then((folder) => {
-        if (folder && access && !access[list].includes(folder)) change({ [list]: [...access[list], folder] })
-      })
-      .catch(onProblem)
-
-  const folders = (list: 'lookIn' | 'backUpTo', title: string, none: string) =>
-    access && (
-      <div className="agent-folders">
-        <h4>{title}</h4>
-        {access[list].length === 0 ? (
-          <p className="quiet small">{none}</p>
-        ) : (
-          <ul aria-label={title}>
-            {access[list].map((folder) => (
-              <li key={folder}>
-                <span className="where">{folder}</span>
-                <button
-                  className="link"
-                  aria-label={`Stop allowing ${folder}`}
-                  onClick={() => change({ [list]: access[list].filter((f) => f !== folder) })}
-                >
-                  Remove
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-        <p className="choices">
-          <button onClick={() => add(list)}>Add a folder…</button>
-        </p>
-      </div>
-    )
-
-  return (
-    <div className="setting">
-      <h3>AI agents</h3>
-      <p className="quiet">
-        An AI app, such as Claude, can use Keevoro for you once it is set up to start <code>keevoro mcp</code>. It can
-        never change anything on your sources. Here you choose what else it may do. Everything it does is written in
-        the log.
-      </p>
-      {access && (
-        <>
-          <label className="switch-row">
-            <button
-              className={access.mayChange ? 'kv-switch on' : 'kv-switch'}
-              role="switch"
-              aria-checked={access.mayChange}
-              aria-label="Let AI agents make changes"
-              onClick={() => change({ mayChange: !access.mayChange })}
-            >
-              <span className="knob" />
-            </button>
-            <span>
-              <b>Let AI agents make changes</b>
-              <span className="quiet small">
-                Off, an agent can only look at your backups and say what it sees. On, it can also start backups, choose
-                what to keep and back up, but only to the folders below. It can never delete a photo.
-              </span>
-            </span>
-          </label>
-          {folders('lookIn', 'Folders an agent may look through', 'None yet, so it cannot look for photos anywhere.')}
-          {folders('backUpTo', 'Folders an agent may back up to', 'None yet, so it cannot back up to a folder.')}
-        </>
-      )}
-    </div>
-  )
-}
-
-/** What a refusal from Keevoro says, as a sentence. */
-function sentence(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
-/** An ending as it is shown: with its dot. */
-const dotted = (ending: string) => `.${ending}`
-
-/**
- * The kinds of file Keevoro looks for, for the whole of Keevoro. A built-in
- * kind can be switched off and made a photo, a video or an other file; one
- * of your own can also be renamed and removed. Any ending can be added as an
- * other file (music, documents), carried along and backed up exactly, but
- * never shown or grouped by date. A change counts from the next time a source is
- * looked through, and never takes away anything already found or backed up.
- */
-function FileKindsSetting(props: {
-  api: Backend
-  onSources: () => void
-  onChanged: () => void
-  onProblem: (error: unknown) => void
-}) {
-  const { api, onProblem } = props
-  const [kinds, setKinds] = useState<FileKind[] | null>(null)
-  // Which line is being edited ('' for a new one), with what is typed.
-  const [editing, setEditing] = useState<{ was: string; ending: string; kind: ListedAs } | null>(null)
-  const [refusal, setRefusal] = useState<string | null>(null)
-  const [removing, setRemoving] = useState<string | null>(null)
-  const [changed, setChanged] = useState(false)
-  const load = useCallback(() => api.fileKinds().then(setKinds).catch(onProblem), [api, onProblem])
-  useEffect(() => {
-    void load()
-  }, [load])
-
-  const done = () => {
-    setChanged(true)
-    props.onChanged()
-    setEditing(null)
-    setRefusal(null)
-    setRemoving(null)
-    return load()
-  }
-  const save = (kind = editing?.kind) => {
-    if (!editing || !kind) return
-    const asked =
-      editing.was === ''
-        ? api.addFileKind(editing.ending, kind)
-        : api.changeFileKind(editing.was, { kind, to: editing.ending })
-    asked.then(done).catch((e) => setRefusal(sentence(e)))
-  }
-  const switchOn = (kind: FileKind) =>
-    api
-      .changeFileKind(kind.ending, { on: !kind.on })
-      .then(done)
-      .catch(onProblem)
-
-  const form = (title: string) =>
-    editing && (
-      <form
-        className="kind-form"
-        aria-label={title}
-        onSubmit={(e) => {
-          e.preventDefault()
-          save()
-        }}
-      >
-        <label>
-          Ending
-          <input
-            value={editing.ending}
-            disabled={editing.was !== '' && kinds?.find((k) => k.ending === editing.was)?.builtIn}
-            placeholder="Such as heif"
-            autoFocus
-            spellCheck={false}
-            onChange={(e) => setEditing({ ...editing, ending: e.target.value })}
-          />
-        </label>
-        <label>
-          They are
-          <select
-            value={editing.kind}
-            onChange={(e) => {
-              setRefusal(null)
-              setEditing({ ...editing, kind: e.target.value as ListedAs })
-            }}
-          >
-            <option value="photo">Photos</option>
-            <option value="video">Videos</option>
-            <option value="other">Other files</option>
-          </select>
-        </label>
-        {editing.kind === 'other' && (
-          <p className="quiet small what-to-expect">
-            Other files are anything you want kept with your photos, such as music or documents. Keevoro will back
-            these up exactly, but cannot show them or group them by date.
-          </p>
-        )}
-        <span className="choices">
-          <button type="submit" className="primary">
-            {editing.was === '' ? 'Add' : 'Save'}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setEditing(null)
-              setRefusal(null)
-            }}
-          >
-            Cancel
-          </button>
-        </span>
-        {refusal && (
-          <p className="refusal" role="alert">
-            {refusal}
-            {editing.kind !== 'other' && /as an other file/.test(refusal) && (
-              <>
-                {' '}
-                <button type="button" className="link" onClick={() => save('other')}>
-                  Add it as other files
-                </button>
-              </>
-            )}
-          </p>
-        )}
-      </form>
-    )
-
-  return (
-    <div className="setting kinds">
-      <h3>Kinds of file Keevoro looks for</h3>
-      <p className="quiet">
-        Keevoro finds photos and videos by the ending of their names, such as .jpg, and for the kinds it knows, by
-        looking inside too. Add a kind your camera makes that is missing here. Keevoro backs up a kind it cannot open
-        just the same, exactly as it is, and shows “No preview” where its picture would be. One list serves every backup.
-      </p>
-      <p className="quiet small">
-        Changes count from the next time a source is looked through. Switching a kind off or removing it never takes
-        away anything already found or backed up.
-      </p>
-      {changed && (
-        <p className="choices again" role="status">
-          <span className="quiet small">Changed. Look through your sources again to find files of the new kinds.</span>
-          <button className="button small" onClick={props.onSources}>
-            Go to your sources
-          </button>
-        </p>
-      )}
-      {kinds && (
-        <div className="kinds-table" tabIndex={0} aria-label="Kinds of file, scrolls sideways when narrow">
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">Ending</th>
-                <th scope="col">Kind</th>
-                <th scope="col">From</th>
-                <th scope="col">Looked for</th>
-                <th scope="col">
-                  <span className="visually-hidden">Change</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {kinds.map((kind) =>
-                removing === kind.ending ? (
-                  <tr key={kind.ending} className="removing">
-                    <td colSpan={5} role="alertdialog" aria-label={`Remove ${dotted(kind.ending)}?`}>
-                      <span>
-                        Take <b>{dotted(kind.ending)}</b> off the list? Files of this kind already found or backed up
-                        stay where they are.
-                      </span>
-                      <span className="choices">
-                        <button
-                          className="danger"
-                          onClick={() =>
-                            api
-                              .removeFileKind(kind.ending)
-                              .then(done)
-                              .catch(onProblem)
-                          }
-                        >
-                          Yes, take it off
-                        </button>
-                        <button onClick={() => setRemoving(null)}>Cancel</button>
-                      </span>
-                    </td>
-                  </tr>
-                ) : editing?.was === kind.ending ? (
-                  <tr key={kind.ending} className="editing">
-                    <td colSpan={5}>{form(`Change ${dotted(kind.ending)}`)}</td>
-                  </tr>
-                ) : (
-                  <tr key={kind.ending} className={kind.on ? undefined : 'off'}>
-                    <td className="ending">{dotted(kind.ending)}</td>
-                    <td>{kind.kind === 'photo' ? 'Photo' : kind.kind === 'video' ? 'Video' : 'Other file'}</td>
-                    <td>{kind.builtIn ? 'Built in' : 'Yours'}</td>
-                    <td>
-                      <button
-                        className={kind.on ? 'kv-switch on' : 'kv-switch'}
-                        role="switch"
-                        aria-checked={kind.on}
-                        aria-label={`Look for ${dotted(kind.ending)} files`}
-                        onClick={() => switchOn(kind)}
-                      >
-                        <span className="knob" />
-                      </button>
-                    </td>
-                    <td className="actions">
-                      <button
-                        className="link"
-                        aria-label={`Change ${dotted(kind.ending)}`}
-                        onClick={() => {
-                          setRemoving(null)
-                          setRefusal(null)
-                          setEditing({ was: kind.ending, ending: kind.ending, kind: kind.kind })
-                        }}
-                      >
-                        Edit
-                      </button>
-                      {!kind.builtIn && (
-                        <button
-                          className="link"
-                          aria-label={`Remove ${dotted(kind.ending)}`}
-                          onClick={() => {
-                            setEditing(null)
-                            setRemoving(kind.ending)
-                          }}
-                        >
-                          Remove
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ),
-              )}
-            </tbody>
-          </table>
-        </div>
-      )}
-      {editing?.was === '' && form('Add a kind of file')}
-      <p className="choices">
-        {editing?.was !== '' && (
-          <button
-            onClick={() => {
-              setRemoving(null)
-              setRefusal(null)
-              setEditing({ was: '', ending: '', kind: 'photo' })
-            }}
-          >
-            Add a kind of file…
-          </button>
-        )}
-        <button
-          onClick={() =>
-            api
-              .resetFileKinds()
-              .then(done)
-              .catch(onProblem)
-          }
-        >
-          Put back the built-in list
-        </button>
-      </p>
-    </div>
-  )
-}
-
 /** Step 2. Everything is kept unless the user says otherwise. */
 function ChooseScreen(props: {
   api: Backend
@@ -2756,7 +2160,8 @@ function SendScreen(props: {
   onSent: () => void
   /** How the backup is arranged, once known, said above Back up now. */
   arrange?: Arrange
-  onSettings: () => void
+  /** Opens Settings at a row: how files are arranged, previews. */
+  onSettings: (row: string) => void
   next: ReactNode
 }) {
   return (
@@ -2772,7 +2177,7 @@ function SendScreen(props: {
       {props.found && props.arrange && (
         <p className="quiet small arranged">
           {arrangedLine(props.arrange, props.found.sources)}{' '}
-          <button className="link" onClick={props.onSettings}>
+          <button className="link" onClick={() => props.onSettings('arrange')}>
             Change
           </button>
         </p>
@@ -2787,6 +2192,7 @@ function SendScreen(props: {
         onProblem={props.onProblem}
         onWhere={props.onSendingTo}
         onSent={props.onSent}
+        onSettings={props.onSettings}
       />
       {props.next}
     </section>
@@ -2811,6 +2217,8 @@ function SendPanel(props: {
   onWhere: (where: string | null) => void
   /** Called when a send finishes, so the counts can be read again. */
   onSent: () => void
+  /** Opens Settings at a row. */
+  onSettings: (row: string) => void
 }) {
   const { api, onProblem, onWhere, onSent } = props
   const [where, setWhere] = useState<string | null | undefined>(undefined)
@@ -3207,8 +2615,11 @@ function SendPanel(props: {
               {estimate?.stages.some((stage) => stage.kind === 'makingPreviews' || stage.kind === 'sendingPreviews') && (
                 <p className="quiet small">
                   Previews are made in the background while your files are backed up, and sent after them. To back
-                  up the originals alone next time, switch off “Also make previews for a gallery” once this backup
-                  ends.
+                  up the originals alone next time, switch off Previews for a gallery in{' '}
+                  <button className="link" onClick={() => props.onSettings('previews')}>
+                    Settings, This backup
+                  </button>{' '}
+                  once this backup ends.
                 </p>
               )}
             </div>
@@ -3237,29 +2648,14 @@ function SendPanel(props: {
             </>
           ) : (
             <>
-            <label className="switch-row previews">
-              <button
-                className={previews ? 'kv-switch on' : 'kv-switch'}
-                role="switch"
-                aria-checked={previews}
-                aria-label="Also make previews for a gallery"
-                onClick={() => {
-                  const wanted = !previews
-                  setPreviews(wanted)
-                  api.setPreviewsWanted(wanted).catch(onProblem)
-                }}
-              >
-                <span className="knob" />
+            <p className="quiet small previews-line">
+              {previews
+                ? 'Previews for a gallery are made as well, in the background.'
+                : 'Only your original files are backed up, with no previews.'}{' '}
+              <button className="link" onClick={() => props.onSettings('previews')}>
+                Change
               </button>
-              <span>
-                <b>Also make previews for a gallery</b>
-                <span className="quiet small">
-                  {previews
-                    ? 'While your files are backed up, Keevoro makes small and screen-sized versions of each photo and a still of each video in the background, gently, and backs those up once your files are safe. Switch this off to back up the originals alone, which is quicker.'
-                    : 'Only your original files will be backed up, exactly as they are. No thumbnails or other versions are made. You can switch this back on later and they will be added then.'}
-                </span>
-              </span>
-            </label>
+            </p>
             <CloudCost said={room?.cost ?? []} />
             <div className="choices">
               <button
