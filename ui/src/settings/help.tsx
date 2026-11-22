@@ -14,7 +14,7 @@ import type { SetUp } from '../stratus'
 import { Group, Intro, Row, RowButton } from './parts'
 
 /** Where an answer's button goes: a step of the backup, or a row of Settings. */
-export type Going = { step: 'find' } | { step: 'send'; adding?: boolean } | { row: string }
+export type Going = { step: 'find' } | { step: 'send'; adding?: boolean } | { row: string } | { opening: true }
 
 type Answer = { id: string; said: string; button?: string; going?: Going }
 
@@ -84,7 +84,9 @@ export function HowToSection(props: { api: Backend; onGo: (going: Going) => void
     },
     {
       id: 'howNewComputer',
-      said: 'Keevoro can’t move a backup to a new computer yet. The backup itself is ordinary files and folders, so you can copy it or open it anywhere, without Keevoro.',
+      said: 'Install Keevoro on the new computer and choose Manage backups, then “Open a backup that is already somewhere”. Point it at the drive or cloud storage your backup is in: it reads the notes it keeps there and carries on without sending anything again. Then say where your photos are on the new computer. Your backup is ordinary files and folders, so you can also copy it anywhere without Keevoro.',
+      button: 'Open a backup that is already somewhere',
+      going: { opening: true },
     },
   ]
 

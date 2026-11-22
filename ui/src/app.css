@@ -6242,3 +6242,87 @@ h3.kv-group-title {
 .app.first-run main.welcoming {
   padding: 0;
 }
+
+/* ---------- opening a backup that is already somewhere ---------- */
+
+.manage-backups .open-already {
+  margin-top: var(--space-5);
+  max-width: 820px;
+}
+
+.welcome .already {
+  margin-top: var(--space-2);
+}
+
+.open-from {
+  display: grid;
+  align-content: start;
+  gap: var(--space-3);
+  max-width: 820px;
+  justify-items: start;
+  min-width: 0;
+}
+
+.open-from > .places {
+  width: 100%;
+}
+
+.open-from .connect {
+  width: 100%;
+  max-width: 560px;
+}
+
+.open-from .found-backup {
+  width: 100%;
+  min-width: 0;
+}
+
+.open-from .found-backup h2 {
+  overflow-wrap: anywhere;
+}
+
+.open-from .found-backup.refused {
+  border: 1px solid var(--danger);
+}
+
+.open-from .facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 2px var(--space-3);
+  margin: 0;
+  font-size: 14px;
+}
+
+.open-from .facts dt {
+  color: var(--ink-muted);
+}
+
+.open-from .facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.open-from .choices {
+  flex-wrap: wrap;
+}
+
+.open-from .reconnect {
+  width: 100%;
+  min-width: 0;
+}
+
+.connect-again {
+  width: 100%;
+  min-width: 0;
+}
+
+.connect-again .where,
+.open-from .where {
+  overflow-wrap: anywhere;
+}
+
+/* Below a source in the list: the same question, across the whole row. */
+.kept li.source .connect-again {
+  grid-column: 1 / -1;
+  min-width: 0;
+}

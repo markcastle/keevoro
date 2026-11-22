@@ -51,6 +51,8 @@ import type {
   ReportListed,
   AwayView,
   MannersView,
+  ConnectRequest,
+  FoundBackup,
 } from './backend'
 import { count, size } from './format'
 import { PictureQueue, fileKey } from './pictureQueue'
@@ -281,6 +283,8 @@ export function demoBackend(): Backend {
     bucket?: string
     setAsideFrom?: string
     setAsideSaid?: string
+    waitingFrom?: string
+    waitingSaid?: string
   }[] =
     collections.length > 0 ? [{ id: 1, name: 'Family hard drive', root: 'E:\\', items: 240, bytes: 1.4 * 1024 ** 3 }] : []
   // The sources backed up by themselves whenever they are plugged in.
@@ -1186,6 +1190,82 @@ export function demoBackend(): Backend {
     }
   }
 
+  // Opening a backup that is already somewhere. `?opening=` says what the
+  // place holds: earlier (its newest notes damaged), damaged, newer, none
+  // (from before notes were kept) or nothing; a notes file otherwise.
+  const openedFrom = new Map<string, string>()
+  const foundAt = (request: ConnectRequest): FoundBackup => {
+    const place =
+      request.kind === 'folder'
+        ? `the folder ${request.place}`
+        : request.kind === 'r2'
+          ? `the Cloudflare R2 bucket ${request.bucket}`
+          : request.kind === 'gcs'
+            ? `the Google Cloud Storage bucket ${request.bucket}`
+            : `the bucket ${request.bucket}`
+    const asked = new URLSearchParams(window.location.search).get('opening')
+    if (asked === 'newer')
+      return {
+        found: 'newer',
+        place,
+        madeBy: 'Keevoro 9.0.0',
+        said: [
+          'This backup’s notes were made by a newer Keevoro (Keevoro 9.0.0) than this one (Keevoro 0.49.0). Update Keevoro first, then open it again.',
+        ],
+      }
+    if (asked === 'damaged')
+      return {
+        found: 'damaged',
+        place,
+        said: [
+          `There is a Keevoro backup in ${place}, but its notes and the copy before them are damaged, so Keevoro can’t open it from them. Your files are safe there.`,
+        ],
+      }
+    if (asked === 'none')
+      return {
+        found: 'noNotes',
+        place,
+        said: [
+          `There is a Keevoro backup in ${place}, but it has no notes: it was last backed up by a Keevoro from before notes were kept. Your files are safe there. Back it up once from the computer that made it, and it can be opened here.`,
+        ],
+      }
+    if (asked === 'nothing') return { found: 'nothing', place, said: [`Keevoro found no backup in ${place}.`] }
+    const earlier = asked === 'earlier'
+    const here = openedFrom.get(place)
+    const alreadyOpen = here ? backups.find((b) => b.id === here)?.name : undefined
+    const files = earlier ? 47_960 : 48_210
+    const bytes = (earlier ? 310.8 : 312.4) * 1024 ** 3
+    const backedUp = earlier ? '14 November 2026' : '21 November 2026'
+    return {
+      found: earlier ? 'earlierNotes' : 'notes',
+      place,
+      name: 'Family photos',
+      files,
+      bytes,
+      lastBackedUp: 1_795_219_200,
+      lastBackedUpSaid: backedUp,
+      lastProved: 1_794_700_800,
+      lastProvedSaid: '15 November 2026',
+      madeBy: 'Keevoro 0.49.0',
+      sources: [
+        { name: 'Family hard drive', wasAt: 'E:\\' },
+        { name: 'Mum’s card', wasAt: 'G:\\DCIM' },
+      ],
+      ...(alreadyOpen ? { alreadyOpen } : {}),
+      said: [
+        `“Family photos”: ${count(files, 'file')} (${size(bytes)}), last backed up on ${backedUp}.`,
+        'Its copies were last proved, by reading them back, on 15 November 2026.',
+        'Its notes were written by Keevoro 0.49.0.',
+        ...(earlier
+          ? [
+              `Its newest notes are damaged, so Keevoro used the copy before them, from ${backedUp}. Files backed up after then are recognised when you next back up.`,
+            ]
+          : []),
+        ...(alreadyOpen ? [`This backup is already on this computer, as “${alreadyOpen}”. Opening it opens that one.`] : []),
+      ],
+    }
+  }
+
   // The tester's folder of scans, already looked through, and the backup
   // not yet asked how to arrange it.
   if (mode === 'scans') {
@@ -2006,6 +2086,76 @@ export function demoBackend(): Backend {
     closerLookAtFile: async (path) => scene([...path].reduce((n, c) => n + c.charCodeAt(0), 0), /\.mp4$/.test(path)),
     destination: async () => sendingTo,
     chooseDestinationFolder: async () => 'F:\\Family Backup',
+    async findBackupAt(request) {
+      await later(300 * pace)
+      return foundAt(request)
+    },
+    async openBackupFrom(request) {
+      await later(300 * pace)
+      const found = foundAt(request)
+      if (found.found !== 'notes' && found.found !== 'earlierNotes') {
+        const refused = new Error(found.said.join(' '))
+        throw refused
+      }
+      const here = openedFrom.get(found.place)
+      if (here && backups.some((b) => b.id === here)) {
+        putAway()
+        takeOut(here)
+        const name = backups.find((b) => b.id === here)?.name ?? ''
+        return {
+          id: here,
+          name,
+          alreadyOpen: true,
+          files: found.files ?? 0,
+          said: [`This backup is already on this computer, as “${name}”. Opening it opens that one.`],
+        }
+      }
+      await this.startBackup(found.name ?? 'My photos')
+      const id = open ?? ''
+      openedFrom.set(found.place, id)
+      const aside = `${homeOf(id)}\\.keevoro\\elsewhere`
+      const waiting = (found.sources ?? []).map((source, at) => ({ id: at + 1, name: source.name, wasAt: source.wasAt }))
+      sources.splice(
+        0,
+        sources.length,
+        ...waiting.map((w, at) => ({
+          id: w.id,
+          name: w.name,
+          root: `${aside}\\${w.id}`,
+          items: at === 0 ? 31_480 : 16_730,
+          bytes: (at === 0 ? 204.1 : 108.3) * 1024 ** 3,
+          waitingFrom: w.wasAt,
+          waitingSaid: `Keevoro does not know where these photos live on this computer. On the computer this backup came from they were in ${w.wasAt}. Connect them again to carry on backing them up: nothing already backed up is sent again.`,
+        })),
+      )
+      dests = [{ name: found.place, kind: request.kind, folder: request.kind === 'folder' ? request.place : null, there: found.files ?? 0 }]
+      said()
+      return {
+        id,
+        name: backups.find((b) => b.id === id)?.name ?? '',
+        files: found.files ?? 0,
+        waiting,
+        said: [
+          `Opened “${found.name}” from ${found.place}: ${count(found.files ?? 0, 'file')}, all known to be there.`,
+          'Keevoro does not know where these photos live on this computer. Connect each source again to carry on backing it up: nothing already backed up is sent again.',
+        ],
+      }
+    },
+    chooseWhereBackupIs: async () => 'F:\\Family Backup',
+    async connectSourceAgain(source, place) {
+      const at = sources.find((s) => s.id === source)
+      if (!at) throw new Error('That source isn’t part of this backup.')
+      if (!at.waitingFrom) throw new Error('This source is already connected on this computer.')
+      at.root = place
+      delete at.waitingFrom
+      delete at.waitingSaid
+      return {
+        source,
+        name: at.name,
+        place,
+        said: 'Connected. Look through it again to carry on: files already backed up are recognised by their fingerprints and not sent again.',
+      }
+    },
     async connectDestination(request) {
       await later(300 * pace)
       // The stand-in refuses one obviously wrong answer, as the real one would.

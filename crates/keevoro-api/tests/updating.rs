@@ -754,3 +754,49 @@ fn keevoro_0_37_1_left_waits_on_battery_at_any_hour_and_choosing_leaves_the_sett
     assert_eq!(changed["betweenSaid"], "between 22:00 and 07:00");
     assert_eq!(std::fs::read_to_string(&settings).unwrap(), before);
 }
+
+/// Keevoro's notes at each destination (0.50) are new: a backup 0.37.1 kept
+/// has none anywhere. Its next backup writes them with nothing asked of the
+/// person, and they say everything its catalog knows of that place, so the
+/// backup could be opened on a new computer from then on.
+#[test]
+fn a_backup_0_37_1_kept_gets_its_notes_at_its_next_backup_and_can_then_be_opened_elsewhere() {
+    let dir = tempfile::tempdir().unwrap();
+    let (keevoro, places) = as_0_37_1_left_it(dir.path());
+    let family = Some("Family photos");
+    std::fs::create_dir_all(&places.usb).unwrap();
+    let notes = places.usb.join(keevoro_engine::notes::NOTES);
+    assert!(!notes.exists());
+    let home = places.folders.data.join("backups").join("backup-1");
+    let target = format!("folder:{}", places.usb.display());
+    let known = keevoro_catalog::Catalog::open_in_library(&home)
+        .unwrap()
+        .sent_to(&target)
+        .unwrap()
+        .len();
+
+    // Its sources are not plugged in, and it backs up all the same.
+    let job = ask(&keevoro, Op::BackupRun, family, Value::Null);
+    keevoro.wait(serde_json::from_value(job["id"].clone()).unwrap());
+    keevoro.wait_for_jobs();
+    assert!(notes.is_file(), "written with nothing asked");
+    let written = keevoro_engine::notes::decode(&std::fs::read(&notes).unwrap()).unwrap();
+    assert_eq!(written.about.name, "Family photos");
+    assert_eq!(written.noted.files.len(), known, "every file it knows of there");
+    let sources: Vec<&str> = written.noted.sources.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(sources, ["Mum's card", "Beach"]);
+    assert_eq!(
+        written.noted.sources[0].was_at,
+        places.card.display().to_string(),
+        "where it was, as history"
+    );
+
+    // And another Keevoro, with nothing of its own, finds it there.
+    let other = Keevoro::open(&Folders::under(&dir.path().join("new computer")))
+        .with_secrets(KeysInMemory::default())
+        .with_environment(|_| None);
+    let place = json!({ "kind": "folder", "place": places.usb.display().to_string() });
+    let found = ask(&other, Op::BackupsFindAt, None, place);
+    assert_eq!(found["found"], "notes", "{found}");
+    assert_eq!(found["name"], "Family photos");
+}

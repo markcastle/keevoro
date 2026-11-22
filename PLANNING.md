@@ -83,7 +83,7 @@ A Rust workspace of small crates. The core has no I/O, and storage sits behind n
 | `keevoro-storage-s3` | Built | One S3-compatible adapter (`aws-sdk-s3`) with presets for R2, AWS S3, Google Cloud Storage and any custom endpoint. Checked against MinIO in CI. B2 and Wasabi presets to come. |
 | `keevoro-index` | Built | v2 index writer, its JSON Schema (`schemars`), and v1 gallery.json export. |
 | `keevoro-platform` | Planned | Drive events, volume ids, keychain, per-OS differences. |
-| `keevoro-engine` | Built | What Keevoro does as plain function calls: scan into a backup, the Discover view, keep or skip, previews, backing up. `keevoro-api` sits on it. |
+| `keevoro-engine` | Built | What Keevoro does as plain function calls: scan into a backup, the Discover view, keep or skip, previews, backing up, and Keevoro's notes kept at each destination (a gzip file of JSON lines, with `flate2`, already in the tree through the image crates). `keevoro-api` sits on it. |
 | `keevoro-api` | Built | Every operation Keevoro offers, listed once in a register, for the app, the command line and an AI agent to share, with each request's JSON Schema (`schemars`) and the rules an agent is held to. Reports of a problem or an idea go to Keevoro's maker over `ureq`, as the updater's do, through the proxy Windows is set to use (read with `winreg`), or through the app's window when Keevoro cannot reach the service itself. The app, the command line and the MCP server each have a parity test against it. |
 | `keevoro-mcp` | Built | `keevoro mcp`: a Model Context Protocol server over standard input and output, one tool per operation offered to agents (`rmcp`, the official Rust SDK, with only its server and stdio transport; `tokio`). |
 | `keevoro-app` (`src-tauri`) | Part built | Tauri 2 desktop shell: a thin layer of commands over the engine. Screens are in `ui/` (React, Vite, TypeScript). Its icon by the clock uses Tauri's own `tray-icon` feature; `tauri-plugin-single-instance` keeps one Keevoro window program running, `tauri-plugin-autostart` starts it with the computer when the person asks, and `tauri-plugin-notification` tells the person how a backup by itself went (all official Tauri plugins). |
@@ -135,6 +135,7 @@ How it is built:
 
 - Each backup has a home folder in the app's own data, holding its catalog and previews. The photos themselves are not copied there.
 - `settings.json` lists the backups and which is open, read afresh each time so the app and the command line agree.
+- Each destination holds a copy of Keevoro's notes about the backup, written after every backup, so it can be opened on a new computer and carry on without sending anything again. Its sources are connected again by the person; where they were on the old computer is history, never assumed.
 - Sending is `check_and_place` (tell apart files that look alike, agree each file's place) and the originals, then `make_previews` and the previews, then the index, to each destination in turn (`send::everywhere`).
 
 Still to do: a backup that only looks for videos, or only photos.

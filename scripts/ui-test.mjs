@@ -220,7 +220,12 @@ try {
   // --- A first-time user is asked one thing they can answer: what to call this.
   await page.goto(`${base}/?demo=new&fast`)
   await page.getByRole('heading', { name: 'Let’s find your photos' }).waitFor()
-  assert.equal(await page.locator('.welcome').getByRole('button').count(), 1, 'one way forward')
+  assert.equal(await page.locator('.welcome .primary').count(), 1, 'one way forward')
+  assert.deepEqual(
+    await page.locator('.welcome').getByRole('button').allInnerTexts(),
+    ['Get started', 'I already have a Keevoro backup'],
+    'and a quiet second choice for a backup made before',
+  )
   // Settings and Help are where they always are, even before the first backup.
   await footHere('The first screen')
   assert.equal(await page.getByLabel('What shall we call this backup?').inputValue(), 'My photos', 'with a name already suggested')
@@ -806,8 +811,8 @@ try {
   assert.equal(await page.locator('.steps').count(), 0, 'the list of sections takes the side band’s place, never beside it')
   assert.equal(await page.locator('#setting-howSecondPlace').getByRole('button').innerText(), 'Add another destination')
   assert.match(await page.locator('#setting-howWindowClosed').innerText(), /Closing the window leaves Keevoro running by the clock\. Its icon is by the clock/)
-  assert.match(await page.locator('#setting-howNewComputer').innerText(), /Keevoro can’t move a backup to a new computer yet\./)
-  assert.equal(await page.locator('#setting-howNewComputer button').count(), 0, 'no button where there is nowhere to go')
+  assert.match(await page.locator('#setting-howNewComputer').innerText(), /Install Keevoro on the new computer and choose Manage backups, then “Open a backup that is already somewhere”\./)
+  assert.equal(await page.locator('#setting-howNewComputer').getByRole('button').innerText(), 'Open a backup that is already somewhere')
   assert.equal(await page.locator('.kv-page .primary').count(), 0, 'no filled button among the answers')
   await shot('9q-help')
   await narrowShots('9q-help', page.locator('.kv-side'))
@@ -3010,6 +3015,106 @@ try {
   await fitsNarrow('A report that could not be sent either way')
   // The browser notes the address that did not answer; that was the point.
   problems.splice(beforeOffline, problems.length - beforeOffline, ...problems.slice(beforeOffline).filter((p) => !/ERR_INTERNET_DISCONNECTED|Failed to load resource|reports\.keevoro\.com/.test(p)))
+
+  // --- A backup that is already somewhere: picked up on a new computer.
+  await page.goto(`${base}/?demo=new&fast`)
+  await page.getByRole('heading', { name: 'Let’s find your photos' }).waitFor()
+  await page.getByRole('button', { name: 'I already have a Keevoro backup' }).click()
+  await page.getByRole('heading', { name: 'Where is your backup?', level: 1 }).waitFor()
+  assert.match(await text('.open-from .status'), /Keevoro reads the notes it keeps beside every backup and changes nothing there until you say so\./)
+  await shot('14-open-from-where')
+  await fitsNarrow('Where is your backup?')
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await shot('14-open-from-where-dark')
+  await page.emulateMedia({ colorScheme: 'light' })
+  // Cloud storage asks the same questions as anywhere else, and only looks.
+  await page.getByRole('button', { name: /^Cloud storage/ }).click()
+  await page.getByLabel('Bucket name').waitFor()
+  assert.match(await text('.open-from .connect'), /Looking only reads\./)
+  await page.getByRole('button', { name: 'Cancel' }).click()
+  // A drive: what is there is said before anything is changed.
+  await page.getByRole('button', { name: /^A drive or folder/ }).click()
+  const foundThere = page.locator('.found-backup')
+  await foundThere.waitFor()
+  assert.match(
+    await foundThere.innerText(),
+    /Family photos\s+Holds\s+48,210 files, 312\.4 GB\s+Last backed up\s+21 November 2026\s+Last proved\s+15 November 2026\s+Notes written by\s+Keevoro 0\.49\.0\s+Where\s+F:\\Family Backup/,
+  )
+  assert.match(await foundThere.innerText(), /Its sources on the computer it came from: Family hard drive \(E:\\\), Mum’s card \(G:\\DCIM\)\./)
+  assert.equal(await page.locator('main .primary').count(), 1, 'one filled button: Open this backup')
+  await shot('14a-open-from-found')
+  await fitsNarrow('What was found at the destination')
+  await narrowShots('14a-open-from-found', foundThere)
+  await page.getByRole('button', { name: 'Open this backup' }).click()
+  await page.getByRole('heading', { name: '“Family photos” is open', level: 1 }).waitFor()
+  // Where the photos live on this computer is the person's to say.
+  const reconnect = page.locator('.reconnect')
+  assert.match(
+    await reconnect.innerText(),
+    /Family hard drive: Keevoro does not know where these photos live on this computer\. On the computer this backup came from they were in E:\\\./,
+  )
+  assert.equal(await reconnect.getByRole('button', { name: 'Choose where they are…' }).count(), 2)
+  assert.equal(await page.locator('main .primary').count(), 1, 'one filled button: Go to this backup')
+  await shot('14b-open-from-reconnect')
+  await fitsNarrow('Connecting sources again')
+  await narrowShots('14b-open-from-reconnect', reconnect)
+  await reconnect.getByRole('button', { name: 'Choose where they are…' }).first().click()
+  await reconnect.getByText('Connected to D:\\Photos. Keevoro is looking through it now; files already backed up are not sent again.').waitFor()
+  await page.getByRole('button', { name: 'Go to this backup' }).click()
+  await page.locator('.sidebar .backup .current').getByText('Family photos').waitFor()
+  // The source still waiting says so where the sources are, with the same question.
+  await page.locator('.steps button').first().click()
+  await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
+  const waitingSource = page.locator('.source').filter({ hasText: 'Mum’s card' })
+  assert.match(await waitingSource.innerText(), /Not connected on this computer yet/)
+  await waitingSource.getByRole('button', { name: 'Choose where they are…' }).waitFor()
+  await waitingSource.scrollIntoViewIfNeeded()
+  await shot('14c-source-waiting')
+  await fitsNarrow('A source waiting to be connected')
+  // Opened again, it is the one already here, never a second.
+  await page.getByRole('button', { name: 'Backup', exact: true }).click()
+  await page.getByRole('button', { name: 'Manage backups…' }).click()
+  await page.getByRole('heading', { name: 'Your backups', level: 1 }).waitFor()
+  await page.getByRole('button', { name: 'Open a backup that is already somewhere…' }).click()
+  await page.getByRole('button', { name: /^A drive or folder/ }).click()
+  await page.locator('.found-backup').getByText('This backup is already on this computer, as “Family photos”.').waitFor()
+  await page.getByRole('button', { name: 'Open it', exact: true }).waitFor()
+
+  // Damaged notes: the copy before them is used, and said.
+  await page.goto(`${base}/?demo=new&fast&opening=earlier`)
+  await page.getByRole('button', { name: 'I already have a Keevoro backup' }).click()
+  await page.getByRole('button', { name: /^A drive or folder/ }).click()
+  await page.locator('.found-backup').waitFor()
+  assert.match(await text('.found-backup .earlier-said'), /^Its newest notes are damaged, so Keevoro used the copy before them, from 14 November 2026\./)
+  await shot('14d-open-from-earlier-notes')
+  await fitsNarrow('Notes from the copy before')
+  // Both damaged: said plainly, and nothing to open.
+  await page.goto(`${base}/?demo=new&fast&opening=damaged`)
+  await page.getByRole('button', { name: 'I already have a Keevoro backup' }).click()
+  await page.getByRole('button', { name: /^A drive or folder/ }).click()
+  await page.locator('.found-backup').getByText(/its notes and the copy before them are damaged/).waitFor()
+  assert.equal(await page.getByRole('button', { name: 'Open this backup' }).count(), 0)
+  await shot('14e-open-from-damaged')
+  // Written by a newer Keevoro: refused plainly, never guessed at.
+  await page.goto(`${base}/?demo=new&fast&opening=newer`)
+  await page.getByRole('button', { name: 'I already have a Keevoro backup' }).click()
+  await page.getByRole('button', { name: /^A drive or folder/ }).click()
+  const newer = page.locator('.found-backup')
+  await newer.getByRole('heading', { name: 'Update Keevoro first' }).waitFor()
+  assert.match(await newer.innerText(), /made by a newer Keevoro \(Keevoro 9\.0\.0\) than this one \(Keevoro 0\.49\.0\)\. Update Keevoro first, then open it again\./)
+  assert.equal(await page.getByRole('button', { name: 'Open this backup' }).count(), 0, 'nothing to open')
+  await shot('14f-open-from-newer')
+  await fitsNarrow('Notes from a newer Keevoro')
+  await narrowShots('14f-open-from-newer', newer)
+  await page.getByRole('button', { name: 'Look somewhere else' }).click()
+  await page.getByRole('button', { name: /^A drive or folder/ }).waitFor()
+  // Help's answer goes straight there.
+  await page.goto(`${base}/?fast`)
+  await page.getByRole('button', { name: 'Help', exact: true }).click()
+  await page.locator('#setting-howNewComputer').getByRole('button', { name: 'Open a backup that is already somewhere' }).click()
+  await page.getByRole('heading', { name: 'Where is your backup?', level: 1 }).waitFor()
+  await page.getByRole('button', { name: '‹ Back' }).click()
+  await page.getByRole('heading', { name: 'Your backups', level: 1 }).waitFor()
 
   assert.deepEqual(problems, [], 'the browser reported no errors')
   console.log(`UI test passed. Screenshots are in ${shots}`)
