@@ -6239,7 +6239,13 @@ h3.kv-group-title {
    its end; in a narrow window the buttons stack, Cancel under them. */
 .panel.asking .choices.whole-disk {
   max-width: none;
-  gap: var(--space-3) var(--space-4);
+  gap: var(--space-3);
+}
+
+/* Room for its choices and their explanations on one row, whatever the
+   computer's own lettering measures. */
+.panel.asking:has(.choices.whole-disk) {
+  max-width: 880px;
 }
 
 @media (max-width: 560px) {
