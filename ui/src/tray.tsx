@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { Backend, WindowAsk } from './backend'
+import { Toggle } from './toggle'
 
 /** Asks the app what waits for the window, as it opens and whenever it is told to, and shows it. */
 export function WindowAsks(props: { api: Backend; onPage: (page: string) => void; onProblem: (error: unknown) => void }) {
@@ -91,10 +92,9 @@ export function CloseExplained(props: {
       <h2 id="close-explained-title">Keevoro keeps running</h2>
       <p>Keevoro will keep running by the clock so your backups happen on time.</p>
       <p>{props.whereTheIconIs}</p>
-      <label className="ask-tick">
-        <input type="checkbox" checked={withComputer} onChange={(e) => setWithComputer(e.target.checked)} /> Start
-        Keevoro when this computer starts
-      </label>
+      <div className="ask-tick">
+        <Toggle on={withComputer} label="Start Keevoro when this computer starts" onChange={setWithComputer} />
+      </div>
       <p className="quiet small">You can change these in Settings, under “When you close Keevoro”.</p>
       <p className="choices">
         <button

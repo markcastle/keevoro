@@ -1,6 +1,6 @@
 // What a backup, or one source, is for: photos, videos and, once a kind of
-// other file is on Keevoro's list, other files. Ordinary tick boxes, at
-// least one always ticked. "Other files" is only offered once there is
+// other file is on Keevoro's list, other files. A switch for each, at
+// least one always on. "Other files" is only offered once there is
 // something it could mean, so a person who never adds a kind of other file
 // sees "Photos" and "Videos" and nothing more.
 //
@@ -10,6 +10,7 @@
 
 import { useEffect, useState } from 'react'
 import type { Wants, WantsView } from './backend'
+import { Toggle } from './toggle'
 import { shownWords, toggled } from './wantsRule'
 
 /** The tick boxes themselves. */
@@ -27,16 +28,14 @@ function Ticks(props: {
         const on = props.view.wants.includes(word)
         const next = toggled(props.view.wants, word, !on, offers)
         return (
-          <label key={word}>
-            <input
-              type="checkbox"
-              checked={on}
-              // The last one ticked stays ticked: a backup is always for something.
-              aria-disabled={next === null}
-              onChange={() => next && props.choose(next)}
-            />
-            {label}
-          </label>
+          <Toggle
+            key={word}
+            on={on}
+            label={label}
+            // The last one on stays on: a backup is always for something.
+            locked={next === null}
+            onChange={() => next && props.choose(next)}
+          />
         )
       })}
       {offers && (
@@ -114,16 +113,15 @@ export function SourceWants(props: {
       .catch(onProblem)
   return (
     <div className="source-wants">
-      <label className="follow">
-        <input
-          type="checkbox"
-          checked={!view.own}
-          // Ticked again, it follows the backup; unticked, its own choice
-          // starts as what it follows now.
+      <div className="follow">
+        <Toggle
+          on={!view.own}
+          label={`From ${props.name}, back up the same as the backup`}
+          // On again, it follows the backup; off, its own choice starts as
+          // what it follows now.
           onChange={() => choose(view.own ? 'backup' : view.wants)}
         />
-        From {props.name}, back up the same as the backup
-      </label>
+      </div>
       {view.own && <Ticks legend={`From ${props.name}, back up`} view={view} choose={choose} />}
       {said && (
         <p className="quiet small" role="status">
