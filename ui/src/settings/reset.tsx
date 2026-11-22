@@ -21,7 +21,9 @@ export function ResetGroup(props: {
     <Group title="Start again" danger className="kv-danger-zone">
       <Row
         id="reset"
-        about="Puts Keevoro back as it was when you first installed it: to clear out a trial run, or before passing the computer on."
+        tipAbout="starting again"
+        about="Back to how it was when first installed."
+        tip="Puts Keevoro back as it was when you first installed it: to clear out a trial run, or before passing the computer on. It says what it removes, and what it does not touch, before it does anything."
         control={
           !resetting && (
             <RowButton danger onClick={() => setResetting(true)}>

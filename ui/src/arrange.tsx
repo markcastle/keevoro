@@ -11,6 +11,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import type { Arrange, ArrangeView, Collection, Source, SourceArrangeView } from './backend'
 import { Explained } from './explained'
+import { InfoTip } from './infoTip'
 
 /** "“Family Scans”", "“Family Scans” and “Card”", for up to three folders. */
 export function folderNames(tops: string[]): string {
@@ -26,6 +27,8 @@ function Choice(props: {
   suggested: boolean
   title: string
   children: ReactNode
+  /** More about it, behind an "i". */
+  tip: ReactNode
   onChoose: (value: Arrange) => void
 }) {
   const on = props.chosen === props.value
@@ -37,7 +40,10 @@ function Choice(props: {
           {props.title}
           {props.suggested && <span className="suggested">Suggested</span>}
         </b>
-        <span className="quiet">{props.children}</span>
+        <span className="quiet">
+          {props.children}
+          <InfoTip about={props.title}>{props.tip}</InfoTip>
+        </span>
       </span>
     </label>
   )
@@ -49,19 +55,25 @@ function Choices(props: { view: ArrangeView; chosen: Arrange; onChoose: (a: Arra
   const suggested = view.suggestion?.arrange
   return (
     <div className="arrange-choices" role="radiogroup" aria-label={props.label}>
-      <Choice value="byDate" chosen={chosen} suggested={suggested === 'byDate'} title="Arrange by date" onChoose={props.onChoose}>
-        A folder for each year and month, by when each photo was taken. Folders you have named, such as Holidays, are
-        kept.
+      <Choice
+        value="byDate"
+        chosen={chosen}
+        suggested={suggested === 'byDate'}
+        title="Arrange by date"
+        tip="By when each photo was taken. Folders you have named, such as Holidays, are kept."
+        onChoose={props.onChoose}
+      >
+        A folder for each year and month.
       </Choice>
       <Choice
         value="folders"
         chosen={chosen}
         suggested={suggested === 'folders'}
         title="Keep my folders as they are"
+        tip="The same folders and names as on your sources. Best for scans, and for folders you have already sorted."
         onChoose={props.onChoose}
       >
-        The same folders and names as on your sources, starting with {folderNames(view.topFolders ?? [])}. Best for
-        scans, and for folders you have already sorted.
+        The same folders, starting with {folderNames(view.topFolders ?? [])}.
       </Choice>
     </div>
   )
@@ -91,8 +103,11 @@ export function ArrangeQuestion(props: {
       {view.suggestion && <p className="arrange-why">{view.suggestion.said}</p>}
       {view.sourcesDiffer && <p className="quiet small">You can choose differently for each source later.</p>}
       <p className="quiet small">
-        You can change this later in Settings, and for each source beside it on the first step. It only changes where
-        files go from then on.
+        You can change this later.
+        <InfoTip about="changing this later">
+          You can change this later in Settings, and for each source beside it on the first step. It only changes where
+          files go from then on.
+        </InfoTip>
       </p>
       <div className="next">
         <button className="link" onClick={props.onBack}>

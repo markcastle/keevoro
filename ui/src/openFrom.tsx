@@ -11,6 +11,7 @@
 import { useState } from 'react'
 import type { AppState, Backend, ConnectRequest, FoundBackup, OpenedBackup, WaitingSource } from './backend'
 import { Explained } from './explained'
+import { InfoTip } from './infoTip'
 import { count, size } from './format'
 import { StorageFields } from './storageForm'
 import type { StorageAnswers } from './storageForm'
@@ -99,8 +100,10 @@ export function OpenFrom(props: {
       </button>
       <h1 id="open-from-title">Where is your backup?</h1>
       <p className="status">
-        Point Keevoro at the drive, folder or cloud storage your backup is in. Keevoro reads the notes it keeps beside
-        every backup and changes nothing there until you say so.
+        Choose the drive, folder or cloud storage it is in.
+        <InfoTip about="opening a backup">
+          Keevoro reads the notes it keeps beside every backup and changes nothing there until you say so.
+        </InfoTip>
       </p>
 
       {!found && !cloud && (
@@ -135,8 +138,10 @@ export function OpenFrom(props: {
         >
           <StorageFields form={cloud} onChange={setCloud} />
           <p className="quiet">
-            Looking only reads. If you open the backup, the keys are kept in your computer’s keychain, not with the
-            backup.
+            Looking only reads.
+            <InfoTip about="the keys">
+              If you open the backup, the keys are kept in your computer’s keychain, not with the backup.
+            </InfoTip>
           </p>
           <div className="choices">
             <button className="primary" type="submit" disabled={busy !== null}>

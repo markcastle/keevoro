@@ -43,11 +43,8 @@ export function ThisBackupSection(props: {
         {state.library && (
           <Row
             id="notes"
-            about={
-              <>
-                <span className="where">{state.library}</span>, on this computer. Your photos are not copied there.
-              </>
-            }
+            about={<span className="where">{state.library}</span>}
+            tip="On this computer. Your photos are not copied there; they go only where it backs up to."
             control={<RowButton onClick={() => api.openPlace(state.library ?? '').catch(onProblem)}>Show</RowButton>}
           />
         )}
@@ -56,12 +53,8 @@ export function ThisBackupSection(props: {
       <Group
         title="What it backs up"
         className="kv-wants"
-        footnote={
-          <>
-            <p>A source can have its own choice, and its own way of arranging, under File types beside it on the first step.</p>
-            <Said>{wantsSaid}</Said>
-          </>
-        }
+        tip="A source can have its own choice, and its own way of arranging, under File types beside it on the first step."
+        footnote={<Said>{wantsSaid}</Said>}
       >
         <div id="setting-wants">
           <BackupWants
@@ -76,7 +69,8 @@ export function ThisBackupSection(props: {
         {previews !== null && (
           <Row
             id="previews"
-            about="Small and screen-sized versions of each photo and a still of each video, made gently while your files are backed up and sent once they are safe. Off, only the originals are backed up, which is quicker; switched on again, they are added on the next backup."
+            about="Small copies for looking through. Off is quicker."
+            tip="Small and screen-sized versions of each photo and a still of each video, made gently while your files are backed up and sent once they are safe. Off, only the originals are backed up, which is quicker; switched on again, they are added on the next backup."
             control={
               <RowSwitch
                 on={previews}
@@ -93,12 +87,8 @@ export function ThisBackupSection(props: {
       <Group
         title="How files are arranged"
         className="kv-arrange"
-        footnote={
-          <>
-            <p>Changing this only changes where files go from now on. Files already backed up stay where they are.</p>
-            <Said>{arrangeSaid}</Said>
-          </>
-        }
+        tip="Changing this only changes where files go from now on. Files already backed up stay where they are."
+        footnote={<Said>{arrangeSaid}</Said>}
       >
         <div id="setting-arrange">
           <BackupArrange
@@ -115,7 +105,7 @@ export function ThisBackupSection(props: {
       </Group>
 
       <Group>
-        <OpenRow id="backups" about="Rename, open or remove a backup, or put back one removed in the last week." onOpen={props.onBackups} />
+        <OpenRow id="backups" about="Rename, open, remove or put one back." onOpen={props.onBackups} />
       </Group>
     </>
   )

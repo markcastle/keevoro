@@ -106,3 +106,10 @@ test('one search finds what is in Settings and what is in Help, and says where e
   assert.equal(whereSaid(rowInfo('reset')), 'Settings, Advanced')
   assert.equal(whereSaid(rowInfo('agentChanges')), 'Settings, Advanced, AI agents')
 })
+
+test('words moved from a row’s sentence into its “i” are still found by search', () => {
+  assert.equal(findRows('charger')[0].id, 'waitOnBattery')
+  assert.equal(findRows('trial run')[0].id, 'reset')
+  assert.equal(findRows('screen-sized')[0].id, 'previews')
+  assert.equal(findRows('processor cores')[0].id, 'codecs')
+})

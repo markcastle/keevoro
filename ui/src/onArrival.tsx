@@ -8,6 +8,7 @@
 import { useState } from 'react'
 import type { Backend, Source } from './backend'
 import { Toggle } from './toggle'
+import { InfoTip } from './infoTip'
 
 export function OnArrival(props: {
   api: Backend
@@ -42,7 +43,10 @@ export function OnArrival(props: {
       />
       {on && (
         <p className="quiet small">
-          A few seconds after it is plugged in, Keevoro backs it up by itself and tells you, while Keevoro is running.
+          Backed up by itself when plugged in.
+          <InfoTip about="backing up when plugged in">
+            A few seconds after it is plugged in, Keevoro backs it up by itself and tells you, while Keevoro is running.
+          </InfoTip>
         </p>
       )}
     </div>

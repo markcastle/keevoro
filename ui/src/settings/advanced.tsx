@@ -44,17 +44,17 @@ export function AdvancedSection(props: {
 
   return (
     <>
-      <Intro>Most people never need anything here. Keevoro works well if you leave all of it as it is.</Intro>
+      <Intro>Most people never need anything here.</Intro>
 
       <Group>
         <OpenRow
           id="kinds"
-          about="The endings Keevoro looks for, such as .jpg, and any of your own."
+          about="Such as .jpg, and any of your own."
           onOpen={() => props.onOpen('kinds')}
         />
         <OpenRow
           id="agents"
-          about="What an AI app, such as Claude, may do with Keevoro for you."
+          about="What an AI app, such as Claude, may do."
           value={agents ? (agents.mayChange ? 'May make changes' : 'Looking only') : undefined}
           onOpen={() => props.onOpen('agents')}
         />
@@ -63,13 +63,18 @@ export function AdvancedSection(props: {
       {speed && (
         <Group
           title="Opening photos"
-          footnote={`Photos are opened by: ${speed.ways.join(', then ')}. Previews are made ${speed.cores} at a time, on half of this computer’s processor cores at most, so the rest stays free for you.`}
+          tip={`Photos are opened by: ${speed.ways.join(', then ')}. Previews are made ${speed.cores} at a time, on half of this computer’s processor cores at most, so the rest stays free for you.`}
         >
           <Row
             id="codecs"
             about={
               speed.available
-                ? 'Usually the fastest way to open a photo, using your graphics hardware where it can, and the only way for some kinds, such as HEIC. A photo that will not open this way is opened by Keevoro’s own decoder instead. Switch this off only if previews look wrong.'
+                ? 'Switch this off only if previews look wrong.'
+                : 'Not used on this kind of computer.'
+            }
+            tip={
+              speed.available
+                ? 'Usually the fastest way to open a photo, using your graphics hardware where it can, and the only way for some kinds, such as HEIC. A photo that will not open this way is opened by Keevoro’s own decoder instead.'
                 : 'On this kind of computer Keevoro uses its own decoder for photos, so there is nothing to switch.'
             }
             control={
@@ -87,12 +92,14 @@ export function AdvancedSection(props: {
         <Row
           id="unfinished"
           className="kv-row-may-ask"
-          about="A backup stopped part-way can leave them in a folder it was sending to. Each backup clears its own; this is for a folder no backup goes to any more. Keevoro says what it finds first, and touches nothing that was backed up."
+          about="For a folder no backup goes to any more."
+          tip="A backup stopped part-way can leave them in a folder it was sending to. Each backup clears its own; this is for a folder no backup goes to any more. Keevoro says what it finds first, and touches nothing that was backed up."
           control={<ClearUnfinished api={api} label="Choose a folder…" small onProblem={onProblem} />}
         />
         <Row
           id="maps"
-          about="What Keevoro saw while finding your photos, the names of folders and how much each holds, so looking inside opens at once. Kept only on this computer; forgetting touches nothing on any drive."
+          about="Folder names and sizes, kept on this computer."
+          tip="What Keevoro saw while finding your photos, the names of folders and how much each holds, so looking inside opens at once. Kept only on this computer; forgetting touches nothing on any drive."
           status={forgot}
           control={<RowButton onClick={forget}>Forget them</RowButton>}
         />

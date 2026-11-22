@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { AppState, Backend, Backup, BackupListing, Removal, RemovedBackup } from './backend'
 import { Explained } from './explained'
+import { InfoTip } from './infoTip'
 import { ago, files, size } from './format'
 import { OpenFrom } from './openFrom'
 
@@ -92,8 +93,11 @@ export function ManageBackups(props: {
         </button>
         <h1>Your backups</h1>
         <p className="status">
-          Each backup has its own sources and its own places to send things. Rename one, open it, or remove one you no
-          longer need. Removing a backup never touches your photos.
+          Each backup has its own sources and its own places to send things.
+          <InfoTip about="your backups">
+            Rename one, open it, or remove one you no longer need. Removing a backup never touches your photos, and it
+            can be put back for a week.
+          </InfoTip>
         </p>
       </header>
 
@@ -144,22 +148,26 @@ export function ManageBackups(props: {
 
       <Explained
         className="open-already"
+        tipAbout="opening a backup that is already somewhere"
+        tip="Keevoro reads the notes it keeps beside every backup and picks the backup up again, without sending anything twice."
         action={
           <button className="button" onClick={() => setOpening(true)}>
             Open a backup that is already somewhere…
           </button>
         }
       >
-        On a new computer, or after reinstalling: Keevoro reads the notes it keeps beside every backup and picks the
-        backup up again, without sending anything twice.
+        On a new computer, or after reinstalling.
       </Explained>
 
       {removed.length > 0 && (
         <div className="removed-recently">
           <h2>Removed recently</h2>
           <p className="quiet small">
-            These can be put back exactly as they were. After a week each is cleared away by itself and the room it
-            took is freed.
+            Each can be put back for a week, then is cleared away.
+            <InfoTip about="backups removed recently">
+              These can be put back exactly as they were. After a week each is cleared away by itself and the room it
+              took is freed.
+            </InfoTip>
           </p>
           <ul className="backup-list">
             {removed.map((r) => (

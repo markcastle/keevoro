@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { Backend, BucketSourceRequest } from './backend'
 import { StorageFields } from './storageForm'
+import { InfoTip } from './infoTip'
 
 /**
  * "Add cloud storage as a source…": a bucket, or a folder in one, on
@@ -57,9 +58,11 @@ export function AddBucketSource(props: { api: Backend; onAdded: (root: string) =
         />
       </label>
       <p className="quiet">
-        Keevoro only ever reads this bucket: it lists what is in it, and reads each file when it backs it up. Nothing
-        in it is ever changed or deleted, so a key that can only read is enough. The key is kept in your computer’s
-        keychain.
+        Keevoro only reads this bucket, so a key that can only read is enough.
+        <InfoTip about="reading from this bucket">
+          It lists what is in it, and reads each file when it backs it up. Nothing in it is ever changed or deleted.
+          The key is kept in your computer’s keychain.
+        </InfoTip>
       </p>
       {refused && (
         <p className="refused" role="alert">

@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Backend, LeftOutFolder, MapNode, MapView } from './backend'
 import { ago, files, share, size } from './format'
+import { InfoTip } from './infoTip'
 import { nameOf } from './inside'
 import { LeaveOutButton, LeftOutSaid } from './leaveOut'
 import { MapCanvas, MapKey, mapReading } from './mapCanvas'
@@ -175,9 +176,13 @@ export function SpaceScreen(props: {
             : `${size(top.wouldBackUp)} of it is ${top.carried ? 'photos, videos and other files' : 'photos and videos'} Keevoro would back up.`}
         </p>
         <p className="quiet small">
-          Each box is a folder or file, sized by the room it takes; click one to choose it, and again to go inside.
-          Grey boxes are not photos or videos. They are shown so you can see what is taking the room; Keevoro will not
-          back them up. Nothing here is opened or changed. Mapped {ago(view.surveyedAt)}.{' '}
+          Click a box to choose it, and again to go inside. Grey is not backed up.
+          <InfoTip about="the map">
+            Each box is a folder or file, sized by the room it takes. Grey boxes are not photos or videos. They are
+            shown so you can see what is taking the room; Keevoro will not back them up. Nothing here is opened or
+            changed.
+          </InfoTip>{' '}
+          Mapped {ago(view.surveyedAt)}.{' '}
           <button
             className="link"
             onClick={again}

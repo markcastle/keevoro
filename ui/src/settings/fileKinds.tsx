@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import type { Backend, FileKind, ListedAs } from '../backend'
+import { InfoTip, MoreAbout } from '../infoTip'
 import { Intro } from './parts'
 
 /** What a refusal from Keevoro says, as a sentence. */
@@ -95,8 +96,11 @@ export function FileKindsPage(props: {
         </label>
         {editing.kind === 'other' && (
           <p className="quiet small what-to-expect">
-            Other files are anything you want kept with your photos, such as music or documents. Keevoro will back
-            these up exactly, but cannot show them or group them by date.
+            Backed up exactly, but not shown or grouped by date.
+            <InfoTip about="other files">
+              Other files are anything you want kept with your photos, such as music or documents. Keevoro will back
+              these up exactly, but cannot show them or group them by date.
+            </InfoTip>
           </p>
         )}
         <span className="choices">
@@ -131,15 +135,18 @@ export function FileKindsPage(props: {
 
   return (
     <div className="kinds">
-      <Intro>
-        Keevoro finds photos and videos by the ending of their names, such as .jpg, and for the kinds it knows, by
-        looking inside too. Add a kind your camera makes that is missing here. One list serves every backup.
-      </Intro>
-      <p className="kv-footnote">
-        A kind Keevoro cannot open is backed up just the same, exactly as it is, with “No preview” where its picture
-        would be. Changes count from the next time a source is looked through. Switching a kind off or removing it
-        never takes away anything already found or backed up.
-      </p>
+      <Intro>Add a kind your camera makes that is missing here. One list serves every backup.</Intro>
+      <MoreAbout className="kv-more">
+        <p>
+          Keevoro finds photos and videos by the ending of their names, such as .jpg, and for the kinds it knows, by
+          looking inside too.
+        </p>
+        <p>
+          A kind Keevoro cannot open is backed up just the same, exactly as it is, with “No preview” where its picture
+          would be. Changes count from the next time a source is looked through. Switching a kind off or removing it
+          never takes away anything already found or backed up.
+        </p>
+      </MoreAbout>
       <p className="choices again" role="status">
         {changed && (
           <>

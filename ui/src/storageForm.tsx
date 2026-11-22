@@ -8,6 +8,8 @@
  * where it is: Keevoro fills that in, and says where in Google's console the
  * keys are made instead.
  */
+import { InfoTip, MoreAbout } from './infoTip'
+
 export type StorageAnswers = {
   kind: 'r2' | 's3' | 'gcs' | 'endpoint'
   /** The Cloudflare account ID, Amazon region or server address; empty for Google Cloud Storage. */
@@ -61,10 +63,12 @@ export function StorageFields<T extends StorageAnswers>(props: { form: T; onChan
         <input value={form.bucket ?? ''} onChange={(e) => onChange({ ...form, bucket: e.target.value })} required />
       </label>
       {form.kind === 'gcs' && (
-        <p className="quiet small storage-help">
-          Make the keys in the Google Cloud console under Cloud Storage, Settings, Interoperability: choose Create a key
-          for a service account or for your own account. The access key starts with GOOG.
-        </p>
+        <MoreAbout className="storage-help" label="Where to make the keys">
+          <p>
+            Make the keys in the Google Cloud console under Cloud Storage, Settings, Interoperability: choose Create a
+            key for a service account or for your own account. The access key starts with GOOG.
+          </p>
+        </MoreAbout>
       )}
       <label>
         Access key ID
@@ -99,8 +103,11 @@ export function GoogleClassNote(props: { kind: string }) {
   if (props.kind !== 'gcs') return null
   return (
     <p className="quiet small storage-help">
-      Keep this bucket in Google’s Standard class. Nearline, Coldline and Archive charge each time Keevoro reads a file
-      back to check it, and charge for every file for at least 30 to 365 days.
+      Keep this bucket in Google’s Standard class. Colder classes charge each time Keevoro checks a file.
+      <InfoTip about="Google’s bucket classes">
+        Nearline, Coldline and Archive charge each time Keevoro reads a file back to check it, and charge for every file
+        for at least 30 to 365 days.
+      </InfoTip>
     </p>
   )
 }

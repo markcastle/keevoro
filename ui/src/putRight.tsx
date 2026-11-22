@@ -39,14 +39,15 @@ export function PutRight(props: {
     return (
       <Explained
         className="prove"
+        tipAbout="proving every copy"
+        tip="Reads every file back from where it was sent and compares it with its original, and puts right anything that is not."
         action={
           <button className="button small" disabled={asking} onClick={ask}>
             Prove every copy…
           </button>
         }
       >
-        Reads every file back from where it was sent and compares it with its original, and puts right anything that
-        is not.
+        The thorough check, file by file.
       </Explained>
     )
   }
