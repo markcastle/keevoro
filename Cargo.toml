@@ -34,6 +34,9 @@ blurhash = { version = "0.2", default-features = false }
 dirs = "7"
 clap = { version = "4", features = ["derive"] }
 fs4 = "1"
+# Keevoro's notes at each destination are a gzip file: already in the tree
+# through the image crates.
+flate2 = "1"
 getrandom = "0.3"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "bmp", "tiff", "webp"] }
 imagesize = "0.14"

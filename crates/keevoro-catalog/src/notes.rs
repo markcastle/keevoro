@@ -545,16 +545,23 @@ mod tests {
             unchanged: 0,
         };
         let source = catalog.save_scan("Family photos", &report, 1_795_219_200).unwrap();
-        catalog.set_source_wants(source, Some(keevoro_core::Wants::default())).unwrap();
+        catalog
+            .set_source_wants(source, Some(keevoro_core::Wants::default()))
+            .unwrap();
         catalog.set_setting("wants", "[\"photos\"]").unwrap();
         catalog.set_setting("index_key:x", "never travels").unwrap();
-        for (hash, key) in [('a', "originals/2009/07/IMG_0048.jpg"), ('b', "originals/2009/07/IMG_0049.mov")] {
+        for (hash, key) in [
+            ('a', "originals/2009/07/IMG_0048.jpg"),
+            ('b', "originals/2009/07/IMG_0049.mov"),
+        ] {
             let blake3 = hash.to_string().repeat(64);
             catalog.set_choice(&blake3, true).unwrap();
             catalog.mark_placed(&blake3, key, 2_483_312).unwrap();
             catalog.mark_uploaded(TARGET, key, 2_483_312).unwrap();
         }
-        catalog.mark_uploaded(TARGET, "renditions/thumb/aaaa.webp", 4_210).unwrap();
+        catalog
+            .mark_uploaded(TARGET, "renditions/thumb/aaaa.webp", 4_210)
+            .unwrap();
         catalog
             .set_proved(TARGET, &["originals/2009/07/IMG_0048.jpg".to_string()], 1_795_300_000)
             .unwrap();
@@ -624,12 +631,18 @@ mod tests {
         assert_eq!(sources.len(), 1);
         assert_eq!(sources[0].name, "Family photos");
         assert_eq!(sources[0].items, 2);
-        assert!(sources[0].root.starts_with(&aside), "never where it was on the old computer");
+        assert!(
+            sources[0].root.starts_with(&aside),
+            "never where it was on the old computer"
+        );
         let before = fresh.elsewhere(&sources[0].root).unwrap().unwrap();
         assert_eq!(before.was_at, path_text(Path::new("/home/you/Pictures")));
         assert!(fresh.source_wants(sources[0].id).unwrap().is_some());
 
-        for (hash, key) in [('a', "originals/2009/07/IMG_0048.jpg"), ('b', "originals/2009/07/IMG_0049.mov")] {
+        for (hash, key) in [
+            ('a', "originals/2009/07/IMG_0048.jpg"),
+            ('b', "originals/2009/07/IMG_0049.mov"),
+        ] {
             let blake3 = hash.to_string().repeat(64);
             assert_eq!(fresh.choice(&blake3).unwrap(), Some(true));
             assert_eq!(fresh.collected_path(&blake3).unwrap().as_deref(), Some(key));
@@ -637,8 +650,14 @@ mod tests {
         }
         assert!(fresh.is_uploaded(TARGET, "renditions/thumb/aaaa.webp").unwrap());
         assert_eq!(fresh.proved_since(TARGET, 1).unwrap().len(), 1);
-        assert!(matches!(fresh.rendition(&"a".repeat(64)).unwrap(), Some(RenditionState::Made { .. })));
-        assert!(matches!(fresh.video(&"b".repeat(64)).unwrap(), Some(VideoState::Known { poster: true, .. })));
+        assert!(matches!(
+            fresh.rendition(&"a".repeat(64)).unwrap(),
+            Some(RenditionState::Made { .. })
+        ));
+        assert!(matches!(
+            fresh.video(&"b".repeat(64)).unwrap(),
+            Some(VideoState::Known { poster: true, .. })
+        ));
         assert_eq!(fresh.wants().unwrap(), backed_up().wants().unwrap());
 
         // Its own notes say the same, with the old place still as history.
@@ -675,7 +694,11 @@ mod tests {
             here.collected_path(&"c".repeat(64)).unwrap().as_deref(),
             Some("originals/2009/07/IMG_0050.jpg")
         );
-        assert_eq!(here.proved_since(TARGET, 1_795_400_000).unwrap().len(), 1, "the later proof is taken");
+        assert_eq!(
+            here.proved_since(TARGET, 1_795_400_000).unwrap().len(),
+            1,
+            "the later proof is taken"
+        );
         assert_eq!(
             here.sent_state(TARGET, "originals/2009/07/IMG_0049.mov").unwrap(),
             Some(Seen::There),

@@ -11,6 +11,7 @@ repository.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
 blake3.workspace = true
+flate2.workspace = true
 futures-util.workspace = true
 keevoro-catalog.workspace = true
 keevoro-collect.workspace = true
