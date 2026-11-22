@@ -448,6 +448,19 @@ pub struct FileKind {
     /// switched off as Keevoro comes. While it is off, a file with it is
     /// still kept when what is inside is a photo or video Keevoro knows.
     pub unsure: bool,
+    /// For a built-in kind, what it is as Keevoro comes: with `unsure`, all
+    /// it takes to say what a person changed, and what putting it back
+    /// would undo.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub came_as: Option<MediaKind>,
+}
+
+impl FileKind {
+    /// A built-in kind the person has changed from how it came.
+    pub fn changed(&self) -> bool {
+        self.came_as
+            .is_some_and(|came| came != self.kind || self.on == self.unsure)
+    }
 }
 
 /// Why a change to the list was refused, in words for the person.
@@ -549,6 +562,7 @@ impl FileKinds {
                     built_in: true,
                     usual: b.usual,
                     unsure: b.unsure,
+                    came_as: Some(b.kind),
                 })
             })
             .collect();
@@ -559,6 +573,7 @@ impl FileKinds {
             built_in: false,
             usual: true,
             unsure: false,
+            came_as: None,
         });
         built.into_iter().chain(added).collect()
     }
@@ -606,6 +621,7 @@ impl FileKinds {
             built_in: false,
             usual: true,
             unsure: false,
+            came_as: None,
         })
     }
 
@@ -910,6 +926,7 @@ mod tests {
                 built_in: false,
                 usual: true,
                 unsure: false,
+                came_as: None,
             }
         );
         assert_eq!(kinds.list().last(), Some(&added), "added at the end");
@@ -1337,7 +1354,8 @@ mod tests {
         );
         let read: FileKinds = serde_json::from_str(&text).unwrap();
         let tga = line(&read, "tga");
-        assert!(tga.built_in && !tga.on);
+        assert!(tga.built_in && !tga.on && tga.changed());
+        assert!(!line(&read, "png").changed() && !line(&read, "dat").changed());
         assert_eq!(read.list().len(), BUILT_IN.len());
     }
 
@@ -1399,6 +1417,31 @@ mod tests {
             mine.lookup().looked_for("ÉCL"),
             Some(MediaKind::Photo),
             "other letters too"
+        );
+    }
+
+    /// The app's try-out backend (`ui/src/demo.ts`) lists the same kinds,
+    /// from `ui/src/builtInKinds.json`. Run with `KEEVORO_WRITE_KINDS=1` to
+    /// write it afresh after changing the list.
+    #[test]
+    fn the_list_the_screens_are_tried_out_with_is_the_built_in_one() {
+        let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/src/builtInKinds.json");
+        let lines: Vec<String> = BUILT_IN
+            .iter()
+            .map(|b| {
+                serde_json::json!({ "ending": b.ending, "kind": b.kind, "usual": b.usual, "unsure": b.unsure })
+                    .to_string()
+            })
+            .collect();
+        let wanted = format!("[\n  {}\n]\n", lines.join(",\n  "));
+        if std::env::var_os("KEEVORO_WRITE_KINDS").is_some() {
+            std::fs::write(&file, &wanted).unwrap();
+        }
+        let there = std::fs::read_to_string(&file).unwrap_or_default().replace("\r\n", "\n");
+        assert!(
+            there == wanted,
+            "{} is not the built-in list: run KEEVORO_WRITE_KINDS=1 cargo test -p keevoro-core",
+            file.display()
         );
     }
 }

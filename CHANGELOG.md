@@ -6,7 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Added
+
+- **Keevoro finds far more kinds of photo and video.** It now knows about 140 kinds of file, up from 57. Newly found: Photoshop and GIMP files, film scans (.exr, .dpx, .cin), older computer pictures (.tga, .pcx, .pict, Amiga .ilbm), JPEG 2000 codestreams, more camera raw (Hasselblad .fff, Kodak, Casio, ARRI and others) and more video (.mxf, RED .r3d, Blackmagic .braw, Canon .crm, HDV .m2t, .ogv, RealMedia and others). Kinds Keevoro already found by looking inside are now on the list by name too, so you can see them and switch them off: GIF, .jfif, .mpo, Insta360's .insp, JPEG 2000 and JPEG XR, .qt, GoPro's .lrv, DivX and more. A kind Keevoro cannot open is backed up exactly, dated by the file and its folder, and shown with "No preview"; Keevoro does not spend time trying to read it, so searches and backups are no slower. Nothing you had set changes: if you had added one of these endings yourself, it stays yours, exactly as you set it.
+- **Usual and less common kinds.** Settings, Advanced, Kinds of file lists the usual kinds, with "Show less common kinds" for the rest (remembered on this computer) and a search box that finds any ending. The less common kinds are looked for just the same. A few endings are as often something else (.ts, .dat, .bin, .img, .seq, .pic, .iff, .cap, .001), so they are listed switched off, with a note saying why: while off, such a file is still backed up when Keevoro can tell from inside that it is a photo or video, as before. At the command line, `keevoro kinds` lists the usual ones and `keevoro kinds --all` every one.
+
 ### Changed
+
+- **"Put back the built-in list" is now "Undo my changes…", and says what it will do first.** It appears only when you have changed something. Pressing it lists exactly what will be undone (the kinds you added that will be taken off, the kinds you switched off that will be switched back on, and so on), says that nothing already found or backed up is touched, and waits for "Undo my changes" or "Cancel". Afterwards "Put my changes back" brings them all back while the page is open.
+- **Searches ask less of each file.** Deciding whether a file is a photo or video by its ending now takes one quick look however long the list is, so a search of a big drive is a little quicker than before even with more than twice the kinds.
 
 - **Fewer words on every screen, with the detail one press away.** Each setting and choice now has a name and at most one short line. The full explanation is behind a small “i” beside it (point at it, tab to it, or tap it) or under “More about this”. Warnings before removing or resetting, costs, and anything that went wrong stay in plain sight.
 - **Backing up by itself sits tidily on the backup screen.** It is now a plain part of the backup's panel under one fine line, not a box inside the box, and while a backup is running the offer to set a schedule waits until it is done.

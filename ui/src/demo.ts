@@ -12,6 +12,7 @@
 // ?page=settings (or a place in it, such as settings/byItself) to open
 // there, as the icon by the clock does.
 
+import builtInKindList from './builtInKinds.json'
 import { demoMap } from './demoMap'
 import type {
   KeepRunningView,
@@ -19,6 +20,7 @@ import type {
   TopBox,
   AppState,
   FileKind,
+  ListedAs,
   Wants,
   SendEvent,
   Backend,
@@ -592,16 +594,20 @@ export function demoBackend(): Backend {
         (changed && !everything(wants) ? safe : ''),
     }
   }
-  // The kinds of file looked for, as Keevoro comes with them, and one added.
-  const builtInKinds = (): FileKind[] => [
-    ...'jpg jpeg jpe png heic heif tif tiff webp bmp avif jxl dng cr2 cr3 crw nef nrw arw srf sr2 orf rw2 raf pef srw x3f 3fr erf kdc mrw raw iiq dcr mef mos rwl'
-      .split(' ')
-      .map((ending) => ({ ending, kind: 'photo' as const, on: true, builtIn: true })),
-    ...'mp4 mov m4v avi mkv wmv mpg mpeg webm insv asf flv mts m2ts 3gp 3g2 mod tod vob dv'
-      .split(' ')
-      .map((ending) => ({ ending, kind: 'video' as const, on: true, builtIn: true })),
-  ]
-  let lookedFor: FileKind[] = [...builtInKinds(), { ending: 'insp', kind: 'photo', on: true, builtIn: false }]
+  // The kinds of file looked for, as Keevoro comes with them (the same
+  // list as keevoro-core's, which a test there keeps in step), and one added.
+  const builtInKinds = (): FileKind[] =>
+    builtInKindList.map((k) => ({
+      ending: k.ending,
+      kind: k.kind as ListedAs,
+      on: !k.unsure,
+      builtIn: true,
+      usual: k.usual,
+      unsure: k.unsure,
+      cameAs: k.kind as ListedAs,
+    }))
+  const ownKind = (ending: string, kind: ListedAs): FileKind => ({ ending, kind, on: true, builtIn: false, usual: true, unsure: false })
+  let lookedFor: FileKind[] = [...builtInKinds(), ownKind('xyz', 'photo')]
   const plainEnding = (typed: string) => {
     const ending = typed.trim().replace(/^\./, '').toLowerCase()
     if (!ending) throw new Error('Type the ending of the files, such as heif.')
@@ -844,6 +850,8 @@ export function demoBackend(): Backend {
     { ending: 'jpg', files: 198, bytes: 620 * 1024 * 1024, included: true },
     { ending: 'dng', files: 29, bytes: 1.4 * 1024 ** 3, included: true },
     { ending: 'mp4', files: 11, bytes: 530 * 1024 * 1024, included: true },
+    // A less common kind, found all the same.
+    { ending: 'psd', files: 4, bytes: 210 * 1024 * 1024, included: true },
   ]
   // What is kept but not yet sent, at a made-up 3.2 MB a photo and 48 MB a video.
   const waitingBytes = () =>
@@ -1471,9 +1479,15 @@ export function demoBackend(): Backend {
     fileKinds: async () => lookedFor.map((k) => ({ ...k })),
     addFileKind: async (typed, kind) => {
       const ending = plainEnding(typed)
-      if (lookedFor.some((k) => k.ending === ending)) throw new Error(`Keevoro already looks for .${ending} files.`)
+      const listed = lookedFor.find((k) => k.ending === ending)
+      if (listed?.builtIn && (!listed.on || listed.kind !== kind)) {
+        const changed = { ...listed, kind, on: true }
+        lookedFor = lookedFor.map((k) => (k === listed ? changed : k))
+        return { ...changed }
+      }
+      if (listed) throw new Error(`Keevoro already looks for .${ending} files.`)
       refuseAsMedia(ending, kind)
-      const added = { ending, kind, on: true, builtIn: false }
+      const added = ownKind(ending, kind)
       lookedFor = [...lookedFor, added]
       return { ...added }
     },
@@ -1482,18 +1496,18 @@ export function demoBackend(): Backend {
       const ending = change.to === undefined ? now.ending : plainEnding(change.to)
       if (ending !== now.ending) {
         if (now.builtIn)
-          throw new Error(`.${now.ending} is one of the lookedFor Keevoro comes with. It can be switched off, but not removed or renamed.`)
+          throw new Error(`.${now.ending} is one of the kinds Keevoro comes with. It can be switched off, but not removed or renamed.`)
         if (lookedFor.some((k) => k.ending === ending)) throw new Error(`Keevoro already looks for .${ending} files.`)
       }
       const changed = { ...now, ending, kind: change.kind ?? now.kind, on: change.on ?? now.on }
-      refuseAsMedia(changed.ending, changed.kind)
+      if (!now.builtIn) refuseAsMedia(changed.ending, changed.kind)
       lookedFor = lookedFor.map((k) => (k === now ? changed : k))
       return { ...changed }
     },
     removeFileKind: async (typed) => {
       const gone = kindNamed(typed)
       if (gone.builtIn)
-        throw new Error(`.${gone.ending} is one of the lookedFor Keevoro comes with. It can be switched off, but not removed or renamed.`)
+        throw new Error(`.${gone.ending} is one of the kinds Keevoro comes with. It can be switched off, but not removed or renamed.`)
       lookedFor = lookedFor.filter((k) => k !== gone)
       return { ...gone }
     },
