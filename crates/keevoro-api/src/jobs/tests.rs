@@ -2586,6 +2586,55 @@ fn the_check_for_duplicates_has_a_pause_and_a_stop_of_its_own_and_once_stopped_w
     assert!(!keevoro.duplicates_left(&named).stopped);
 }
 
+/// The tester's report: "Keevoro is still checking for duplicates on a
+/// drive I have removed." A source not plugged in is passed over whole,
+/// said, and waited for; the check ends; nothing found is changed.
+#[test]
+fn the_check_for_duplicates_waits_for_a_source_that_is_not_plugged_in_and_says_so() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro(dir.path());
+    let named = keevoro.start_backup("Card photos").unwrap();
+    let card = two_to_check(dir.path(), &named);
+    let unchecked = || Catalog::open_in_library(&named.home).unwrap().unhashed_count().unwrap();
+    let drawer = dir.path().join("In a drawer");
+    std::fs::rename(&card, &drawer).unwrap();
+    let waits = format!(
+        "{} can't be found, so its 2 files not yet checked for duplicates will be checked when its drive is back.",
+        keevoro_engine::friendly_path(&std::fs::canonicalize(&drawer).unwrap().with_file_name("Card"))
+    );
+
+    // Started as Keevoro opens: it ends at once, saying why, with nothing tried.
+    let check = keevoro.keep_checking(&named).unwrap();
+    let Some(Said::Check(last)) = keevoro.wait(check.id) else {
+        panic!("a check says how it ended")
+    };
+    keevoro.wait_for_jobs();
+    assert!(last.finished && !last.stopped, "{last:?}");
+    assert_eq!((last.done, last.total), (0, 0), "no file was tried");
+    assert_eq!(last.said, std::slice::from_ref(&waits));
+    assert_eq!(unchecked(), 2, "still not checked, exactly as before");
+    assert!(keevoro.log_tail(10).contains(&waits));
+    assert!(!keevoro.log_tail(10).contains("Could not check"));
+    // Said wherever the check is said when none runs, and never as stopped.
+    let left = keevoro.duplicates_left(&named);
+    assert_eq!(
+        (left.left, left.stopped, left.said.clone()),
+        (2, false, vec![waits.clone()])
+    );
+    // Asked for while it is still unplugged, it says plainly why nothing happens.
+    let e = keevoro.check_for_duplicates_now(&named).unwrap_err();
+    assert_eq!((e.kind, e.message), (Kind::Unreachable, waits));
+
+    // Plugged in again, asking checks it.
+    std::fs::rename(&drawer, &card).unwrap();
+    let check = keevoro.check_for_duplicates_now(&named).unwrap();
+    keevoro.wait(check.id);
+    keevoro.wait_for_jobs();
+    assert_eq!(unchecked(), 0);
+    assert_eq!(keevoro.duplicates_left(&named), crate::jobs::DuplicatesLeft::default());
+}
+
 #[test]
 fn the_check_for_duplicates_is_paused_and_let_go_on_alone_by_name_with_json() {
     let _turn = one_at_a_time();

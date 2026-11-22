@@ -2919,6 +2919,7 @@ dependencies = [
  "keevoro-api",
  "keevoro-catalog",
  "keevoro-engine",
+ "keevoro-scan",
  "keevoro-update",
  "serde",
  "serde_json",

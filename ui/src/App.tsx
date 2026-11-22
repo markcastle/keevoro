@@ -122,6 +122,10 @@ export function App() {
   // way to start it again.
   const [checkLeft, setCheckLeft] = useState<DuplicatesLeft | null>(null)
   const stoppedLeft = (left: DuplicatesLeft | null) => (left && left.stopped && left.left > 0 ? left : null)
+  // Files the check could not read because their source is not plugged in:
+  // said, a sentence each source, until it is back.
+  const [checkWaits, setCheckWaits] = useState<string[]>([])
+  const waitsOf = (left: DuplicatesLeft | null) => (left && !left.stopped ? (left.said ?? []) : [])
   // True while the person has paused Keevoro's heavy work.
   const [paused, setPaused] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
@@ -227,6 +231,7 @@ export function App() {
         setCheck(event.finished ? null : event)
         if (event.finished) setCheckAlone(false)
         setCheckLeft(event.finished && event.stopped ? stoppedLeft({ left: event.left ?? 0, stopped: true, said: event.said }) : null)
+        setCheckWaits(event.finished && !event.stopped ? (event.said ?? []) : [])
         // Duplicates may have been confirmed or ruled out, so count again.
         if (event.finished && event.done > 0) void refresh(b)
       })
@@ -247,7 +252,10 @@ export function App() {
           setStep(nextToDo(d, where))
           void b
             .keepChecking()
-            .then((left) => setCheckLeft(stoppedLeft(left)))
+            .then((left) => {
+              setCheckLeft(stoppedLeft(left))
+              setCheckWaits(waitsOf(left))
+            })
             .catch(() => {})
         }
       } catch (error) {
@@ -293,7 +301,9 @@ export function App() {
         const where = await api.destination()
         setSendingTo(where)
         setStep(nextToDo(d, where))
-        setCheckLeft(stoppedLeft(await api.keepChecking()))
+        const left = await api.keepChecking()
+        setCheckLeft(stoppedLeft(left))
+        setCheckWaits(waitsOf(left))
       })
       .catch(report)
 
@@ -376,6 +386,11 @@ export function App() {
         <div className="foot">
           {check && !paused && (
             <CheckLine api={api} check={check} pausedAlone={checkAlone} onPausedAlone={setCheckAlone} onProblem={report} />
+          )}
+          {!check && checkWaits.length > 0 && (
+            <span className="quiet small" role="status">
+              {checkWaits.join(' ')}
+            </span>
           )}
           {!check && checkLeft && (
             <CheckStopped api={api} left={checkLeft} brief onStarted={() => setCheckLeft(null)} onProblem={report} />

@@ -85,7 +85,7 @@ fn set_aside_place(home: &Path, id: i64) -> PathBuf {
 
 /// What a source is called when it is not there: the drive's name as the
 /// computer gave it at the last look, for a whole drive, else its own.
-fn called(source: &keevoro_catalog::Source, mark: Option<&Mark>) -> (String, bool) {
+pub(super) fn called(source: &keevoro_catalog::Source, mark: Option<&Mark>) -> (String, bool) {
     match mark.and_then(|m| m.drive.clone()) {
         Some(drive) => (drive, true),
         None if source.root.parent().is_none() => (source.name.clone(), true),
@@ -189,7 +189,7 @@ pub(super) fn what_to_look_again(
             }
             continue;
         }
-        if !s.root.is_dir() {
+        if !keevoro_engine::reach::is_there(&s.root) {
             let (name, drive) = called(s, mark.as_ref());
             to_look.passed_over.push(crate::words::not_plugged_in(&name, drive));
             continue;

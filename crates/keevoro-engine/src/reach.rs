@@ -44,6 +44,15 @@ pub fn volume_of(folder: &Path) -> Option<String> {
     }
 }
 
+/// Is a source there to be read: the one rule for "plugged in", used by a
+/// search, looking again, a backup and the check for duplicates alike. A
+/// source whose root is not a folder now (a card in a drawer, a drive
+/// unplugged, a share out of reach) is not, and nothing found on it is
+/// forgotten or tried file by file.
+pub fn is_there(root: &Path) -> bool {
+    root.is_dir()
+}
+
 /// Is this folder across a network?
 ///
 /// On Windows the system is asked what the path really is. A mapped drive
