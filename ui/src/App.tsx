@@ -22,7 +22,7 @@ import { ByItselfDetail } from './byItself'
 import { ScheduleCard, useNoteWindowUse } from './schedule'
 import { AwayPanel } from './away'
 import { OnArrival } from './onArrival'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode, RefObject } from 'react'
 
 import { backend } from './backend'
@@ -74,7 +74,7 @@ import { FoundPicture, Viewer } from './pictures'
 import { LookInside } from './inside'
 import { SpaceScreen } from './map'
 import { LiveMap } from './liveMap'
-import { LeaveOutButton, LeftOutByYou, LeftOutSaid, leftOutByYou } from './leaveOut'
+import { LeftOutByYou, LeftOutSaid, leftOutByYou } from './leaveOut'
 import { VirtualTiles } from './tiles'
 import { BackingUpLine, SourceWants, WhatToBackUp } from './wants'
 import { HoldsContext, foundFor, useHolds } from './holds'
@@ -94,6 +94,8 @@ import { CompareSheet, CompareStorage } from './compare'
 import { AddBucketSource, CloudCost, CloudSourceIcon } from './bucketSource'
 import { Explained } from './explained'
 import { WholeDiskAsked } from './wholeDisk'
+import { SurveyHints } from './surveyHints'
+import { groupHints, outBy } from './surveyGroups'
 import { InfoTip } from './infoTip'
 import { splitSummary } from './summaryLines'
 import { PlaceScreen } from './settings/shell'
@@ -1162,6 +1164,10 @@ function FindScreen(props: {
     progress: SurveyProgress | null
     found: Survey | null
     chosen: Set<string>
+    /** Suggestions left out from the list, each with all beneath it. */
+    out: Set<string>
+    /** Groups of folders the person opened or closed, by key. */
+    opened: Record<string, boolean>
   } | null>(null)
   // Folders waiting their turn to be looked through, one after another.
   const [queue, setQueue] = useState<string[]>([])
@@ -1230,7 +1236,7 @@ function FindScreen(props: {
 
   const findFolders = (place: { path: string; name: string }) => {
     setAsking(null)
-    setSurvey({ name: place.name, path: place.path, progress: null, found: null, chosen: new Set() })
+    setSurvey({ name: place.name, path: place.path, progress: null, found: null, chosen: new Set(), out: new Set(), opened: {} })
     api
       .surveyPlace(place.path)
       .then((found) =>
@@ -1282,7 +1288,9 @@ function FindScreen(props: {
   }
   const lookThroughChosen = () => {
     if (!survey?.found) return
-    const [first, ...rest] = survey.found.hints.map((h) => h.folder).filter((f) => survey.chosen.has(f))
+    const [first, ...rest] = survey.found.hints
+      .map((h) => h.folder)
+      .filter((f) => survey.chosen.has(f) && outBy(f, survey.out) === undefined)
     setSurvey(null)
     if (first === undefined) return
     setQueue(rest)
@@ -1297,9 +1305,10 @@ function FindScreen(props: {
     api.scanPlace(path).catch(onProblem)
   }
   // Asks for a folder, then asks again if it turns out to be a whole drive.
-  const pick = () => {
+  // Asked from the question about a whole disk, the folder window opens inside it.
+  const pick = (startAt?: string) => {
     api
-      .pickPlace()
+      .pickPlace(startAt)
       .then((path) => {
         if (!path) return
         if (wholePlace(path)) setAsking({ path, name: path })
@@ -1492,14 +1501,25 @@ function FindScreen(props: {
           name={survey.name}
           found={survey.found}
           chosen={survey.chosen}
-          onToggle={(folder) =>
-            setSurvey(
-              (s) =>
-                s && {
-                  ...s,
-                  chosen: new Set(s.chosen.has(folder) ? [...s.chosen].filter((f) => f !== folder) : [...s.chosen, folder]),
-                },
-            )
+          out={survey.out}
+          opened={survey.opened}
+          onSet={(folders, on) =>
+            setSurvey((s) => {
+              if (!s) return s
+              const chosen = new Set(s.chosen)
+              folders.forEach((f) => (on ? chosen.add(f) : chosen.delete(f)))
+              return { ...s, chosen }
+            })
+          }
+          onOpen={(key, open) => setSurvey((s) => s && { ...s, opened: { ...s.opened, [key]: open } })}
+          onLeftOut={(folder, leftOut) =>
+            setSurvey((s) => {
+              if (!s) return s
+              const out = new Set(s.out)
+              if (leftOut) out.add(folder)
+              else out.delete(folder)
+              return { ...s, out }
+            })
           }
           onGo={lookThroughChosen}
           onLookInside={(folder) => {
@@ -1513,7 +1533,7 @@ function FindScreen(props: {
           name={asking.name}
           size={asking.detail?.split(' · ').pop()}
           onFindFolders={() => findFolders(asking)}
-          onChooseFolder={pick}
+          onChooseFolder={() => pick(asking.path)}
           onLookThroughAll={() => start(asking.path)}
           onCancel={() => setAsking(null)}
         />
@@ -1604,7 +1624,7 @@ function FindScreen(props: {
             {synced.map((place) => (
               <SyncedCard key={place.path} place={place} added={done.has(place.path.replace(/[\\/]+$/, ''))} onClick={() => choose(place)} />
             ))}
-            <button className="place" onClick={pick}>
+            <button className="place" onClick={() => pick()}>
               <FolderIcon large />
               <b>Choose a folder…</b>
               <span>Anywhere on this computer or a network</span>
@@ -3545,7 +3565,13 @@ function SurveyResult(props: {
   name: string
   found: Survey
   chosen: Set<string>
-  onToggle: (folder: string) => void
+  /** Suggestions left out from the list, each with all beneath it. */
+  out: Set<string>
+  /** Groups opened or closed by the person, by key. */
+  opened: Record<string, boolean>
+  onSet: (folders: string[], on: boolean) => void
+  onOpen: (key: string, open: boolean) => void
+  onLeftOut: (folder: string, leftOut: boolean) => void
   onGo: () => void
   /** Opens a grid of what is in one suggested folder, before it is chosen. */
   onLookInside: (folder: string) => void
@@ -3554,10 +3580,10 @@ function SurveyResult(props: {
   onCancel: () => void
 }) {
   const { found, chosen } = props
-  // Suggestions left out from here, and what that did, said once.
-  const [outNow, setOutNow] = useState<Set<string>>(new Set())
+  // What leaving out or putting back did, said once.
   const [said, setSaid] = useState<LeftOutFolder | null>(null)
-  const picked = found.hints.filter((h) => chosen.has(h.folder) && !outNow.has(h.folder))
+  const picked = found.hints.filter((h) => chosen.has(h.folder) && outBy(h.folder, props.out) === undefined)
+  const items = useMemo(() => groupHints(found.hints), [found.hints])
   const photos = picked.reduce((n, h) => n + h.photos, 0)
   const videos = picked.reduce((n, h) => n + h.videos, 0)
   const others = picked.reduce((n, h) => n + (h.others ?? 0), 0)
@@ -3572,6 +3598,11 @@ function SurveyResult(props: {
         {found.hints.length === 0
           ? `No ${musicOnly(holds) ? 'music was' : 'photos or videos were'} spotted on ${props.name}`
           : `${count(found.hints.length, 'folder')} on ${props.name} ${found.hints.length === 1 ? 'seems' : 'seem'} to hold ${what}`}
+        {items.some((item) => item.kind === 'group') && (
+          <InfoTip about="folders shown together">
+            Folders that sit together are shown together. Tick a group to choose everything in it.
+          </InfoTip>
+        )}
       </h2>
       <p className="quiet">
         {found.stopped && 'Stopped before the end, so there may be more. '}Tick the folders you want, and Keevoro will
@@ -3583,62 +3614,22 @@ function SurveyResult(props: {
         </InfoTip>
       </p>
       {found.hints.length > 0 && (
-        <ul className="hints">
-          {found.hints.map((hint) => (
-            <li key={hint.folder} className={hint.alreadyASource ? 'done' : undefined}>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={chosen.has(hint.folder) && !outNow.has(hint.folder)}
-                  disabled={hint.alreadyASource || outNow.has(hint.folder)}
-                  onChange={() => props.onToggle(hint.folder)}
-                />
-                <span className="where">{hint.folder}</span>
-              </label>
-              {/* What is in it, and what is known of it, together before its buttons. */}
-              <span className="about">
-                <span className="quiet small">
-                  {foundFor(holds, hint.photos, hint.videos, hint.others ?? 0, hint.music ?? 0)} · {size(hint.bytes)}
-                </span>
-                {outNow.has(hint.folder) && <span className="badge">Left out of this backup</span>}
-                {hint.alreadyASource && <span className="badge">Already a source</span>}
-                {!hint.likelyPhotos && !hint.alreadyASource && (
-                  <span className="badge" title="The pictures here are very small and there are no videos">
-                    Small pictures, probably not photos
-                  </span>
-                )}
-              </span>
-              <button
-                className="button small"
-                onClick={() => props.onLookInside(hint.folder)}
-                aria-label={`Look inside ${hint.folder}`}
-                title="See its photos and videos first. Nothing is added or changed."
-              >
-                Look inside
-              </button>
-              {!hint.alreadyASource && (
-                <LeaveOutButton
-                  api={props.api}
-                  folder={hint.folder}
-                  leftOut={outNow.has(hint.folder)}
-                  words="Leave out"
-                  small
-                  onChanged={(done) => {
-                    setSaid(done)
-                    setOutNow((now) => {
-                      const next = new Set(now)
-                      if (done.leftOut) next.add(hint.folder)
-                      else next.delete(hint.folder)
-                      return next
-                    })
-                  }}
-                  onProblem={props.onProblem}
-                />
-              )}
-              {hint.onlineOnlySaid && <p className="online-only small">{hint.onlineOnlySaid}</p>}
-            </li>
-          ))}
-        </ul>
+        <SurveyHints
+          items={items}
+          api={props.api}
+          holds={holds}
+          chosen={chosen}
+          out={props.out}
+          opened={props.opened}
+          onSet={props.onSet}
+          onOpen={props.onOpen}
+          onLookInside={props.onLookInside}
+          onLeftOut={(folder, done) => {
+            setSaid(done)
+            props.onLeftOut(folder, done.leftOut)
+          }}
+          onProblem={props.onProblem}
+        />
       )}
       <LeftOutSaid done={said} />
       <LeftOutNote api={props.api} leftOut={found.leftOut} onProblem={props.onProblem} />

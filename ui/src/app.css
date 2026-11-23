@@ -6436,11 +6436,85 @@ h3.kv-group-title {
   min-width: 0;
 }
 
+/* Folders that live together: one row for the folder they share, which
+   opens to show them, set in a little under it. */
+.panel.survey .hints li.group {
+  display: block;
+  padding: 0;
+}
+
+.panel.survey .hints .group-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-3) 0;
+}
+
+.panel.survey .hints .disclosure {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin: 0 0 0 calc(-1 * var(--space-1));
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.panel.survey .hints .disclosure span {
+  transition: transform 0.15s ease;
+}
+
+.panel.survey .hints .disclosure[aria-expanded='true'] span {
+  transform: rotate(90deg);
+}
+
+.panel.survey .hints .disclosure:hover {
+  background: var(--line);
+  color: var(--ink);
+}
+
+.panel.survey .hints .hints {
+  /* So the ticks inside line up under the group's own. */
+  margin: 0 0 0 calc(28px + var(--space-4) - var(--space-1));
+  border-top: 1px solid var(--line);
+}
+
+.panel.survey .hints .hints > li:last-child {
+  border-bottom: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel.survey .hints .disclosure span {
+    transition: none;
+  }
+}
+
 /* In a narrow window each suggestion reads the same way down: the folder,
    its description, then its buttons on a row of their own. */
 @media (max-width: 560px) {
   .panel.survey .hints .about {
     flex: 1 1 100%;
+  }
+
+  .panel.survey .hints .group-head {
+    column-gap: var(--space-2);
+  }
+
+  /* The arrow and the tick stay together on the first line. */
+  .panel.survey .hints .group-head label {
+    flex-basis: calc(100% - 28px - var(--space-2));
+  }
+
+  .panel.survey .hints .hints {
+    margin-left: calc(28px + var(--space-2) - var(--space-1));
   }
 }
 

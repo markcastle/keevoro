@@ -1758,6 +1758,21 @@ export function demoBackend(): Backend {
           { folder: `${drive}\\Users\\You\\Pictures`, photos: 9_318, videos: 274, bytes: 52 * 1024 ** 3, likelyPhotos: true, alreadyASource: false, onlineOnly: 412, onlineOnlySaid: onlineOnlySaid(412) },
           { folder: `${drive}\\Old laptop backup\\Photos`, photos: 902, videos: 12, bytes: 3.4 * 1024 ** 3, likelyPhotos: true, alreadyASource: false },
           { folder: `${drive}\\Games\\Launcher\\assets`, photos: 1_840, videos: 0, bytes: 9 * 1024 ** 2, likelyPhotos: false, alreadyASource: false },
+          // `?survey=tree` adds folders that live together, for the groups:
+          // eight in one place (two of them icons), and two of icons alone.
+          ...(new URLSearchParams(window.location.search).get('survey') === 'tree'
+            ? [
+                { folder: `${drive}\\Archive\\Guides\\2017\\Walks`, photos: 41, videos: 2, bytes: 4.1 * 1024 ** 2, likelyPhotos: true, alreadyASource: false },
+                { folder: `${drive}\\Archive\\Guides\\2017\\Maps`, photos: 23, videos: 0, bytes: 2.6 * 1024 ** 2, likelyPhotos: true, alreadyASource: false },
+                { folder: `${drive}\\Archive\\Guides\\2018\\Coast`, photos: 19, videos: 1, bytes: 3.2 * 1024 ** 2, likelyPhotos: true, alreadyASource: false },
+                { folder: `${drive}\\Archive\\Guides\\2018\\Towns`, photos: 14, videos: 0, bytes: 1.9 * 1024 ** 2, likelyPhotos: true, alreadyASource: false },
+                { folder: `${drive}\\Archive\\Guides\\2019`, photos: 12, videos: 0, bytes: 1.5 * 1024 ** 2, likelyPhotos: true, alreadyASource: false },
+                { folder: `${drive}\\Archive\\Guides\\Scans`, photos: 9, videos: 0, bytes: 1.2 * 1024 ** 2, likelyPhotos: true, alreadyASource: false },
+                { folder: `${drive}\\Archive\\Guides\\Covers`, photos: 8, videos: 0, bytes: 0.3 * 1024 ** 2, likelyPhotos: false, alreadyASource: false },
+                { folder: `${drive}\\Archive\\Guides\\Icons`, photos: 7, videos: 0, bytes: 0.2 * 1024 ** 2, likelyPhotos: false, alreadyASource: false },
+                { folder: `${drive}\\Games\\Puzzle\\textures`, photos: 620, videos: 0, bytes: 3 * 1024 ** 2, likelyPhotos: false, alreadyASource: false },
+              ]
+            : []),
           // Other files carried along, once their kind is on the list.
           ...(listedAsOther('pdf')
             ? [{ folder: `${drive}\\Users\\You\\Documents`, photos: 0, videos: 0, others: 4_120, bytes: 2.1 * 1024 ** 3, likelyPhotos: true, alreadyASource: false }]
@@ -1868,9 +1883,14 @@ export function demoBackend(): Backend {
             : `Old laptop ${sources.length}`
       look(name, path)
     },
-    // The folder window is the system's own, so the stand-in just answers.
-    pickPlace: async () =>
-      backupWants.includes('music') && !backupWants.includes('photos') && !backupWants.includes('videos') ? `${MUSIC_ROOT}\\Music` : 'D:\\Photos',
+    // The folder window is the system's own, so the stand-in just answers:
+    // a folder inside the disk it was asked to start in, when it was.
+    pickPlace: async (startAt) =>
+      backupWants.includes('music') && !backupWants.includes('photos') && !backupWants.includes('videos')
+        ? `${MUSIC_ROOT}\\Music`
+        : startAt
+          ? `${startAt.replace(/[\\/]+$/, '')}\\Photos`
+          : 'D:\\Photos',
     logTail: async () =>
       [
         '2026-11-16 14:02:09  Keevoro 9.8.0 started on windows (x86_64)',

@@ -6,7 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **Folders that sit together are shown together.** After "Find the folders with photos", folders that live in the same place are one row for the folder they share, with how many folders, photos and videos are in it and how much space they take, and an arrow that opens it. Inside, each folder is shown by the part of its path below that one ("2017 › Walks"), with the whole path when you rest the pointer on it. One tick chooses or clears everything in a group, and shows a dash when only some are ticked. Look inside and Leave out on a group act on the folder they share, so leaving it out leaves out everything in it, and Include again puts it all back. A long group, or one holding only small pictures that are probably not photos, starts closed. Which folders are ticked to begin with, and which are looked through, is the same as before.
+
+### Fixed
+
+- **"Choose a folder inside it" opens inside that disk.** Asked before looking through a whole disk, choosing a folder inside it now opens the folder window at the top of that disk, rather than wherever the window was last.
 
 ## [0.53.0] - 2026-11-23
 

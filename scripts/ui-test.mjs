@@ -841,30 +841,33 @@ try {
   await page.keyboard.press('ArrowDown')
   await page.keyboard.press('Enter')
   await page.getByRole('heading', { name: /^Found [\d,]+ photos/ }).waitFor()
+  // The folder window opens inside that disk, not wherever it was last, so
+  // the folder chosen is on it.
+  assert.equal(await text('.kept li.source .what .folder'), 'C:\\Photos', 'chosen from inside the disk asked about')
   // And the quick way, with Enter where the focus starts.
   await page.goto(`${base}/?demo=empty&fast`)
   await page.getByRole('button', { name: /Windows \(C:\)/ }).click()
   await page.keyboard.press('Enter')
-  await page.getByRole('heading', { name: /seem to hold photos and videos$/ }).waitFor()
+  await page.getByRole('heading', { name: /seem to hold photos and videos/ }).waitFor()
 
   // --- Not sure where the photos are? A quick survey finds the folders,
   // opening nothing, and the ticked ones are looked through one by one.
   await page.goto(`${base}/?demo=empty&fast`)
   await page.getByRole('button', { name: /Windows \(C:\)/ }).click()
   await page.getByRole('button', { name: 'Find the folders with photos' }).click()
-  await page.getByRole('heading', { name: '4 folders on Windows (C:) seem to hold photos and videos' }).waitFor()
+  await page.getByRole('heading', { name: /^4 folders on Windows \(C:\) seem to hold photos and videos/ }).waitFor()
   assert.match(await text('.survey'), /Tick the folders you want, and Keevoro will\s+look through those properly\. Leave out keeps a folder out of this backup, now and later\./)
   assert.match(await tipSays('how these were found', page.locator('.survey')), /Looked at 352,640 files in 28,915 folders in 5\.4 seconds, without opening any of\s+them\. This goes by file names/)
-  const ticks = page.locator('.survey .hints input')
+  const ticks = page.locator('.survey .hints li.suggested > label input')
   assert.deepEqual(
     await ticks.evaluateAll((boxes) => boxes.map((b) => b.checked)),
     [true, true, true, false],
     'real photos are ticked to begin with; probable icons are not',
   )
-  assert.match(await page.locator('.survey .hints li').last().innerText(), /Small pictures, probably not photos/)
+  assert.match(await page.locator('.survey .hints li.suggested').last().innerText(), /Small pictures, probably not photos/)
   // Its note sits with the row's description, before the buttons, as the
   // other rows have theirs.
-  const note = await page.locator('.survey .hints li').last().evaluate((li) => {
+  const note = await page.locator('.survey .hints li.suggested').last().evaluate((li) => {
     const said = li.querySelector('.badge').getBoundingClientRect()
     const look = [...li.querySelectorAll('button')].find((b) => b.textContent === 'Look inside').getBoundingClientRect()
     return { before: said.right <= look.left, inAbout: li.querySelector('.about .badge') !== null }
@@ -872,10 +875,10 @@ try {
   assert.deepEqual(note, { before: true, inAbout: true })
   await shot('9q-survey')
   await footHere('The survey of a disk')
-  await narrowShots('9q-survey', page.locator('.survey .hints li').last())
+  await narrowShots('9q-survey', page.locator('.survey .hints li.suggested').last())
   // Files only in OneDrive are never opened, and never left out silently: each suggestion says so.
   const onlineSaid = /^412 files here are in OneDrive only, not on this computer, so Keevoro did not open them\. To include them, make them available offline in OneDrive first, then look again\.$/
-  assert.match(await page.locator('.survey .hints li').nth(1).locator('.online-only').innerText(), onlineSaid)
+  assert.match(await page.locator('.survey .hints li.suggested').nth(1).locator('.online-only').innerText(), onlineSaid)
   // A library an older Keevoro left is never offered, and is said quietly, on one line that opens.
   const leftOut = page.locator('.survey .left-out')
   assert.equal(await leftOut.locator('summary').innerText(), 'Left out a folder Keevoro made, as it is not a source')
@@ -1461,8 +1464,8 @@ try {
   await page.locator('.steps button').nth(0).click()
   await page.getByRole('button', { name: /Windows \(C:\)/ }).click()
   await page.getByRole('button', { name: 'Find the folders with photos' }).click()
-  await page.getByRole('heading', { name: '6 folders on Windows (C:) seem to hold photos, videos and other files' }).waitFor()
-  assert.match(await page.locator('.hints li', { hasText: 'Documents' }).innerText(), /4,120 other files/)
+  await page.getByRole('heading', { name: /^6 folders on Windows \(C:\) seem to hold photos, videos and other files/ }).waitFor()
+  assert.match(await page.locator('.hints li.suggested', { hasText: 'Documents' }).innerText(), /4,120 other files/)
   await shot('9w3-survey-other-files')
   await page.getByRole('button', { name: 'See where the space goes' }).click()
   await page.getByRole('heading', { name: 'Where the space goes on Windows (C:)', level: 1 }).waitFor()
@@ -2331,14 +2334,124 @@ try {
   await page.locator('.kept li.source').waitFor({ state: 'detached' })
   assert.ok(await page.locator('.searching').isVisible(), 'and the search carries on')
 
+  // --- Folders that live together are shown together: one row for the
+  // folder they share, with what is in them added up and one tick for all
+  // of them, that opens to show each by the part of its path below it.
+  await page.goto(`${base}/?demo=empty&fast&survey=tree`)
+  await page.getByRole('button', { name: /Windows \(C:\)/ }).click()
+  await page.getByRole('button', { name: 'Find the folders with photos' }).click()
+  await page.getByRole('heading', { name: /^13 folders on Windows \(C:\) seem to hold photos and videos/ }).waitFor()
+  assert.equal(
+    await tipSays('folders shown together', page.locator('.survey h2')),
+    'Folders that sit together are shown together. Tick a group to choose everything in it.',
+  )
+  const folderTicks = page.locator('.survey .hints li.suggested > label input')
+  const checkedCount = () => folderTicks.evaluateAll((boxes) => boxes.filter((b) => b.checked).length)
+  // Every folder is still counted, ticked or not, as in the flat list: the
+  // real photos are ticked to begin with, the probable icons are not.
+  assert.equal(await page.locator('.survey .hints li.suggested').count(), 3, 'the long groups start closed')
+  assert.ok(await page.getByRole('button', { name: 'Look through these 9 folders' }).isVisible(), 'the same nine are chosen as before')
+  const groupHead = (folder) => page.locator('.survey .group-head').filter({ has: page.locator('.where', { hasText: new RegExp(`^${folder.replaceAll('\\', '\\\\')}$`) }) })
+  const topRows = await page.locator('.survey > .hints > li').evaluateAll((rows) => rows.map((li) => li.querySelector('.where').textContent))
+  assert.deepEqual(topRows, ['C:\\Users\\You', 'C:\\Old laptop backup\\Photos', 'C:\\Archive\\Guides', 'C:\\Games'], 'groups go by their totals, the biggest first, and probable icons last')
+  const guides = groupHead('C:\\Archive\\Guides')
+  assert.match(await guides.locator('.about .quiet').innerText(), /^8 folders · 133 photos and 3 videos · 15\.0 MB$/)
+  assert.equal(await guides.locator('.badge').innerText(), '2 of 8 are probably not photos')
+  const guidesOpen = guides.getByRole('button', { name: 'The folders in Guides' })
+  assert.equal(await guidesOpen.getAttribute('aria-expanded'), 'false', 'eight is too many to start open')
+  const games = groupHead('C:\\Games')
+  assert.equal(await games.getByRole('button', { name: 'The folders in Games' }).getAttribute('aria-expanded'), 'false', 'only probable icons: closed')
+  assert.equal(await games.locator('.badge').innerText(), 'Small pictures, probably not photos', 'the same note on all of them is said once')
+  const guidesTick = guides.locator('label input')
+  const tickState = (box) => box.evaluate((b) => (b.indeterminate ? 'mixed' : b.checked ? 'all' : 'none'))
+  assert.equal(await tickState(guidesTick), 'mixed', 'six of the eight are ticked')
+  assert.equal(await tickState(games.locator('label input')), 'none')
+  assert.equal(await tickState(groupHead('C:\\Users\\You').locator('label input')), 'all')
+  await shot('9q10-survey-grouped')
+  // Opened from the keyboard: Right opens, Left closes.
+  await guidesOpen.focus()
+  await page.keyboard.press('ArrowRight')
+  assert.equal(await guidesOpen.getAttribute('aria-expanded'), 'true')
+  await page.keyboard.press('ArrowLeft')
+  assert.equal(await guidesOpen.getAttribute('aria-expanded'), 'false')
+  await guidesOpen.click()
+  assert.equal(await guidesOpen.getAttribute('aria-expanded'), 'true')
+  const guidesGroup = page.locator('.survey li.group').filter({ has: page.locator('.group-head .where', { hasText: /^C:\\Archive\\Guides$/ }) })
+  const shownAs = () =>
+    guidesGroup.evaluate((li) => [...li.querySelectorAll(':scope > .hints .where')].map((w) => [w.querySelector('[aria-hidden]')?.textContent ?? w.textContent, w.title]))
+  const inside = await shownAs()
+  assert.deepEqual(
+    inside.map(([label]) => label),
+    ['2017', 'Walks', 'Maps', '2018', 'Coast', 'Towns', '2019', 'Scans', 'Covers', 'Icons'],
+    'each by the part of its path below the group, the biggest first',
+  )
+  assert.deepEqual(inside[1], ['Walks', 'C:\\Archive\\Guides\\2017\\Walks'], 'with all of it to hover over')
+  assert.equal(await guidesGroup.locator('li.suggested', { hasText: 'Walks' }).locator('.where .visually-hidden').innerText(), 'C:\\Archive\\Guides\\2017\\Walks', 'and to hear')
+  assert.match(await guidesGroup.locator('li.suggested', { hasText: 'Covers' }).innerText(), /Small pictures, probably not photos/, 'the two that are probably not photos keep their notes')
+  // One tick for the group sets every folder in it, at any depth, and
+  // shows some ticked when one is unticked.
+  const walks = guidesGroup.locator('li.suggested', { hasText: 'Walks' }).locator('label input')
+  await guidesTick.check()
+  assert.equal(await tickState(guidesTick), 'all')
+  assert.deepEqual(await guidesGroup.locator('li.suggested > label input').evaluateAll((boxes) => boxes.map((b) => b.checked)), Array(8).fill(true))
+  await walks.uncheck()
+  assert.equal(await tickState(guidesTick), 'mixed')
+  assert.equal(await tickState(guidesGroup.locator('.group-head', { hasText: '2017' }).locator('label input')), 'mixed', 'and so does the group inside it')
+  assert.equal(await guidesTick.evaluate((b) => b.matches(':indeterminate')), true, 'a real tick box, shown and said as mixed')
+  await page.evaluate(() => document.activeElement?.blur())
+  await shot('9q11-survey-group-open')
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await shot('9q11-survey-group-open-dark')
+  await page.emulateMedia({ colorScheme: 'light' })
+  await fitsNarrow('The survey with folders grouped')
+  await narrowShots('9q11-survey-group-open', guides)
+  // Leave out on a group leaves out the folder they share, everything in
+  // it with it, and Include again puts it back.
+  const chosenBefore = await checkedCount()
+  await guides.getByRole('button', { name: 'Leave out Guides' }).click()
+  await guides.getByRole('button', { name: 'Include Guides again' }).waitFor()
+  assert.match(await text('.survey .left-out-said'), /^Left out C:\\Archive\\Guides\. .*nothing already backed up is touched\.$/)
+  assert.equal(await guides.locator('.badge', { hasText: 'Left out of this backup' }).count(), 1)
+  assert.deepEqual(await guidesGroup.locator('li.suggested > label input').evaluateAll((boxes) => boxes.map((b) => b.disabled)), Array(8).fill(true), 'none in it can be ticked')
+  assert.equal(await guidesGroup.locator('.hints').first().getByRole('button', { name: /^Leave out / }).count(), 0, 'and none is left out again on its own')
+  assert.equal(await checkedCount(), chosenBefore - 7, 'the seven ticked in it are no longer chosen')
+  await shot('9q12-survey-group-left-out')
+  await guides.getByRole('button', { name: 'Include Guides again' }).click()
+  await guides.getByRole('button', { name: 'Leave out Guides' }).waitFor()
+  assert.equal(await checkedCount(), chosenBefore, 'and back, ticks and all')
+  // Look inside a group is the folder they share; Back finds the list as it was.
+  await guides.getByRole('button', { name: 'Look inside C:\\Archive\\Guides' }).click()
+  await page.getByRole('heading', { name: 'Inside Guides', level: 1 }).waitFor()
+  await page.getByRole('button', { name: '‹ Back' }).click()
+  await page.getByRole('heading', { name: /^13 folders on Windows \(C:\)/ }).waitFor()
+  assert.equal(await guidesOpen.getAttribute('aria-expanded'), 'true', 'still open')
+  assert.equal(await games.getByRole('button', { name: 'The folders in Games' }).getAttribute('aria-expanded'), 'false', 'still closed')
+  assert.equal(await walks.isChecked(), false, 'and the ticks as they were')
+  assert.equal(await tickState(guidesTick), 'mixed')
+  // What is looked through is the folders ticked, however they are grouped.
+  await groupHead('C:\\Users\\You').locator('label input').uncheck()
+  // From some ticked, the first press ticks them all and the next none.
+  await guidesTick.click()
+  assert.equal(await tickState(guidesTick), 'all')
+  await guidesTick.click()
+  assert.equal(await tickState(guidesTick), 'none')
+  await guidesGroup.locator('.group-head', { hasText: '2017' }).locator('label input').check()
+  assert.equal(await checkedCount(), 3)
+  await page.getByRole('button', { name: 'Look through these 3 folders' }).click()
+  await page.locator('.kept li.source').nth(2).waitFor()
+  assert.deepEqual(
+    (await page.locator('.kept li.source .what .folder').allInnerTexts()).sort(),
+    ['C:\\Archive\\Guides\\2017\\Walks', 'C:\\Archive\\Guides\\2017\\Maps', 'C:\\Old laptop backup\\Photos'].sort(),
+  )
+
   // --- Look inside a folder the survey suggests, before choosing it. Only
   // what is near the screen is fetched, pictures shimmer until they come,
   // and nothing is added until the person says so.
   await page.goto(`${base}/?demo=empty&fast&slowpictures`)
   await page.getByRole('button', { name: /Windows \(C:\)/ }).click()
   await page.getByRole('button', { name: 'Find the folders with photos' }).click()
-  await page.getByRole('heading', { name: '4 folders on Windows (C:) seem to hold photos and videos' }).waitFor()
-  await page.locator('.survey .hints input').nth(2).uncheck()
+  await page.getByRole('heading', { name: /^4 folders on Windows \(C:\) seem to hold photos and videos/ }).waitFor()
+  await page.locator('.survey .hints li.suggested > label input').nth(2).uncheck()
   await page.getByRole('button', { name: 'Look inside C:\\Users\\You\\Pictures' }).click()
   await page.getByRole('heading', { name: 'Inside Pictures', level: 1 }).waitFor()
   assert.match(await text('.inside .status'), /^1,630 photos and 82 videos · [\d.]+ GB\. Nothing is added or changed until you choose\.$/)
@@ -2378,8 +2491,8 @@ try {
   await page.keyboard.press('Escape')
   // Back is the survey as it was, ticks and all.
   await page.getByRole('button', { name: '‹ Back' }).click()
-  await page.getByRole('heading', { name: '4 folders on Windows (C:) seem to hold photos and videos' }).waitFor()
-  assert.deepEqual(await page.locator('.survey .hints input').evaluateAll((boxes) => boxes.map((b) => b.checked)), [true, true, false, false])
+  await page.getByRole('heading', { name: /^4 folders on Windows \(C:\) seem to hold photos and videos/ }).waitFor()
+  assert.deepEqual(await page.locator('.survey .hints li.suggested > label input').evaluateAll((boxes) => boxes.map((b) => b.checked)), [true, true, false, false])
   assert.equal(await page.locator('.kept li.source').count(), 0, 'looking inside added nothing')
   // As it looks once the pictures have come.
   await page.goto(`${base}/?demo=empty&fast`)
@@ -2473,11 +2586,11 @@ try {
   await page.goto(`${base}/?demo=empty&fast`)
   await page.getByRole('button', { name: /Windows \(C:\)/ }).click()
   await page.getByRole('button', { name: 'Find the folders with photos' }).click()
-  await page.getByRole('heading', { name: '4 folders on Windows (C:) seem to hold photos and videos' }).waitFor()
+  await page.getByRole('heading', { name: /^4 folders on Windows \(C:\) seem to hold photos and videos/ }).waitFor()
   await page.getByRole('button', { name: 'Leave out assets' }).click()
   await page.getByRole('button', { name: 'Include assets again' }).waitFor()
   assert.match(await text('.survey .left-out-said'), /^Left out C:\\Games\\Launcher\\assets\. .*nothing already backed up is touched\.$/)
-  assert.equal(await page.locator('.survey .hints input').nth(3).isDisabled(), true, 'it can no longer be ticked')
+  assert.equal(await page.locator('.survey .hints li.suggested > label input').nth(3).isDisabled(), true, 'it can no longer be ticked')
   await shot('9r-survey-left-out')
   await fitsNarrow('The survey with a folder left out')
   await page.getByRole('button', { name: 'Include assets again' }).click()
@@ -2503,7 +2616,7 @@ try {
   await page.goto(`${base}/?demo=empty&fast`)
   await page.getByRole('button', { name: /Windows \(C:\)/ }).click()
   await page.getByRole('button', { name: 'Find the folders with photos' }).click()
-  await page.getByRole('heading', { name: '4 folders on Windows (C:) seem to hold photos and videos' }).waitFor()
+  await page.getByRole('heading', { name: /^4 folders on Windows \(C:\) seem to hold photos and videos/ }).waitFor()
   await page.getByRole('button', { name: 'See where the space goes' }).click()
   await page.getByRole('heading', { name: 'Where the space goes on Windows (C:)', level: 1 }).waitFor()
   const spaceRows = () => page.locator('.space-list tbody tr .name > :first-child').allInnerTexts()
@@ -2677,7 +2790,7 @@ try {
   await page.getByRole('navigation', { name: 'Where you are' }).getByRole('button', { name: 'Windows (C:)' }).click()
   await page.getByRole('grid', { name: 'What is in Windows (C:), the biggest first' }).waitFor()
   await page.getByRole('button', { name: '‹ Back' }).click()
-  await page.getByRole('heading', { name: '4 folders on Windows (C:) seem to hold photos and videos' }).waitFor()
+  await page.getByRole('heading', { name: /^4 folders on Windows \(C:\) seem to hold photos and videos/ }).waitFor()
   assert.equal(await page.locator('.kept li.source').count(), 0, 'nothing was added')
   // While a survey measures what it never looks through, the folders found
   // can be shown at once.
@@ -3579,7 +3692,7 @@ try {
   await page.goto(`${base}/?demo=empty&fast`)
   await page.getByRole('button', { name: /Windows \(C:\)/ }).click()
   await page.getByRole('button', { name: 'Find the folders with photos' }).click()
-  await page.locator('.survey .hints').waitFor()
+  await page.locator('.survey > .hints').waitFor()
   tipsOn['The survey of a disk'] = await tipsLookAlike('The survey of a disk')
   await tipAmongButtons()
   const among = await tipLooks('among buttons')
