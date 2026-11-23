@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.52.2] - 2026-11-23
+
 ### Changed
 
 - **Each kind of file says what it is.** In Settings, Advanced, Kinds of file, and in a source's File types, an "i" beside each built-in kind says what it is and, where it is a company's own, whose: ".arw: Sony's raw photo format, from Alpha cameras." Searching that page finds these words too, so "Sony", "Canon" or "iPhone" finds their kinds. At the command line, `keevoro kinds --about` shows the same words.
@@ -873,7 +877,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.52.1...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.52.2...HEAD
+[0.52.2]: https://github.com/markcastle/keevoro/compare/v0.52.1...v0.52.2
 [0.52.1]: https://github.com/markcastle/keevoro/compare/v0.52.0...v0.52.1
 [0.52.0]: https://github.com/markcastle/keevoro/compare/v0.51.3...v0.52.0
 [0.51.3]: https://github.com/markcastle/keevoro/compare/v0.51.2...v0.51.3
