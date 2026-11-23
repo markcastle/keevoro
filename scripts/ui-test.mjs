@@ -2265,6 +2265,20 @@ try {
   await page.getByRole('button', { name: 'Look inside C:\\Users\\You\\Pictures' }).click()
   await page.getByRole('heading', { name: 'Inside Pictures', level: 1 }).waitFor()
   await page.waitForFunction(() => document.querySelectorAll('.inside .tile img').length >= 12)
+  // A folder's heading sits clear above its pictures: its name, its counts
+  // and its Leave out button never hang down over the first row.
+  const clear = await page.locator('.inside .tiles-section').evaluateAll((sections) =>
+    sections.flatMap((section) => {
+      const heading = section.querySelector('.tiles-heading')
+      const tile = section.querySelector('.tile')
+      if (!heading || !tile) return []
+      const top = tile.getBoundingClientRect().top
+      return [...heading.children]
+        .filter((part) => part.getBoundingClientRect().bottom > top + 0.5)
+        .map((part) => `${part.tagName.toLowerCase()} "${part.textContent.trim().slice(0, 20)}" reaches ${Math.round(part.getBoundingClientRect().bottom)}, pictures start at ${Math.round(top)}`)
+    }),
+  )
+  assert.deepEqual(clear, [], 'a folder heading stays above its pictures')
   await shot('9q4-look-inside')
   await footHere('Looking inside')
   await footShot('9q4-look-inside-foot')

@@ -6,7 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **Look inside is tidy again.** A folder's name, its counts and its Leave out button sat over the first row of pictures; they now stay above it. The choice of All, Photos or Videos there is labelled "Show" and says it only changes what you see.
 
 ## [0.52.0] - 2026-11-22
 
