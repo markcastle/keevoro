@@ -1752,7 +1752,10 @@ function FileTypes(props: {
         {kinds.map((kind) => (
           <li key={kind.ending}>
             <span className="kind-text">
-              <b>{kind.ending ? kind.ending.toUpperCase() : 'No ending'}</b>
+              <b>
+                {kind.ending ? kind.ending.toUpperCase() : 'No ending'}
+                {kind.about && <InfoTip about={`.${kind.ending}`}>{kind.about}</InfoTip>}
+              </b>
               <span className="quiet">
                 {count(kind.files, 'file')} · {size(kind.bytes)}
                 {kind.why ? ` · left out: ${kind.why}` : !kind.included && ' · left out'}

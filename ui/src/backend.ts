@@ -162,6 +162,8 @@ export type FileType = {
   leftOutBy?: 'backup' | 'source' | 'ending'
   /** The same, in words: "this backup is for photos only". */
   why?: string
+  /** What a built-in kind is, in a sentence: "Sony's raw photo format, from Alpha cameras." */
+  about?: string
 }
 
 /** One thing a backup or a source can be for. */
@@ -888,6 +890,8 @@ export type FileKind = {
   unsure: boolean
   /** For a built-in kind, what it is as Keevoro comes. */
   cameAs?: ListedAs
+  /** For a built-in kind, what it is and whose format, in a sentence. None for a kind of your own. */
+  about?: string
 }
 
 /** A change to one kind of file. Anything left out stays as it is. */

@@ -414,6 +414,7 @@ One list for the whole of Keevoro, the same as Settings, Advanced, Kinds of file
 | --- | --- |
 | `keevoro kinds` | The usual kinds and your own: each ending, photo, video or other, built in or yours, and whether it is looked for. It ends by saying how many less common kinds there are, which are looked for just the same. |
 | `keevoro kinds --all` | Every kind on the list, the less common ones too. |
+| `keevoro kinds --about` | With each built-in kind, what it is and whose format it is, in the same words as the app. |
 | `keevoro kinds add heif --photo` | Adds an ending to look for, as photos; `--video` for videos. |
 | `keevoro kinds add flac --other` | Adds an ending as other files, carried along: music, documents, anything. Keevoro will back these up exactly, but cannot show them or group them by date. |
 | `keevoro kinds off avi` | Stops looking for a kind; `keevoro kinds on avi` looks for it again. |

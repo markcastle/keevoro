@@ -77,6 +77,9 @@ pub struct FileTypeView {
     /// The same, in words: "this backup is for photos only".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub why: Option<String>,
+    /// What a built-in kind is, in a sentence (`keevoro_core::kinds::about`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub about: Option<&'static str>,
 }
 
 impl Backup {
@@ -155,6 +158,7 @@ impl Backup {
             .file_types(source)?
             .into_iter()
             .map(|kind| FileTypeView {
+                about: keevoro_core::kinds::about(&kind.ending),
                 why: kind.left_out_by.map(|by| by.why(others_listed)),
                 left_out_by: kind.left_out_by,
                 ending: kind.ending,
