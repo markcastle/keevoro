@@ -6,6 +6,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.52.2] - 2026-11-23
+
+### Changed
+
+- **Each kind of file says what it is.** In Settings, Advanced, Kinds of file, and in a source's File types, an "i" beside each built-in kind says what it is and, where it is a company's own, whose: ".arw: Sony's raw photo format, from Alpha cameras." Searching that page finds these words too, so "Sony", "Canon" or "iPhone" finds their kinds. At the command line, `keevoro kinds --about` shows the same words.
+- **Settings and Help keep the foot of the side band too.** "What Keevoro is doing", Settings and Help are now at the bottom of the side on every screen, with no exceptions, and across the top in a narrow window.
+- **Explanations are back in view, a few words each.** Each screen says what it is for in a sentence or two under its heading again, instead of behind "More about this". Choices say what tells them apart: asked before looking through a whole disk, the three ways on are rows that each say what they do and how long they take, the quick one marked Recommended. The backup screen says what "Check they all arrived" does, the schedule what Skip and Pause each do, and so on. There are fewer small "i"s, kept for detail you might want, and one never looks like a button any more.
+- **A source's own choices say what they do.** Under File types beside a source, "Back up from Desktop" is followed by plain Photos, Videos and Other files switches, set as the rest of the backup is; switch one and that source is different. "Arrange files from Desktop" offers By date or Keep its folders the same way. A quiet "Different from the rest of this backup. Use the usual" appears only when it differs, and setting it back to match means it goes with the rest of the backup again. Switching off the last one says plainly that nothing would be backed up from it.
+- **Kinds of file lines up.** The search box, "Show less common kinds" and the count above the list share one line, the count against the list's edge, and each switch in the list sits level with its ending.
+- **Settings rows line up.** A button beside a setting that says something once done, such as "Forget them", sat lower than the setting's name; it is level with it now.
+
+## [0.52.1] - 2026-11-23
+
+### Fixed
+
+- **Look inside is tidy again.** A folder's name, its counts and its Leave out button sat over the first row of pictures; they now stay above it. The choice of All, Photos or Videos there is labelled "Show" and says it only changes what you see.
+
+## [0.52.0] - 2026-11-22
+
 ### Added
 
 - **Music is a kind of its own, beside photos and videos.** A backup can now be for photos, videos, music or any of them together, and a backup of just your music is a backup like any other. Keevoro knows 33 kinds of music file: the usual ones (.mp3, .flac, .m4a, .aac, .wav, .ogg, .opus, .wma, .aiff, .ape, .wv) and less common ones such as .dsf, .mka, MIDI files, .m4b audiobooks and playlists (.m3u, .pls, .cue), kept with the music so albums stay whole (.dts is listed switched off, as it is as often a program file). Music is found by its name alone and never opened: Keevoro does not read its tags, cover or length, so looking through a big music folder is quick, and a backup that is not for music passes music over exactly as it always did. Music keeps its folders (an artist, an album) in a folder called Music inside the backup, however your photos are arranged, and exact copies are kept once. Every backup you already have is for no music until you say otherwise. If you had added music endings such as .flac yourself as other files, they stay yours, exactly as you set them, and nothing already backed up is moved or sent again.
@@ -14,21 +35,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Keevoro finds far more kinds of photo and video.** It now knows about 140 kinds of file, up from 57. Newly found: Photoshop and GIMP files, film scans (.exr, .dpx, .cin), older computer pictures (.tga, .pcx, .pict, Amiga .ilbm), JPEG 2000 codestreams, more camera raw (Hasselblad .fff, Kodak, Casio, ARRI and others) and more video (.mxf, RED .r3d, Blackmagic .braw, Canon .crm, HDV .m2t, .ogv, RealMedia and others). Kinds Keevoro already found by looking inside are now on the list by name too, so you can see them and switch them off: GIF, .jfif, .mpo, Insta360's .insp, JPEG 2000 and JPEG XR, .qt, GoPro's .lrv, DivX and more. A kind Keevoro cannot open is backed up exactly, dated by the file and its folder, and shown with "No preview"; Keevoro does not spend time trying to read it, so searches and backups are no slower. Nothing you had set changes: if you had added one of these endings yourself, it stays yours, exactly as you set it.
 - **Usual and less common kinds.** Settings, Advanced, Kinds of file lists the usual kinds, with "Show less common kinds" for the rest (remembered on this computer) and a search box that finds any ending. The less common kinds are looked for just the same. A few endings are as often something else (.ts, .dat, .bin, .img, .seq, .pic, .iff, .cap, .001), so they are listed switched off, with a note saying why: while off, such a file is still backed up when Keevoro can tell from inside that it is a photo or video, as before. At the command line, `keevoro kinds` lists the usual ones and `keevoro kinds --all` every one.
 
-- **Each kind of file says what it is.** In Settings, Advanced, Kinds of file, and in a source's File types, an "i" beside each built-in kind says what it is and, where it is a company's own, whose: ".arw: Sony's raw photo format, from Alpha cameras." Searching that page finds these words too, so "Sony", "Canon" or "iPhone" finds their kinds. At the command line, `keevoro kinds --about` shows the same words.
-
 ### Changed
 
 - **"Put back the built-in list" is now "Undo my changes…", and says what it will do first.** It appears only when you have changed something. Pressing it lists exactly what will be undone (the kinds you added that will be taken off, the kinds you switched off that will be switched back on, and so on), says that nothing already found or backed up is touched, and waits for "Undo my changes" or "Cancel". Afterwards "Put my changes back" brings them all back while the page is open.
 - **Searches ask less of each file.** Deciding whether a file is a photo or video by its ending now takes one quick look however long the list is, so a search of a big drive is a little quicker than before even with more than twice the kinds.
-- **Settings and Help keep the foot of the side band too.** "What Keevoro is doing", Settings and Help are now at the bottom of the side on every screen, with no exceptions, and across the top in a narrow window.
-- **Explanations are back in view, a few words each.** Each screen says what it is for in a sentence or two under its heading again, instead of behind "More about this". Choices say what tells them apart: asked before looking through a whole disk, the three ways on are rows that each say what they do and how long they take, the quick one marked Recommended. The backup screen says what "Check they all arrived" does, the schedule what Skip and Pause each do, and so on. There are fewer small "i"s, kept for detail you might want, and one never looks like a button any more.
-- **A source's own choices say what they do.** Under File types beside a source, "Back up from Desktop" is followed by plain Photos, Videos and Other files switches, set as the rest of the backup is; switch one and that source is different. "Arrange files from Desktop" offers By date or Keep its folders the same way. A quiet "Different from the rest of this backup. Use the usual" appears only when it differs, and setting it back to match means it goes with the rest of the backup again. Switching off the last one says plainly that nothing would be backed up from it.
 - **Two more buttons say what they do.** "Put back" beside a folder you left out is now "Include again", and beside a backup you removed it is "Bring it back".
 
 ### Fixed
 
-- **Kinds of file lines up.** The search box, "Show less common kinds" and the count above the list share one line, the count against the list's edge, and each switch in the list sits level with its ending.
-- **Settings rows line up.** A button beside a setting that says something once done, such as "Forget them", sat lower than the setting's name; it is level with it now.
 - **Drawings and scanned documents are no longer taken for photos.** DjVu documents and DWG drawings were being found as photos; they are now left alone unless you add their kind yourself.
 
 ## [0.51.3] - 2026-11-22
@@ -866,7 +880,10 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.51.3...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.52.2...HEAD
+[0.52.2]: https://github.com/markcastle/keevoro/compare/v0.52.1...v0.52.2
+[0.52.1]: https://github.com/markcastle/keevoro/compare/v0.52.0...v0.52.1
+[0.52.0]: https://github.com/markcastle/keevoro/compare/v0.51.3...v0.52.0
 [0.51.3]: https://github.com/markcastle/keevoro/compare/v0.51.2...v0.51.3
 [0.51.2]: https://github.com/markcastle/keevoro/compare/v0.51.1...v0.51.2
 [0.51.1]: https://github.com/markcastle/keevoro/compare/v0.51.0...v0.51.1
