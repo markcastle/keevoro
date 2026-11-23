@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.53.0] - 2026-11-23
+
 ### Added
 
 - **Music is a kind of its own, beside photos and videos.** A backup can now be for photos, videos, music or any of them together, and a backup of just your music is a backup like any other. Keevoro knows 33 kinds of music file: the usual ones (.mp3, .flac, .m4a, .aac, .wav, .ogg, .opus, .wma, .aiff, .ape, .wv) and less common ones such as .dsf, .mka, MIDI files, .m4b audiobooks and playlists (.m3u, .pls, .cue), kept with the music so albums stay whole (.dts is listed switched off, as it is as often a program file). Music is found by its name alone and never opened: Keevoro does not read its tags, cover or length, so looking through a big music folder is quick, and a backup that is not for music passes music over exactly as it always did. Music keeps its folders (an artist, an album) in a folder called Music inside the backup, however your photos are arranged, and exact copies are kept once. Every backup you already have is for no music until you say otherwise. If you had added music endings such as .flac yourself as other files, they stay yours, exactly as you set them, and nothing already backed up is moved or sent again.
@@ -889,7 +893,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.52.2...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.53.0...HEAD
+[0.53.0]: https://github.com/markcastle/keevoro/compare/v0.52.2...v0.53.0
 [0.52.2]: https://github.com/markcastle/keevoro/compare/v0.52.1...v0.52.2
 [0.52.1]: https://github.com/markcastle/keevoro/compare/v0.52.0...v0.52.1
 [0.52.0]: https://github.com/markcastle/keevoro/compare/v0.51.3...v0.52.0
