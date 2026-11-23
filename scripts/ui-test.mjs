@@ -3528,6 +3528,18 @@ try {
     await page.locator('.settings h2, .kv-page h2, main h2').first().waitFor()
     await page.waitForLoadState('networkidle')
     tipsOn[name] = await tipsLookAlike(name)
+    // Each row's control is level with its name and sentence, a status line beneath or not.
+    const unlevel = await page.evaluate(() =>
+      [...document.querySelectorAll('.kv-row-main')]
+        .filter((row) => row.querySelector(':scope > .kv-row-end') && row.checkVisibility())
+        .map((row) => {
+          const middle = (el) => el.getBoundingClientRect().top + el.getBoundingClientRect().height / 2
+          const off = Math.abs(middle(row.querySelector(':scope > .kv-row-text')) - middle(row.querySelector(':scope > .kv-row-end')))
+          return off > 2 ? `${row.querySelector('.kv-row-title').textContent} (${Math.round(off)} apart)` : null
+        })
+        .filter(Boolean),
+    )
+    assert.deepEqual(unlevel, [], `${name}: every row’s control is level with its words`)
   }
   await page.goto(`${base}/?fast`)
   await page.getByRole('button', { name: 'Choose where they go' }).click()

@@ -101,11 +101,6 @@ export function Row(props: {
               {props.about}
             </span>
           )}
-          {props.status !== undefined && (
-            <span className="kv-row-status" role="status">
-              {props.status}
-            </span>
-          )}
         </div>
         {(props.value || props.control) && (
           <div className="kv-row-end">
@@ -114,6 +109,12 @@ export function Row(props: {
           </div>
         )}
       </div>
+      {/* Its own line under the row, so the control stays level with the row's name and sentence. */}
+      {props.status !== undefined && (
+        <p className="kv-row-status" role="status">
+          {props.status}
+        </p>
+      )}
       {props.below && <div className="kv-row-below">{props.below}</div>}
     </div>
   )

@@ -24,6 +24,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Fixed
 
 - **Kinds of file lines up.** The search box, "Show less common kinds" and the count above the list share one line, the count against the list's edge, and each switch in the list sits level with its ending.
+- **Settings rows line up.** A button beside a setting that says something once done, such as "Forget them", sat lower than the setting's name; it is level with it now.
 - **Drawings and scanned documents are no longer taken for photos.** DjVu documents and DWG drawings were being found as photos; they are now left alone unless you add their kind yourself.
 
 ## [0.51.3] - 2026-11-22

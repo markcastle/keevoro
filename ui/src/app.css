@@ -5706,6 +5706,7 @@ h3.kv-group-title {
 
 /* Kept a line high when empty, so nothing moves when a sentence is said. */
 .kv-row-status {
+  margin: 2px 0 0;
   min-height: 18px;
   font-size: 13px;
   line-height: 18px;
