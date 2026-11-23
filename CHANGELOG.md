@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.53.1] - 2026-11-23
+
 ### Changed
 
 - **Folders that sit together are shown together.** After "Find the folders with photos", folders that live in the same place are one row for the folder they share, with how many folders, photos and videos are in it and how much space they take, and an arrow that opens it. Inside, each folder is shown by the part of its path below that one ("2017 › Walks"), with the whole path when you rest the pointer on it. One tick chooses or clears everything in a group, and shows a dash when only some are ticked. Look inside and Leave out on a group act on the folder they share, so leaving it out leaves out everything in it, and Include again puts it all back. A long group, or one holding only small pictures that are probably not photos, starts closed. Which folders are ticked to begin with, and which are looked through, is the same as before.
@@ -894,7 +898,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.53.0...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.53.1...HEAD
+[0.53.1]: https://github.com/markcastle/keevoro/compare/v0.53.0...v0.53.1
 [0.53.0]: https://github.com/markcastle/keevoro/compare/v0.52.2...v0.53.0
 [0.52.2]: https://github.com/markcastle/keevoro/compare/v0.52.1...v0.52.2
 [0.52.1]: https://github.com/markcastle/keevoro/compare/v0.52.0...v0.52.1
