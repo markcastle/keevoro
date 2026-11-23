@@ -11,6 +11,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import type { Arrange, ArrangeView, Collection, Source, SourceArrangeView } from './backend'
 import { Explained } from './explained'
+import { sourceArrangeChoice } from './wantsRule'
 
 /** "“Family Scans”", "“Family Scans” and “Card”", for up to three folders. */
 export function folderNames(tops: string[]): string {
@@ -160,7 +161,12 @@ export function BackupArrange(props: {
   )
 }
 
-/** For one source: the same as its backup, or its own way, with what its files suggest. */
+/**
+ * How one source's files are arranged, said as a person would: "Arrange
+ * files from Desktop", By date or Keep its folders, chosen to begin with as
+ * the rest of the backup is. A quiet line says when it differs, with the
+ * way back, and what its files suggest is offered beneath.
+ */
 export function SourceArrange(props: {
   name: string
   load: () => Promise<SourceArrangeView>
@@ -182,25 +188,52 @@ export function SourceArrange(props: {
       .choose(arrange)
       .then((changed) => {
         setView(changed)
-        setSaid(changed.said)
+        // What is already backed up never moves: said at the moment of the change.
+        setSaid(changed.arrange !== view.arrange ? `New files from ${props.name} go this way from now on. Files already backed up stay where they are.` : null)
         props.onChanged?.()
       })
       .catch(onProblem)
-  const id = `arrange-${props.name.replace(/\W+/g, '-')}`
-  const sameAs = `Same as the backup (${props.backup === 'folders' ? 'keep the folders' : 'by date'})`
+  const heading = `Arrange files from ${props.name}`
+  const differs = view.own && view.arrange !== props.backup
+  // Set back to what the rest of the backup does, it goes with the rest again (wantsRule.ts).
+  const pick = (arrange: Arrange) => choose(sourceArrangeChoice(arrange, props.backup))
   return (
     <div className="source-arrange">
-      <label htmlFor={id}>Arrange files from {props.name}</label>
-      <select id={id} value={view.own ? view.arrange : 'backup'} onChange={(e) => choose(e.target.value as Arrange | 'backup')}>
-        <option value="backup">{sameAs}</option>
-        <option value="byDate">By date</option>
-        <option value="folders">Keep my folders as they are</option>
-      </select>
+      <h4 className="source-choice-head">{heading}</h4>
+      <div className="kv-panel source-arrange-choices" role="radiogroup" aria-label={heading}>
+        {(
+          [
+            ['byDate', 'By date', 'A folder for each year and month.'],
+            ['folders', 'Keep its folders', 'The same folders and names as on it.'],
+          ] as const
+        ).map(([value, title, line]) => (
+          <label key={value} className={view.arrange === value ? 'source-arrange-choice on' : 'source-arrange-choice'}>
+            <input
+              type="radio"
+              name={`arrange-${props.name}`}
+              value={value}
+              checked={view.arrange === value}
+              onChange={() => pick(value)}
+            />
+            <span>
+              <b>{title}</b> <span className="quiet">{line}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+      {differs && (
+        <p className="quiet small differs">
+          Different from the rest of this backup.{' '}
+          <button className="link" onClick={() => choose('backup')}>
+            Use the usual
+          </button>
+        </p>
+      )}
       {view.suggestion && (
         <Explained
           className="suggestion"
           action={
-            <button className="button small" onClick={() => choose(view.suggestion!.arrange)}>
+            <button className="button small" onClick={() => pick(view.suggestion!.arrange)}>
               {view.suggestion.arrange === 'folders' ? 'Keep its folders' : 'Arrange it by date'}
             </button>
           }

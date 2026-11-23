@@ -4840,11 +4840,6 @@ tr[aria-selected='true'] .share-bar .carried {
   margin: var(--space-1) 0 0;
 }
 
-.source-arrange select {
-  max-width: 100%;
-  justify-self: start;
-}
-
 
 .kept-as {
   flex-basis: 100%;
@@ -6700,4 +6695,56 @@ h3.kv-group-title {
 .schedule-card .schedule-said,
 .checking .check-said {
   margin-top: var(--space-2);
+}
+
+/* A source's own choices, under File types: a plain heading said as a
+   person would ("Back up from Desktop"), the choices as rows of one
+   panel, and a quiet line only when it differs from the rest. */
+.source-choice-head {
+  margin: 0;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 700;
+}
+
+.source-arrange {
+  gap: var(--space-2);
+  max-width: 560px;
+}
+
+.source-arrange > p {
+  margin: 0;
+  padding: 0 var(--space-4);
+}
+
+.source-arrange-choice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 44px;
+  padding: 10px var(--space-4);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.source-arrange-choice + .source-arrange-choice {
+  border-top: 1px solid var(--line);
+}
+
+.source-arrange-choice input[type='radio'] {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--primary);
+}
+
+.source-arrange-choice:focus-within {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: -3px;
+}
+
+.source-arrange-choice .quiet {
+  font-size: 13px;
 }

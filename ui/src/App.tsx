@@ -1738,6 +1738,7 @@ function FileTypes(props: {
       <SourceWants
         name={source.name}
         load={() => api.sourceWants(source.id)}
+        loadBackup={() => api.backupWants()}
         choose={(wants) => api.setSourceWants(source.id, wants)}
         onChanged={() => {
           void reload()
@@ -1746,7 +1747,7 @@ function FileTypes(props: {
         onProblem={onProblem}
       />
       <p className="quiet small">
-        Switch a kind off to leave it out of this backup. You can switch it back on at any time.
+        Switch a type off to leave it out of this backup. You can switch it back on at any time.
       </p>
       <ul className="kv-panel kinds" aria-label={`Kinds of file on ${source.name}`}>
         {kinds.map((kind) => (

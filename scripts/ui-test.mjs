@@ -325,22 +325,33 @@ try {
   await dng.click()
   // One source can be photos only, whatever the backup is for, and each
   // ending says which level left it out.
-  const sameAsBackup = page.getByRole('switch', { name: /^From .*, back up the same as the backup$/ })
-  assert.equal(await sameAsBackup.isChecked(), true)
-  await sameAsBackup.uncheck()
-  const sourceWants = page.getByRole('group', { name: /^From .*, back up$/ })
+  // Said as a person would: "Back up from …", then the plain switches, as
+  // the rest of the backup is to begin with; no line until it differs.
+  const sourceWants = page.getByRole('group', { name: 'Back up from KINGSTON (E:)' })
+  assert.equal(await page.locator('.source-wants h4').innerText(), 'Back up from KINGSTON (E:)')
   assert.deepEqual(await sourceWants.getByRole('switch').evaluateAll((boxes) => boxes.map((b) => b.parentElement.innerText.trim())), ['Photos', 'Videos'], 'no other files to choose until a kind of them is listed')
+  assert.deepEqual(await sourceWants.getByRole('switch').evaluateAll((boxes) => boxes.map((b) => b.getAttribute('aria-checked'))), ['true', 'true'])
+  assert.equal(await page.locator('.source-wants .differs').count(), 0, 'nothing said while it is like the rest')
+  assert.doesNotMatch(await text('.types'), /same as|follows|the backup\b/i, 'no words that need knowing how Keevoro works inside')
   await sourceWants.getByRole('switch', { name: 'Videos' }).uncheck()
-  await page.locator('.source-wants').getByRole('status').getByText(/This source is set to photos only\. Anything already backed up stays backed up/).waitFor()
+  await page.locator('.source-wants').getByRole('status').getByText('Anything already backed up stays backed up.').waitFor()
+  assert.equal(await text('.source-wants .differs'), 'Different from the rest of this backup. Use the usual')
   assert.match(await page.locator('.types li').nth(2).innerText(), /left out: this source is set to photos only/)
   // One panel of rows, as in Settings: the words on the left, each switch on the right.
   assert.deepEqual(await centredOnSwitch(page.locator('.source-wants [role=switch]')), [])
   await shot('3c-source-photos-only')
-  // The last tick cannot be taken away: a source is always for something.
+  // The last tick cannot be taken away: a source is always for something, and it says so plainly.
   await sourceWants.getByRole('switch', { name: 'Photos' }).click({ force: true })
   assert.equal(await sourceWants.getByRole('switch', { name: 'Photos' }).isChecked(), true)
-  await sameAsBackup.check()
+  await page.locator('.source-wants').getByRole('status').getByText('Nothing would be backed up from KINGSTON (E:). Keep one on, or remove this source.').waitFor()
+  // Set back to match the rest, it is like the rest again, with nothing said; Use the usual does the same.
+  await sourceWants.getByRole('switch', { name: 'Videos' }).check()
+  await page.locator('.source-wants .differs').waitFor({ state: 'detached' })
   await page.locator('.types li').nth(2).getByText(/left out/).waitFor({ state: 'detached' })
+  await sourceWants.getByRole('switch', { name: 'Photos' }).uncheck()
+  await page.locator('.source-wants .differs').getByRole('button', { name: 'Use the usual' }).click()
+  await page.locator('.source-wants .differs').waitFor({ state: 'detached' })
+  assert.equal(await sourceWants.getByRole('switch', { name: 'Photos' }).isChecked(), true)
   await page.getByRole('button', { name: /^File types on / }).click()
   assert.equal(await page.locator('.types').count(), 0)
   // The bar is part of the window: on its bottom edge, full width.
@@ -3054,18 +3065,23 @@ try {
   // the suggestion beside it, and its card says so.
   await page.locator('.steps button').first().click()
   await page.getByRole('button', { name: 'File types on Family Scans' }).click()
-  const scansSelect = page.getByLabel('Arrange files from Family Scans')
-  assert.equal(await scansSelect.inputValue(), 'backup')
-  assert.deepEqual(await scansSelect.locator('option').allInnerTexts(), ['Same as the backup (by date)', 'By date', 'Keep my folders as they are'])
+  const scansArrange = page.getByRole('radiogroup', { name: 'Arrange files from Family Scans' })
+  assert.deepEqual(await scansArrange.getByRole('radio').evaluateAll((all) => all.map((r) => `${r.parentElement.innerText.trim().split('\n')[0]} ${r.checked}`)), [
+    'By date A folder for each year and month. true',
+    'Keep its folders The same folders and names as on it. false',
+  ])
+  assert.equal(await page.locator('.source-arrange .differs').count(), 0, 'nothing said while it is arranged as the rest')
   assert.match(await text('.source-arrange .suggestion'), /^Suggestion: keep its folders as they are\. These look like scans\./)
   await page.locator('.source-arrange').scrollIntoViewIfNeeded()
   await shot('3f-source-arrange')
   await page.locator('.source-arrange').getByRole('button', { name: 'Keep its folders' }).click()
-  await page.locator('.source-arrange').getByRole('status').getByText(/^Files from Family Scans keep their folders as they are\. From now on/).waitFor()
-  assert.equal(await scansSelect.inputValue(), 'folders')
+  await page.locator('.source-arrange').getByRole('status').getByText('New files from Family Scans go this way from now on. Files already backed up stay where they are.').waitFor()
+  assert.equal(await scansArrange.getByRole('radio', { name: /^Keep its folders/ }).isChecked(), true)
+  assert.equal(await text('.source-arrange .differs'), 'Different from the rest of this backup. Use the usual')
   await page.getByText('Kept in its own folders, starting with “Family Scans”.').waitFor()
   await fitsNarrow('a source keeping its folders')
-  await narrowShots('3f2-source-file-types', page.locator('.source-wants'))
+  await narrowShots('3f2-source-file-types', page.locator('.source-arrange'))
+  await narrowShots('3f3-source-wants', page.locator('.source-wants'))
 
   // Above Back up now, one quiet line says how it is arranged, with Change.
   await page.locator('.steps button').nth(2).click()

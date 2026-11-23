@@ -19,6 +19,8 @@ export function Toggle(props: {
   name?: string
   disabled?: boolean
   locked?: boolean
+  /** Heard when a locked switch is pressed, to say why it stays as it is. */
+  onLocked?: () => void
   /** A row of a panel: the words on the left, the switch on the right. */
   row?: boolean
   onChange: (on: boolean) => void
@@ -35,6 +37,7 @@ export function Toggle(props: {
         disabled={props.disabled}
         onClick={() => {
           if (!props.locked) props.onChange(!props.on)
+          else props.onLocked?.()
         }}
       >
         <span className="knob" />
