@@ -39,7 +39,7 @@ fn each(v: &Value) -> impl Iterator<Item = &Value> {
 /// "30 photos and 2 videos", with any other files carried along after:
 /// what was found in `v`, said the one way (`keevoro_api::words`).
 fn found_in(v: &Value) -> String {
-    keevoro_api::words::photos_and_videos(n(v, "photos"), n(v, "videos"), n(v, "others"))
+    keevoro_api::words::in_full(n(v, "photos"), n(v, "videos"), n(v, "music"), n(v, "others"))
 }
 
 /// For answers that a job says as it goes, so nothing more is needed.
@@ -870,6 +870,9 @@ pub fn last_backup(io: &mut Io<'_>, _: &ArgMatches, said: &Value) -> Said_ {
 
 pub fn wants(io: &mut Io<'_>, _: &ArgMatches, view: &Value) -> Said_ {
     writeln!(io.out, "{}", s(view, "said"))?;
+    if yes(view, "looksAgain") {
+        writeln!(io.out, "To find it now: keevoro look --again")?;
+    }
     Ok(Code::Worked)
 }
 
@@ -1178,10 +1181,10 @@ fn kind_line(kind: &Value, about: bool) -> String {
         if yes(kind, "builtIn") { "built in" } else { "yours" },
         if yes(kind, "on") { "on" } else { "off" }
     );
-    let line = if yes(kind, "unsure") {
-        format!("{line}  (often not a photo or video)")
-    } else {
-        line
+    let line = match (yes(kind, "unsure"), s(kind, "kind")) {
+        (true, "music") => format!("{line}  (often something else)"),
+        (true, _) => format!("{line}  (often not a photo or video)"),
+        _ => line,
     };
     match kind.get("about").and_then(Value::as_str) {
         Some(said) if about => format!("{line}\n            {said}"),
@@ -1224,6 +1227,7 @@ pub fn kind_changed(io: &mut Io<'_>, _: &ArgMatches, kind: &Value) -> Said_ {
     let what = match s(kind, "kind") {
         "video" => "videos",
         "other" => "other files",
+        "music" => "music",
         _ => "photos",
     };
     if yes(kind, "on") {
@@ -1348,9 +1352,10 @@ pub fn last_word(io: &mut Io<'_>, last: Option<&Said>) -> std::io::Result<()> {
                     io.out,
                     "Looked through {}: found {}.",
                     e.name,
-                    keevoro_api::words::photos_and_videos(
+                    keevoro_api::words::in_full(
                         usize::try_from(e.photos).unwrap_or(usize::MAX),
                         usize::try_from(e.videos).unwrap_or(usize::MAX),
+                        usize::try_from(e.music).unwrap_or(usize::MAX),
                         usize::try_from(e.others).unwrap_or(usize::MAX),
                     )
                 )?;
@@ -1405,7 +1410,7 @@ pub fn last_word(io: &mut Io<'_>, last: Option<&Said>) -> std::io::Result<()> {
                     io.out,
                     "{:>9}  {}  {}{note}",
                     bytes(hint.bytes),
-                    keevoro_api::words::photos_and_videos(hint.photos, hint.videos, hint.others),
+                    keevoro_api::words::in_full(hint.photos, hint.videos, hint.music, hint.others),
                     hint.folder
                 )?;
                 if let Some(online) = &hint.online_only_said {

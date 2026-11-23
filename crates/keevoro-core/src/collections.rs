@@ -12,11 +12,12 @@
 //! Files with no believable date and no album go into one "Undated"
 //! collection.
 //!
-//! Other files (music, documents and the like, which a person asked
+//! Music and other files (documents and the like, which a person asked
 //! Keevoro to carry along) are never grouped by date. They are listed by
-//! **the folder they came from**, as the person arranged them: one
-//! collection per folder, holding the files directly in it, after every
-//! collection of photos and videos, in the order of their folders.
+//! **the folder they came from**, as the person arranged them (an album of
+//! music is its folder): one collection per folder, holding the files
+//! directly in it, after every collection of photos and videos, in the
+//! order of their folders.
 //!
 //! Photos and videos from a source that keeps its folders as they are
 //! (`crate::arrange`) are grouped the same way: one collection per folder
@@ -55,8 +56,10 @@ pub struct Collection {
     pub photos: usize,
     pub videos: usize,
     pub others: usize,
-    /// True for a folder of other files: listed by the folder, not shown
-    /// as photos.
+    /// Tracks of music, playlists among them.
+    pub music: usize,
+    /// True for a folder of music or other files: listed by the folder,
+    /// never by date.
     pub by_folder: bool,
     /// True for a folder of photos and videos from a source that keeps its
     /// folders: shown as pictures, listed in folder order, never by date.
@@ -82,6 +85,9 @@ impl Collection {
         if self.videos > 0 {
             parts.push(plural(self.videos, "video"));
         }
+        if self.music > 0 {
+            parts.push(plural(self.music, "track"));
+        }
         if self.others > 0 {
             parts.push(plural(self.others, "other file"));
         }
@@ -101,7 +107,7 @@ pub fn group_into_collections(items: &[CollectionInput]) -> Vec<Collection> {
     let mut loose_dated = Vec::new();
     let mut undated = Vec::new();
     for (i, it) in items.iter().enumerate() {
-        if it.kind == MediaKind::Other {
+        if it.kind.by_ending_alone() {
             folders.entry(it.album.as_slice()).or_default().push(i);
         } else if it.kept && !it.album.is_empty() {
             kept.entry(it.album.as_slice()).or_default().push(i);
@@ -218,6 +224,7 @@ fn build(items: &[CollectionInput], title: String, parents: Vec<String>, mut mem
     let last = dates.max();
     let of = |kind: MediaKind| members.iter().filter(|&&i| items[i].kind == kind).count();
     let (photos, videos, others) = (of(MediaKind::Photo), of(MediaKind::Video), of(MediaKind::Other));
+    let music = of(MediaKind::Music);
     // The largest photo is a decent first guess at the best one: originals
     // beat thumbnails and resized copies. Fall back to a video.
     let cover = members
@@ -233,6 +240,7 @@ fn build(items: &[CollectionInput], title: String, parents: Vec<String>, mut mem
         photos,
         videos,
         others,
+        music,
         by_folder: false,
         kept_folders: false,
         cover,
@@ -476,5 +484,30 @@ mod tests {
         let c = day_number(PartialDate::day(2009, 1, 1).unwrap());
         let d = day_number(PartialDate::day(2008, 12, 31).unwrap());
         assert_eq!(c - d, 1);
+    }
+
+    #[test]
+    fn music_is_listed_by_its_album_folder_and_never_by_date() {
+        let track = |folder: &[&str], date| CollectionInput {
+            kind: MediaKind::Music,
+            ..other(folder, date)
+        };
+        let items = vec![
+            track(&["Music", "The Made-Up Band", "Paper Boats"], day(2019, 1, 2)),
+            photo(&[], day(2019, 1, 2), 10),
+            track(&["Music", "The Made-Up Band", "Paper Boats"], day(2011, 5, 6)),
+            track(&["Music", "Willow Street Trio", "Live at Home"], None),
+        ];
+        let c = group_into_collections(&items);
+        assert_eq!(c.len(), 3);
+        assert!(!c[0].by_folder && c[0].photos == 1);
+        let boats = &c[1];
+        assert_eq!(
+            (boats.title.as_str(), boats.music, boats.by_folder),
+            ("Paper Boats", 2, true)
+        );
+        assert_eq!(boats.parents, ["Music", "The Made-Up Band"]);
+        assert_eq!(boats.summary(), "2 tracks");
+        assert_eq!(c[2].title, "Live at Home");
     }
 }

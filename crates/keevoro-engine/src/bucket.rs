@@ -237,6 +237,7 @@ pub fn look_through(
             keevoro_core::MediaKind::Photo => progress.photos += 1,
             keevoro_core::MediaKind::Video => progress.videos += 1,
             keevoro_core::MediaKind::Other => progress.others += 1,
+            keevoro_core::MediaKind::Music => progress.music += 1,
         }
         progress.bytes += item.bytes;
     }

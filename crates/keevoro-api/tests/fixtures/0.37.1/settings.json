@@ -42,6 +42,11 @@
       "ending": "tga",
       "kind": "video",
       "on": false
+    },
+    {
+      "ending": "flac",
+      "kind": "other",
+      "on": true
     }
   ]
 }

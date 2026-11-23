@@ -87,6 +87,7 @@ pub enum KindName {
     Other,
     /// Other files a person put on the list, to be carried along.
     Carried,
+    Music,
 }
 
 impl From<Kind> for KindName {
@@ -96,6 +97,7 @@ impl From<Kind> for KindName {
             Kind::Video => KindName::Video,
             Kind::Other => KindName::Other,
             Kind::Carried => KindName::Carried,
+            Kind::Music => KindName::Music,
         }
     }
 }
@@ -136,6 +138,11 @@ pub struct MapNode {
     pub carried: u64,
     #[serde(skip_serializing_if = "is_zero")]
     pub carried_bytes: u64,
+    /// Music, for a backup that is for it. Never said when there is none.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub music: u64,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub music_bytes: u64,
     /// Of `bytes`, how many are only in online storage, not on this
     /// computer. Never opened.
     #[serde(skip_serializing_if = "is_zero")]
@@ -316,7 +323,7 @@ impl Keevoro {
             return Ok(None);
         };
         let choices = Self::choices_for(backup);
-        let kinds = self.kinds_to_look_for();
+        let kinds = self.kinds_for(backup);
         let judge = Judge {
             choices: &choices,
             kinds: &kinds,
@@ -600,6 +607,8 @@ impl Said<'_> {
             other_bytes: k[Kind::Other.index()].bytes,
             carried: k[Kind::Carried.index()].files,
             carried_bytes: k[Kind::Carried.index()].bytes,
+            music: k[Kind::Music.index()].files,
+            music_bytes: k[Kind::Music.index()].bytes,
             online_only_bytes: shown.online_only_bytes,
             folders: shown.folders,
             skipped: None,
@@ -678,6 +687,7 @@ impl Said<'_> {
                     Kind::Other if self.judge.kinds.lists_other() => "Everything else",
                     Kind::Other => "Other files",
                     Kind::Carried => "Other files to carry along",
+                    Kind::Music => "Music",
                 }
                 .to_string();
                 node.node = NodeKind::Files;

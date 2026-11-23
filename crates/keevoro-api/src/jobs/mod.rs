@@ -1475,7 +1475,7 @@ impl Keevoro {
     pub fn survey(&self, place: &Path, backup: Option<&Named>, listener: Option<Listener>) -> Result<JobHandle> {
         must_be_there(place)?;
         // A backup for photos only, say, is offered only those.
-        let mut kinds = self.kinds_to_look_for();
+        let mut kinds = self.kinds_for(backup);
         let wants = backup
             .and_then(|b| crate::backup::Backup::open_existing(&b.home))
             .and_then(|b| b.catalog().wants().ok());
@@ -1544,7 +1544,7 @@ impl Keevoro {
     /// agent may look in when it asks.
     pub(in crate::jobs) fn how_to_look(&self, backup: &Named) -> looking::HowToLook {
         looking::HowToLook {
-            kinds: self.kinds_to_look_for(),
+            kinds: self.kinds_for(Some(backup)),
             skip: self.skip_rules_for(Some(backup)),
             for_agent: (self.jobs.by() == FrontEnd::Agent).then(|| self.agent_access()),
         }

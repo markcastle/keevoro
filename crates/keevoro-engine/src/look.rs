@@ -132,9 +132,9 @@ pub fn picture_of_file(
     online: &dyn OnlineCheck,
     found: Option<Found<'_>>,
 ) -> Result<Vec<u8>> {
-    // An other file is never opened to be shown.
-    if kind == MediaKind::Other {
-        bail!(crate::preview::NO_PICTURE_OF_OTHER_FILES);
+    // Music and other files are never opened to be shown.
+    if !kind.is_media() {
+        bail!(crate::preview::no_picture_of(kind));
     }
     // What the listing says, without opening the file.
     let listing = std::fs::symlink_metadata(file).map_err(|_| anyhow!("That file isn't there any more."))?;
@@ -198,7 +198,7 @@ pub fn picture_of_file(
             let _ = write_rendition(&cache.join(format!("{id}.webp")), &still.webp);
             still.webp
         }),
-        MediaKind::Other => bail!(crate::preview::NO_PICTURE_OF_OTHER_FILES),
+        MediaKind::Other | MediaKind::Music => bail!(crate::preview::no_picture_of(kind)),
     };
     match made {
         Ok(bytes) => {

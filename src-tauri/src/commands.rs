@@ -79,8 +79,18 @@ fn backup(shared: &Shared) -> Said<Backup> {
 
 /// Starts a new backup with this name and opens it.
 #[tauri::command]
-pub fn start_backup(shared: State<'_, Shared>, name: String) -> Said<AppState> {
-    let started = shared.keevoro.start_backup(&name).map_err(say)?;
+pub fn start_backup(
+    shared: State<'_, Shared>,
+    name: String,
+    wants: Option<Vec<keevoro_api::wants::WantsWord>>,
+) -> Said<AppState> {
+    // What it is for is checked before anything is started.
+    let wants = wants
+        .as_deref()
+        .map(keevoro_api::wants::wants_of)
+        .transpose()
+        .map_err(say)?;
+    let started = shared.keevoro.start_backup_for(&name, wants, None).map_err(say)?;
     // The window shows the one just started.
     shared.keevoro.backups().switch_to(&started.id).map_err(say)?;
     Ok(current_state(&shared))

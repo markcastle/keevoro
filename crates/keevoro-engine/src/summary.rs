@@ -13,6 +13,8 @@ pub struct Summary {
     pub videos: usize,
     /// Other files a person asked Keevoro to carry along.
     pub others: usize,
+    /// Tracks of music.
+    pub music: usize,
     /// Bytes of unique files.
     pub bytes: u64,
     /// `None` when hashing was off, so duplicates are unknown.
@@ -319,6 +321,7 @@ pub fn summarise_with<'a>(reports: &'a [ScanReport], rescued: &HashSet<String>) 
         photos: unique.iter().filter(|i| i.kind == MediaKind::Photo).count(),
         videos: unique.iter().filter(|i| i.kind == MediaKind::Video).count(),
         others: unique.iter().filter(|i| i.kind == MediaKind::Other).count(),
+        music: unique.iter().filter(|i| i.kind == MediaKind::Music).count(),
         bytes: unique.iter().map(|i| i.bytes).sum(),
         duplicates,
         junk,

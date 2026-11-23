@@ -2,8 +2,10 @@
 //! ending looked for, and if not, is it passed over unopened?". It is
 //! asked of 2,000,000 made-up endings, first as Keevoro 0.51 asked it
 //! (57 kinds, a lower-case copy made for any ending with capitals), then
-//! as Keevoro asks it now (137 kinds, lowered without a copy, with a hash
-//! made for short endings, in one look).
+//! as Keevoro asks it now (170 kinds, music among them, lowered without a
+//! copy, with a hash made for short endings, in one look): for a backup
+//! that is not for music, which passes music over just as before, and for
+//! one that is.
 //!
 //! `cargo run -p keevoro-core --example kind_match_speed`
 //!
@@ -12,7 +14,7 @@
 
 #![allow(clippy::print_stdout, clippy::unwrap_used)]
 
-use keevoro_core::{Kinds, MediaKind};
+use keevoro_core::{Kinds, MediaKind, Wants};
 use std::collections::HashMap;
 use std::hint::black_box;
 use std::time::Instant;
@@ -228,7 +230,13 @@ fn main() {
     let endings: Vec<&str> = (0..NAMES).map(|i| ENDINGS[(i * 7 + i / 13) % ENDINGS.len()]).collect();
 
     let before = as_it_was::Kinds::new();
-    let now = Kinds::default();
+    // A backup for photos and videos, as every backup is unless asked.
+    let now = Kinds::default().wanted_by(Wants::default());
+    let with_music = Kinds::default().wanted_by(Wants {
+        music: true,
+        ..Wants::default()
+    });
+    let kinds = keevoro_core::FileKinds::default().list().len();
     // Both must answer the same for the endings both lists know.
     for ending in ENDINGS {
         if !["tga", "psd", "mxf", "exr", "gif"].contains(&ending.to_lowercase().as_str()) {
@@ -250,10 +258,18 @@ fn main() {
             over_now += usize::from(black_box(passed_over_now(&now, black_box(ending))));
         }
         let is = started.elapsed();
+
+        let started = Instant::now();
+        let mut over_music = 0usize;
+        for ending in &endings {
+            over_music += usize::from(black_box(passed_over_now(&with_music, black_box(ending))));
+        }
+        let music = started.elapsed();
         println!(
-            "round {round}: {NAMES} endings. Before (57 kinds): {was:?}, {:.0} ns each, {over} passed over. Now (137 kinds): {is:?}, {:.0} ns each, {over_now} passed over.",
+            "round {round}: {NAMES} endings. Before (57 kinds): {was:?}, {:.0} ns each, {over} passed over. Now ({kinds} kinds, not for music): {is:?}, {:.0} ns each, {over_now} passed over. For music: {music:?}, {:.0} ns each, {over_music} passed over.",
             was.as_nanos() as f64 / NAMES as f64,
             is.as_nanos() as f64 / NAMES as f64,
+            music.as_nanos() as f64 / NAMES as f64,
         );
     }
 }

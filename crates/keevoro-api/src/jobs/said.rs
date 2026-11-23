@@ -19,6 +19,10 @@ pub struct SurveyEvent {
     /// there are none.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub others: usize,
+    /// Music seen so far, for a backup that is for it. Never said when
+    /// there is none.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub music: usize,
     /// Every suggestion is final; the folders Keevoro never looks through
     /// are being sized for the map of where the space goes.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -51,6 +55,11 @@ pub struct TopView {
     pub carried: u64,
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub carried_bytes: u64,
+    /// Music, for a backup that is for it.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub music: u64,
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub music_bytes: u64,
     /// For the smaller folders together, how many.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub folders: u64,
@@ -81,6 +90,8 @@ impl From<&keevoro_scan::map::TopBox> for TopView {
             other_bytes: k[Kind::Other.index()].bytes,
             carried: k[Kind::Carried.index()].files,
             carried_bytes: k[Kind::Carried.index()].bytes,
+            music: k[Kind::Music.index()].files,
+            music_bytes: k[Kind::Music.index()].bytes,
             folders,
         }
     }
@@ -120,6 +131,9 @@ pub struct ScanEvent {
     /// Other files a person put on the list. Never said when there are none.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub others: u64,
+    /// Music found so far. Never said when there is none.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub music: u64,
     /// Every file looked at so far, photos or not.
     pub files: u64,
     /// The folder being looked in right now, for the curious.
@@ -294,6 +308,9 @@ pub struct HintView {
     /// Other files a person put on the list. Never said when there are none.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub others: usize,
+    /// Music, for a backup that is for it. Never said when there is none.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub music: usize,
     pub bytes: u64,
     /// False when the pictures are so small they are probably not photos.
     pub likely_photos: bool,
@@ -408,6 +425,7 @@ mod tests {
             photos: 1,
             videos: 2,
             others: 0,
+            music: 0,
             bytes: 3,
             likely_photos: true,
             already_a_source: false,
@@ -420,6 +438,7 @@ mod tests {
                 photos: 1,
                 videos: 2,
                 others: 0,
+                music: 0,
                 files: 3,
                 folder: String::new(),
                 reading: None,
@@ -448,6 +467,7 @@ mod tests {
                 photos: 3,
                 videos: 4,
                 others: 0,
+                music: 0,
                 sizing: false,
                 top: vec![TopView {
                     name: "Camera Roll".into(),
@@ -461,6 +481,8 @@ mod tests {
                     other_bytes: 1,
                     carried: 0,
                     carried_bytes: 0,
+                    music: 0,
+                    music_bytes: 0,
                     folders: 0,
                 }],
             }),
@@ -574,6 +596,7 @@ mod tests {
             photos: 30,
             videos: 1,
             others: 0,
+            music: 0,
             sizing: false,
             top: Vec::new(),
         };

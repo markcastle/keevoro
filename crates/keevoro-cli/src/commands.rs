@@ -1043,7 +1043,7 @@ pub static ROWS: &[Row] = &[
         words: &["wants"],
         ops: &[Op::BackupWants],
         about: Some(
-            "What this backup is for: photos, videos and, once a kind of other file is on the list, other files. Give one or more of them to change it; it counts at once, and nothing already backed up is touched.",
+            "What this backup is for: photos, videos, music and, once a kind of other file is on the list, other files. Give one or more of them to change it; it counts at once, and nothing already backed up is touched. Music is looked for only once it is asked for: then look through the sources again (keevoro look --again).",
         ),
         args: |c| c.arg(Arg::new("wants").value_name("KINDS").num_args(1..).help(WANTS_HELP)),
         ask: |_, m, _| Ok((Op::BackupWants, json!({ "wants": wants_typed(m, "wants") }))),
@@ -1401,12 +1401,12 @@ pub static ROWS: &[Row] = &[
         words: &["kinds", "add"],
         ops: &[Op::FileKindsAdd],
         about: Some(
-            "Adds an ending for Keevoro to look for, as photos, videos or other files. Other files (music, documents, anything) are backed up exactly, but cannot be shown or grouped by date. Counts from the next time a source is looked through.",
+            "Adds an ending for Keevoro to look for, as photos, videos, music or other files. Music and other files (documents, anything) are backed up exactly, but never opened, shown or grouped by date. Counts from the next time a source is looked through.",
         ),
         args: |c| {
             c.arg(arg("ending", "The ending, such as heif").required(true))
                 .args(listed_as())
-                .group(clap::ArgGroup::new("kind").args(["photo", "video", "other"]).required(true))
+                .group(clap::ArgGroup::new("kind").args(["photo", "video", "music", "other"]).required(true))
         },
         ask: |_, m, _| {
             Ok((
@@ -1420,7 +1420,7 @@ pub static ROWS: &[Row] = &[
         words: &["kinds", "change"],
         ops: &[Op::FileKindsChange],
         about: Some(
-            "Makes a kind of file photos, videos or other files, or gives one you added a new ending. Counts from the next time a source is looked through.",
+            "Makes a kind of file photos, videos, music or other files, or gives one you added a new ending. Counts from the next time a source is looked through.",
         ),
         args: |c| {
             c.arg(arg("ending", "The ending as it is on the list, such as heif").required(true))
@@ -1433,7 +1433,7 @@ pub static ROWS: &[Row] = &[
                 )
                 .group(
                     clap::ArgGroup::new("change")
-                        .args(["photo", "video", "other", "to"])
+                        .args(["photo", "video", "music", "other", "to"])
                         .multiple(true)
                         .required(true),
                 )
@@ -1482,10 +1482,15 @@ pub static ROWS: &[Row] = &[
     },
 ];
 
-fn listed_as() -> [Arg; 3] {
+fn listed_as() -> [Arg; 4] {
     [
-        flag("photo", "They are photos").conflicts_with_all(["video", "other"]),
-        flag("video", "They are videos").conflicts_with("other"),
+        flag("photo", "They are photos").conflicts_with_all(["video", "music", "other"]),
+        flag("video", "They are videos").conflicts_with_all(["music", "other"]),
+        flag(
+            "music",
+            "They are music: found by their ending, never opened, and kept in their folders",
+        )
+        .conflicts_with("other"),
         flag(
             "other",
             "They are other files, carried along: backed up exactly, but never shown or grouped by date",
@@ -1493,9 +1498,11 @@ fn listed_as() -> [Arg; 3] {
     ]
 }
 
-/// `photo`, `video`, `other`, or nothing when none was given.
+/// `photo`, `video`, `music`, `other`, or nothing when none was given.
 fn listed_as_given(m: &ArgMatches) -> Option<&'static str> {
-    ["photo", "video", "other"].into_iter().find(|kind| m.get_flag(kind))
+    ["photo", "video", "music", "other"]
+        .into_iter()
+        .find(|kind| m.get_flag(kind))
 }
 
 /// What a backup or a source is for, as typed: `photos`, `videos` and
@@ -1517,7 +1524,7 @@ fn arrange_typed(word: &str) -> Result<&'static str, Failure> {
         .ok_or_else(|| Failure::not_understood(format!("Say by-date or folders, not \"{word}\".")))
 }
 
-const WANTS_HELP: &str = "photos, videos and others: one or more, such as photos others";
+const WANTS_HELP: &str = "photos, videos, music and others: one or more, such as music, or photos videos";
 
 fn choose_args(command: Command) -> Command {
     command

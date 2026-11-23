@@ -62,9 +62,12 @@ pub struct RenditionRule {
 pub enum ItemType {
     Photo,
     Video,
-    /// A file the person asked Keevoro to carry along (music, a document):
-    /// kept exactly, with no renditions, in an album named after its folder.
+    /// A file the person asked Keevoro to carry along (a document): kept
+    /// exactly, with no renditions, in an album named after its folder.
     Other,
+    /// A song, a recording or a playlist: kept exactly, with no
+    /// renditions, in an album named after its folder.
+    Music,
 }
 
 /// Where an item's date came from, so a gallery can show a weak guess as
@@ -91,7 +94,7 @@ impl From<DateSource> for IndexDateSource {
     }
 }
 
-/// One photo, video or other file.
+/// One photo, video, track of music or other file.
 #[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Item {
@@ -225,6 +228,7 @@ pub fn build_index(base_url: &str, generated_at_unix: i64, albums: &[AlbumInput]
                     MediaKind::Photo => ItemType::Photo,
                     MediaKind::Video => ItemType::Video,
                     MediaKind::Other => ItemType::Other,
+                    MediaKind::Music => ItemType::Music,
                 },
                 path: i.path,
                 taken: i.date.map(|d| d.date.to_string()),

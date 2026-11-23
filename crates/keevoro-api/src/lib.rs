@@ -352,14 +352,7 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
             let r: StartBackupRequest = read(request)?;
             // What it is for is checked before anything is started.
             let wants = r.wants.as_deref().map(wants::wants_of).transpose()?;
-            let started = keevoro.start_backup(&r.name)?;
-            if let Some(wants) = wants {
-                keevoro.set_backup_wants(&Backup::open(&started.home)?, wants)?;
-            }
-            if let Some(word) = r.arrange {
-                keevoro.set_arrangement(&Backup::open(&started.home)?, word.arrange())?;
-            }
-            answer(started)
+            answer(keevoro.start_backup_for(&r.name, wants, r.arrange.map(|w| w.arrange()))?)
         }
         Op::BackupsFindAt => {
             let r: AddDestinationRequest = read_with_keys(request)?;

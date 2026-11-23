@@ -565,6 +565,7 @@ impl Run {
             }
         }
         let (mut photos, mut videos, mut others, mut set_aside, mut new_copies) = (0, 0, 0, 0, 0);
+        let mut music = 0;
         for item in reports
             .iter()
             .flat_map(|r| &r.items)
@@ -574,6 +575,7 @@ impl Run {
                 keevoro_core::MediaKind::Photo => photos += 1,
                 keevoro_core::MediaKind::Video => videos += 1,
                 keevoro_core::MediaKind::Other => others += 1,
+                keevoro_core::MediaKind::Music => music += 1,
             }
             if item.junk.is_some() && !keevoro_engine::wanted(&catalog, item).unwrap_or(false) {
                 set_aside += 1;
@@ -586,13 +588,16 @@ impl Run {
                 new_copies += 1;
             }
         }
-        let found = if photos + videos + others == 0 {
+        let found = if photos + videos + others + music == 0 {
             vec!["Nothing new was found.".to_string()]
         } else {
-            vec![format!(
-                "New since the last look: {}.",
-                keevoro_core::words::files(photos, videos, others)
-            )]
+            let new = keevoro_core::words::Tally {
+                photos,
+                videos,
+                music,
+                others,
+            };
+            vec![format!("New since the last look: {}.", new.said())]
         };
         let reads_a_bucket = catalog.sources()?.iter().any(|s| s.bucket.is_some());
         let cost = if reads_a_bucket {

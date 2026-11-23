@@ -40,7 +40,9 @@ pub struct Tally {
     pub videos: usize,
     /// Other files a person put on the list, looked for.
     pub carried: usize,
-    /// The size of those photos, videos and other files together.
+    /// Music, looked for.
+    pub music: usize,
+    /// The size of those photos, videos, music and other files together.
     pub bytes: u64,
     /// Files that are none of them.
     pub others: usize,
@@ -71,6 +73,9 @@ pub struct Hint {
     /// none, so nothing changes for anyone who never adds a kind of them.
     #[serde(skip_serializing_if = "is_none_of_them")]
     pub others: usize,
+    /// Music, for a backup that is for it. Never said when there is none.
+    #[serde(skip_serializing_if = "is_none_of_them")]
+    pub music: usize,
     pub bytes: u64,
     pub likely: Likely,
     /// Of those photos and videos, how many are only in online storage, so
@@ -118,6 +123,8 @@ pub struct SurveyProgress {
     pub videos: usize,
     /// Other files a person put on the list, seen so far.
     pub others: usize,
+    /// Music seen so far, for a backup that is for it.
+    pub music: usize,
     /// Every suggestion is final, and the folders Keevoro never looks
     /// through are being sized for the map.
     pub sizing: bool,
@@ -139,20 +146,22 @@ struct Sum {
     photos: usize,
     videos: usize,
     carried: usize,
+    music: usize,
     bytes: u64,
     files: usize,
     online_only: usize,
 }
 
 impl Sum {
-    /// Everything wanted: photos, videos and other files carried along.
+    /// Everything wanted: photos, videos, music and other files carried along.
     fn media(self) -> usize {
-        self.photos + self.videos + self.carried
+        self.photos + self.videos + self.carried + self.music
     }
     fn add(&mut self, other: Sum) {
         self.photos += other.photos;
         self.videos += other.videos;
         self.carried += other.carried;
+        self.music += other.music;
         self.bytes += other.bytes;
         self.files += other.files;
         self.online_only += other.online_only;
@@ -196,8 +205,9 @@ pub fn suggest(root: &Path, tallies: &[Tally]) -> Vec<Hint> {
                 photos: t.photos,
                 videos: t.videos,
                 carried: t.carried,
+                music: t.music,
                 bytes: t.bytes,
-                files: t.photos + t.videos + t.carried + t.others,
+                files: t.photos + t.videos + t.carried + t.music + t.others,
                 online_only: t.online_only,
             },
         );
@@ -237,13 +247,16 @@ pub fn suggest(root: &Path, tallies: &[Tally]) -> Vec<Hint> {
             total.mostly_media()
         };
         if enough || holds_some_itself {
-            let small =
-                total.videos == 0 && total.carried == 0 && total.bytes / (total.photos.max(1) as u64) < SMALL_PICTURE;
+            let small = total.videos == 0
+                && total.carried == 0
+                && total.music == 0
+                && total.bytes / (total.photos.max(1) as u64) < SMALL_PICTURE;
             hints.push(Hint {
                 folder: folder.to_path_buf(),
                 photos: total.photos,
                 videos: total.videos,
                 others: total.carried,
+                music: total.music,
                 bytes: total.bytes,
                 likely: if small { Likely::AppPictures } else { Likely::Photos },
                 online_only: total.online_only,
@@ -326,6 +339,7 @@ struct Walk<'a> {
     photos: AtomicUsize,
     videos: AtomicUsize,
     others: AtomicUsize,
+    music: AtomicUsize,
     unreadable: AtomicUsize,
 }
 
@@ -425,7 +439,7 @@ impl Walk<'_> {
         }
         let mut listing = Listing::default();
         let mut found: Vec<(String, Option<keevoro_core::SkipReason>, PathBuf)> = Vec::new();
-        let (mut photos, mut videos, mut others) = (0, 0, 0);
+        let (mut photos, mut videos, mut others, mut music) = (0, 0, 0, 0);
         for entry in entries {
             let Ok(kind) = entry.file_type() else { continue };
             let name = entry.file_name();
@@ -446,6 +460,7 @@ impl Walk<'_> {
                     match on_list.map(|(kind, _)| kind) {
                         Some(MediaKind::Photo) => photos += 1,
                         Some(MediaKind::Other) => others += 1,
+                        Some(MediaKind::Music) => music += 1,
                         _ => videos += 1,
                     }
                 }
@@ -477,6 +492,7 @@ impl Walk<'_> {
         self.photos.fetch_add(photos, Ordering::Relaxed);
         self.videos.fetch_add(videos, Ordering::Relaxed);
         self.others.fetch_add(others, Ordering::Relaxed);
+        self.music.fetch_add(music, Ordering::Relaxed);
         let first = {
             let mut map = self.builder();
             let names: Vec<(&str, Option<keevoro_core::SkipReason>)> =
@@ -620,6 +636,7 @@ impl Walk<'_> {
             photos: self.photos.load(Ordering::Relaxed),
             videos: self.videos.load(Ordering::Relaxed),
             others: self.others.load(Ordering::Relaxed),
+            music: self.music.load(Ordering::Relaxed),
             sizing: self.sizing.load(Ordering::Relaxed),
             top: if with_top {
                 self.builder().top(crate::map::MOST_TOP_BOXES)
@@ -680,6 +697,7 @@ pub fn survey(
         photos: AtomicUsize::new(0),
         videos: AtomicUsize::new(0),
         others: AtomicUsize::new(0),
+        music: AtomicUsize::new(0),
         unreadable: AtomicUsize::new(0),
     };
     // Listing folders waits on the disk far more than it computes, so
@@ -751,6 +769,7 @@ mod tests {
             videos,
             // Three megabytes a photo and a hundred a video, as a camera makes them.
             bytes: (photos as u64) * 3_000_000 + (videos as u64) * 100_000_000,
+            music: 0,
             others,
             carried: 0,
             online_only: 0,

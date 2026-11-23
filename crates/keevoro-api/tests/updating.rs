@@ -803,6 +803,112 @@ fn files_of_a_kind_keevoro_has_come_to_know_are_found_at_the_next_look_and_nothi
     assert_eq!(backed_up(), before, "what was backed up stays where it is");
 }
 
+/// Music became a kind of its own after 0.37.1. A backup 0.37.1 kept is
+/// for no music: nothing is stored about it, as having no word for it
+/// means none, and a look through its sources passes music over as it
+/// always did. `.flac`, which the person had added as other files, stays
+/// theirs, exactly as they set it, found as an other file. Once music is
+/// asked for, the next look finds the rest as music, and what was backed
+/// up before stays where it is.
+#[test]
+fn a_backup_0_37_1_kept_is_for_no_music_and_music_a_person_added_as_other_files_stays_theirs() {
+    let dir = tempfile::tempdir().unwrap();
+    let (keevoro, places) = as_0_37_1_left_it(dir.path());
+    let settings = places.folders.config.join("settings.json");
+    let settings_before = std::fs::read_to_string(&settings).unwrap();
+    for backup in ["Family photos", "Holiday videos"] {
+        let wants = ask(&keevoro, Op::BackupWants, Some(backup), Value::Null);
+        let words = wants["wants"].as_array().unwrap();
+        assert!(!words.contains(&json!("music")), "{backup}: {wants}");
+        assert!(!wants["said"].as_str().unwrap().contains("music"), "{wants}");
+    }
+    let kinds = ask(&keevoro, Op::FileKindsList, None, Value::Null);
+    let flac: Vec<&Value> = kinds
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|k| k["ending"] == "flac")
+        .collect();
+    assert_eq!(flac.len(), 1, "listed once: {kinds}");
+    assert_eq!(
+        (&flac[0]["kind"], &flac[0]["builtIn"]),
+        (&json!("other"), &json!(false)),
+        "theirs, as they set it"
+    );
+    let mp3 = kinds.as_array().unwrap().iter().find(|k| k["ending"] == "mp3").unwrap();
+    assert_eq!((&mp3["kind"], &mp3["builtIn"]), (&json!("music"), &json!(true)));
+
+    let home = places.folders.data.join("backups").join("backup-1");
+    let backed_up = || {
+        let catalog = keevoro_catalog::Catalog::open_in_library(&home).unwrap();
+        [
+            "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+            "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+        ]
+        .map(|hash| catalog.collected_path(hash).unwrap())
+    };
+    let before = backed_up();
+    assert!(before.iter().all(Option::is_some));
+    let album = places.card.join("Music").join("The Made-Up Band").join("Paper Boats");
+    std::fs::create_dir_all(&album).unwrap();
+    std::fs::write(album.join("01 Harbour.mp3"), b"ID3 a made-up song").unwrap();
+    std::fs::write(album.join("02 Tide.flac"), b"fLaC a made-up song").unwrap();
+    let look_again = || {
+        let job = ask(
+            &keevoro,
+            Op::SourcesLookAgain,
+            Some("Family photos"),
+            json!({ "source": 1 }),
+        );
+        keevoro.wait(serde_json::from_value(job["id"].clone()).unwrap());
+        keevoro.wait_for_jobs();
+    };
+    let found = || {
+        let catalog = keevoro_catalog::Catalog::open_in_library(&home).unwrap();
+        let root = catalog
+            .sources()
+            .unwrap()
+            .into_iter()
+            .find(|s| s.root.ends_with("Card"))
+            .unwrap()
+            .root;
+        let mut found: Vec<(String, keevoro_core::MediaKind)> = catalog
+            .found_at(&root)
+            .unwrap()
+            .into_iter()
+            .filter(|i| i.path.starts_with(&album))
+            .map(|i| (i.path.file_name().unwrap().to_string_lossy().to_string(), i.kind))
+            .collect();
+        found.sort();
+        found
+    };
+    look_again();
+    assert_eq!(
+        found(),
+        [("02 Tide.flac".to_string(), keevoro_core::MediaKind::Other)],
+        "music passed over, as a backup for no music always did"
+    );
+
+    let set = ask(
+        &keevoro,
+        Op::BackupWants,
+        Some("Family photos"),
+        json!({ "wants": ["photos", "music"] }),
+    );
+    assert_eq!(set["looksAgain"], true, "{set}");
+    look_again();
+    assert_eq!(
+        found(),
+        [
+            ("01 Harbour.mp3".to_string(), keevoro_core::MediaKind::Music),
+            ("02 Tide.flac".to_string(), keevoro_core::MediaKind::Other),
+        ],
+        "theirs stays an other file, found once"
+    );
+    assert_eq!(backed_up(), before, "what was backed up stays where it is");
+    assert_eq!(std::fs::read_to_string(&settings).unwrap(), settings_before);
+}
+
 /// Backing up a source when it is plugged in (0.49) is a choice kept in
 /// each backup's catalog, `arrival:<root>`. No source 0.37.1 kept has it,
 /// so none is backed up when plugged in until the person asks.

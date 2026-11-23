@@ -1835,6 +1835,10 @@ fn a_person_who_adds_no_kind_of_other_file_sees_nothing_new_anywhere() {
         "isOther",
         "offersOthers",
         "changed",
+        "music",
+        "musicBytes",
+        "isMusic",
+        "looksAgain",
     ] {
         assert!(!seen.contains(new), "{new} is said to a person who added nothing");
     }
@@ -1860,6 +1864,143 @@ fn a_person_who_adds_no_kind_of_other_file_sees_nothing_new_anywhere() {
         }),
         "the guide reads as it always did, saying it is arranged by date"
     );
+}
+
+#[test]
+fn a_backup_of_music_alone_finds_only_music_keeps_its_folders_and_says_tracks() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro(dir.path());
+    let music = dir.path().join("Music");
+    let album = ["The Made-Up Band", "Paper Boats"];
+    for (rel, bytes) in [
+        (
+            vec!["The Made-Up Band", "Paper Boats", "01 Harbour.mp3"],
+            vec![1u8; 3_000],
+        ),
+        (
+            vec!["The Made-Up Band", "Paper Boats", "02 Tide.flac"],
+            vec![2u8; 4_000],
+        ),
+        (
+            vec!["The Made-Up Band", "Paper Boats", "album.m3u"],
+            b"01 Harbour.mp3".to_vec(),
+        ),
+        // The same song twice: left out once, as any exact copy is.
+        (
+            vec!["Willow Street Trio", "Live at Home", "01 Harbour.mp3"],
+            vec![1u8; 3_000],
+        ),
+        (vec!["IMG_20190601_120000.jpg"], large_photo(40)),
+    ] {
+        let path = rel.iter().fold(music.clone(), |p, part| p.join(part));
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, bytes).unwrap();
+    }
+    let started = call(
+        &keevoro,
+        crate::Op::BackupsStart,
+        None,
+        json!({ "name": "Music", "wants": ["music"] }),
+    )
+    .unwrap();
+    assert_eq!(started["name"], "Music");
+    let named = keevoro.backups().named_or_open(Some("Music")).unwrap();
+    let arrange = call(&keevoro, crate::Op::BackupArrange, Some("Music"), json!({})).unwrap();
+    assert_eq!(
+        arrange["arrange"], "folders",
+        "music alone keeps its folders: {arrange}"
+    );
+
+    let last = look_and_wait(&keevoro, &named, &music);
+    assert_eq!(last.music, 4, "{last:?}");
+    let found = Backup::open(&named.home).unwrap().found().unwrap();
+    assert_eq!((found.music, found.photos), (3, 0), "one copy left out");
+    let collections = call(&keevoro, crate::Op::CollectionsList, Some("Music"), json!({})).unwrap();
+    let boats = collections
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["title"] == "Paper Boats")
+        .unwrap_or_else(|| panic!("an album is its folder: {collections}"));
+    assert_eq!((&boats["music"], &boats["byFolder"]), (&json!(3), &json!(true)));
+    assert_eq!(boats["summary"], "3 tracks");
+
+    let usb = dir.path().join("USB");
+    keevoro
+        .add_destination(&Backup::open(&named.home).unwrap(), &folder(&usb))
+        .unwrap();
+    let job = keevoro.run_backup(&named, None).unwrap();
+    keevoro.wait(job.id);
+    keevoro.wait_for_jobs();
+    let there = album
+        .iter()
+        .fold(usb.join("originals").join(keevoro_core::MUSIC), |p, part| p.join(part));
+    for name in ["01 Harbour.mp3", "02 Tide.flac", "album.m3u"] {
+        assert!(there.join(name).is_file(), "{name} in Music, in its folders");
+    }
+    assert!(
+        !usb.join("originals").join("Music").join("Music").exists(),
+        "never Music inside Music"
+    );
+    assert!(!usb.join("originals").join("By date").exists(), "nothing by date");
+    let guide = std::fs::read_to_string(usb.join(keevoro_core::BACKUP_GUIDE)).unwrap();
+    assert!(guide.contains("your music is in \"originals\""), "{guide}");
+    assert_eq!(
+        keevoro_core::words::Tally {
+            music: found.music,
+            ..keevoro_core::words::Tally::default()
+        }
+        .said_in_full(),
+        "3 tracks"
+    );
+}
+
+#[test]
+fn a_backup_for_photos_and_music_keeps_music_in_its_folders_beside_the_photos_by_date() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro(dir.path());
+    let home = dir.path().join("Laptop");
+    for (rel, bytes) in [
+        (
+            vec!["Music", "The Made-Up Band", "Paper Boats", "01 Harbour.mp3"],
+            vec![1u8; 3_000],
+        ),
+        (vec!["Pictures", "IMG_20190601_120000.jpg"], large_photo(40)),
+    ] {
+        let path = rel.iter().fold(home.clone(), |p, part| p.join(part));
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, bytes).unwrap();
+    }
+    call(
+        &keevoro,
+        crate::Op::BackupsStart,
+        None,
+        json!({ "name": "Laptop", "wants": ["photos", "videos", "music"], "arrange": "byDate" }),
+    )
+    .unwrap();
+    let named = keevoro.backups().named_or_open(Some("Laptop")).unwrap();
+    let last = look_and_wait(&keevoro, &named, &home);
+    assert_eq!((last.photos, last.music), (1, 1), "{last:?}");
+    let usb = dir.path().join("USB");
+    keevoro
+        .add_destination(&Backup::open(&named.home).unwrap(), &folder(&usb))
+        .unwrap();
+    let job = keevoro.run_backup(&named, None).unwrap();
+    keevoro.wait(job.id);
+    keevoro.wait_for_jobs();
+    let originals = usb.join("originals");
+    let song = ["Laptop", "Music", "The Made-Up Band", "Paper Boats", "01 Harbour.mp3"]
+        .iter()
+        .fold(originals.join(keevoro_core::MUSIC), |p, part| p.join(part));
+    assert!(
+        song.is_file(),
+        "music under Music, starting with the source's own folder"
+    );
+    assert!(originals.join("Pictures").exists() || originals.join("By date").exists());
+    let guide = std::fs::read_to_string(usb.join(keevoro_core::BACKUP_GUIDE)).unwrap();
+    assert!(guide.contains("\"Music\" inside \"originals\""), "{guide}");
 }
 
 #[test]

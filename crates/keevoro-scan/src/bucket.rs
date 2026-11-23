@@ -138,8 +138,8 @@ pub fn found_in_listing(place: &BucketPlace, listed: &[Listed], kinds: &Kinds, s
             source: DateSource::Filename,
         });
         let folder = match kind {
-            // Other files keep their folders, starting with the source's.
-            MediaKind::Other => FolderHints {
+            // Music and other files keep their folders, starting with the source's.
+            MediaKind::Other | MediaKind::Music => FolderHints {
                 album: std::iter::once(place.name())
                     .chain(folders.iter().map(|f| (*f).to_string()))
                     .collect(),
@@ -149,7 +149,7 @@ pub fn found_in_listing(place: &BucketPlace, listed: &[Listed], kinds: &Kinds, s
             _ => folder_hints(folders),
         };
         let date = match kind {
-            MediaKind::Other => modified,
+            MediaKind::Other | MediaKind::Music => modified,
             _ => best_date(&[named, modified].into_iter().flatten().collect::<Vec<_>>()),
         };
         let (blake3, hashed) = match &object.label {
@@ -220,6 +220,7 @@ fn mime_of(kind: MediaKind, ending: &str) -> String {
         ("", MediaKind::Photo) => "image/octet-stream".to_string(),
         ("", MediaKind::Video) => "video/octet-stream".to_string(),
         ("", MediaKind::Other) => "application/octet-stream".to_string(),
+        ("", MediaKind::Music) => "audio/octet-stream".to_string(),
         (known, _) => known.to_string(),
     }
 }

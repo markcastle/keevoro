@@ -113,7 +113,7 @@ pub fn suggestion_for(
     let root_name = keevoro_core::arrange::top_folder(root, name);
     let files = items
         .iter()
-        .filter(|i| i.kind != keevoro_core::MediaKind::Other)
+        .filter(|i| i.kind.is_media())
         .map(|i| FileSeen {
             folders: i
                 .path
@@ -250,11 +250,7 @@ impl Backup {
         let mut by_outcome: Vec<(Option<Arrange>, u64, Why)> = Vec::new();
         for source in self.catalog().sources()? {
             let items = self.catalog().found_on(source.id)?;
-            let bytes: u64 = items
-                .iter()
-                .filter(|i| i.kind != keevoro_core::MediaKind::Other)
-                .map(|i| i.bytes)
-                .sum();
+            let bytes: u64 = items.iter().filter(|i| i.kind.is_media()).map(|i| i.bytes).sum();
             let suggested = suggestion_for(&source.root, &source.name, &items);
             let outcome = suggested.as_ref().map(|s| s.arrange);
             let why = suggested.map(|s| (bytes, s.why_for_the_backup(&source.name)));

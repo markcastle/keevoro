@@ -1,5 +1,6 @@
 //! `backup.wants` and `sources.wants`: what a backup, or one of its
-//! sources, is for: any of photos, videos and other files, at least one.
+//! sources, is for: any of photos, videos, music and other files, at least
+//! one.
 //!
 //! It is a choice about what is offered and backed up from now on, made
 //! over what was already found (see `keevoro_core::wants` for how it
@@ -12,6 +13,11 @@
 //! Other files are only offered as a choice, and only spoken of, once some
 //! kind of other file is on Keevoro's list (`offersOthers`), so a person who
 //! never adds one sees photos and videos as ever.
+//!
+//! Music is the one exception to "with no new search": a backup that is
+//! not for music never looks for it, so nothing is spent on it. Once music
+//! is asked for, where none was looked for before, the view says so
+//! (`looksAgain`), and the sources are looked through again to find it.
 
 use crate::backup::Backup;
 use crate::error::{Error, Result};
@@ -24,6 +30,8 @@ use serde::{Deserialize, Serialize};
 pub enum WantsWord {
     Photos,
     Videos,
+    /// Songs, recordings and playlists.
+    Music,
     /// Other files a person put on the kinds list.
     Others,
 }
@@ -33,6 +41,7 @@ impl WantsWord {
         match self {
             WantsWord::Photos => "photos",
             WantsWord::Videos => "videos",
+            WantsWord::Music => "music",
             WantsWord::Others => "others",
         }
     }
@@ -41,7 +50,7 @@ impl WantsWord {
 /// What it is for, from the words a request gives; at least one.
 pub fn wants_of(words: &[WantsWord]) -> Result<Wants> {
     Wants::from_tokens(words.iter().map(|w| w.word()))
-        .ok_or_else(|| Error::not_understood("Say what it is for: one or more of photos, videos and others."))
+        .ok_or_else(|| Error::not_understood("Say what it is for: one or more of photos, videos, music and others."))
 }
 
 /// Following the backup, as a request for a source says it.
@@ -58,7 +67,7 @@ pub enum FollowBackup {
 pub enum SourceWantsChoice {
     /// `backup`: the same as the backup.
     Backup(FollowBackup),
-    /// Its own: one or more of `photos`, `videos` and `others`.
+    /// Its own: one or more of `photos`, `videos`, `music` and `others`.
     Own(Vec<WantsWord>),
 }
 
@@ -75,8 +84,8 @@ impl SourceWantsChoice {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BackupWantsRequest {
-    /// One or more of `photos`, `videos` and `others`. Left out, nothing
-    /// changes.
+    /// One or more of `photos`, `videos`, `music` and `others`. Left out,
+    /// nothing changes.
     #[serde(default)]
     pub wants: Option<Vec<WantsWord>>,
 }
@@ -88,7 +97,7 @@ pub struct SourceWantsRequest {
     /// The source's id, as `sources.list` gives it.
     pub source: i64,
     /// `backup` (the same as the backup), or one or more of `photos`,
-    /// `videos` and `others`. Left out, nothing changes.
+    /// `videos`, `music` and `others`. Left out, nothing changes.
     #[serde(default)]
     pub wants: Option<SourceWantsChoice>,
 }
@@ -101,7 +110,8 @@ fn not(b: &bool) -> bool {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WantsView {
-    /// What is in effect: one or more of `photos`, `videos` and `others`.
+    /// What is in effect: one or more of `photos`, `videos`, `music` and
+    /// `others`.
     pub wants: Wants,
     /// For a source: true when it has its own choice, false when it
     /// follows the backup's.
@@ -113,7 +123,14 @@ pub struct WantsView {
     pub offers_others: bool,
     /// In words: "This backup is for photos only."
     pub said: String,
+    /// True when this change asked for music where none was looked for
+    /// before: the sources are to be looked through again to find it.
+    #[serde(skip_serializing_if = "not")]
+    pub looks_again: bool,
 }
+
+/// What is said when music is asked for where none was looked for before.
+pub const LOOKS_FOR_MUSIC: &str = "Look through your sources again to find your music.";
 
 /// What is said when the choice changes, so nobody fears for what is
 /// already safe.
@@ -130,15 +147,22 @@ impl Backup {
             own: None,
             offers_others: others_listed,
             said: format!("This backup is for {}.", wants.words(others_listed)),
+            looks_again: false,
         })
     }
 
     /// `backup.wants`, set.
     pub fn set_wants(&self, wants: Wants, others_listed: bool) -> Result<WantsView> {
+        let before = self.catalog().wants()?;
+        let music_before = self.catalog().looks_for_music()?;
         self.catalog().set_wants(wants)?;
         let mut view = self.wants(others_listed)?;
-        if !wants.is_everything(others_listed) {
+        if !wants.takes_all_of(before) {
             view.said = format!("{} {ALREADY_SAFE}", view.said);
+        }
+        view.looks_again = !music_before && self.catalog().looks_for_music()?;
+        if view.looks_again {
+            view.said = format!("{} {LOOKS_FOR_MUSIC}", view.said);
         }
         Ok(view)
     }
@@ -158,17 +182,24 @@ impl Backup {
                 Some(own) => format!("This source is set to {}.", own.words(others_listed)),
                 None => format!("This source follows the backup: {}.", wants.words(others_listed)),
             },
+            looks_again: false,
         })
     }
 
     /// `sources.wants`, set: its own choice, or with `None` the backup's.
     pub fn set_source_wants(&self, source: i64, wants: Option<Wants>, others_listed: bool) -> Result<WantsView> {
+        let before = self.source_wants(source, others_listed)?.wants;
+        let music_before = self.catalog().looks_for_music()?;
         if !self.catalog().set_source_wants(source, wants)? {
             return Err(Error::not_found("That source isn't part of this backup."));
         }
         let mut view = self.source_wants(source, others_listed)?;
-        if !view.wants.is_everything(others_listed) {
+        if !view.wants.takes_all_of(before) {
             view.said = format!("{} {ALREADY_SAFE}", view.said);
+        }
+        view.looks_again = !music_before && self.catalog().looks_for_music()?;
+        if view.looks_again {
+            view.said = format!("{} {LOOKS_FOR_MUSIC}", view.said);
         }
         Ok(view)
     }

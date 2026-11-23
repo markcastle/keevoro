@@ -26,7 +26,7 @@ fn each(v: &Value) -> impl Iterator<Item = &Value> {
 /// "30 photos and 2 videos", with any other files carried along after:
 /// what was found in `v`, said the one way (`keevoro_api::words`).
 fn found_in(v: &Value) -> String {
-    keevoro_api::words::photos_and_videos(n(v, "photos"), n(v, "videos"), n(v, "others"))
+    keevoro_api::words::in_full(n(v, "photos"), n(v, "videos"), n(v, "music"), n(v, "others"))
 }
 
 /// What a tool for `op` gave back, in a few plain words.
@@ -379,7 +379,7 @@ fn last_word(last: Option<&Said>) -> Vec<String> {
         Some(Said::Scan(e)) if e.unplugged.is_some() => e.unplugged.clone().into_iter().collect(),
         Some(Said::Scan(e)) => {
             let n = |n: u64| usize::try_from(n).unwrap_or(usize::MAX);
-            let found = keevoro_api::words::photos_and_videos(n(e.photos), n(e.videos), n(e.others));
+            let found = keevoro_api::words::in_full(n(e.photos), n(e.videos), n(e.music), n(e.others));
             let mut lines = vec![format!("Looked through {}: found {found}.", e.name)];
             if e.unreadable > 0 {
                 lines.push(format!("{} couldn't be read.", count(e.unreadable, "file")));
@@ -402,7 +402,7 @@ fn last_word(last: Option<&Said>) -> Vec<String> {
                 lines.push(format!(
                     "{}: {}{}",
                     hint.folder,
-                    keevoro_api::words::photos_and_videos(hint.photos, hint.videos, hint.others),
+                    keevoro_api::words::in_full(hint.photos, hint.videos, hint.music, hint.others),
                     if hint.already_a_source {
                         " (a source already)"
                     } else if !hint.likely_photos {

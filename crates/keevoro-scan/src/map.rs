@@ -42,9 +42,9 @@ use std::collections::{BinaryHeap, HashMap};
 use std::path::{Path, PathBuf};
 
 /// How many kinds a map tells apart.
-pub const KINDS: usize = 4;
+pub const KINDS: usize = 5;
 
-/// The kinds a map tells apart: the three a person can ask Keevoro to back
+/// The kinds a map tells apart: the four a person can ask Keevoro to back
 /// up, and everything else.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Kind {
@@ -54,12 +54,14 @@ pub enum Kind {
     Other,
     /// Other files a person put on the list, to be carried along.
     Carried,
+    /// Music, found by its ending.
+    Music,
 }
 
 impl Kind {
-    pub const ALL: [Kind; KINDS] = [Kind::Photo, Kind::Video, Kind::Other, Kind::Carried];
-    /// What a backup can take: photos, videos and other files carried.
-    pub const LISTED: [Kind; 3] = [Kind::Photo, Kind::Video, Kind::Carried];
+    pub const ALL: [Kind; KINDS] = [Kind::Photo, Kind::Video, Kind::Other, Kind::Carried, Kind::Music];
+    /// What a backup can take: photos, videos, music and other files carried.
+    pub const LISTED: [Kind; 4] = [Kind::Photo, Kind::Video, Kind::Carried, Kind::Music];
 
     /// The kind of a file that is on Keevoro's list as `media`, or is not.
     pub fn of(media: Option<MediaKind>) -> Kind {
@@ -67,6 +69,7 @@ impl Kind {
             Some(MediaKind::Photo) => Kind::Photo,
             Some(MediaKind::Video) => Kind::Video,
             Some(MediaKind::Other) => Kind::Carried,
+            Some(MediaKind::Music) => Kind::Music,
             None => Kind::Other,
         }
     }
@@ -81,6 +84,7 @@ impl Kind {
             Kind::Photo => Some(MediaKind::Photo),
             Kind::Video => Some(MediaKind::Video),
             Kind::Carried => Some(MediaKind::Other),
+            Kind::Music => Some(MediaKind::Music),
             Kind::Other => None,
         }
     }
@@ -974,6 +978,7 @@ impl Map {
             n.direct[i].less(u.off[i]).less(u.unseen[i])
         };
         let (photos, videos, carried) = (wanted(Kind::Photo), wanted(Kind::Video), wanted(Kind::Carried));
+        let music = wanted(Kind::Music);
         let rest = Kind::Other.index();
         let others = n.direct[rest].files.saturating_sub(u.unseen[rest].files)
             + Kind::LISTED.iter().map(|k| u.off[k.index()].files).sum::<u64>();
@@ -983,7 +988,8 @@ impl Map {
             photos: count(photos.files),
             videos: count(videos.files),
             carried: count(carried.files),
-            bytes: photos.bytes + videos.bytes + carried.bytes,
+            music: count(music.files),
+            bytes: photos.bytes + videos.bytes + carried.bytes + music.bytes,
             others: count(others),
             online_only: n.online_only_media as usize,
         }
@@ -1002,7 +1008,7 @@ impl Map {
                 !n.passed_by() && n.has(flag::LISTED)
             })
             .map(|i| self.tally(i as usize, self.path_of(i)))
-            .filter(|t| t.photos + t.videos + t.carried > 0)
+            .filter(|t| t.photos + t.videos + t.carried + t.music > 0)
             .collect();
         found.sort_by(|a, b| a.folder.cmp(&b.folder));
         found
@@ -1131,7 +1137,7 @@ impl<E> Default for FolderOffer<E> {
     fn default() -> Self {
         FolderOffer {
             bytes: [0; KINDS],
-            why_not: [None, None, None, None],
+            why_not: [None, None, None, None, None],
         }
     }
 }
@@ -1878,7 +1884,7 @@ mod tests {
         );
         let roll = at(&map, "Camera Roll");
         let own = offered.by_folder[&roll];
-        assert_eq!(own.bytes, [7_000_000, 0, 0, 0]);
+        assert_eq!(own.bytes, [7_000_000, 0, 0, 0, 0]);
         assert_eq!(own.why_not[0], Some(("ending", 500)));
         let captures = offered.by_folder[&at(&map, "Captures")];
         assert_eq!(captures.why_not[1], Some(("videos", 92_000_000)));
