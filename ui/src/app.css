@@ -3787,13 +3787,32 @@ fieldset.wants {
   min-width: 0;
 }
 
+/* The words beside a control sit on its centre line, with no margin of
+   their own to push them off it. */
+.inside .arrange .small {
+  margin: 0;
+}
+
 .inside header .online-only {
   margin-top: var(--space-3);
 }
 
+/* The heading has a fixed height the grid counts on (HEADING in tiles.tsx),
+   so nothing in it may stand taller than that or hang below it: its name,
+   counts and button sit on one centre line near its foot, with no margins
+   of their own. */
 .tiles-heading {
-  align-items: baseline;
-  padding-top: var(--space-5);
+  box-sizing: border-box;
+  align-items: center;
+  padding-top: var(--space-4);
+  overflow: hidden;
+}
+
+.tiles-heading > *,
+.tiles-heading .button.small,
+.tiles-heading .small {
+  margin-top: 0;
+  margin-bottom: 0;
 }
 
 .picture.missing span {

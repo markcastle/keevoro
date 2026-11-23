@@ -6,6 +6,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.52.1] - 2026-11-23
+
+### Fixed
+
+- **Look inside is tidy again.** A folder's name, its counts and its Leave out button sat over the first row of pictures; they now stay above it. The choice of All, Photos or Videos there is labelled "Show" and says it only changes what you see.
+
+## [0.52.0] - 2026-11-22
+
 ### Added
 
 - **Keevoro finds far more kinds of photo and video.** It now knows about 140 kinds of file, up from 57. Newly found: Photoshop and GIMP files, film scans (.exr, .dpx, .cin), older computer pictures (.tga, .pcx, .pict, Amiga .ilbm), JPEG 2000 codestreams, more camera raw (Hasselblad .fff, Kodak, Casio, ARRI and others) and more video (.mxf, RED .r3d, Blackmagic .braw, Canon .crm, HDV .m2t, .ogv, RealMedia and others). Kinds Keevoro already found by looking inside are now on the list by name too, so you can see them and switch them off: GIF, .jfif, .mpo, Insta360's .insp, JPEG 2000 and JPEG XR, .qt, GoPro's .lrv, DivX and more. A kind Keevoro cannot open is backed up exactly, dated by the file and its folder, and shown with "No preview"; Keevoro does not spend time trying to read it, so searches and backups are no slower. Nothing you had set changes: if you had added one of these endings yourself, it stays yours, exactly as you set it.
@@ -863,7 +873,9 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.51.3...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.52.1...HEAD
+[0.52.1]: https://github.com/markcastle/keevoro/compare/v0.52.0...v0.52.1
+[0.52.0]: https://github.com/markcastle/keevoro/compare/v0.51.3...v0.52.0
 [0.51.3]: https://github.com/markcastle/keevoro/compare/v0.51.2...v0.51.3
 [0.51.2]: https://github.com/markcastle/keevoro/compare/v0.51.1...v0.51.2
 [0.51.1]: https://github.com/markcastle/keevoro/compare/v0.51.0...v0.51.1

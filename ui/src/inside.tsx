@@ -211,18 +211,23 @@ export function LookInside(props: {
         <LeftOutSaid done={said} />
         {outline.folders.length > 0 && (
           <div className="arrange">
-            <div className="segmented" role="radiogroup" aria-label="Show">
-              {shows.map((show) => (
-                <button
-                  key={show.value}
-                  role="radio"
-                  aria-checked={only === show.value}
-                  onClick={() => choose({ only: show.value })}
-                >
-                  {show.words}
-                </button>
-              ))}
-            </div>
+            <span className="sort">
+              <span className="quiet small" id="inside-show">
+                Show
+              </span>
+              <div className="segmented" role="radiogroup" aria-labelledby="inside-show">
+                {shows.map((show) => (
+                  <button
+                    key={show.value}
+                    role="radio"
+                    aria-checked={only === show.value}
+                    onClick={() => choose({ only: show.value })}
+                  >
+                    {show.words}
+                  </button>
+                ))}
+              </div>
+            </span>
             <label className="sort">
               <span className="quiet small">Sort by</span>
               <select value={sort} onChange={(e) => choose({ sort: e.target.value as FilesSort })}>
@@ -233,6 +238,8 @@ export function LookInside(props: {
                 ))}
               </select>
             </label>
+            {/* Looking is only looking: what is backed up is chosen elsewhere. */}
+            <span className="quiet small only-looking">This only changes what you see here.</span>
           </div>
         )}
         {sort !== 'name' && (
