@@ -1,7 +1,8 @@
-// Detail on demand: the two ways a screen keeps its explanations without
-// showing them all at once.
+// Detail on demand. What a person needs in order to choose, or to
+// understand a screen, is said in view in a few plain words; these hold
+// the fuller detail, one gesture away.
 //
-//   InfoTip    a small "i" beside a label or a button. Resting the pointer
+//   InfoTip    a small "i" at the end of a sentence or label. Resting the pointer
 //              on it, moving the keyboard focus to it, or clicking or
 //              tapping it shows a few sentences in a small box. Escape, or
 //              a click anywhere else, puts it away and leaves the focus on
@@ -9,8 +10,14 @@
 //              button, so a panel that scrolls or clips what is inside it
 //              never cuts it off. Its words can be selected and copied.
 //
-//   MoreAbout  a quiet "More about this" that opens in place, for anything
-//              longer: several sentences, a list, steps.
+//   MoreAbout  a quiet disclosure that opens in place, only for long,
+//              optional reference (steps to follow elsewhere, say) that
+//              would be a wall if shown. Never for a screen's own
+//              explanation, which is shown.
+//
+// An "i" goes at the end of the sentence or label it explains, never
+// between buttons, and is drawn the same wherever it is: no button style
+// around it reaches it (app.css).
 //
 // The "i" is always there to be seen, in the same place on every row, not
 // only when the pointer happens to be over it, so a new user knows there is

@@ -16,7 +16,7 @@
 
 import { createContext, useContext, useId } from 'react'
 import type { ReactNode } from 'react'
-import { InfoTip, MoreAbout } from '../infoTip'
+import { InfoTip } from '../infoTip'
 import { rowInfo } from './places'
 import type { SectionId } from './places'
 
@@ -29,8 +29,6 @@ export function Group(props: {
   /** More about the whole group, behind an "i" beside its heading. */
   tip?: ReactNode
   footnote?: ReactNode
-  /** The longer story, opened in place under the panel. */
-  more?: ReactNode
   /** Something that cannot be undone lives here, set apart. */
   danger?: boolean
   children: ReactNode
@@ -53,7 +51,6 @@ export function Group(props: {
       )}
       <div className={props.danger ? 'kv-panel danger' : 'kv-panel'}>{props.children}</div>
       {props.footnote && <div className="kv-footnote">{props.footnote}</div>}
-      {props.more && <MoreAbout className="kv-more">{props.more}</MoreAbout>}
     </div>
   )
 }
@@ -104,11 +101,6 @@ export function Row(props: {
               {props.about}
             </span>
           )}
-          {props.status !== undefined && (
-            <span className="kv-row-status" role="status">
-              {props.status}
-            </span>
-          )}
         </div>
         {(props.value || props.control) && (
           <div className="kv-row-end">
@@ -117,6 +109,12 @@ export function Row(props: {
           </div>
         )}
       </div>
+      {/* Its own line under the row, so the control stays level with the row's name and sentence. */}
+      {props.status !== undefined && (
+        <p className="kv-row-status" role="status">
+          {props.status}
+        </p>
+      )}
       {props.below && <div className="kv-row-below">{props.below}</div>}
     </div>
   )

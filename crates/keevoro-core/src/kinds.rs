@@ -331,6 +331,156 @@ const BUILT_IN: &[BuiltIn] = &[
     unsure(raw(photo("cap"))),
 ];
 
+/// What a built-in kind is, in a sentence a person reads: whose format it
+/// is, where it is a company's own, or what sort of thing it is where it is
+/// an open or general one, and, for an ending that is often something else,
+/// why it is off. Shown beside the kind wherever it is listed: the app,
+/// `keevoro kinds --about` and an agent's list. Only what is known to be
+/// true is said; where a maker is not certain, none is named. A kind a
+/// person added has none.
+pub fn about(ending: &str) -> Option<&'static str> {
+    Some(match ending {
+        "jpg" => "The most common photo format, made by almost every camera and phone.",
+        "jpeg" => "The same as .jpg, the most common photo format.",
+        "png" => "A common picture format, often used for screenshots and graphics.",
+        "heic" => "The photo format iPhones and many other phones use.",
+        "heif" => "A newer photo format; the .heic photos iPhones take are one kind of it.",
+        "tif" => "A picture format often used by scanners and for printing.",
+        "tiff" => "The same as .tif, a picture format often used by scanners and for printing.",
+        "webp" => "A picture format from Google, used widely on the web.",
+        "bmp" => "An older, uncompressed picture format from Windows.",
+        "avif" => "A newer picture format, used on the web.",
+        "gif" => "An old picture format, often used for small animations.",
+        "dng" => "Adobe's open raw photo format, also made by some cameras and phones.",
+        "cr2" => "Canon's older raw photo format.",
+        "cr3" => "Canon's newer raw photo format.",
+        "nef" => "Nikon's raw photo format.",
+        "arw" => "Sony's raw photo format, from Alpha cameras.",
+        "orf" => "Olympus's raw photo format, also made by OM System cameras.",
+        "rw2" => "Panasonic's raw photo format, from Lumix cameras.",
+        "raf" => "Fujifilm's raw photo format.",
+        "pef" => "Pentax's raw photo format.",
+        "srw" => "Samsung's raw photo format, from its cameras.",
+        "mp4" => "The most common video format, made by most phones and cameras.",
+        "mov" => "Apple's QuickTime video format, made by iPhones and many cameras.",
+        "m4v" => "A video format from Apple, much like .mp4.",
+        "avi" => "An older video format from Windows.",
+        "mkv" => "Matroska, an open video format often used for films.",
+        "wmv" => "Windows Media Video, from Microsoft.",
+        "mpg" => "MPEG video, an older format made by many early cameras.",
+        "mpeg" => "The same as .mpg, an older video format.",
+        "webm" => "An open video format used on the web.",
+        "mts" => "Video from AVCHD camcorders, such as Sony and Panasonic.",
+        "m2ts" => "Video from AVCHD camcorders and Blu-ray discs.",
+        "3gp" => "Video from older mobile phones.",
+        "jpe" => "Another ending for a JPEG photo.",
+        "jfif" => "Another ending for a JPEG photo, often from saving a picture off the web.",
+        "jfi" => "Another ending for a JPEG photo.",
+        "jif" => "Another ending for a JPEG photo.",
+        "jps" => "A 3D photo: two JPEG pictures side by side.",
+        "mpo" => "A 3D photo from cameras with two lenses, such as the Nintendo 3DS.",
+        "insp" => "Photos from Insta360 cameras.",
+        "jxl" => "JPEG XL, a newer photo format.",
+        "jp2" => "JPEG 2000, a photo format used by some archives and scanners.",
+        "jpf" => "JPEG 2000, a photo format used by some archives and scanners.",
+        "jpx" => "JPEG 2000, a photo format used by some archives and scanners.",
+        "jxr" => "JPEG XR, a photo format from Microsoft.",
+        "wdp" => "JPEG XR, a photo format from Microsoft, under its earlier name.",
+        "hdp" => "HD Photo, Microsoft's photo format later called JPEG XR.",
+        "hif" => "A HEIF photo, as some cameras name it.",
+        "dib" => "A Windows bitmap picture, the same as .bmp.",
+        "apng" => "An animated PNG picture.",
+        "ora" => "OpenRaster, an open format from drawing programs such as MyPaint.",
+        "psd" => "An Adobe Photoshop picture.",
+        "psb" => "A large Adobe Photoshop picture.",
+        "xcf" => "A picture from GIMP, the free image editor.",
+        "kra" => "A picture from Krita, the free painting program.",
+        "j2k" => "JPEG 2000 picture data, used in film and archives.",
+        "j2c" => "JPEG 2000 picture data, used in film and archives.",
+        "exr" => "OpenEXR, a picture format used in film and visual effects.",
+        "dpx" => "A picture format for scanned film frames.",
+        "cin" => "Cineon, Kodak's older format for scanned film frames.",
+        "tga" => "Targa, an older picture format used in games and video.",
+        "pcx" => "An old picture format from early PC paint programs.",
+        "pict" => "An old picture format from classic Mac computers.",
+        "pct" => "An old picture format from classic Mac computers.",
+        "ilbm" => "An old picture format from Amiga computers.",
+        "lbm" => "An old picture format from Amiga computers and Deluxe Paint.",
+        "sgi" => "A picture format from Silicon Graphics computers.",
+        "ras" => "Sun Raster, an old picture format from Sun computers.",
+        "ppm" => "A simple picture format (Netpbm), made by some programs and scanners.",
+        "pgm" => "A simple greyscale picture format (Netpbm).",
+        "pbm" => "A simple black and white picture format (Netpbm).",
+        "pnm" => "A simple picture format (Netpbm), made by some programs and scanners.",
+        "mng" => "An animated picture format related to PNG.",
+        "jng" => "A JPEG picture that can be see-through in places, related to PNG.",
+        "qoi" => "QOI, a simple, newer picture format.",
+        "crw" => "Canon's earliest raw photo format.",
+        "nrw" => "Nikon's raw photo format from Coolpix compact cameras.",
+        "srf" => "Sony's raw photo format from some early cameras.",
+        "sr2" => "Sony's raw photo format from some earlier cameras.",
+        "x3f" => "Sigma's raw photo format.",
+        "3fr" => "Hasselblad's raw photo format.",
+        "erf" => "Epson's raw photo format.",
+        "kdc" => "Kodak's raw photo format, from its digital cameras.",
+        "mrw" => "Minolta's raw photo format.",
+        "raw" => "A raw photo, from one of several makes of camera.",
+        "iiq" => "Phase One's raw photo format.",
+        "dcr" => "Kodak's raw photo format, from its professional cameras.",
+        "mef" => "Mamiya's raw photo format.",
+        "mos" => "Leaf's raw photo format, from medium-format camera backs.",
+        "rwl" => "Leica's raw photo format, from some compact cameras.",
+        "gpr" => "GoPro's raw photo format.",
+        "fff" => "Hasselblad's raw photo format, also made by Imacon scanners.",
+        "ari" => "ARRI's raw video frames, from its cinema cameras.",
+        "bay" => "Casio's raw photo format.",
+        "k25" => "Kodak's raw photo format from an early digital camera.",
+        "mdc" => "Minolta's raw photo format from an early digital camera.",
+        "ptx" => "Pentax's older raw photo format.",
+        "eip" => "A Phase One raw photo packed with its settings, from Capture One.",
+        "qt" => "QuickTime video from Apple, the same as .mov.",
+        "insv" => "Video from Insta360 cameras.",
+        "lrv" => "A small, low-quality copy of a video, made by GoPro and some other cameras.",
+        "asf" => "A Windows Media video format from Microsoft.",
+        "flv" => "Flash video, an older format from web video players.",
+        "f4v" => "Flash video, an older format from web video players.",
+        "divx" => "Video made with DivX, popular for films in the 2000s.",
+        "mk3d" => "A 3D video in the Matroska format.",
+        "mpe" => "Another ending for an MPEG video.",
+        "m2v" => "MPEG-2 video, as on DVDs.",
+        "mp2v" => "MPEG-2 video, as on DVDs.",
+        "vro" => "Video from DVD recorders and some DVD camcorders.",
+        "3g2" => "Video from older mobile phones.",
+        "mod" => "Video from some older camcorders, such as JVC Everio.",
+        "tod" => "Video from JVC Everio high-definition camcorders.",
+        "vob" => "Video from a DVD.",
+        "dv" => "DV video, from MiniDV tape camcorders.",
+        "m2t" => "HDV video, from tape camcorders, and some TV recordings.",
+        "dif" => "DV video, from MiniDV tape camcorders.",
+        "mxf" => "A video format used by professional cameras and broadcasters.",
+        "r3d" => "RED's raw video, from RED cinema cameras.",
+        "braw" => "Blackmagic's raw video.",
+        "crm" => "Canon's raw video, from Cinema EOS cameras.",
+        "ogv" => "Ogg video, an open format.",
+        "ogm" => "Ogg video, an older open format often used for films.",
+        "rm" => "RealMedia video, from RealPlayer.",
+        "rmvb" => "RealMedia video, from RealPlayer.",
+        "wtv" => "TV recorded by Windows Media Center.",
+        "nut" => "NUT, an open video format from the FFmpeg project.",
+        "y4m" => "Uncompressed video, made by video programs.",
+        "ts" => "Video from TV recordings and some cameras, but also program code, so off.",
+        "dat" => "Video from old Video CDs, but often any other data, so off.",
+        "bin" => "Sometimes a disc image with video, but usually other data, so off.",
+        "seq" => "Sometimes a sequence of video frames, but often something else, so off.",
+        "001" => "Sometimes the first piece of a video split in parts, but often something else, so off.",
+        "img" => "Sometimes a picture, but often a disc image, so off.",
+        "pic" => "Sometimes a picture, but used by many programs for other things, so off.",
+        "iff" => "Sometimes an Amiga picture, but often other data, so off.",
+        "cap" => "Sometimes a Phase One raw photo, but often something else, so off.",
+        _ => return None,
+    })
+}
+
 /// The built-in endings before the list was widened (Keevoro 0.51 and
 /// earlier). A choice kept about one of these is always a change to a
 /// built-in kind; a choice kept about any other ending, without the mark
@@ -453,6 +603,9 @@ pub struct FileKind {
     /// would undo.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub came_as: Option<MediaKind>,
+    /// For a built-in kind, what it is, in a sentence ([`about`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub about: Option<&'static str>,
 }
 
 impl FileKind {
@@ -563,6 +716,7 @@ impl FileKinds {
                     usual: b.usual,
                     unsure: b.unsure,
                     came_as: Some(b.kind),
+                    about: about(b.ending),
                 })
             })
             .collect();
@@ -574,6 +728,7 @@ impl FileKinds {
             usual: true,
             unsure: false,
             came_as: None,
+            about: None,
         });
         built.into_iter().chain(added).collect()
     }
@@ -622,6 +777,7 @@ impl FileKinds {
             usual: true,
             unsure: false,
             came_as: None,
+            about: None,
         })
     }
 
@@ -927,6 +1083,7 @@ mod tests {
                 usual: true,
                 unsure: false,
                 came_as: None,
+                about: None,
             }
         );
         assert_eq!(kinds.list().last(), Some(&added), "added at the end");
@@ -1420,6 +1577,30 @@ mod tests {
         );
     }
 
+    /// Every built-in kind says what it is, in one short sentence a person
+    /// reads in a small box: not empty, not long, and finished with a full
+    /// stop. An ending a person adds has nothing said for it.
+    #[test]
+    fn every_built_in_kind_says_what_it_is_in_a_short_sentence() {
+        for b in BUILT_IN {
+            let said = about(b.ending).unwrap_or_default();
+            assert!(!said.trim().is_empty(), ".{} says nothing about what it is", b.ending);
+            assert!(said.chars().count() <= 120, ".{} says too much: {said}", b.ending);
+            assert!(
+                said.ends_with('.'),
+                ".{} does not end with a full stop: {said}",
+                b.ending
+            );
+            assert!(!said.contains('\u{2014}'), ".{} has a long dash: {said}", b.ending);
+        }
+        let listed = FileKinds::default().list();
+        assert!(listed.iter().all(|k| k.about == about(&k.ending) && k.about.is_some()));
+        let mut kinds = FileKinds::default();
+        let added = kinds.add("xyz", MediaKind::Photo).unwrap();
+        assert_eq!(added.about, None, "a kind of your own has nothing said for it");
+        assert_eq!(about("xyz"), None);
+    }
+
     /// The app's try-out backend (`ui/src/demo.ts`) lists the same kinds,
     /// from `ui/src/builtInKinds.json`. Run with `KEEVORO_WRITE_KINDS=1` to
     /// write it afresh after changing the list.
@@ -1429,7 +1610,7 @@ mod tests {
         let lines: Vec<String> = BUILT_IN
             .iter()
             .map(|b| {
-                serde_json::json!({ "ending": b.ending, "kind": b.kind, "usual": b.usual, "unsure": b.unsure })
+                serde_json::json!({ "ending": b.ending, "kind": b.kind, "usual": b.usual, "unsure": b.unsure, "about": about(b.ending) })
                     .to_string()
             })
             .collect();

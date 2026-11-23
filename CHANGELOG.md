@@ -6,7 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **Each kind of file says what it is.** In Settings, Advanced, Kinds of file, and in a source's File types, an "i" beside each built-in kind says what it is and, where it is a company's own, whose: ".arw: Sony's raw photo format, from Alpha cameras." Searching that page finds these words too, so "Sony", "Canon" or "iPhone" finds their kinds. At the command line, `keevoro kinds --about` shows the same words.
+- **Settings and Help keep the foot of the side band too.** "What Keevoro is doing", Settings and Help are now at the bottom of the side on every screen, with no exceptions, and across the top in a narrow window.
+- **Explanations are back in view, a few words each.** Each screen says what it is for in a sentence or two under its heading again, instead of behind "More about this". Choices say what tells them apart: asked before looking through a whole disk, the three ways on are rows that each say what they do and how long they take, the quick one marked Recommended. The backup screen says what "Check they all arrived" does, the schedule what Skip and Pause each do, and so on. There are fewer small "i"s, kept for detail you might want, and one never looks like a button any more.
+- **A source's own choices say what they do.** Under File types beside a source, "Back up from Desktop" is followed by plain Photos, Videos and Other files switches, set as the rest of the backup is; switch one and that source is different. "Arrange files from Desktop" offers By date or Keep its folders the same way. A quiet "Different from the rest of this backup. Use the usual" appears only when it differs, and setting it back to match means it goes with the rest of the backup again. Switching off the last one says plainly that nothing would be backed up from it.
+- **Kinds of file lines up.** The search box, "Show less common kinds" and the count above the list share one line, the count against the list's edge, and each switch in the list sits level with its ending.
+- **Settings rows line up.** A button beside a setting that says something once done, such as "Forget them", sat lower than the setting's name; it is level with it now.
 
 ## [0.52.1] - 2026-11-23
 

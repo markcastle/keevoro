@@ -1168,8 +1168,9 @@ pub fn reset(io: &mut Io<'_>, _: &ArgMatches, done: &Value) -> Said_ {
     Ok(Code::Worked)
 }
 
-/// One line of the list of kinds, as `keevoro kinds` shows it.
-fn kind_line(kind: &Value) -> String {
+/// One line of the list of kinds, as `keevoro kinds` shows it; with
+/// `about`, what a built-in kind is goes on the line under it.
+fn kind_line(kind: &Value, about: bool) -> String {
     let line = format!(
         ".{:<10} {:<6} {:<9} {}",
         s(kind, "ending"),
@@ -1177,10 +1178,14 @@ fn kind_line(kind: &Value) -> String {
         if yes(kind, "builtIn") { "built in" } else { "yours" },
         if yes(kind, "on") { "on" } else { "off" }
     );
-    if yes(kind, "unsure") {
+    let line = if yes(kind, "unsure") {
         format!("{line}  (often not a photo or video)")
     } else {
         line
+    };
+    match kind.get("about").and_then(Value::as_str) {
+        Some(said) if about => format!("{line}\n            {said}"),
+        _ => line,
     }
 }
 
@@ -1189,10 +1194,11 @@ fn kind_line(kind: &Value) -> String {
 /// there are is said.
 pub fn kinds(io: &mut Io<'_>, m: &ArgMatches, list: &Value) -> Said_ {
     let all = matches!(m.try_get_one::<bool>("all"), Ok(Some(true)));
+    let about = matches!(m.try_get_one::<bool>("about"), Ok(Some(true)));
     writeln!(io.out, "{:<11} {:<6} {:<9} looked for", "ending", "kind", "from")?;
     let (shown, hidden): (Vec<&Value>, Vec<&Value>) = each(list).partition(|k| all || yes(k, "usual"));
     for kind in shown {
-        writeln!(io.out, "{}", kind_line(kind))?;
+        writeln!(io.out, "{}", kind_line(kind, about))?;
     }
     if !hidden.is_empty() {
         let off = hidden.iter().filter(|k| !yes(k, "on")).count();

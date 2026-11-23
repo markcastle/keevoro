@@ -965,6 +965,15 @@ fn the_kinds_of_file_looked_for_are_listed_added_switched_and_put_back() {
         ran.out
     );
     assert!(!ran.out.contains("keevoro kinds --all lists them"), "{}", ran.out);
+    // --about says what each is, in the same words as the app.
+    let ran = at.keevoro(&["kinds", "--all", "--about"]);
+    assert!(
+        ran.out
+            .contains(".arw        photo  built in  on\n            Sony's raw photo format, from Alpha cameras."),
+        "{}",
+        ran.out
+    );
+    assert!(ran.out.contains("            Blackmagic's raw video.\n"), "{}", ran.out);
 
     let ran = at.keevoro(&["kinds", "add", ".HEIX", "--photo"]);
     assert_eq!(

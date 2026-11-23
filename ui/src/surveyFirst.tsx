@@ -12,7 +12,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Backend, SurveyProgress } from './backend'
 import { count, files } from './format'
-import { InfoTip } from './infoTip'
 import { LiveMap } from './liveMap'
 
 export type Surveying = { progress: SurveyProgress | null; stopping: boolean }
@@ -93,19 +92,14 @@ export function SurveyingPanel(props: { name: string; surveying: Surveying; onSt
         {progress ? files(progress.photos, progress.videos, progress.others ?? 0) : 'Starting…'}
       </p>
       <p className="quiet">
-        spotted so far, by name.
-        <InfoTip about="finding what is here">
-          This only reads the list of what is in each folder. No file is opened, and nothing is added or changed.
-        </InfoTip>
+        spotted so far, by name. Only the list of what is in each folder is read; no file is opened, and nothing is
+        changed.
       </p>
       <LiveMap name={props.name} top={progress?.top} />
       {progress?.sizing && (
         <p className="quiet">
-          Every photo and video is found. Now measuring the rest.
-          <InfoTip about="measuring the rest">
-            Now measuring the folders Keevoro never looks through, such as system and app folders, so you can see what
-            takes the room.
-          </InfoTip>
+          Every photo and video is found. Now measuring the rest, such as system and app folders, so you can see what
+          takes the room.
         </p>
       )}
       {progress && (

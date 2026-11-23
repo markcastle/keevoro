@@ -1,8 +1,7 @@
-// What a backup said when it ended, split into what is shown at once and
-// what waits under "More about this backup". Anything about what went
-// wrong, or what is safely where, is always shown; only the routine
-// figures (previews added, how long it took and how fast) wait to be
-// asked for. Kept apart from the screen so it can be checked without one.
+// What a backup said when it ended, split into the lines that are news and
+// the routine figures (previews added, how long it took and how fast),
+// which are said after them in quieter, smaller type. Anything about what
+// went wrong, or what is safely where, is always among the news. Kept apart from the screen so it can be checked without one.
 
 /** Lines that are routine figures, never news a person must see. */
 const ROUTINE = [/^Previews added: /, /^That took about /]

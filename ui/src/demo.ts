@@ -605,6 +605,7 @@ export function demoBackend(): Backend {
       usual: k.usual,
       unsure: k.unsure,
       cameAs: k.kind as ListedAs,
+      about: k.about,
     }))
   const ownKind = (ending: string, kind: ListedAs): FileKind => ({ ending, kind, on: true, builtIn: false, usual: true, unsure: false })
   let lookedFor: FileKind[] = [...builtInKinds(), ownKind('xyz', 'photo')]
@@ -1970,7 +1971,9 @@ export function demoBackend(): Backend {
           const level = own ? 'source' : 'backup'
           return { ...k, leftOutBy: level, why: `this ${level} is ${level === 'backup' ? 'for' : 'set to'} ${words(wants)}` }
         }
-        return k.included ? { ...k } : { ...k, leftOutBy: 'ending' as const, why: 'files with this ending are left out of this source' }
+        const about = builtInKindList.find((b) => b.ending === k.ending)?.about
+        const said = about ? { ...k, about } : { ...k }
+        return k.included ? said : { ...said, leftOutBy: 'ending' as const, why: 'files with this ending are left out of this source' }
       }),
     leaveOutFolder: async (folder, leftOut) => {
       const at = folder.replace(/\\+$/, '')

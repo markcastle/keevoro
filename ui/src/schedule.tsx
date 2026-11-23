@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { Backend, ScheduleAttempt, ScheduleView, SetSchedule } from './backend'
 import { Explained } from './explained'
-import { InfoTip, MoreAbout } from './infoTip'
+import { InfoTip } from './infoTip'
 
 /** The times offered: every quarter of an hour, as a person reads them. */
 export const TIMES = Array.from({ length: 96 }, (_, i) => `${String(Math.floor(i / 4)).padStart(2, '0')}:${String((i % 4) * 15).padStart(2, '0')}`)
@@ -138,6 +138,9 @@ export function ScheduleCard(props: {
               </span>
             </p>
           )}
+          {view.next && !view.paused && !view.skipping && (
+            <p className="quiet small schedule-said">Skip misses only the next run. Pause stops them all until you carry on.</p>
+          )}
         </>
       ) : (
         <p className="schedule-line">
@@ -170,10 +173,7 @@ export function ScheduleCard(props: {
       {view.every && (
         <p className="schedule-line run-now">
           <span className="quiet small">
-            Backs up anything new, as the schedule does.
-            <InfoTip about="running the schedule now">
-              Run now looks through your sources again and backs up what is new, as the schedule does.
-            </InfoTip>
+            Run now looks through your sources and backs up anything new, as the schedule does.
           </span>
           <span className="actions">
             <button
@@ -260,18 +260,14 @@ export function ScheduleDialog(props: {
       {every === 'month' && day > 28 && (
         <p className="quiet small">In a shorter month it runs on the last day.</p>
       )}
-      <p>Each time, Keevoro backs up anything new from your sources.</p>
-      <MoreAbout>
-        <p>
-          Each time, Keevoro looks through your sources for anything new and backs that up. Pictures it sets aside, and
-          anything else that needs your say, wait for you. It waits while this computer is on battery or busy, and never
-          runs two at once.
-        </p>
-        <p>
-          It runs while Keevoro is open, in this computer’s own time. If the computer is off or asleep when a run is due,
-          it catches up once when Keevoro next opens. Saving does not start a backup.
-        </p>
-      </MoreAbout>
+      <p>
+        Each time, Keevoro backs up anything new from your sources. It runs while Keevoro is open, and catches up once if
+        the computer was off.
+        <InfoTip about="backing up by itself">
+          Pictures it sets aside, and anything else that needs your say, wait for you. It waits while this computer is on
+          battery or busy, never runs two at once, and keeps this computer’s own time. Saving does not start a backup.
+        </InfoTip>
+      </p>
       <p className="choices">
         <button onClick={props.onCancel}>Cancel</button>
         <button className="primary" onClick={save}>

@@ -144,7 +144,7 @@ export function OtherFilesScreen(props: {
           {files
             ? `Keeping ${thousands(keeping)} of ${thousands(files.length)}. Click one for its details.`
             : folder.summary}
-          {files && <InfoTip about="other files">Other files are backed up exactly as they are.</InfoTip>}
+          {files && ' They are backed up exactly as they are.'}
         </p>
         {files && files.length > 0 && (
           <p className="choices within">

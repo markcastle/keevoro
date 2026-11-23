@@ -89,7 +89,8 @@ import { GoogleClassNote, StorageFields } from './storageForm'
 import { CompareSheet, CompareStorage } from './compare'
 import { AddBucketSource, CloudCost, CloudSourceIcon } from './bucketSource'
 import { Explained } from './explained'
-import { InfoTip, MoreAbout } from './infoTip'
+import { WholeDiskAsked } from './wholeDisk'
+import { InfoTip } from './infoTip'
 import { splitSummary } from './summaryLines'
 import { PlaceScreen } from './settings/shell'
 import { parsePlace, placeOfRow } from './settings/places'
@@ -486,6 +487,63 @@ export function App() {
     if (going.step === 'send' && going.adding) setSendAsk({ adding: true })
   }
 
+  // The foot of the side band, the same on every screen, Settings and
+  // Help included: what Keevoro is
+  // doing, with its line, then Settings, then Help.
+  const foot = (
+    <div className="foot">
+      {check && !paused && (
+        <CheckLine api={api} check={check} pausedAlone={checkAlone} onPausedAlone={setCheckAlone} brief onProblem={report} />
+      )}
+      {!check && checkWaits.length > 0 && (
+        <span className="quiet small" role="status">
+          {checkWaits.join(' ')}
+        </span>
+      )}
+      {!check && checkLeft && (
+        <CheckStopped api={api} left={checkLeft} brief onStarted={() => setCheckLeft(null)} onProblem={report} />
+      )}
+      {paused && (
+        <span className="paused" role="status">
+          Keevoro is paused{pausedUntil ? ` until ${pausedUntil}` : ''}.{' '}
+          <button
+            className="button small"
+            onClick={() =>
+              api
+                .pauseWork(false)
+                .then(() => setPaused(false))
+                .catch(report)
+            }
+          >
+            Carry on
+          </button>
+        </span>
+      )}
+      <button className="link doing" onClick={() => show('activity')}>
+        What Keevoro is doing
+        {doing && !paused && (
+          <span className="quiet small" role="status">
+            <Spinner /> {doing}
+          </span>
+        )}
+      </button>
+      <button className="link" onClick={() => openSettings()}>
+        Settings
+      </button>
+      <button
+        className="link"
+        onClick={() => {
+          // A report written from Help says which screen the person was on.
+          const from = screenName()
+          openPlace('help')
+          setReportFrom(from)
+        }}
+      >
+        Help
+      </button>
+    </div>
+  )
+
   if (overlay === 'settings' || overlay === 'help') {
     return (
       <div className="app settings-open">
@@ -536,67 +594,12 @@ export function App() {
           onBack={() => setOverlay(null)}
           onProblem={report}
           banner={banner}
+          foot={foot}
           reportFrom={reportFrom}
         />
       </div>
     )
   }
-
-  // The foot of the side band, the same on every screen: what Keevoro is
-  // doing, with its line, then Settings, then Help.
-  const foot = (
-    <div className="foot">
-      {check && !paused && (
-        <CheckLine api={api} check={check} pausedAlone={checkAlone} onPausedAlone={setCheckAlone} onProblem={report} />
-      )}
-      {!check && checkWaits.length > 0 && (
-        <span className="quiet small" role="status">
-          {checkWaits.join(' ')}
-        </span>
-      )}
-      {!check && checkLeft && (
-        <CheckStopped api={api} left={checkLeft} brief onStarted={() => setCheckLeft(null)} onProblem={report} />
-      )}
-      {paused && (
-        <span className="paused" role="status">
-          Keevoro is paused{pausedUntil ? ` until ${pausedUntil}` : ''}.{' '}
-          <button
-            className="button small"
-            onClick={() =>
-              api
-                .pauseWork(false)
-                .then(() => setPaused(false))
-                .catch(report)
-            }
-          >
-            Carry on
-          </button>
-        </span>
-      )}
-      <button className="link doing" onClick={() => show('activity')}>
-        What Keevoro is doing
-        {doing && !paused && (
-          <span className="quiet small" role="status">
-            <Spinner /> {doing}
-          </span>
-        )}
-      </button>
-      <button className="link" onClick={() => openSettings()}>
-        Settings
-      </button>
-      <button
-        className="link"
-        onClick={() => {
-          // A report written from Help says which screen the person was on.
-          const from = screenName()
-          openPlace('help')
-          setReportFrom(from)
-        }}
-      >
-        Help
-      </button>
-    </div>
-  )
 
   const activity = (
     <ActivityScreen
@@ -926,14 +929,10 @@ function Welcome(props: { onStart: (name: string) => void; onAlready: () => void
     >
       <Logo large />
       <h1>Let’s find your photos</h1>
-      <p>Keevoro finds your photos and videos, and keeps them safe.</p>
-      <MoreAbout className="screen-about">
-        <p>
-          Keevoro looks through drives, memory cards and folders, finds your photos and videos, and sends the ones you
-          want somewhere safe: a folder, another disk, or cloud storage. It never changes or deletes anything it looks
-          at.
-        </p>
-      </MoreAbout>
+      <p>
+        Keevoro finds the photos and videos on your drives, cards and folders, and keeps a copy somewhere safe. It never
+        changes anything it looks at.
+      </p>
       <div className="naming">
         <span className="with-tip">
           <label htmlFor="welcome-name">What shall we call this backup?</label>
@@ -1309,11 +1308,8 @@ function FindScreen(props: {
       <header>
         <h1>Where are your photos?</h1>
         <p className="status">
-          Plug in a drive, USB stick or memory card, then choose it.
-          <InfoTip about="sources">
-            A source is anywhere your photos might be: a drive, a USB stick, a memory card or a folder. Keevoro only
-            ever reads it.
-          </InfoTip>
+          A source is anywhere your photos might be: a drive, USB stick, memory card or folder. Keevoro only ever reads
+          it.
         </p>
       </header>
 
@@ -1322,10 +1318,7 @@ function FindScreen(props: {
           <Spinner />
           <h2>Looking through {scan.name}…</h2>
           <p className="big-count">{files(scan.photos, scan.videos, scan.others ?? 0)}</p>
-          <p className="quiet">
-            found so far.
-            <InfoTip about="looking through">Nothing on it is being changed. You can leave this running.</InfoTip>
-          </p>
+          <p className="quiet">found so far. Nothing on it is changed, and you can leave this running.</p>
           {!scan.saving && (
             <p className="choices stop">
               {queue.length > 0 && (
@@ -1370,20 +1363,12 @@ function FindScreen(props: {
           <p className="big-count">
             {survey.progress ? files(survey.progress.photos, survey.progress.videos, survey.progress.others ?? 0) : 'Starting…'}
           </p>
-          <p className="quiet">
-            spotted so far, by name.
-            <InfoTip about="finding where the photos are">
-              This only reads the list of what is in each folder. No file is opened.
-            </InfoTip>
-          </p>
+          <p className="quiet">spotted so far, by name. Only the list of what is in each folder is read; no file is opened.</p>
           <LiveMap name={survey.name} top={survey.progress?.top} />
           {survey.progress?.sizing && (
             <p className="quiet">
               Every folder with {(survey.progress.others ?? 0) > 0 ? 'photos, videos and other files' : 'photos and videos'} is
-              found. Now measuring the rest.
-              <InfoTip about="measuring the rest">
-                Such as system and app folders, so you can see where the space goes.
-              </InfoTip>
+              found. Now measuring the rest, such as system and app folders, so you can see where the space goes.
             </p>
           )}
           <p className="choices stop">
@@ -1421,33 +1406,14 @@ function FindScreen(props: {
           onCancel={() => setSurvey(null)}
         />
       ) : asking ? (
-        <div className="panel asking" role="alertdialog" aria-labelledby="asking-title">
-          <h2 id="asking-title">Look through all of {asking.name}?</h2>
-          <p>
-            A whole disk{asking.detail ? ` (${asking.detail.split(' · ').pop()})` : ''} takes a few minutes to an hour or
-            more.
-            <InfoTip about="looking through a whole disk">
-              Most of what is on it will not be photos. You can leave it running, and nothing on it is changed.
-            </InfoTip>
-          </p>
-          <p className="choices whole-disk">
-            <span className="with-tip">
-              <button className="primary" onClick={() => findFolders(asking)}>
-                Find the folders with photos
-              </button>
-              <InfoTip about="finding the folders with photos">
-                Not sure where your photos are? This finds the folders that hold them first. It takes seconds, not
-                hours, because it only reads the list of what is in each folder and opens nothing.
-              </InfoTip>
-            </span>
-            <button onClick={pick}>Choose a folder inside it</button>
-            <button onClick={() => start(asking.path)}>Look through all of it</button>
-            {/* Quiet, so it sits on the same row as the choices. */}
-            <button className="link cancel" onClick={() => setAsking(null)}>
-              Cancel
-            </button>
-          </p>
-        </div>
+        <WholeDiskAsked
+          name={asking.name}
+          size={asking.detail?.split(' · ').pop()}
+          onFindFolders={() => findFolders(asking)}
+          onChooseFolder={pick}
+          onLookThroughAll={() => start(asking.path)}
+          onCancel={() => setAsking(null)}
+        />
       ) : (
         <>
           {justFound && (
@@ -1548,47 +1514,40 @@ function FindScreen(props: {
             className="drives-said"
             action={
               <button className="button small" onClick={() => look(true)} aria-label="Refresh the list of drives">
-                Refresh
+                Refresh the list
               </button>
             }
           >
             {places && removable.length === 0
-              ? 'No USB or external drive is plugged in. One appears here when plugged in.'
-              : 'A drive or card appears here when you plug it in.'}
+              ? 'No USB or external drive is plugged in. One appears here by itself when plugged in.'
+              : 'A drive or card appears here by itself when you plug it in.'}
           </Explained>
           <p className="quiet small look-first">
             Not sure what is in a folder?{' '}
             <button className="link" onClick={pickToLookInside}>
               Look inside one first
             </button>
-            <InfoTip about="looking inside a folder first">
-              You see its photos and videos, and nothing is added until you choose.
-            </InfoTip>
+            . Nothing is added until you choose.
           </p>
         </>
       )}
 
       {found && found.sources.length > 0 && (
         <>
-          <h3 className="with-tip">
-            Your sources
-            <InfoTip about="your sources">
-              A source is anywhere your photos might be. Removing a source only takes it off this list. Keevoro never
-              changes or deletes anything in a source.
-            </InfoTip>
-          </h3>
+          <h3>Your sources</h3>
+          <p className="quiet small sources-said">
+            Keevoro never changes anything in these. Removing one only takes it off this list.
+          </p>
           {!scan && !survey && (
             <Explained
               className="again"
-              tipAbout="looking again"
-              tip="This finds what is new, and the next backup sends only that."
               action={
                 <button className="button small" onClick={lookAgain}>
                   {found.sources.length === 1 ? 'Look again for new photos' : `Look through all ${found.sources.length} again for new photos`}
                 </button>
               }
             >
-              Taken more photos since last time?
+              Taken more photos since last time? This finds just what is new.
             </Explained>
           )}
           <ul className="kept">
@@ -1779,6 +1738,7 @@ function FileTypes(props: {
       <SourceWants
         name={source.name}
         load={() => api.sourceWants(source.id)}
+        loadBackup={() => api.backupWants()}
         choose={(wants) => api.setSourceWants(source.id, wants)}
         onChanged={() => {
           void reload()
@@ -1787,17 +1747,16 @@ function FileTypes(props: {
         onProblem={onProblem}
       />
       <p className="quiet small">
-        Switch a kind off to leave it out of this backup.
-        <InfoTip about="kinds of file on this source">
-          Everything Keevoro found on {source.name} is included until you switch it off. Nothing on the source is
-          changed, and you can switch it back on at any time.
-        </InfoTip>
+        Switch a type off to leave it out of this backup. You can switch it back on at any time.
       </p>
       <ul className="kv-panel kinds" aria-label={`Kinds of file on ${source.name}`}>
         {kinds.map((kind) => (
           <li key={kind.ending}>
             <span className="kind-text">
-              <b>{kind.ending ? kind.ending.toUpperCase() : 'No ending'}</b>
+              <b>
+                {kind.ending ? kind.ending.toUpperCase() : 'No ending'}
+                {kind.about && <InfoTip about={`.${kind.ending}`}>{kind.about}</InfoTip>}
+              </b>
               <span className="quiet">
                 {count(kind.files, 'file')} · {size(kind.bytes)}
                 {kind.why ? ` · left out: ${kind.why}` : !kind.included && ' · left out'}
@@ -2124,11 +2083,8 @@ function ChooseScreen(props: {
       <header>
         <h1>Which of these should we keep?</h1>
         <p className="status">
-          Everything is kept unless you say otherwise. Click one to look inside.
-          <InfoTip about="collections">
-            Keevoro has sorted what it found into collections: by folder name where your folders have names, and by
-            month where they don’t. So one source often makes several. Look inside one to choose photo by photo.
-          </InfoTip>
+          Keevoro has sorted what it found into collections, by folder name or by month. Everything is kept unless you
+          say otherwise; click one to choose photo by photo.
           {keptSaid(kept) && ` ${keptSaid(kept)}`}
         </p>
       </header>
@@ -2267,12 +2223,10 @@ function SendScreen(props: {
     <section className="archive">
       <header>
         <h1>Where should they go?</h1>
-        <MoreAbout className="screen-about">
-          <p>
-            Keevoro copies what you are keeping straight from your sources to the place you choose, checks every copy,
-            and never replaces a file that is already there. Your sources are not changed.
-          </p>
-        </MoreAbout>
+        <p className="status">
+          Keevoro copies what you keep straight from your sources, checks every copy, and never replaces a file already
+          there. Your sources are not changed.
+        </p>
       </header>
       <AwayPanel api={props.api} onProblem={props.onProblem} />
       {props.found && <Tally found={props.found} onDuplicates={props.onDuplicates} />}
@@ -2600,11 +2554,8 @@ function SendPanel(props: {
             <div className="adding">
               <h2 tabIndex={-1}>Add another destination</h2>
               <p className="quiet">
-                Keevoro will back up to this one as well as {where}.
-                <InfoTip about="another destination">
-                  It starts empty and catches up on the next backup. A photo only counts as safe once it is at every
-                  destination.
-                </InfoTip>
+                Keevoro will back up to this one as well as {where}, catching up on the next backup. A photo counts as
+                safe once it is at every destination.
               </p>
               <p>
                 <button
@@ -2691,11 +2642,7 @@ function SendPanel(props: {
                 <StorageFields form={{ ...form, kind: form.kind }} onChange={(answers) => setForm({ ...form, ...answers })} />
               )}
               <p className="quiet">
-                Use a key for this one bucket only.
-                <InfoTip about="the key">
-                  A key that can read and write this one bucket only. It is kept in your computer’s keychain, not in
-                  your library.
-                </InfoTip>
+                Use a key that can read and write this one bucket only. It is kept in your computer’s keychain.
               </p>
               <GoogleClassNote kind={form.kind} />
               {refused && (
@@ -2858,12 +2805,7 @@ function SendPanel(props: {
           ) : (
             <>
             <p className="quiet small previews-line">
-              {previews ? 'With previews for a gallery.' : 'Originals only, with no previews.'}
-              <InfoTip about="previews for a gallery">
-                {previews
-                  ? 'Previews for a gallery are made as well, in the background.'
-                  : 'Only your original files are backed up, with no previews.'}
-              </InfoTip>{' '}
+              {previews ? 'With previews for a gallery, made in the background.' : 'Originals only, with no previews.'}{' '}
               <button className="link" onClick={() => props.onSettings('previews')}>
                 Change
               </button>
@@ -2892,6 +2834,10 @@ function SendPanel(props: {
               {/* The rest are wanted now and then, so they wait behind More. */}
               <MoreMenu choices={rarerChoices} />
             </div>
+            {/* What tells the two most used apart, in view: one sends, the other only looks. */}
+            <p className="quiet small actions-said">
+              Check they all arrived sends nothing: it looks for every file where it was sent.
+            </p>
             {clearing && destinations[0]?.folder && (
               <ClearUnfinished
                 api={api}
@@ -2912,11 +2858,7 @@ function SendPanel(props: {
               </p>
             ))}
           {!running && splitSummary(said?.summary ?? []).more.length > 0 && (
-            <MoreAbout className="done-more" label="More about this backup">
-              {splitSummary(said?.summary ?? []).more.map((line) => (
-                <p key={line}>{line}</p>
-              ))}
-            </MoreAbout>
+            <p className="quiet small done-more">{splitSummary(said?.summary ?? []).more.join(' ')}</p>
           )}
           {!running && said?.problem && (
             <p className="refused" role="alert">
@@ -3498,7 +3440,7 @@ function SurveyResult(props: {
       </h2>
       <p className="quiet">
         {found.stopped && 'Stopped before the end, so there may be more. '}Tick the folders you want, and Keevoro will
-        look through those properly.
+        look through those properly. Leave out keeps a folder out of this backup, now and later.
         <InfoTip about="how these were found">
           Looked at {count(found.files, 'file')} in {count(found.folders, 'folder')} in{' '}
           {found.seconds < 10 ? found.seconds.toFixed(1) : Math.round(found.seconds)} seconds, without opening any of

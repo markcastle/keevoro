@@ -11,7 +11,7 @@
 import { useEffect, useState } from 'react'
 import type { Wants, WantsView } from './backend'
 import { Toggle } from './toggle'
-import { shownWords, toggled } from './wantsRule'
+import { sameWants, shownWords, sourceWantsChoice, toggled } from './wantsRule'
 
 /**
  * The switches themselves, a row each, as Settings lays out its rows: the
@@ -23,6 +23,8 @@ function Ticks(props: {
   view: WantsView
   disabled?: boolean
   choose: (wants: Wants) => void
+  /** Heard when the last one on is pressed, which stays on. */
+  onRefused?: () => void
 }) {
   const offers = !!props.view.offersOthers
   return (
@@ -39,6 +41,7 @@ function Ticks(props: {
             label={label}
             // The last one on stays on: a backup is always for something.
             locked={next === null}
+            onLocked={props.onRefused}
             onChange={() => next && props.choose(next)}
           />
         )
@@ -87,48 +90,69 @@ export function BackupWants(props: {
   )
 }
 
-/** What one source is for: the same as its backup, or a choice of its own. */
+/**
+ * What one source is for, said as a person would: "Back up from Desktop",
+ * then Photos, Videos and Other files. The switches start as the rest of
+ * the backup is, and flipping one is all it takes for this source to
+ * differ; set back to match, it goes with the rest of the backup again
+ * (wantsRule.ts), so a later change to the whole backup still reaches it.
+ * A quiet line says when it differs, with the way back.
+ */
 export function SourceWants(props: {
   name: string
   load: () => Promise<WantsView>
+  /** What the rest of the backup is for. */
+  loadBackup: () => Promise<WantsView>
   choose: (wants: Wants | 'backup') => Promise<WantsView>
   onChanged?: () => void
   onProblem: (error: unknown) => void
 }) {
-  const { load, onProblem } = props
+  const { load, loadBackup, onProblem } = props
   const [view, setView] = useState<WantsView | null>(null)
+  const [backup, setBackup] = useState<Wants | null>(null)
   const [said, setSaid] = useState<string | null>(null)
   useEffect(() => {
     load().then(setView).catch(onProblem)
+    loadBackup()
+      .then((b) => setBackup(b.wants))
+      .catch(onProblem)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-  if (!view) return null
+  if (!view || !backup) return null
   const choose = (wants: Wants | 'backup') =>
     props
       .choose(wants)
       .then((changed) => {
         setView(changed)
-        setSaid(changed.said)
+        // Switching something off never takes away what is already safe: said at the moment of the change.
+        setSaid(sameWants(changed.wants, view.wants) || changed.wants.length >= view.wants.length ? null : 'Anything already backed up stays backed up.')
         props.onChanged?.()
       })
       .catch(onProblem)
+  const differs = !!view.own && !sameWants(view.wants, backup)
+  const heading = `Back up from ${props.name}`
   return (
     <div className="source-wants">
-      {/* One panel: whether it follows the backup, and, once it does not, a row for each kind. */}
+      <h4 className="source-choice-head">{heading}</h4>
       <div className="kv-panel kv-wants">
-        <Toggle
-          row
-          on={!view.own}
-          label={`From ${props.name}, back up the same as the backup`}
-          // On again, it follows the backup; off, its own choice starts as
-          // what it follows now.
-          onChange={() => choose(view.own ? 'backup' : view.wants)}
+        <Ticks
+          legend={heading}
+          view={view}
+          choose={(wants) => choose(sourceWantsChoice(wants, backup))}
+          onRefused={() => setSaid(`Nothing would be backed up from ${props.name}. Keep one on, or remove this source.`)}
         />
-        {view.own && <Ticks legend={`From ${props.name}, back up`} view={view} choose={choose} />}
       </div>
+      {differs && (
+        <p className="quiet small differs">
+          Different from the rest of this backup.{' '}
+          <button className="link" onClick={() => choose('backup')}>
+            Use the usual
+          </button>
+        </p>
+      )}
       {said && (
         <p className="quiet small" role="status">
-          {said} This counts at once, with no need to look again.
+          {said}
         </p>
       )}
     </div>

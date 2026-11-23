@@ -65,10 +65,9 @@ export function AgentsPage(props: { api: Backend; onProblem: (error: unknown) =>
   return (
     <>
       <Intro>
-        An AI app, such as Claude, can use Keevoro for you.
+        An AI app, such as Claude, can use Keevoro for you. It can never change anything on your sources.
         <InfoTip about="AI agents">
-          Once it is set up to start <code>keevoro mcp</code>. It can never change anything on your sources, and
-          everything it does is written in the log.
+          Once it is set up to start <code>keevoro mcp</code>. Everything it does is written in the log.
         </InfoTip>
       </Intro>
       {access && (
@@ -77,7 +76,6 @@ export function AgentsPage(props: { api: Backend; onProblem: (error: unknown) =>
             <Row
               id="agentChanges"
               about="Off, it can only look. On, it can back up, but only to the folders below. It can never delete a photo."
-              tip="Off, an agent can only look at your backups and say what it sees. On, it can also start backups, choose what to keep and back up, but only to the folders below. It can never delete a photo."
               control={<RowSwitch on={access.mayChange} onChange={(on) => change({ mayChange: on })} />}
             />
           </Group>

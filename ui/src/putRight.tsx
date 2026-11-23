@@ -39,15 +39,13 @@ export function PutRight(props: {
     return (
       <Explained
         className="prove"
-        tipAbout="proving every copy"
-        tip="Reads every file back from where it was sent and compares it with its original, and puts right anything that is not."
         action={
           <button className="button small" disabled={asking} onClick={ask}>
             Prove every copy…
           </button>
         }
       >
-        The thorough check, file by file.
+        The thorough check: reads every copy back against its original. Slower; it says how long first.
       </Explained>
     )
   }
@@ -77,6 +75,9 @@ export function PutRight(props: {
           {plan.places.flatMap((place) => place.said).map((line) => (
             <p key={line}>{line}</p>
           ))}
+          {plan.known > 0 && (
+            <p className="quiet small">Checking every file also finds any problem not yet known; the known ones alone is quicker.</p>
+          )}
           <p className="choices">
             <button className="primary" onClick={() => go(true)}>
               Put it right and check every file ({plan.thoroughSaid})

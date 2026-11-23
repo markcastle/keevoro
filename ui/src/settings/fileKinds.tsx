@@ -13,7 +13,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import type { Backend, FileKind, ListedAs } from '../backend'
-import { InfoTip, MoreAbout } from '../infoTip'
+import { InfoTip } from '../infoTip'
 import { Toggle } from '../toggle'
 import { Intro } from './parts'
 
@@ -214,10 +214,13 @@ export function FileKindsPage(props: {
     )
 
   const sought = typed.trim().replace(/^\./, '').toLowerCase()
+  // Words in what a kind is find it too: "Sony", "Canon", "iPhone".
+  const words = typed.trim().toLowerCase()
+  const saysIt = (k: FileKind) => words.length >= 3 && (k.about ?? '').toLowerCase().includes(words)
   // Searching finds any kind, usual or not; otherwise the usual ones, your
   // own and any you changed, or every one with the switch on.
   const shown = (list ?? []).filter((k) =>
-    sought ? k.ending.includes(sought) : lessCommon || k.usual || !k.builtIn || changed(k),
+    sought ? k.ending.includes(sought) || saysIt(k) : lessCommon || k.usual || !k.builtIn || changed(k),
   )
   const usualCount = (list ?? []).filter((k) => k.builtIn && k.usual).length
   const lessCommonCount = (list ?? []).filter((k) => k.builtIn && !k.usual).length
@@ -226,24 +229,21 @@ export function FileKindsPage(props: {
 
   return (
     <div className="kinds">
-      <Intro>Add a kind your camera makes that is missing here. One list serves every backup.</Intro>
-      <MoreAbout className="kv-more">
-        <p>
-          Keevoro finds photos and videos by the ending of their names, such as .jpg, and for the kinds it knows, by
-          looking inside too. The less common kinds are looked for just the same as the usual ones; they are only
-          left out of the list until you ask to see them.
-        </p>
-        <p>
-          A kind Keevoro cannot open is backed up just the same, exactly as it is, with “No preview” where its picture
-          would be. Changes count from the next time a source is looked through. Switching a kind off or removing it
-          never takes away anything already found or backed up.
-        </p>
-      </MoreAbout>
+      <Intro>
+        Keevoro finds photos and videos by the ending of their names, such as .jpg. Add one your camera makes that is
+        missing; switching one off never takes away anything already backed up.
+        <InfoTip about="kinds of file">
+          For the kinds it knows, Keevoro looks inside too. One list serves every backup. The less common kinds are
+          looked for just the same, and only left out of the list until you ask. A kind Keevoro cannot open is backed up
+          exactly as it is, with “No preview” where its picture would be. Changes count from the next time a source is
+          looked through.
+        </InfoTip>
+      </Intro>
       <div className="kinds-find">
         <input
           type="search"
           value={typed}
-          placeholder="Find an ending, such as tga"
+          placeholder="Find an ending or a maker"
           aria-label="Find a kind of file"
           spellCheck={false}
           onChange={(e) => setTyped(e.target.value)}
@@ -338,10 +338,11 @@ export function FileKindsPage(props: {
                   <tr key={kind.ending} className={kind.on ? undefined : 'off'}>
                     <td className="ending">
                       <span>{dotted(kind.ending)}</span>
-                      {kind.unsure && (
+                      {kind.about && (
                         <InfoTip about={dotted(kind.ending)}>
-                          Often not a photo or video, so it is off. While off, a file like this is still kept if Keevoro
-                          can tell from inside that it is one. Switch it on if yours are photos or videos.
+                          {kind.about}
+                          {kind.unsure &&
+                            ' While off, a file like this is still kept if Keevoro can tell from inside that it is one. Switch it on if yours are photos or videos.'}
                         </InfoTip>
                       )}
                     </td>

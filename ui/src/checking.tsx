@@ -29,9 +29,13 @@ export function CheckLine(props: {
   check: CheckEvent
   pausedAlone: boolean
   onPausedAlone: (paused: boolean) => void
+  /** For the narrow foot of the side band: what Pause and Stop each do waits behind their names. */
+  brief?: boolean
   onProblem: (error: unknown) => void
 }) {
   const { api, check, pausedAlone, onProblem } = props
+  const pauseSaid = 'Holds the check where it is, to carry on later.'
+  const stopSaid = 'Ends the check. It starts again with the next search or backup.'
   return (
     <div className="checking" role="status">
       <p>
@@ -48,6 +52,7 @@ export function CheckLine(props: {
               .catch(onProblem)
           }
           aria-label={pausedAlone ? 'Carry on checking for duplicates' : 'Pause checking for duplicates'}
+          title={props.brief && !pausedAlone ? pauseSaid : undefined}
         >
           {pausedAlone ? 'Carry on' : 'Pause'}
         </button>
@@ -55,10 +60,16 @@ export function CheckLine(props: {
           className="button small"
           onClick={() => api.stopChecking().catch(onProblem)}
           aria-label="Stop checking for duplicates"
+          title={props.brief ? stopSaid : undefined}
         >
           Stop
         </button>
       </p>
+      {!props.brief && (
+        <p className="quiet small check-said">
+          Pause holds the check where it is. Stop ends it until the next search or backup.
+        </p>
+      )}
     </div>
   )
 }

@@ -1388,9 +1388,12 @@ pub static ROWS: &[Row] = &[
         words: &["kinds"],
         ops: &[Op::FileKindsList],
         about: Some(
-            "The kinds of file Keevoro looks for on every source, by ending: photo, video or other file, built in or yours, on or off. The less common kinds are looked for too; --all lists them.",
+            "The kinds of file Keevoro looks for on every source, by ending: photo, video or other file, built in or yours, on or off. The less common kinds are looked for too; --all lists them. --about says what each built-in kind is.",
         ),
-        args: |c| c.arg(flag("all", "List the less common kinds too")),
+        args: |c| {
+            c.arg(flag("all", "List the less common kinds too"))
+                .arg(flag("about", "Say what each built-in kind is, and whose format it is"))
+        },
         ask: |c, m, io| nothing(c, m, io, Op::FileKindsList),
         show: show::kinds,
     },
