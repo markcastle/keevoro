@@ -742,7 +742,10 @@ impl Keevoro {
 
     /// `keevoro.settings`, read.
     pub fn settings(&self) -> SettingsView {
-        let on = keevoro_media::decode::use_system();
+        // What this Keevoro's own settings say, not the switch the whole
+        // program shares: two Keevoros open in one program (as the tests
+        // are) would otherwise answer with each other's choice.
+        let on = !self.backups.read().plain_decoding;
         let cores = std::thread::available_parallelism().map_or(2, std::num::NonZero::get);
         SettingsView {
             own_codecs: Codecs {
