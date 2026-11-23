@@ -1883,9 +1883,14 @@ export function demoBackend(): Backend {
             : `Old laptop ${sources.length}`
       look(name, path)
     },
-    // The folder window is the system's own, so the stand-in just answers.
-    pickPlace: async () =>
-      backupWants.includes('music') && !backupWants.includes('photos') && !backupWants.includes('videos') ? `${MUSIC_ROOT}\\Music` : 'D:\\Photos',
+    // The folder window is the system's own, so the stand-in just answers:
+    // a folder inside the disk it was asked to start in, when it was.
+    pickPlace: async (startAt) =>
+      backupWants.includes('music') && !backupWants.includes('photos') && !backupWants.includes('videos')
+        ? `${MUSIC_ROOT}\\Music`
+        : startAt
+          ? `${startAt.replace(/[\\/]+$/, '')}\\Photos`
+          : 'D:\\Photos',
     logTail: async () =>
       [
         '2026-11-16 14:02:09  Keevoro 9.8.0 started on windows (x86_64)',

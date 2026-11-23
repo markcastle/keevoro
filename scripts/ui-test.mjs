@@ -841,6 +841,9 @@ try {
   await page.keyboard.press('ArrowDown')
   await page.keyboard.press('Enter')
   await page.getByRole('heading', { name: /^Found [\d,]+ photos/ }).waitFor()
+  // The folder window opens inside that disk, not wherever it was last, so
+  // the folder chosen is on it.
+  assert.equal(await text('.kept li.source .what .folder'), 'C:\\Photos', 'chosen from inside the disk asked about')
   // And the quick way, with Enter where the focus starts.
   await page.goto(`${base}/?demo=empty&fast`)
   await page.getByRole('button', { name: /Windows \(C:\)/ }).click()

@@ -1305,9 +1305,10 @@ function FindScreen(props: {
     api.scanPlace(path).catch(onProblem)
   }
   // Asks for a folder, then asks again if it turns out to be a whole drive.
-  const pick = () => {
+  // Asked from the question about a whole disk, the folder window opens inside it.
+  const pick = (startAt?: string) => {
     api
-      .pickPlace()
+      .pickPlace(startAt)
       .then((path) => {
         if (!path) return
         if (wholePlace(path)) setAsking({ path, name: path })
@@ -1532,7 +1533,7 @@ function FindScreen(props: {
           name={asking.name}
           size={asking.detail?.split(' · ').pop()}
           onFindFolders={() => findFolders(asking)}
-          onChooseFolder={pick}
+          onChooseFolder={() => pick(asking.path)}
           onLookThroughAll={() => start(asking.path)}
           onCancel={() => setAsking(null)}
         />
@@ -1623,7 +1624,7 @@ function FindScreen(props: {
             {synced.map((place) => (
               <SyncedCard key={place.path} place={place} added={done.has(place.path.replace(/[\\/]+$/, ''))} onClick={() => choose(place)} />
             ))}
-            <button className="place" onClick={pick}>
+            <button className="place" onClick={() => pick()}>
               <FolderIcon large />
               <b>Choose a folder…</b>
               <span>Anywhere on this computer or a network</span>

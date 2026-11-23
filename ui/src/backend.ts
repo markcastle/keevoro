@@ -1338,8 +1338,8 @@ export interface Backend {
   /** Asks a running survey to stop; it answers with what it has so far. */
   stopSurvey(): Promise<void>
   onSurvey(listener: (event: SurveyProgress) => void): () => void
-  /** Asks for a folder to look through. Null if cancelled. */
-  pickPlace(): Promise<string | null>
+  /** Asks for a folder to look through, starting inside `startAt` when given (a disk asked about). Null if cancelled. */
+  pickPlace(startAt?: string): Promise<string | null>
   /** The last few hundred lines of the record of what Keevoro did. */
   logTail(): Promise<string>
   /** Opens the log file in the computer's text editor. */
@@ -1479,8 +1479,8 @@ async function tauriBackend(): Promise<Backend> {
     const stop = listen<T>(event, (e) => listener(e.payload))
     return () => void stop.then((unlisten) => unlisten())
   }
-  const pickFolder = async (title: string) => {
-    const picked = await open({ directory: true, multiple: false, title })
+  const pickFolder = async (title: string, defaultPath?: string) => {
+    const picked = await open({ directory: true, multiple: false, title, ...(defaultPath ? { defaultPath } : {}) })
     return typeof picked === 'string' ? picked : null
   }
   // Every small picture goes through one queue: a few at a time, dropped
@@ -1571,7 +1571,7 @@ async function tauriBackend(): Promise<Backend> {
     installUpdate: (stopFirst) => invoke('install_update', { stopFirst }),
     openReleasePage: (page) => invoke('open_release_page', { page }),
     openWebPage: (page) => invoke('open_web_page', { page }),
-    pickPlace: () => pickFolder('Choose a source: a drive or folder to look through'),
+    pickPlace: (startAt) => pickFolder('Choose a source: a drive or folder to look through', startAt),
     keepCollection: (key, keep) => invoke('keep_collection', { key, keep }),
     collectionPhotos: (key) => invoke('collection_photos', { key }),
     duplicates: () => invoke('duplicates'),
