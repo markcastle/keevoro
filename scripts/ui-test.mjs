@@ -221,6 +221,16 @@ const tipSays = async (about, within = page) => {
   await button.evaluate((b) => b.blur())
   return said
 }
+// How far apart the vertical centres of these elements are, in pixels: a
+// row of controls that shares one centre line says close to 0.
+const centresApart = (selectors) =>
+  page.evaluate((selectors) => {
+    const middles = selectors.map((selector) => {
+      const r = document.querySelector(selector).getBoundingClientRect()
+      return r.top + r.height / 2
+    })
+    return Math.max(...middles) - Math.min(...middles)
+  }, selectors)
 // A switch's words sit beside it, centred on it, never above or below.
 const centredOnSwitch = (switches) =>
   switches.evaluateAll((all) =>
@@ -1235,6 +1245,23 @@ try {
   assert.equal(await row('.tga').count(), 0, 'a less common kind is not listed until asked for')
   assert.equal(await row('.dat').count(), 0)
   assert.match(await text('.kinds-counts'), /^\d+ usual kinds · \d+ less common$/)
+  // The box, the switch and the count share one centre line, the count against the list's right edge.
+  const findRow = ['.kinds-find input[type=search]', '.kinds-find .kv-toggle', '.kinds-find .kv-toggle > span', '.kinds-find .kinds-counts']
+  assert.ok((await centresApart(findRow)) <= 1.5, `the row above the list shares one centre line (${await centresApart(findRow)} apart)`)
+  const edges = await page.evaluate(() => [document.querySelector('.kinds-counts'), document.querySelector('.kinds-table')].map((el) => el.getBoundingClientRect().right))
+  assert.ok(Math.abs(edges[0] - edges[1]) <= 1, `the count ends at the list's edge (${edges})`)
+  // In each row of the list, the ending and its switch share a centre line too.
+  const offCentre = await kindsTable.locator('tbody tr:not(.removing):not(.editing)').evaluateAll((rows) =>
+    rows
+      .map((tr) => {
+        const middle = (el) => (el ? el.getBoundingClientRect().top + el.getBoundingClientRect().height / 2 : null)
+        const words = middle(tr.querySelector('td.ending > span:not(.info-tip)'))
+        const knob = middle(tr.querySelector('.kv-switch'))
+        return Math.abs(words - knob) > 1.5 ? tr.querySelector('td.ending > span:not(.info-tip)').textContent : null
+      })
+      .filter(Boolean),
+  )
+  assert.deepEqual(offCentre, [], 'each switch is on its row’s centre line')
   // A search finds a less common kind even while they are hidden.
   await findKind.fill('.TGA')
   await row('.tga').waitFor()

@@ -3322,6 +3322,27 @@ main > section > :nth-last-child(2) {
   max-width: 22em;
 }
 
+/* The three share one centre line: the box, the switch, and the count,
+   which is right against the list's edge. `.small` brings a margin above
+   it for a line of its own, which in a row like this dropped the words
+   below the others; no item of a row of controls has one. */
+.kv-settings :is(.kinds-find, .choices, .kinds-undo) > :is(.small, span, label) {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.kinds-find .kinds-counts {
+  margin-left: auto;
+  line-height: 20px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A switch in the table sits on the centre line of its row, as its words do. */
+.kinds-table td > .kv-switch {
+  display: block;
+}
+
 .kinds-table .ending .info-tip {
   margin-left: var(--space-1);
 }
