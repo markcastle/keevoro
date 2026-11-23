@@ -1,6 +1,6 @@
 # Keevoro: Planning
 
-Keevoro finds every photo and video on a pile of old drives, gathers the keepers into one tidy library, and archives it to S3-compatible storage with a browsable index. It runs on Windows and macOS and is built for people who are not technical.
+Keevoro finds every photo and video (and, when asked, every piece of music) on a pile of old drives, gathers the keepers into one tidy library, and archives it to S3-compatible storage with a browsable index. It runs on Windows and macOS and is built for people who are not technical.
 
 The full product thinking (business model, security levels, index rationale) lives in the planning doc: [Keevoro: Planning](https://claude.ai/artifact/X9Gx1eYMVmbPABA2u9od7y). This file is the engineering summary that the code follows.
 

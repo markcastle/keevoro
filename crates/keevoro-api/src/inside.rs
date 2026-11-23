@@ -42,7 +42,7 @@ pub struct FilesRequest {
     /// changed: often when it was copied, not when it was taken.
     #[serde(default)]
     pub sort: Sort,
-    /// `all` (the default), `photos`, `videos` or `others`.
+    /// `all` (the default), `photos`, `videos`, `music` or `others`.
     #[serde(default)]
     pub only: Show,
 }
@@ -71,6 +71,7 @@ pub enum Show {
     Videos,
     /// Other files a person put on the list.
     Others,
+    Music,
 }
 
 impl Show {
@@ -80,6 +81,7 @@ impl Show {
             Show::Photos => kind == MediaKind::Photo,
             Show::Videos => kind == MediaKind::Video,
             Show::Others => kind == MediaKind::Other,
+            Show::Music => kind == MediaKind::Music,
         }
     }
 }
@@ -137,6 +139,9 @@ pub struct FolderView {
     /// Other files a person put on the list. Never said when there are none.
     #[serde(skip_serializing_if = "is_none_of_them")]
     pub others: usize,
+    /// Music, for a backup that is for it. Never said when there is none.
+    #[serde(skip_serializing_if = "is_none_of_them")]
+    pub music: usize,
     pub bytes: u64,
     /// Of them, how many are only in online storage, never opened.
     pub online_only: usize,
@@ -160,6 +165,8 @@ pub struct FoldersView {
     pub videos: usize,
     #[serde(skip_serializing_if = "is_none_of_them")]
     pub others: usize,
+    #[serde(skip_serializing_if = "is_none_of_them")]
+    pub music: usize,
     pub bytes: u64,
     pub online_only: usize,
     /// The folder left out of the backup in hand that the place is in (or
@@ -180,6 +187,9 @@ pub struct FileView {
     /// as a picture.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub is_other: bool,
+    /// Music: listed with a music note, never opened.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub is_music: bool,
     pub bytes: u64,
     /// When the file was last changed (not when it was taken), in seconds
     /// since 1970.
@@ -209,6 +219,8 @@ pub struct FilesView {
     pub videos: usize,
     #[serde(skip_serializing_if = "is_none_of_them")]
     pub others: usize,
+    #[serde(skip_serializing_if = "is_none_of_them")]
+    pub music: usize,
     pub online_only: usize,
     /// This page of them, in the order asked for.
     pub files: Vec<FileView>,
@@ -285,6 +297,7 @@ impl Keevoro {
                 photos: f.photos,
                 videos: f.videos,
                 others: f.carried,
+                music: f.music,
                 bytes: f.bytes,
                 online_only: f.online_only,
                 left_out: choices.left_out_folder(&f.folder).is_some(),
@@ -298,6 +311,7 @@ impl Keevoro {
             photos: folders.iter().map(|f| f.photos).sum(),
             videos: folders.iter().map(|f| f.videos).sum(),
             others: folders.iter().map(|f| f.others).sum(),
+            music: folders.iter().map(|f| f.music).sum(),
             bytes: folders.iter().map(|f| f.bytes).sum(),
             online_only: folders.iter().map(|f| f.online_only).sum(),
             folders,
@@ -313,7 +327,7 @@ impl Keevoro {
         if let Some(said) = self.made_by_keevoro(&real) {
             return Err(Error::refused(said));
         }
-        let kinds = self.kinds_to_look_for();
+        let kinds = self.kinds_for(backup);
         let kinds_listed_other = kinds.lists_other();
         let choices = Self::choices_for(backup);
         let files = self.listing(&real, &kinds)?;
@@ -327,6 +341,7 @@ impl Keevoro {
                 name: f.name.clone(),
                 is_video: f.kind == MediaKind::Video,
                 is_other: f.kind == MediaKind::Other,
+                is_music: f.kind == MediaKind::Music,
                 bytes: f.bytes,
                 modified: f.modified,
                 online_only: f.online_only,
@@ -350,6 +365,7 @@ impl Keevoro {
             photos: files.iter().filter(|f| f.kind == MediaKind::Photo).count(),
             videos: files.iter().filter(|f| f.kind == MediaKind::Video).count(),
             others: files.iter().filter(|f| f.kind == MediaKind::Other).count(),
+            music: files.iter().filter(|f| f.kind == MediaKind::Music).count(),
             online_only: files.iter().filter(|f| f.online_only).count(),
             files: page,
         })

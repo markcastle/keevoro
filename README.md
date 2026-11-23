@@ -8,7 +8,7 @@
 <p align="center"><b>Keep things as they were.</b></p>
 
 <p align="center">
-  Find every photo and video on your drives, choose what to keep,<br>
+  Find every photo, video and song on your drives, choose what to keep,<br>
   and back it up somewhere safe. Nothing on a source is ever changed.
 </p>
 
@@ -32,7 +32,7 @@
 
 ## 👋 What Keevoro is
 
-Photos pile up in places nobody remembers: an old laptop, three USB sticks, a drone's memory card, a folder called "Backup of backup". Keevoro goes through them, finds the photos and videos, sets the junk aside, spots the exact duplicates, and backs up what you choose to a folder, another disk, or cloud storage of your own.
+Photos pile up in places nobody remembers: an old laptop, three USB sticks, a drone's memory card, a folder called "Backup of backup". Keevoro goes through them, finds the photos and videos (and your music, if you ask), sets the junk aside, spots the exact duplicates, and backs up what you choose to a folder, another disk, or cloud storage of your own.
 
 It is a desktop app for Windows and macOS, with a command-line tool that does the same things. It is written for people who have never heard of a checksum, and built by people who care a great deal about them.
 
@@ -83,7 +83,8 @@ These are rules the code is built around and automated tests guard, not hopes.
 - 📂 **Sources:** drives, USB sticks, memory cards, folders, network shares, the folders OneDrive, Dropbox, Google Drive and iCloud Drive keep on your computer, offered by name, and cloud storage (Cloudflare R2, Amazon S3, Google Cloud Storage or anything S3-compatible), only ever read, with what reading it out would cost said first. Several per backup, with duplicates across all of them counted once.
 - ⚡ **Quick survey:** find the folders with photos on a whole disk in seconds, opening no file.
 - 🖼️ **Formats:** JPEG, PNG, HEIC, TIFF, WebP, GIF, camera raw (DNG, CR2, CR3, NEF, ARW and more), and MP4, MOV, AVI, MTS and other video, with about a hundred less common kinds looked for too (Photoshop, JPEG 2000, OpenEXR, TGA, older and rarer raw, MXF, RED and Blackmagic raw video, and more). Add any other ending your camera uses, or switch one off, in Settings, Advanced, Kinds of file (or `keevoro kinds --all`); a kind Keevoro cannot open is still backed up exactly.
-- 🎵 **Other files, if you want them:** add an ending as "other files" (music, documents, project files) and Keevoro carries them along, backed up and checked exactly like your photos, listed by the folders they came from. It never shows them or groups them by date, and nothing of the sort is taken until you ask.
+- 🎵 **Music too:** say "What do you want to back up?" with Photos, Videos and Music, and a backup can be of just your music. It is found by its name alone and never opened, so a big music folder is quick, kept in its folders (an artist, an album) in a folder called Music, and counted in tracks. A backup that is not for music passes it over, exactly as before.
+- 📄 **Other files, if you want them:** add an ending as "other files" (documents, project files) and Keevoro carries them along, backed up and checked exactly like your photos, listed by the folders they came from. It never shows them or groups them by date, and nothing of the sort is taken until you ask.
 - 🧹 **Tidying:** app icons, tiny images and leftovers are set aside with a reason. Per source, you can include or leave out whole kinds of file.
 - 🗂️ **Collections:** named after your own folders, or by date, with dates read from the camera data, the file name or the folder.
 - 👯 **Duplicates:** found by full-content fingerprint, with a screen showing which copy is kept and which are left out.

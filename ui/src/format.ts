@@ -9,18 +9,80 @@ export function count(n: number, word: string) {
 
 /**
  * "238 photos, 11 videos and 40 other files", leaving out whichever there
- * are none of, and "0 photos" when there is nothing at all. With no other
- * files, "12,431 photos and 312 videos" as ever. The same rule as
- * `keevoro_core::words::files`, and both are tested against one table of
- * cases, `countWords.json`, so the screens and the engine never disagree.
+ * are none of, and "0 photos" when there is nothing at all. With no music
+ * or other files, "12,431 photos and 312 videos" as ever; music is counted
+ * in tracks: "238 photos and 1,204 tracks". The same rule as
+ * `keevoro_core::words::Tally::said`, and both are tested against one table
+ * of cases, `countWords.json`, so the screens and the engine never disagree.
+ * `holds` says what nothing at all is counted in: "0 tracks" for music.
  */
-export function files(photos: number, videos: number, others = 0) {
+export function files(photos: number, videos: number, others = 0, music = 0, holds?: readonly string[]) {
   const parts = []
-  if (photos > 0 || (videos === 0 && others === 0)) parts.push(count(photos, 'photo'))
+  if (photos > 0) parts.push(count(photos, 'photo'))
   if (videos > 0) parts.push(count(videos, 'video'))
+  if (music > 0) parts.push(count(music, 'track'))
   if (others > 0) parts.push(count(others, 'other file'))
+  if (parts.length === 0) parts.push(count(0, firstWord(holds)))
+  return joined(parts)
+}
+
+function joined(parts: string[]) {
   return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts.join('')
 }
+
+/** The word nothing at all is counted in, for what a backup is for. */
+function firstWord(holds?: readonly string[]) {
+  if (!holds) return 'photo'
+  if (!holds.includes('photos') && !holds.includes('videos') && holds.includes('music')) return 'track'
+  if (!holds.includes('photos') && holds.includes('videos')) return 'video'
+  return 'photo'
+}
+
+/**
+ * What a backup for `holds` holds, in a few words: "photos", "photos and
+ * videos", "music", "photos and music", "photos, videos and music". Other
+ * files are a person's own addition, said apart. The same as
+ * `keevoro_core::words::named`, tested against `holdsWords.json`.
+ */
+export function named(holds: readonly string[]) {
+  const words = (['photos', 'videos', 'music'] as const).filter((w) => holds.includes(w))
+  return words.length ? joined([...words]) : 'files'
+}
+
+/** As `named`, with other files after: "photos, videos and other files". */
+export function namedWithOthers(holds: readonly string[]) {
+  const words = (['photos', 'videos', 'music'] as const).filter((w) => holds.includes(w))
+  return joined([...words, 'other files'])
+}
+
+/**
+ * The things a step's title names, as short as reads naturally: "photos"
+ * for photos and videos, as Keevoro always said, "music", "photos and
+ * music". `keevoro_core::words::heading`, tested against `holdsWords.json`.
+ */
+export function heading(holds: readonly string[]) {
+  const pictures = holds.includes('photos') ? 'photos' : holds.includes('videos') ? 'videos' : null
+  const words = [pictures, holds.includes('music') ? 'music' : null].filter((w): w is string => !!w)
+  return words.length ? words.join(' and ') : 'files'
+}
+
+/** "Photos, Videos and Music": what a backup is for, as the line on the first step says it. */
+export function holdsLine(holds: readonly string[]) {
+  const words = (
+    [
+      ['photos', 'Photos'],
+      ['videos', 'Videos'],
+      ['music', 'Music'],
+    ] as const
+  )
+    .filter(([w]) => holds.includes(w))
+    .map(([, label]) => label)
+  return words.join(', ')
+}
+
+/** True for a backup of music alone. */
+export const musicOnly = (holds: readonly string[]) =>
+  holds.includes('music') && !holds.includes('photos') && !holds.includes('videos')
 
 /**
  * Is this a whole drive, or a folder so near the top that it holds most of

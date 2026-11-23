@@ -1,7 +1,8 @@
 // Settings, Advanced, Kinds of file: the endings Keevoro looks for, for
-// the whole of Keevoro. A built-in kind can be switched off and made a
-// photo, a video or an other file; one of your own can also be renamed and
-// removed. Any ending can be added as an other file (music, documents),
+// the whole of Keevoro: photos, videos and music. A built-in kind can be
+// switched off and made a photo, a video or an other file (music stays
+// music or an other file); one of your own can also be renamed and
+// removed. Any ending can be added as an other file (documents, anything),
 // carried along and backed up exactly, but never shown or grouped by date.
 // A change counts from the next time a source is looked through, and never
 // takes away anything already found or backed up.
@@ -25,7 +26,11 @@ function sentence(error: unknown): string {
 /** An ending as it is shown: with its dot. */
 const dotted = (ending: string) => `.${ending}`
 const endings = (list: FileKind[]) => list.map((k) => dotted(k.ending)).join(', ')
-const word = (kind: ListedAs) => (kind === 'photo' ? 'a photo' : kind === 'video' ? 'a video' : 'an other file')
+const word = (kind: ListedAs) =>
+  kind === 'photo' ? 'a photo' : kind === 'video' ? 'a video' : kind === 'music' ? 'music' : 'an other file'
+/** What a kind is called in the list: Photo, Video, Music or Other file. */
+const kindName = (kind: ListedAs) =>
+  kind === 'photo' ? 'Photo' : kind === 'video' ? 'Video' : kind === 'music' ? 'Music' : 'Other file'
 const kinds = (n: number) => (n === 1 ? '1 kind' : `${n} kinds`)
 
 // Whether the less common kinds are listed: only how the page draws, so
@@ -171,6 +176,7 @@ export function FileKindsPage(props: {
           >
             <option value="photo">Photos</option>
             <option value="video">Videos</option>
+            <option value="music">Music</option>
             <option value="other">Other files</option>
           </select>
         </label>
@@ -178,7 +184,7 @@ export function FileKindsPage(props: {
           <p className="quiet small what-to-expect">
             Backed up exactly, but not shown or grouped by date.
             <InfoTip about="other files">
-              Other files are anything you want kept with your photos, such as music or documents. Keevoro will back
+              Other files are anything you want kept with your photos, such as documents or projects. Keevoro will back
               these up exactly, but cannot show them or group them by date.
             </InfoTip>
           </p>
@@ -230,12 +236,13 @@ export function FileKindsPage(props: {
   return (
     <div className="kinds">
       <Intro>
-        Keevoro finds photos and videos by the ending of their names, such as .jpg. Add one your camera makes that is
+        Keevoro finds photos, videos and music by the ending of their names, such as .jpg or .mp3. Add one that is
         missing; switching one off never takes away anything already backed up.
         <InfoTip about="kinds of file">
           For the kinds it knows, Keevoro looks inside too. One list serves every backup. The less common kinds are
           looked for just the same, and only left out of the list until you ask. A kind Keevoro cannot open is backed up
-          exactly as it is, with “No preview” where its picture would be. Changes count from the next time a source is
+          exactly as it is, with “No preview” where its picture would be. Music is found by its ending alone, never
+          opened, and looked for only in a backup that is for music. Changes count from the next time a source is
           looked through.
         </InfoTip>
       </Intro>
@@ -342,11 +349,13 @@ export function FileKindsPage(props: {
                         <InfoTip about={dotted(kind.ending)}>
                           {kind.about}
                           {kind.unsure &&
-                            ' While off, a file like this is still kept if Keevoro can tell from inside that it is one. Switch it on if yours are photos or videos.'}
+                            (kind.cameAs === 'music'
+                              ? ' Switch it on if yours are music.'
+                              : ' While off, a file like this is still kept if Keevoro can tell from inside that it is one. Switch it on if yours are photos or videos.')}
                         </InfoTip>
                       )}
                     </td>
-                    <td>{kind.kind === 'photo' ? 'Photo' : kind.kind === 'video' ? 'Video' : 'Other file'}</td>
+                    <td>{kindName(kind.kind)}</td>
                     <td>{kind.builtIn ? 'Built in' : 'Yours'}</td>
                     <td>
                       <button

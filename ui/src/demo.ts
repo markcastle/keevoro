@@ -140,12 +140,39 @@ const OTHER_FOLDERS: { folder: string[]; files: [string, number][] }[] = [
   },
   { folder: ['Documents', 'Tax 2019'], files: ['Return.pdf', 'P60.pdf', 'Receipts.pdf'].map((n, i) => [n, (420 + i * 61) * 1024]) },
   {
-    folder: ['Music', 'Holiday mix'],
-    files: ['01 Summer Breeze.flac', '02 Sea Song.flac', '03 Long Road Home.flac', '04 Harbour Lights.flac', '05 Cornish Air.flac'].map(
+    folder: ['Projects', 'Garden shed'],
+    files: ['Shed plan.blend', 'Shed roof.blend', 'Shed door.blend', 'Shed window.blend', 'Shed floor.blend'].map(
       (n, i) => [n, (28 + i * 3) * 1024 ** 2],
     ),
   },
 ]
+
+/**
+ * Music in the Music folder of this computer, by artist and album, every
+ * name made up: found once a backup is for music and its sources are
+ * looked through, as the real search does. Never opened, so a music note
+ * stands where a picture would.
+ */
+const MUSIC_ROOT = 'C:\\Users\\You'
+const MUSIC_ALBUMS: { folder: string[]; files: [string, number][] }[] = [
+  {
+    folder: ['Music', 'The Made-Up Band', 'Pretend Songs'],
+    files: Array.from({ length: 8 }, (_, i): [string, number] => [`Track ${String(i + 1).padStart(2, '0')}.flac`, (31 + i * 2) * 1024 ** 2]),
+  },
+  {
+    folder: ['Music', 'Willow Street Trio', 'Kitchen Sessions'],
+    files: [
+      ...Array.from({ length: 6 }, (_, i): [string, number] => [`Track ${String(i + 1).padStart(2, '0')}.mp3`, (7 + i) * 1024 ** 2]),
+      ['Kitchen Sessions.m3u', 1024],
+    ],
+  },
+  {
+    folder: ['Music', 'Field Recordings', 'Garden in spring'],
+    files: Array.from({ length: 3 }, (_, i): [string, number] => [`Recording ${i + 1}.wav`, (52 + i * 4) * 1024 ** 2]),
+  },
+]
+/** How many tracks the made-up music holds. */
+const MUSIC_TRACKS = MUSIC_ALBUMS.reduce((n, a) => n + a.files.length, 0)
 
 /** As Keevoro says it of files only in OneDrive, passed over unopened. */
 const onlineOnlySaid = (n: number) =>
@@ -315,44 +342,73 @@ export function demoBackend(): Backend {
   const otherRows = new Map<string, PhotoChoice>()
   const otherSent = new Set<string>()
   const endingOfName = (name: string) => name.split('.').pop()?.toLowerCase() ?? ''
-  const otherFolders = (): Collection[] => {
-    if (sources.length === 0 || !backupWants.includes('others')) return []
-    return OTHER_FOLDERS.flatMap(({ folder, files }) => {
-      const found = files.filter(([name]) => carriedFound.has(endingOfName(name)))
-      if (found.length === 0) return []
-      const rows = found.map(([name, bytes]) => {
-        const where = `E:\\${[...folder, name].join('\\')}`
-        let row = otherRows.get(where)
-        if (!row) {
-          const id = (nextId++).toString(16).padStart(16, '0')
-          row = { id, isVideo: false, isOther: true, name, sourcePath: where, thumbnail: null, taken: null, changed: '2019-03-03', bytes, kept: true, junkReason: null }
-          otherRows.set(where, row)
+  // The backups whose sources have been looked through for music.
+  const musicIn = new Set<string>()
+  const wantsMusic = () => backupWants.includes('music') || [...sourceChoices.values()].some((w) => w.includes('music'))
+  const musicFound = () => open !== null && musicIn.has(open) && wantsMusic()
+  const folderRows = (root: string, folder: string[], files: [string, number][], music: boolean) =>
+    files.map(([name, bytes]) => {
+      const where = `${root}\\${[...folder, name].join('\\')}`
+      let row = otherRows.get(where)
+      if (!row) {
+        const id = (nextId++).toString(16).padStart(16, '0')
+        row = {
+          id,
+          isVideo: false,
+          ...(music ? { isMusic: true } : { isOther: true }),
+          name,
+          sourcePath: where,
+          thumbnail: null,
+          taken: null,
+          changed: '2019-03-03',
+          bytes,
+          kept: true,
+          junkReason: null,
         }
-        return row
-      })
-      const n = rows.length
-      return [
-        {
-          key: ['Other files', ...folder].join(' / '),
-          title: folder[folder.length - 1],
-          summary: `${n} other file${n === 1 ? '' : 's'}`,
-          parents: folder.slice(0, -1),
-          photos: 0,
-          videos: 0,
-          others: n,
-          byFolder: true,
-          bytes: rows.reduce((t, r) => t + (r.bytes ?? 0), 0),
-          kept: rows.some((r) => r.kept),
-          gathered: rows.filter((r) => r.kept && otherSent.has(r.id)).length,
-          cover: rows[0],
-          previews: [],
-        },
-      ]
+        otherRows.set(where, row)
+      }
+      return row
     })
+  const folderCollection = (key: string, folder: string[], rows: PhotoChoice[], music: boolean): Collection => {
+    const n = rows.length
+    return {
+      key,
+      title: folder[folder.length - 1],
+      summary: music ? `${n} track${n === 1 ? '' : 's'}` : `${n} other file${n === 1 ? '' : 's'}`,
+      parents: folder.slice(0, -1),
+      photos: 0,
+      videos: 0,
+      ...(music ? { music: n } : { others: n }),
+      byFolder: true,
+      bytes: rows.reduce((t, r) => t + (r.bytes ?? 0), 0),
+      kept: rows.some((r) => r.kept),
+      gathered: rows.filter((r) => r.kept && otherSent.has(r.id)).length,
+      cover: rows[0],
+      previews: [],
+    }
+  }
+  const otherFolders = (): Collection[] => {
+    const carried =
+      sources.length === 0 || !backupWants.includes('others')
+        ? []
+        : OTHER_FOLDERS.flatMap(({ folder, files }) => {
+            const found = files.filter(([name]) => carriedFound.has(endingOfName(name)))
+            if (found.length === 0) return []
+            return [folderCollection(['Other files', ...folder].join(' / '), folder, folderRows('E:', folder, found, false), false)]
+          })
+    // Music, by album, as the real search groups it: its folder.
+    const music = musicFound()
+      ? MUSIC_ALBUMS.map(({ folder, files }) =>
+          folderCollection(['Music', ...folder].join(' / '), folder, folderRows(MUSIC_ROOT, folder, files, true), true),
+        )
+      : []
+    return [...carried, ...music]
   }
   const otherRowsIn = (key: string) => {
     const folder = OTHER_FOLDERS.find((f) => ['Other files', ...f.folder].join(' / ') === key)
-    return folder ? [...otherRows.values()].filter((r) => r.sourcePath === `E:\\${[...folder.folder, r.name].join('\\')}`) : []
+    if (folder) return [...otherRows.values()].filter((r) => r.sourcePath === `E:\\${[...folder.folder, r.name].join('\\')}`)
+    const album = MUSIC_ALBUMS.find((f) => ['Music', ...f.folder].join(' / ') === key)
+    return album ? [...otherRows.values()].filter((r) => r.sourcePath === `${MUSIC_ROOT}\\${[...album.folder, r.name].join('\\')}`) : []
   }
   const scanListeners = new Set<(e: ScanEvent) => void>()
   const surveyListeners = new Set<(e: SurveyProgress) => void>()
@@ -510,6 +566,7 @@ export function demoBackend(): Backend {
     const named = [
       wants.includes('photos') ? 'photos' : '',
       wants.includes('videos') ? 'videos' : '',
+      wants.includes('music') ? 'music' : '',
       wants.includes('others') && othersListed() ? 'other files' : '',
     ].filter(Boolean)
     const joined = named.length === 0 ? 'other files' : named.length === 1 ? named[0] : `${named.slice(0, -1).join(', ')} and ${named[named.length - 1]}`
@@ -576,11 +633,14 @@ export function demoBackend(): Backend {
     }
   }
   const safe = ' Anything already backed up stays backed up; it is just no longer kept in what this backup chooses.'
-  const wantsView = (wants: Wants, own?: boolean, changed = false) => ({
+  const wantsView = (wants: Wants, own?: boolean, changed = false, before?: Wants, looksAgain = false) => ({
     wants,
     own,
     ...(othersListed() ? { offersOthers: true } : {}),
-    said: `This backup is for ${words(wants)}.${changed && !everything(wants) ? safe : ''}`,
+    said: `This backup is for ${words(wants)}.${changed && before && !before.every((w) => wants.includes(w)) ? safe : ''}${
+      looksAgain ? ' Look through your sources again to find your music.' : ''
+    }`,
+    ...(looksAgain ? { looksAgain: true } : {}),
   })
   const sourceView = (id: number, changed = false) => {
     const own = sourceChoices.get(id)
@@ -618,8 +678,10 @@ export function demoBackend(): Backend {
   }
   // A document, music, a program or an archive is never a photo or video.
   const refuseAsMedia = (ending: string, kind: FileKind['kind']) => {
-    if (kind !== 'other' && ['exe', 'pdf', 'mp3', 'flac', 'zip', 'txt', 'docx'].includes(ending))
-      throw new Error(`Files ending .${ending} are programs, documents, music or archives, never photos or videos. To back them up as they are, add .${ending} as an other file.`)
+    if ((kind === 'photo' || kind === 'video') && lookedFor.some((k) => k.builtIn && k.cameAs === 'music' && k.ending === ending))
+      throw new Error(`Files ending .${ending} are music, never photos or videos. To back them up, switch on Music for this backup.`)
+    if (kind !== 'other' && kind !== 'music' && ['exe', 'pdf', 'zip', 'txt', 'docx'].includes(ending))
+      throw new Error(`Files ending .${ending} are programs, documents or archives, never photos or videos. To back them up as they are, add .${ending} as an other file.`)
   }
   const kindNamed = (typed: string) => {
     const found = lookedFor.find((k) => k.ending === typed.trim().replace(/^\./, '').toLowerCase())
@@ -953,13 +1015,22 @@ export function demoBackend(): Backend {
   const pace = mode === 'fast' || new URLSearchParams(window.location.search).has('fast') ? 0 : 1
 
   // Backups: each keeps what it found, what was chosen and where it sends.
-  type Kept = { collections: Collection[]; sources: typeof sources; junk: PhotoChoice[]; dests: Place[]; sentSoFar: number }
+  type Kept = {
+    collections: Collection[]
+    sources: typeof sources
+    junk: PhotoChoice[]
+    dests: Place[]
+    sentSoFar: number
+    wants?: Wants
+    arrange?: Arrange | null
+  }
   let backups: Backup[] = library ? [{ id: 's1', name: 'My photos' }] : []
   let open: string | null = backups[0]?.id ?? null
   let made = backups.length
   const shelf = new Map<string, Kept>()
   const putAway = () => {
-    if (open) shelf.set(open, { collections: [...collections], sources: [...sources], junk: [...junk], dests: [...dests], sentSoFar })
+    if (open)
+      shelf.set(open, { collections: [...collections], sources: [...sources], junk: [...junk], dests: [...dests], sentSoFar, wants: backupWants, arrange })
   }
   const takeOut = (id: string) => {
     const kept = shelf.get(id) ?? { collections: [], sources: [], junk: [], dests: [], sentSoFar: 0 }
@@ -969,6 +1040,8 @@ export function demoBackend(): Backend {
     dests = [...kept.dests]
     said()
     sentSoFar = kept.sentSoFar
+    if (kept.wants) backupWants = kept.wants
+    if (kept.arrange !== undefined) arrange = kept.arrange
     open = id
   }
   // The drives plugged in. With `?plugin`, a memory card arrives a moment
@@ -1042,12 +1115,14 @@ export function demoBackend(): Backend {
     const kept = collections.filter((c) => c.kept)
     const folders = otherFolders()
     const others = folders.reduce((n, c) => n + (c.others ?? 0), 0)
+    const music = folders.reduce((n, c) => n + (c.music ?? 0), 0)
     const keptOthers = [...otherRows.values()].filter((r) => r.kept && folders.some((f) => otherRowsIn(f.key).includes(r)))
     const waitingOthers = keptOthers.filter((r) => !otherSent.has(r.id))
     return {
       photos: collections.reduce((n, c) => n + c.photos, 0),
       videos: collections.reduce((n, c) => n + c.videos, 0),
       ...(others > 0 ? { others } : {}),
+      ...(music > 0 ? { music } : {}),
       bytes:
         collections.reduce((n, c) => n + (c.photos * 3.2 + c.videos * 48) * 1024 * 1024, 0) +
         folders.reduce((n, c) => n + (c.bytes ?? 0), 0),
@@ -1082,12 +1157,32 @@ export function demoBackend(): Backend {
 
   // Pretends to look through a place, finding collections as it goes.
   const look = (name: string, root: string) => {
-      const adding = FOUND.filter((_, i) => i >= collections.length).slice(0, sources.length === 0 ? 5 : 2)
+      const forMusic = wantsMusic()
+      const musicAlone = forMusic && !backupWants.includes('photos') && !backupWants.includes('videos')
+      // A backup of music alone has nothing of the photos to show.
+      const adding = musicAlone ? [] : FOUND.filter((_, i) => i >= collections.length).slice(0, sources.length === 0 ? 5 : 2)
       stopLooking = false
       void (async () => {
         let photos = 0
         let videos = 0
+        const music = forMusic ? MUSIC_TRACKS : 0
         const added: Collection[] = []
+        if (musicAlone) {
+          for (let step = 1; step <= 4; step++) {
+            await later(new URLSearchParams(window.location.search).has('slow') ? 400 : 220 * pace)
+            scanListeners.forEach((l) =>
+              l({
+                name,
+                photos: 0,
+                videos: 0,
+                music: Math.round((music * step) / 4),
+                files: music * 3 * step,
+                folder: `${root}\\${MUSIC_ALBUMS[Math.min(step, MUSIC_ALBUMS.length) - 1].folder.join('\\')}`,
+                finished: false,
+              }),
+            )
+          }
+        }
         for (const make of adding) {
           const found = make()
           for (let step = 1; step <= 4; step++) {
@@ -1133,9 +1228,10 @@ export function demoBackend(): Backend {
           collections.unshift(found)
           added.push(found)
         }
-        if (junk.length === 0) junk.push(...junkFound())
-        // Other files of the kinds on the list now are found too.
+        if (junk.length === 0 && !musicAlone) junk.push(...junkFound())
+        // Other files of the kinds on the list now are found too, and music for a backup that is for it.
         lookedFor.filter((k) => k.kind === 'other' && k.on).forEach((k) => carriedFound.add(k.ending))
+        if (forMusic && open) musicIn.add(open)
         // Looking through a source again replaces what was known about it.
         const known = sources.findIndex((s) => s.root === root)
         // The owner's Pictures folder is kept in OneDrive, part of it online only.
@@ -1150,10 +1246,10 @@ export function demoBackend(): Backend {
             ? { colderSaid: '96 files, 1.4 GB, are in Google’s Nearline, Coldline or Archive storage, which costs more to read out. Keevoro backs them up all the same.' }
             : {}
         const cloud = inCloud ? { bucket: inCloud.place, ...colder } : {}
-        const entry = { id: known >= 0 ? sources[known].id : Date.now(), name: known >= 0 ? sources[known].name : inCloud ? root.split('/').pop() ?? name : name, root, items: photos + videos, bytes: (photos * 3.2 + videos * 48) * 1024 * 1024, ...online, ...cloud }
+        const entry = { id: known >= 0 ? sources[known].id : Date.now(), name: known >= 0 ? sources[known].name : inCloud ? root.split('/').pop() ?? name : name, root, items: photos + videos + music, bytes: (photos * 3.2 + videos * 48 + music * 20) * 1024 * 1024, ...online, ...cloud }
         if (known >= 0) sources[known] = entry
         else sources.push(entry)
-        scanListeners.forEach((l) => l({ name, photos, videos, finished: true, ...online }))
+        scanListeners.forEach((l) => l({ name, photos, videos, ...(music > 0 ? { music } : {}), finished: true, ...online }))
         // Then, as the real app does, the careful checking carries on behind.
         await checkInBackground(Math.max(1, Math.round((photos + videos) / 6)))
       })()
@@ -1284,10 +1380,11 @@ export function demoBackend(): Backend {
 
   return {
     state: async () => state(),
-    async startBackup(name) {
+    async startBackup(name, wants) {
       putAway()
       const taken = (n: string) => backups.some((s) => s.name.toLowerCase() === n.toLowerCase())
-      const wanted = name.trim() || 'My photos'
+      const musicAlone = !!wants && wants.includes('music') && !wants.includes('photos') && !wants.includes('videos')
+      const wanted = name.trim() || (musicAlone ? 'My music' : 'My photos')
       let called = wanted
       for (let n = 2; taken(called); n++) called = `${wanted} ${n}`
       // Never reused, as a real backup's id is not, even once removed.
@@ -1299,6 +1396,9 @@ export function demoBackend(): Backend {
       if (backups.length > 1) shelf.set(id, { collections: [], sources: [], junk: [], dests: [], sentSoFar: 0 })
       else putAway()
       takeOut(id)
+      // What it is for, as asked; a backup of music alone keeps its folders.
+      backupWants = wants ?? ['photos', 'videos']
+      arrange = musicAlone ? 'folders' : null
       return state()
     },
     async switchBackup(id) {
@@ -1482,6 +1582,7 @@ export function demoBackend(): Backend {
       const ending = plainEnding(typed)
       const listed = lookedFor.find((k) => k.ending === ending)
       if (listed?.builtIn && (!listed.on || listed.kind !== kind)) {
+        refuseAsMedia(ending, kind)
         const changed = { ...listed, kind, on: true }
         lookedFor = lookedFor.map((k) => (k === listed ? changed : k))
         return { ...changed }
@@ -1643,6 +1744,7 @@ export function demoBackend(): Backend {
             photos: Math.min(step, 3) * 3_100,
             videos: Math.min(step, 3) * 90,
             ...(othersListed() ? { others: Math.min(step, 3) * 1_450 } : {}),
+            ...(backupWants.includes('music') ? { music: Math.min(step, 3) * 400 } : {}),
             ...(step > 3 ? { sizing: true } : {}),
             top: topSoFar(drive, step / 5),
           }),
@@ -1660,8 +1762,12 @@ export function demoBackend(): Backend {
           ...(listedAsOther('pdf')
             ? [{ folder: `${drive}\\Users\\You\\Documents`, photos: 0, videos: 0, others: 4_120, bytes: 2.1 * 1024 ** 3, likelyPhotos: true, alreadyASource: false }]
             : []),
-          ...(listedAsOther('flac')
-            ? [{ folder: `${drive}\\Users\\You\\Music`, photos: 0, videos: 0, others: 240, bytes: 7.2 * 1024 ** 3, likelyPhotos: true, alreadyASource: false }]
+          ...(listedAsOther('blend')
+            ? [{ folder: `${drive}\\Users\\You\\Projects`, photos: 0, videos: 0, others: 240, bytes: 7.2 * 1024 ** 3, likelyPhotos: true, alreadyASource: false }]
+            : []),
+          // Music, for a backup that is for it: by name, never opened.
+          ...(backupWants.includes('music')
+            ? [{ folder: `${drive}\\Users\\You\\Music`, photos: 0, videos: 0, music: 1_204, bytes: 7.2 * 1024 ** 3, likelyPhotos: true, alreadyASource: false }]
             : []),
         ].filter((hint) => !leftOutOf(hint.folder)),
         folders: 28_915,
@@ -1751,7 +1857,9 @@ export function demoBackend(): Backend {
       look(one.name, one.root)
     },
     async scanPlace(path) {
-      const name = path.startsWith('E')
+      const name = /\\Music$/.test(path)
+        ? 'Music'
+        : path.startsWith('E')
         ? 'KINGSTON (E:)'
         : path === 'C:\\'
           ? 'Windows (C:)'
@@ -1761,7 +1869,8 @@ export function demoBackend(): Backend {
       look(name, path)
     },
     // The folder window is the system's own, so the stand-in just answers.
-    pickPlace: async () => 'D:\\Photos',
+    pickPlace: async () =>
+      backupWants.includes('music') && !backupWants.includes('photos') && !backupWants.includes('videos') ? `${MUSIC_ROOT}\\Music` : 'D:\\Photos',
     logTail: async () =>
       [
         '2026-11-16 14:02:09  Keevoro 9.8.0 started on windows (x86_64)',
@@ -1947,8 +2056,11 @@ export function demoBackend(): Backend {
     },
     backupWants: async () => wantsView(backupWants),
     setBackupWants: async (wants) => {
+      const before = backupWants
       backupWants = wants
-      return wantsView(wants, undefined, true)
+      // Music asked for where none was looked for: the sources are looked through again.
+      const looksAgain = wants.includes('music') && open !== null && !musicIn.has(open) && sources.length > 0
+      return wantsView(wants, undefined, true, before, looksAgain)
     },
     sourceWants: async (id) => sourceView(id),
     setSourceOnArrival: async (source, on) => {
@@ -1957,9 +2069,11 @@ export function demoBackend(): Backend {
       return { source, on }
     },
     setSourceWants: async (id, wants) => {
+      const looking = open !== null && !musicIn.has(open) && !wantsMusic()
       if (wants === 'backup') sourceChoices.delete(id)
       else sourceChoices.set(id, wants)
-      return sourceView(id, true)
+      // Music asked for where none was looked for: this source is looked through again.
+      return looking && wantsMusic() ? { ...sourceView(id, true), looksAgain: true } : sourceView(id, true)
     },
     fileTypes: async (id) =>
       kinds.map((k) => {
@@ -2031,6 +2145,29 @@ export function demoBackend(): Backend {
     // other with a few photos in it.
     foldersInside: async (place) => {
       if (![...surveyed].some((root) => place === root || place.startsWith(`${root}\\`))) return null
+      // The Music folder, by artist and album: tracks, never pictures.
+      if (/\\Music$/.test(place)) {
+        const albums: FolderView[] = MUSIC_ALBUMS.map((a) => ({
+          folder: `${place}\\${a.folder.slice(1).join('\\')}`,
+          relative: a.folder.slice(1).join(' › '),
+          photos: 0,
+          videos: 0,
+          music: a.files.length,
+          bytes: a.files.reduce((n, [, b]) => n + b, 0),
+          onlineOnly: 0,
+        }))
+        return {
+          place,
+          surveyedAt: Math.floor(Date.now() / 1000) - 120,
+          complete: true,
+          folders: albums,
+          photos: 0,
+          videos: 0,
+          music: MUSIC_TRACKS,
+          bytes: albums.reduce((n, f) => n + f.bytes, 0),
+          onlineOnly: 0,
+        }
+      }
       const plan = /\\Pictures$/.test(place) ? INSIDE : [{ relative: '', photos: 40, videos: 2 }]
       const folders: FolderView[] = plan.map((f) => ({
         folder: f.relative ? `${place}\\${f.relative.replace(/ › /g, '\\')}` : place,
@@ -2072,6 +2209,27 @@ export function demoBackend(): Backend {
     },
     folderFiles: async ({ place, from, count, sort, only }) => {
       await later(80 * pace)
+      const album = MUSIC_ALBUMS.find((a) => place.endsWith(`\\${a.folder.join('\\')}`))
+      if (album) {
+        const tracks: FileView[] = album.files.map(([name, bytes], i) => ({
+          path: `${place}\\${name}`,
+          name,
+          isVideo: false,
+          isMusic: true,
+          bytes,
+          modified: 1_560_000_000 + i * 600,
+        }))
+        const shown = only === 'all' || only === 'music' ? tracks : []
+        return {
+          folder: place,
+          total: shown.length,
+          photos: 0,
+          videos: 0,
+          music: tracks.length,
+          onlineOnly: 0,
+          files: shown.slice(from, from + Math.min(count, 500)),
+        }
+      }
       const known = INSIDE.find((f) => (f.relative ? place.endsWith(`\\${f.relative.replace(/ › /g, '\\')}`) : /\\Pictures$/.test(place)))
       const files = demoFiles(place, known?.photos ?? 40, known?.videos ?? 2)
       // As the real one: by name, or by the file's date with ties by name.

@@ -2,7 +2,7 @@
 //! "4.2 GB", "about 3 minutes". The app, the command line and an agent use
 //! these so that the same thing reads the same in each.
 
-pub use keevoro_core::words::photos_and_videos;
+pub use keevoro_core::words::{heading, in_full, named, photos_and_videos, Tally};
 pub use keevoro_engine::history::duration;
 pub use keevoro_engine::summary::{ago, bytes, count, files, thousands};
 

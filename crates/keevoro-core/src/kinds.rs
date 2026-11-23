@@ -1,16 +1,24 @@
 //! The kinds of file Keevoro looks for, by the ending of their names.
 //!
-//! Keevoro comes with a list of endings it knows as photos and videos (the
-//! built-in list). A person can add endings of their own, change whether
-//! one is a photo, a video or an other file, switch any of them off, remove
-//! their own, and put the built-in list back. One list serves the whole of
-//! Keevoro, not one backup.
+//! Keevoro comes with a list of endings it knows as photos, videos and
+//! music (the built-in list). A person can add endings of their own,
+//! change whether one is a photo, a video or an other file, switch any of
+//! them off, remove their own, and put the built-in list back. One list
+//! serves the whole of Keevoro, not one backup.
 //!
-//! An other file is one a person asks Keevoro to take along: music, a
-//! document, a project file. Any ending can be added as one, even those
-//! Keevoro passes over as never photos or videos; nothing is, until a
-//! person adds it. Keevoro backs them up exactly, but cannot show them or
-//! group them by date ([`OTHER_FILES_SAID`]).
+//! Music is found by its ending alone, and never opened during a search:
+//! not for its tags, its cover or its length. Its date is the file's own,
+//! and it keeps the folders it came from (an artist, an album). A backup
+//! that is not for music passes a music file over in the same one look
+//! that passes over a kind switched off, so it costs nothing.
+//!
+//! An other file is one a person asks Keevoro to take along: a document,
+//! a project file. Any ending can be added as one, even those Keevoro
+//! passes over as never photos or videos; nothing is, until a person adds
+//! it. Keevoro backs them up exactly, but cannot show them or group them
+//! by date ([`OTHER_FILES_SAID`]). An ending a person added as an other
+//! file before Keevoro knew it as music (`.flac`, say) stays theirs, as
+//! they set it.
 //!
 //! Only the person's changes are kept ([`FileKinds`]): the endings they
 //! added, and the built-in ones they changed. So the list always starts as
@@ -41,8 +49,9 @@
 //! The built-in kinds are in two tiers, for the list a person sees: the
 //! usual ones, and the less common ones, listed only when asked for. The
 //! tier changes nothing about what is looked for.
-//! - A kind on the list as an other file is found by its ending alone. It
-//!   is read only to be fingerprinted, never to be judged or shown.
+//! - A kind on the list as music or an other file is found by its ending
+//!   alone. It is read only to be fingerprinted, never to be judged or
+//!   shown.
 //! - Any other file that is not plainly a program, a document or music is
 //!   still opened and judged by what is inside, so a photo with an odd
 //!   name is not missed.
@@ -137,6 +146,15 @@ const fn video(ending: &'static str) -> BuiltIn {
     }
 }
 
+/// Music, found by its ending and never read inside.
+const fn music(ending: &'static str) -> BuiltIn {
+    BuiltIn {
+        kind: MediaKind::Music,
+        inside: Inside::NotRead,
+        ..photo(ending)
+    }
+}
+
 /// A kind known only by its name: there is nothing inside it that tells
 /// Keevoro what it is.
 const fn by_name(built_in: BuiltIn) -> BuiltIn {
@@ -215,6 +233,19 @@ const BUILT_IN: &[BuiltIn] = &[
     usual(by_name(video("mts"))),
     usual(by_name(video("m2ts"))),
     usual(by_name(video("3gp"))),
+    // Music
+    usual(music("mp3")),
+    usual(music("flac")),
+    usual(music("m4a")),
+    usual(music("aac")),
+    usual(music("wav")),
+    usual(music("ogg")),
+    usual(music("opus")),
+    usual(music("wma")),
+    usual(music("aiff")),
+    usual(music("aif")),
+    usual(music("ape")),
+    usual(music("wv")),
     //
     // Less common photos: JPEG and its relations under other names, and
     // newer kinds, all recognised from inside.
@@ -319,6 +350,27 @@ const BUILT_IN: &[BuiltIn] = &[
     not_read(video("wtv")),
     not_read(video("nut")),
     not_read(video("y4m")),
+    // Less common music, audiobooks and playlists
+    music("dsf"),
+    music("dff"),
+    music("mka"),
+    music("mpc"),
+    music("tta"),
+    music("ac3"),
+    music("amr"),
+    music("mid"),
+    music("midi"),
+    music("au"),
+    music("ra"),
+    music("caf"),
+    music("m4b"),
+    music("oga"),
+    music("spx"),
+    music("tak"),
+    music("m3u"),
+    music("m3u8"),
+    music("pls"),
+    music("cue"),
     // Endings that are as often something else: off until switched on.
     unsure(video("ts")),
     unsure(video("dat")),
@@ -329,6 +381,7 @@ const BUILT_IN: &[BuiltIn] = &[
     unsure(photo("pic")),
     unsure(photo("iff")),
     unsure(raw(photo("cap"))),
+    unsure(music("dts")),
 ];
 
 /// What a built-in kind is, in a sentence a person reads: whose format it
@@ -477,6 +530,39 @@ pub fn about(ending: &str) -> Option<&'static str> {
         "pic" => "Sometimes a picture, but used by many programs for other things, so off.",
         "iff" => "Sometimes an Amiga picture, but often other data, so off.",
         "cap" => "Sometimes a Phase One raw photo, but often something else, so off.",
+        "mp3" => "The most common music format, played almost everywhere.",
+        "flac" => "An open music format that keeps every detail of the recording.",
+        "m4a" => "Music from Apple and iTunes, including Apple Lossless.",
+        "aac" => "A common music format, used by many phones and online shops.",
+        "wav" => "Uncompressed sound, often from recordings and CDs.",
+        "ogg" => "Ogg Vorbis, an open music format.",
+        "opus" => "An open sound format, often used for voice messages and online music.",
+        "wma" => "Windows Media Audio, Microsoft's music format.",
+        "aiff" => "Uncompressed sound from Apple, often from CDs.",
+        "aif" => "The same as .aiff, uncompressed sound from Apple.",
+        "ape" => "Monkey's Audio, a music format that keeps every detail.",
+        "wv" => "WavPack, an open music format that can keep every detail.",
+        "dsf" => "Very high quality music, as sold for audiophile players.",
+        "dff" => "Very high quality music, as on Super Audio CDs.",
+        "mka" => "Sound in the open Matroska format.",
+        "mpc" => "Musepack, an open music format.",
+        "tta" => "True Audio, an open music format that keeps every detail.",
+        "ac3" => "Dolby Digital surround sound, as on DVDs.",
+        "amr" => "Voice recordings from older mobile phones.",
+        "mid" => "A MIDI file: notes for a keyboard or computer to play, not a recording.",
+        "midi" => "The same as .mid: notes for a keyboard or computer to play, not a recording.",
+        "au" => "An older sound format from Sun and NeXT computers.",
+        "ra" => "RealAudio sound, from RealPlayer.",
+        "caf" => "Sound from Apple programs, such as GarageBand.",
+        "m4b" => "An audiobook from Apple and iTunes, kept with your music.",
+        "oga" => "Sound in the open Ogg format.",
+        "spx" => "Speex, an open format for recorded speech.",
+        "tak" => "Tom's lossless Audio Kompressor, a music format that keeps every detail.",
+        "m3u" => "A playlist, kept with your music so albums and lists stay whole.",
+        "m3u8" => "A playlist, kept with your music so albums and lists stay whole.",
+        "pls" => "A playlist, kept with your music so lists stay whole.",
+        "cue" => "A CD's track list, kept with its music so the album stays whole.",
+        "dts" => "Sometimes DTS surround sound, but also a kind of program file, so off.",
         _ => return None,
     })
 }
@@ -624,7 +710,7 @@ pub enum KindRefusal {
     /// Holds a space, a dot or a character that belongs in a path.
     NotAnEnding(String),
     /// A program, a document, music or an archive, asked for as a photo or
-    /// a video: it can only be added as an other file.
+    /// a video: it can only be added as an other file (or is music).
     NeverMedia(String),
     AlreadyListed(String),
     NotListed(String),
@@ -644,9 +730,13 @@ impl fmt::Display for KindRefusal {
                 f,
                 "\"{ending}\" can't be the ending of a file name. Use letters and numbers only, with no spaces or dots, such as heif."
             ),
+            Self::NeverMedia(ending) if built_in(ending).is_some_and(|b| b.kind == MediaKind::Music) => write!(
+                f,
+                "Files ending .{ending} are music, never photos or videos. To back them up, switch on Music for this backup."
+            ),
             Self::NeverMedia(ending) => write!(
                 f,
-                "Files ending .{ending} are programs, documents, music or archives, never photos or videos. To back them up as they are, add .{ending} as an other file."
+                "Files ending .{ending} are programs, documents or archives, never photos or videos. To back them up as they are, add .{ending} as an other file."
             ),
             Self::AlreadyListed(ending) => write!(f, "Keevoro already looks for .{ending} files."),
             Self::NotListed(ending) => write!(f, "Keevoro doesn't have .{ending} files on its list."),
@@ -807,9 +897,12 @@ impl FileKinds {
             built_in: now.built_in && !EARLIER.contains(&ending.as_str()),
         };
         // A built-in kind is what it is: .ts, a video, is also the ending
-        // of some programs' code, but can be switched on all the same.
+        // of some programs' code, but can be switched on all the same. Music
+        // is never a photo or a video, as it is never opened to see.
         if !now.built_in {
             refuse_as_media(&wanted.ending, wanted.kind)?;
+        } else if now.came_as == Some(MediaKind::Music) && wanted.kind.is_media() {
+            return Err(KindRefusal::NeverMedia(ending));
         }
         let same_as_it_came = now.built_in
             && built_in(&wanted.ending).is_some_and(|b| b.kind == wanted.kind && wanted.on == b.on_at_first());
@@ -885,7 +978,8 @@ impl FileKinds {
 
 /// A document, music, a program or an archive is never a photo or a video.
 fn refuse_as_media(ending: &str, kind: MediaKind) -> Result<(), KindRefusal> {
-    if kind.is_media() && never_media_extension(ending) {
+    let music = built_in(ending).is_some_and(|b| b.kind == MediaKind::Music);
+    if kind.is_media() && (never_media_extension(ending) || music) {
         return Err(KindRefusal::NeverMedia(ending.to_string()));
     }
     Ok(())
@@ -935,7 +1029,8 @@ impl Kinds {
     }
 
     /// The same list, looking only for the kinds a backup wants: for a
-    /// survey for a backup of photos only, say.
+    /// survey for a backup of photos only, say. For one not for music, as
+    /// if Keevoro had never known music ([`Kinds::without_music`]).
     #[must_use]
     pub fn wanted_by(mut self, wants: Wants) -> Kinds {
         for looked in self.by_ending.values_mut() {
@@ -943,6 +1038,23 @@ impl Kinds {
                 looked.on = false;
             }
         }
+        if wants.music {
+            self
+        } else {
+            self.without_music()
+        }
+    }
+
+    /// The same list without music, for a backup that is not for music:
+    /// as if Keevoro had never known it. A music file is then passed over
+    /// by its name, unopened, in the same one look as before Keevoro knew
+    /// music ([`never_media_extension`]), counted as everything else, and
+    /// never spoken of. A person's own kind, even of music, stays.
+    #[must_use]
+    pub fn without_music(mut self) -> Kinds {
+        let music = |ending: &str| built_in(ending).is_some_and(|b| b.kind == MediaKind::Music);
+        self.by_ending
+            .retain(|ending, looked| !(looked.kind == MediaKind::Music && music(ending)));
         self
     }
 
@@ -956,6 +1068,19 @@ impl Kinds {
     /// its ending alone, and never opened to see what it is.
     pub fn is_other(&self, ending: &str) -> bool {
         self.looked_for(ending) == Some(MediaKind::Other)
+    }
+
+    /// The kind a file with this ending is found as by its ending alone,
+    /// never opened to see what it is: music or an other file, when looked
+    /// for. `None` for a photo or video, and for an ending not looked for.
+    pub fn by_ending_alone(&self, ending: &str) -> Option<MediaKind> {
+        self.looked_for(ending).filter(|k| k.by_ending_alone())
+    }
+
+    /// Is any kind of music looked for? A backup that is not for music has
+    /// none: [`Kinds::wanted_by`] switches them off.
+    pub fn looks_for_music(&self) -> bool {
+        self.by_ending.values().any(|l| l.on && l.kind == MediaKind::Music)
     }
 
     /// The kind a file with this ending is looked for as, or `None` if it
@@ -1033,8 +1158,24 @@ mod tests {
             assert_eq!(plain_ending(b.ending).unwrap(), b.ending);
             // .ts is also the ending of program code, so it waits, off,
             // for a person who knows theirs are videos.
-            assert!(!never_media_extension(b.ending) || b.unsure, "{}", b.ending);
-            assert!(b.kind.is_media(), "{}", b.ending);
+            assert!(
+                !never_media_extension(b.ending) || b.unsure || b.kind == MediaKind::Music,
+                "{}",
+                b.ending
+            );
+            // Music is passed over by name wherever it is not looked for.
+            assert!(
+                b.kind != MediaKind::Music || b.unsure || never_media_extension(b.ending),
+                "{}",
+                b.ending
+            );
+            assert!(b.kind != MediaKind::Other, "{}", b.ending);
+            // Music is never opened to see what it is.
+            assert!(
+                b.kind != MediaKind::Music || b.inside == Inside::NotRead,
+                "{}",
+                b.ending
+            );
         }
     }
 
@@ -1108,14 +1249,18 @@ mod tests {
         assert!(kinds.has_other());
         assert_eq!(
             KindRefusal::NeverMedia("exe".into()).to_string(),
-            "Files ending .exe are programs, documents, music or archives, never photos or videos. To back them up as they are, add .exe as an other file."
+            "Files ending .exe are programs, documents or archives, never photos or videos. To back them up as they are, add .exe as an other file."
+        );
+        assert_eq!(
+            KindRefusal::NeverMedia("mp3".into()).to_string(),
+            "Files ending .mp3 are music, never photos or videos. To back them up, switch on Music for this backup."
         );
     }
 
     #[test]
     fn any_ending_can_be_added_as_an_other_file_but_never_a_document_as_a_photo() {
         let mut kinds = FileKinds::default();
-        for ending in ["flac", "PDF", "docx", "zip", "blend", "sys"] {
+        for ending in ["PDF", "docx", "zip", "blend", "sys"] {
             let added = kinds.add(ending, MediaKind::Other).unwrap();
             assert_eq!((added.kind, added.on, added.built_in), (MediaKind::Other, true, false));
         }
@@ -1125,6 +1270,8 @@ mod tests {
             kind: Some(MediaKind::Photo),
             ..KindChange::default()
         };
+        assert_eq!(kinds.change("pdf", &photo), Err(KindRefusal::NeverMedia("pdf".into())));
+        // Nor can music be made a photo.
         assert_eq!(
             kinds.change("flac", &photo),
             Err(KindRefusal::NeverMedia("flac".into()))
@@ -1132,10 +1279,10 @@ mod tests {
         // An other file of your own can take an ending Keevoro passes over.
         kinds.add("xyz", MediaKind::Other).unwrap();
         let renamed = KindChange {
-            ending: Some("mp3".into()),
+            ending: Some("txt".into()),
             ..KindChange::default()
         };
-        assert_eq!(kinds.change("xyz", &renamed).unwrap().ending, "mp3");
+        assert_eq!(kinds.change("xyz", &renamed).unwrap().ending, "txt");
         // A built-in kind can be carried as an other file too.
         let as_other = KindChange {
             kind: Some(MediaKind::Other),
@@ -1144,7 +1291,7 @@ mod tests {
         assert_eq!(kinds.change("tif", &as_other).unwrap().kind, MediaKind::Other);
         let lookup = kinds.lookup();
         assert!(lookup.lists_other());
-        assert!(lookup.is_other("FLAC") && lookup.is_other("tif") && !lookup.is_other("jpg"));
+        assert!(lookup.is_other("DOCX") && lookup.is_other("tif") && !lookup.is_other("jpg"));
         assert_eq!(lookup.looked_for("pdf"), Some(MediaKind::Other));
         assert!(OTHER_FILES_SAID.contains("exactly"));
     }
@@ -1153,8 +1300,13 @@ mod tests {
     fn nothing_is_an_other_file_until_a_person_adds_one() {
         let kinds = Kinds::default();
         assert!(!kinds.lists_other());
-        for ending in ["mp3", "pdf", "docx", "zip", "flac", "txt"] {
+        for ending in ["pdf", "docx", "zip", "txt"] {
             assert_eq!(kinds.looked_for(ending), None, "{ending}");
+        }
+        // Music is a kind of its own, not an other file.
+        for ending in ["mp3", "FLAC", "m3u"] {
+            assert_eq!(kinds.looked_for(ending), Some(MediaKind::Music), "{ending}");
+            assert!(!kinds.is_other(ending), "{ending}");
         }
     }
 
@@ -1398,7 +1550,7 @@ mod tests {
         let list = FileKinds::default().list();
         let usual = list.iter().filter(|k| k.usual).count();
         let less_common = list.iter().filter(|k| !k.usual).count();
-        assert!((25..=45).contains(&usual), "the usual kinds stay few: {usual}");
+        assert!((25..=50).contains(&usual), "the usual kinds stay few: {usual}");
         assert!(less_common > usual, "{less_common}");
         for ending in ["jpg", "heic", "png", "gif", "cr2", "nef", "dng", "mp4", "mov", "mts"] {
             assert!(line(&FileKinds::default(), ending).usual, "{ending}");
@@ -1408,7 +1560,10 @@ mod tests {
             assert!(!kind.usual && kind.on && !kind.unsure, "{ending}");
         }
         let unsure: Vec<&str> = list.iter().filter(|k| k.unsure).map(|k| k.ending.as_str()).collect();
-        assert_eq!(unsure, ["ts", "dat", "bin", "seq", "001", "img", "pic", "iff", "cap"]);
+        assert_eq!(
+            unsure,
+            ["ts", "dat", "bin", "seq", "001", "img", "pic", "iff", "cap", "dts"]
+        );
         assert!(list.iter().filter(|k| k.unsure).all(|k| !k.on && !k.usual));
         for left_out in [
             "ico", "cur", "svg", "eps", "ai", "pdf", "dcm", "aep", "prproj", "411", "dds", "thm",
@@ -1623,6 +1778,78 @@ mod tests {
             there == wanted,
             "{} is not the built-in list: run KEEVORO_WRITE_KINDS=1 cargo test -p keevoro-core",
             file.display()
+        );
+    }
+
+    #[test]
+    fn music_is_found_by_its_ending_alone_and_never_opened() {
+        let kinds = Kinds::default();
+        for ending in [
+            "mp3", "FLAC", ".m4a", "wav", "ogg", "opus", "aiff", "m4b", "mid", "cue", "m3u8",
+        ] {
+            assert_eq!(kinds.looked_for(ending), Some(MediaKind::Music), "{ending}");
+            assert_eq!(kinds.by_ending_alone(ending), Some(MediaKind::Music), "{ending}");
+            assert!(!kinds.read_inside(ending), "{ending}");
+            assert!(never_previewed(ending), "{ending}: a music note, not a picture");
+            assert!(!kinds.passed_over(ending), "{ending}");
+        }
+        for ending in ["jpg", "mov", "cr2", "xyz"] {
+            assert_eq!(kinds.by_ending_alone(ending), None, "{ending}");
+        }
+        assert!(kinds.looks_for_music());
+        // .mod stays the camcorder video it always was.
+        assert_eq!(kinds.looked_for("mod"), Some(MediaKind::Video));
+        // .dts is as often a program file: off until switched on.
+        assert_eq!(kinds.looked_for("dts"), None);
+        let usual: Vec<String> = FileKinds::default()
+            .list()
+            .into_iter()
+            .filter(|k| k.kind == MediaKind::Music && k.usual)
+            .map(|k| k.ending)
+            .collect();
+        assert_eq!(
+            usual,
+            ["mp3", "flac", "m4a", "aac", "wav", "ogg", "opus", "wma", "aiff", "aif", "ape", "wv"]
+        );
+        assert!(about("m4b").unwrap().contains("audiobook"));
+        assert!(about("m3u").unwrap().contains("playlist") && about("cue").unwrap().contains("album"));
+    }
+
+    #[test]
+    fn a_backup_not_for_music_passes_it_over_in_the_same_one_look() {
+        let photos = Kinds::default().wanted_by(Wants::default());
+        assert!(!photos.looks_for_music());
+        for ending in ["mp3", "FLAC", "m4a", "mid", "wav"] {
+            assert!(photos.passed_over(ending), "{ending}: never opened");
+            assert_eq!(photos.looked_for(ending), None, "{ending}");
+        }
+        assert_eq!(photos.looked_for("jpg"), Some(MediaKind::Photo));
+        let music = Kinds::default().wanted_by(Wants::only(MediaKind::Music));
+        assert_eq!(music.looked_for("mp3"), Some(MediaKind::Music));
+        assert!(music.passed_over("jpg") && music.passed_over("mov"));
+    }
+
+    #[test]
+    fn music_a_person_added_as_their_own_other_file_stays_theirs() {
+        // As an older Keevoro kept them: .flac and .mp3 added as other files.
+        let kept = r#"[{"ending":"flac","kind":"other"},{"ending":"mp3","kind":"other","on":false}]"#;
+        let kinds: FileKinds = serde_json::from_str(kept).unwrap();
+        for ending in ["flac", "mp3"] {
+            let theirs = line(&kinds, ending);
+            assert_eq!((theirs.kind, theirs.built_in), (MediaKind::Other, false), "{ending}");
+            assert_eq!(
+                kinds.list().iter().filter(|k| k.ending == ending).count(),
+                1,
+                "{ending} once"
+            );
+        }
+        assert!(!line(&kinds, "mp3").on, "as they set it");
+        let lookup = kinds.lookup();
+        assert!(lookup.is_other("flac") && lookup.switched_off("mp3"));
+        assert_eq!(lookup.looked_for("wav"), Some(MediaKind::Music), "the rest are music");
+        assert_eq!(
+            serde_json::to_string(&kinds).unwrap(),
+            kept.replace(r#""kind":"other"}"#, r#""kind":"other","on":true}"#)
         );
     }
 }

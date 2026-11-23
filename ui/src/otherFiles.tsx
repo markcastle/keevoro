@@ -1,5 +1,7 @@
-// Other files a person asked Keevoro to carry along: music, documents,
-// project files. They are never shown as pictures or grouped by date. They
+// Music, and other files a person asked Keevoro to carry along
+// (documents, project files). They are never opened, shown as pictures or
+// grouped by date. Music is listed by album, its folder; other files by
+// the folder they came from. They
 // are listed by the folder they came from, as the person arranged them,
 // each folder kept or left out as a whole with the same button as a
 // collection, and each opening to a plain list (name, kind, size, when it
@@ -42,11 +44,36 @@ function day(date: string) {
  * its kind. Never a broken picture.
  */
 export function FileTile(props: { photo: Photo }) {
+  if (props.photo.isMusic) return <MusicTile name={props.photo.name} />
   return (
     <div className="picture file-tile" title={props.photo.name}>
       <span className="file-mark" aria-hidden />
       <span className="file-name">{props.photo.name}</span>
       <span className="file-kind">{kindOfFile(props.photo.name)}</span>
+    </div>
+  )
+}
+
+/** A music note, drawn: the mark of a track or an album where a picture would be. */
+export function MusicNote(props: { large?: boolean }) {
+  const size = props.large ? 34 : 22
+  return (
+    <svg className="music-note" width={size} height={size} viewBox="0 0 24 24" aria-hidden>
+      <path d="M9 18.5a2.5 2.5 0 1 1-1-2V5.2l11-2.2v12.5a2.5 2.5 0 1 1-1-2V7.4l-9 1.8v9.3Z" fill="currentColor" />
+    </svg>
+  )
+}
+
+/**
+ * A track where a picture would be: a music note, its name and "No
+ * preview". Music is never opened, so there is never a picture of it.
+ */
+export function MusicTile(props: { name: string }) {
+  return (
+    <div className="picture file-tile music-tile" title={props.name}>
+      <MusicNote large />
+      <span className="file-name">{props.name}</span>
+      <span className="file-kind">No preview</span>
     </div>
   )
 }
@@ -60,25 +87,45 @@ export function OtherFilesSection(props: {
   folders: Collection[]
   onOpen: (folder: Collection) => void
   keep: (folder: Collection) => ReactNode
+  /** Albums of music, rather than folders of other files. */
+  music?: boolean
 }) {
   if (props.folders.length === 0) return null
-  const files = props.folders.reduce((n, f) => n + (f.others ?? 0), 0)
+  const files = props.folders.reduce((n, f) => n + (props.music ? (f.music ?? 0) : (f.others ?? 0)), 0)
   const bytes = props.folders.reduce((n, f) => n + (f.bytes ?? 0), 0)
+  const id = props.music ? 'music-heading' : 'other-files-heading'
   return (
-    <section className="other-files" aria-labelledby="other-files-heading">
-      <h2 id="other-files-heading">Other files</h2>
-      <p className="quiet">
-        {count(files, 'file')} in {count(props.folders.length, 'folder')} · {size(bytes)}. Open a folder to choose file
-        by file.
-        <InfoTip about="other files">
-          Kept as you arranged them. Keevoro backs these up exactly, but cannot show them or group them by date.
-        </InfoTip>
-      </p>
+    <section className={props.music ? 'other-files music' : 'other-files'} aria-labelledby={id}>
+      <h2 id={id}>{props.music ? 'Music' : 'Other files'}</h2>
+      {props.music ? (
+        <p className="quiet">
+          {count(files, 'track')} in {count(props.folders.length, 'album')} · {size(bytes)}. Open an album to choose
+          track by track.
+          <InfoTip about="music">
+            Kept in its folders, as you arranged it, however your photos are arranged. Keevoro backs music up exactly,
+            and never opens it.
+          </InfoTip>
+        </p>
+      ) : (
+        <p className="quiet">
+          {count(files, 'file')} in {count(props.folders.length, 'folder')} · {size(bytes)}. Open a folder to choose
+          file by file.
+          <InfoTip about="other files">
+            Kept as you arranged them. Keevoro backs these up exactly, but cannot show them or group them by date.
+          </InfoTip>
+        </p>
+      )}
       <ul className="folder-rows">
         {props.folders.map((folder) => (
           <li key={folder.key} className={folder.kept ? undefined : 'skipped'}>
             <button className="open-folder" onClick={() => props.onOpen(folder)} aria-label={`Open ${folder.title}`}>
-              <span className="folder-mark" aria-hidden />
+              {props.music ? (
+                <span className="album-mark">
+                  <MusicNote />
+                </span>
+              ) : (
+                <span className="folder-mark" aria-hidden />
+              )}
               <span className="folder-words">
                 <b>{folder.title}</b>
                 {folder.parents.length > 0 && <span className="parents quiet small">{folder.parents.join(' › ')}</span>}

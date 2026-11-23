@@ -38,6 +38,9 @@ pub struct Found {
     /// Other files carried along. Never said when there are none.
     #[serde(default, skip_serializing_if = "is_none_of_them")]
     pub others: usize,
+    /// Tracks of music. Never said when there are none.
+    #[serde(default, skip_serializing_if = "is_none_of_them")]
+    pub music: usize,
     /// The size of everything found, in bytes.
     pub bytes: u64,
     /// Extra copies of files that are kept once.
@@ -128,6 +131,7 @@ impl Backup {
             photos: d.photos,
             videos: d.videos,
             others: d.others,
+            music: d.music,
             bytes: d.bytes,
             duplicates: d.duplicates,
             duplicate_bytes: d.duplicate_bytes,

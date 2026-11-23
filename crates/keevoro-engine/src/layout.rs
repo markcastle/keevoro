@@ -49,7 +49,12 @@ pub const PARTS: [Part; 3] = [
 /// What the guide adds when the backup holds other files: where they are.
 /// Said only then, so a backup of photos and videos alone reads exactly as
 /// it always did.
-pub const OTHER_FILES_PART: &str = "Other files you asked Keevoro to carry along, such as music and \
+/// Where music is, said only when there is some.
+pub const MUSIC_PART: &str = "Music is in \"Music\" inside \"originals\", in the folders it came from \
+     (an artist, an album), however your photos are arranged. Each file is an exact copy; Keevoro \
+     never opens music to change or tag it, and made no renditions of it.";
+
+pub const OTHER_FILES_PART: &str = "Other files you asked Keevoro to carry along, such as \
      documents, are in \"Other files\" inside \"originals\", in the folders they came from, starting \
      with the name of the folder or drive they were on. They are exact copies too, but Keevoro made \
      no renditions of them, and the index lists them in albums named after their folders.";
@@ -67,6 +72,10 @@ pub struct GuideFacts {
     /// The backup holds other files, which the guide then says where to
     /// find.
     pub other_files: bool,
+    /// The backup holds music, which the guide then says where to find.
+    pub music: bool,
+    /// The backup holds music and no photos or videos at all.
+    pub only_music: bool,
     /// The top folders of the sources whose folders are kept as they are,
     /// that have something in the backup.
     pub kept_folders_from: Vec<String>,
@@ -132,14 +141,20 @@ pub fn day_in_words(seconds: i64) -> Option<String> {
 /// The guide as plain text. Lines end the way Windows Notepad expects,
 /// which every other editor also reads.
 pub fn guide(facts: &GuideFacts) -> String {
-    let mut text = String::from(
+    let mut text = String::from(if facts.only_music {
+        "What is in this backup\r\n\
+         ======================\r\n\r\n\
+         Keevoro made this backup. This note explains the folders beside it.\r\n\r\n\
+         The short version: your music is in \"originals\", untouched. Everything\r\n\
+         else is Keevoro's own, and can be made again.\r\n"
+    } else {
         "What is in this backup\r\n\
          ======================\r\n\r\n\
          Keevoro made this backup. This note explains the folders beside it.\r\n\r\n\
          The short version: your photos and videos are in \"originals\", untouched.\r\n\
          Everything else is there to make them quick to look through, and can be\r\n\
-         made again.\r\n",
-    );
+         made again.\r\n"
+    });
     for part in &PARTS {
         text.push_str("\r\n");
         text.push_str(part.folder);
@@ -151,6 +166,10 @@ pub fn guide(facts: &GuideFacts) -> String {
             for said in facts.arranged() {
                 text.push_str("\r\n");
                 text.push_str(&wrapped(&said, 76));
+            }
+            if facts.music {
+                text.push_str("\r\n");
+                text.push_str(&wrapped(MUSIC_PART, 76));
             }
             if facts.other_files {
                 text.push_str("\r\n");
@@ -219,6 +238,26 @@ mod tests {
     }
 
     #[test]
+    fn the_guide_says_where_music_is_only_when_there_is_some() {
+        assert!(!guide(&GuideFacts::default()).contains("\"Music\""));
+        let with = guide(&GuideFacts {
+            music: true,
+            by_date: true,
+            ..GuideFacts::default()
+        });
+        assert!(with.contains("\"Music\" inside \"originals\""), "{with}");
+        assert!(with.contains("your photos and videos are in"));
+        let only = guide(&GuideFacts {
+            music: true,
+            only_music: true,
+            kept_folders_from: vec!["Music".into()],
+            ..GuideFacts::default()
+        });
+        assert!(only.contains("your music is in \"originals\""), "{only}");
+        assert!(only.lines().all(|l| l.len() <= 80));
+    }
+
+    #[test]
     fn the_guide_says_where_other_files_are_only_when_there_are_some() {
         assert!(!guide(&GuideFacts::default()).contains("Other files"));
         let with = guide(&GuideFacts {
@@ -237,6 +276,8 @@ mod tests {
             kept_folders_from: vec!["Family Scans".into(), "A folder with a rather long name indeed".into()],
             by_date: true,
             changed_on: Some("21 November 2026".into()),
+            music: true,
+            only_music: false,
         });
         assert!(
             !guide.replace("\r\n", "").contains('\n'),

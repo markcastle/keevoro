@@ -461,13 +461,14 @@ pub(super) fn look_through(
     log.say(&format!("Looking through {}", friendly_path(source)));
     job.note_line(&format!("Looking through {name}"));
     let mut every = Every::after(ctx.jobs.progress_every());
-    let mut latest = (0, 0, 0, 0);
+    let mut latest = (0, 0, 0, 0, 0);
     let mut announced: Option<PathBuf> = None;
     let event = |p: &keevoro_scan::ScanProgress, saving: bool| ScanEvent {
         name: name.clone(),
         photos: p.photos,
         videos: p.videos,
         others: p.others,
+        music: p.music,
         files: p.files_seen,
         folder: friendly_path(&p.folder),
         reading: p.reading.as_ref().map(|(path, bytes)| (friendly_path(path), *bytes)),
@@ -511,7 +512,7 @@ pub(super) fn look_through(
                     ..Default::default()
                 },
                 &mut |p| {
-                    latest = (p.photos, p.videos, p.files_seen, p.others);
+                    latest = (p.photos, p.videos, p.files_seen, p.others, p.music);
                     **last_progress.borrow_mut() = p.clone();
                     // A large file starting is always said at once: it may
                     // be the last thing to change for minutes.
@@ -592,18 +593,18 @@ pub(super) fn look_through(
             }
             let of = |kind| report.items.iter().filter(|i| i.kind == kind).count();
             let carried = of(keevoro_core::MediaKind::Other);
-            // Said as ever, unless other files were carried along too.
-            let (found, rest) = if carried == 0 {
+            let music = of(keevoro_core::MediaKind::Music);
+            // Said as ever, unless music or other files were found too.
+            let (found, rest) = if carried == 0 && music == 0 {
                 (format!("{} photos and videos", report.items.len()), "other files")
             } else {
-                (
-                    keevoro_core::words::files(
-                        of(keevoro_core::MediaKind::Photo),
-                        of(keevoro_core::MediaKind::Video),
-                        carried,
-                    ),
-                    "files Keevoro does not look for",
-                )
+                let tally = keevoro_core::words::Tally {
+                    photos: of(keevoro_core::MediaKind::Photo),
+                    videos: of(keevoro_core::MediaKind::Video),
+                    music,
+                    others: carried,
+                };
+                (tally.said(), "files Keevoro does not look for")
             };
             log.say(&format!(
                 "Looked through {} in {} seconds: {found}, {} {rest}, {} folders skipped, {} unreadable",
@@ -641,6 +642,7 @@ pub(super) fn look_through(
         photos: latest.0,
         videos: latest.1,
         others: latest.3,
+        music: latest.4,
         files: latest.2,
         folder: String::new(),
         reading: None,
@@ -720,6 +722,7 @@ fn look_through_bucket(
                     photos: p.photos,
                     videos: p.videos,
                     others: p.others,
+                    music: p.music,
                     files: p.files_seen,
                     folder: place.describe(),
                     ..ScanEvent::default()
@@ -743,6 +746,7 @@ fn look_through_bucket(
         photos: latest.photos,
         videos: latest.videos,
         others: latest.others,
+        music: latest.music,
         files: latest.files_seen,
         stopped: result.as_ref().is_ok_and(|r| r.stopped),
         finished: true,

@@ -18,6 +18,8 @@ export type Photo = {
   isVideo: boolean
   /** An other file carried along: shown by its name and kind, never as a picture. */
   isOther?: boolean
+  /** Music: shown with a music note, never opened for a picture. */
+  isMusic?: boolean
   name: string
   sourcePath: string
   thumbnail: string | null
@@ -32,7 +34,9 @@ export type Collection = {
   videos: number
   /** Other files in it; only a folder of other files has any. */
   others?: number
-  /** A folder of other files, listed under "Other files" by the folder it came from. */
+  /** Tracks of music in it: an album is its folder. */
+  music?: number
+  /** A folder of music or other files, listed by the folder it came from. */
   byFolder?: boolean
   /** For a folder of other files, the room its files take. */
   bytes?: number
@@ -73,6 +77,8 @@ export type Hint = {
   videos: number
   /** Other files a person put on the kinds list. */
   others?: number
+  /** Music, for a backup that is for it. */
+  music?: number
   bytes: number
   /** False when the pictures are so small they are probably icons, not photos. */
   likelyPhotos: boolean
@@ -112,6 +118,8 @@ export type SurveyProgress = {
   videos: number
   /** Other files a person put on the kinds list, seen so far. */
   others?: number
+  /** Music seen so far, for a backup that is for it. */
+  music?: number
   sizing?: boolean
   /** The top of the map as it grows: at most twice a second, the biggest first. */
   top?: TopBox[]
@@ -132,6 +140,9 @@ export type TopBox = {
   /** Other files a person put on the kinds list, to be carried along. */
   carried?: number
   carriedBytes?: number
+  /** Music, for a backup that is for it. */
+  music?: number
+  musicBytes?: number
   /** For the smaller folders together, how many. */
   folders?: number
 }
@@ -167,9 +178,9 @@ export type FileType = {
 }
 
 /** One thing a backup or a source can be for. */
-export type WantsWord = 'photos' | 'videos' | 'others'
+export type WantsWord = 'photos' | 'videos' | 'music' | 'others'
 
-/** What a backup or a source is for: one or more of photos, videos and other files. */
+/** What a backup or a source is for: one or more of photos, videos, music and other files. */
 export type Wants = WantsWord[]
 
 /** What a backup or a source is for, and what that means, in words. */
@@ -180,6 +191,8 @@ export type WantsView = {
   /** True once a kind of other file is on the list, so "Other files" is a choice. */
   offersOthers?: boolean
   said: string
+  /** True when this change asked for music where none was looked for before: the sources are looked through again to find it. */
+  looksAgain?: boolean
 }
 
 export type Source = {
@@ -261,6 +274,8 @@ export type Discover = {
   videos: number
   /** Other files a person asked Keevoro to carry along. */
   others?: number
+  /** Tracks of music. */
+  music?: number
   bytes: number
   duplicates: number
   /** The room those extra copies would have taken: what leaving them out saves. */
@@ -359,6 +374,7 @@ export type BackupCounts = {
   photos: number
   videos: number
   others?: number
+  music?: number
   waiting: number
   waitingBytes: number
   bytes: number
@@ -409,6 +425,8 @@ export type ScanEvent = {
   videos: number
   /** Other files a person put on the kinds list. */
   others?: number
+  /** Music found so far. */
+  music?: number
   /** Every file looked at so far, photos or not. */
   files?: number
   /** The folder being looked in right now. */
@@ -878,7 +896,7 @@ export type AgentAccess = { lookIn: string[]; backUpTo: string[]; mayChange: boo
  */
 export type FileKind = {
   ending: string
-  /** A photo, a video, or an other file carried along (backed up exactly, never shown or grouped by date). */
+  /** A photo, a video, music, or an other file carried along (music and other files are backed up exactly, never opened, shown or grouped by date). */
   kind: ListedAs
   /** Looked for. One switched off is passed over. */
   on: boolean
@@ -898,7 +916,7 @@ export type FileKind = {
 export type FileKindChange = { kind?: ListedAs; on?: boolean; to?: string }
 
 /** What files with an ending are listed as. */
-export type ListedAs = 'photo' | 'video' | 'other'
+export type ListedAs = 'photo' | 'video' | 'music' | 'other'
 
 /**
  * What clearing Keevoro's unfinished copies from a folder did or, asked
@@ -926,6 +944,7 @@ export type FolderView = {
   videos: number
   /** Other files a person put on the kinds list. */
   others?: number
+  music?: number
   bytes: number
   /** Of them, how many are only in online storage (OneDrive), never opened. */
   onlineOnly: number
@@ -944,6 +963,7 @@ export type FoldersView = {
   photos: number
   videos: number
   others?: number
+  music?: number
   bytes: number
   onlineOnly: number
   /** The folder left out of this backup that the place is in, or is, if any. */
@@ -957,6 +977,8 @@ export type FileView = {
   isVideo: boolean
   /** An other file: a row with its name and kind, never a picture. */
   isOther?: boolean
+  /** Music: a music note, never opened. */
+  isMusic?: boolean
   bytes: number
   /** When it was last changed (not taken), in seconds since 1970. */
   modified: number
@@ -971,7 +993,7 @@ export type FileView = {
 /** The order a folder's files are given in: by name, or by the file's date (not the date taken). */
 export type FilesSort = 'name' | 'newest' | 'oldest'
 /** Which of a folder's files are given. */
-export type FilesShow = 'all' | 'photos' | 'videos' | 'others'
+export type FilesShow = 'all' | 'photos' | 'videos' | 'music' | 'others'
 
 /** Asks for one page of a folder's photos and videos. */
 export type FilesRequest = { place: string; from: number; count: number; sort: FilesSort; only: FilesShow }
@@ -984,6 +1006,7 @@ export type FilesView = {
   photos: number
   videos: number
   others?: number
+  music?: number
   onlineOnly: number
   files: FileView[]
 }
@@ -1001,7 +1024,7 @@ export type MapRequest = {
 }
 
 /** What a box on the map holds most of, or an ending is: `carried` for other files a person put on the list, `other` for everything else. */
-export type MapKind = 'photo' | 'video' | 'other' | 'carried'
+export type MapKind = 'photo' | 'video' | 'other' | 'carried' | 'music'
 
 /** One box on the map: a folder, one of the biggest files, or several together. */
 export type MapNode = {
@@ -1022,6 +1045,9 @@ export type MapNode = {
   /** Other files a person put on the kinds list, to be carried along. */
   carried?: number
   carriedBytes?: number
+  /** Music, for a backup that is for it. */
+  music?: number
+  musicBytes?: number
   /** Of its bytes, those only in online storage, never opened. */
   onlineOnlyBytes?: number
   /** Folders inside it; for smaller folders together, how many. */
@@ -1187,7 +1213,8 @@ export type Update = { version: string; page: string }
 export interface Backend {
   state(): Promise<AppState>
   /** Starts a new backup with this name and opens it. */
-  startBackup(name: string): Promise<AppState>
+  /** Starts a backup for what it is to be for; left out, photos and videos. */
+  startBackup(name: string, wants?: Wants): Promise<AppState>
   /** Opens another backup; the one that was open is left as it was. */
   switchBackup(id: string): Promise<AppState>
   /** One backup in full: its sources, where it goes, what it holds, when it last ran. */
@@ -1463,7 +1490,7 @@ async function tauriBackend(): Promise<Backend> {
 
   return {
     state: () => invoke('app_state'),
-    startBackup: (name) => invoke('start_backup', { name }),
+    startBackup: (name, wants) => invoke('start_backup', { name, wants }),
     switchBackup: (id) => invoke('switch_backup', { id }),
     backupDetails: (id) => invoke('backup_details', { id }),
     renameBackup: (id, to) => invoke('rename_backup', { id, to }),

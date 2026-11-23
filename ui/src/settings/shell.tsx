@@ -19,7 +19,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent, ReactNode } from 'react'
-import type { AppState, ArrangeView, Backend, Update } from '../backend'
+import type { AppState, ArrangeView, Backend, Update, WantsView } from '../backend'
 import { LicencesList } from '../licences'
 import type { SetUp } from '../stratus'
 import { AboutSection } from './about'
@@ -57,6 +57,8 @@ export function PlaceScreen(props: {
   onLibrary: (state: AppState) => void
   /** Called once how the backup is arranged has changed. */
   onArranged: (view: ArrangeView) => void
+  /** What the open backup is for changed, here in This backup. */
+  onWantsChanged: (view: WantsView) => void
   /** Called after a reset, with the app as it is when first installed. */
   onReset: (state: AppState) => void
   /** Goes to the step that chooses where the backup goes. */
@@ -230,6 +232,7 @@ export function PlaceScreen(props: {
             kindsChanged={kindsChanged}
             onLibrary={props.onLibrary}
             onArranged={props.onArranged}
+            onWantsChanged={props.onWantsChanged}
             onSend={props.onSend}
             onBackups={props.onBackups}
             onProblem={onProblem}

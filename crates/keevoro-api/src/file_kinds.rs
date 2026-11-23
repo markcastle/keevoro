@@ -25,6 +25,8 @@ use serde::{Deserialize, Serialize};
 pub enum ListedAs {
     Photo,
     Video,
+    /// Music: found by its ending, never opened, kept in its folders.
+    Music,
     /// An other file, carried along: backed up exactly, never shown or
     /// grouped by date.
     Other,
@@ -36,6 +38,7 @@ impl From<ListedAs> for MediaKind {
             ListedAs::Photo => MediaKind::Photo,
             ListedAs::Video => MediaKind::Video,
             ListedAs::Other => MediaKind::Other,
+            ListedAs::Music => MediaKind::Music,
         }
     }
 }
@@ -46,8 +49,8 @@ impl From<ListedAs> for MediaKind {
 pub struct AddFileKindRequest {
     /// The ending of the files, such as `heif`, with or without its dot.
     pub ending: String,
-    /// `photo`, `video` or `other`. Documents, music, programs and
-    /// archives can only be `other`.
+    /// `photo`, `video`, `music` or `other`. Documents, programs and
+    /// archives can only be `other`, and music never `photo` or `video`.
     pub kind: ListedAs,
 }
 
@@ -57,7 +60,7 @@ pub struct AddFileKindRequest {
 pub struct ChangeFileKindRequest {
     /// The ending as it is on the list now.
     pub ending: String,
-    /// `photo`, `video` or `other`.
+    /// `photo`, `video`, `music` or `other`.
     #[serde(default)]
     pub kind: Option<ListedAs>,
     /// True to look for these files, false to pass them over.
@@ -89,6 +92,7 @@ fn plural(kind: MediaKind) -> &'static str {
         MediaKind::Photo => "photos",
         MediaKind::Video => "videos",
         MediaKind::Other => "other files",
+        MediaKind::Music => "music",
     }
 }
 
@@ -103,6 +107,22 @@ impl Keevoro {
     /// The list as a lookup, read once as a search or a survey starts.
     pub(crate) fn kinds_to_look_for(&self) -> Kinds {
         self.backups().read().file_kinds.lookup()
+    }
+
+    /// The kinds a search, a look inside or a map for `backup` looks for:
+    /// every kind on the list, but music only when the backup looks for it
+    /// (`Catalog::looks_for_music`). Without a backup, no music, so a person
+    /// who never asks for music sees nothing of it.
+    pub(crate) fn kinds_for(&self, backup: Option<&crate::Named>) -> Kinds {
+        let kinds = self.kinds_to_look_for();
+        let music = backup
+            .and_then(|b| crate::backup::Backup::open_existing(&b.home))
+            .is_some_and(|b| b.catalog().looks_for_music().unwrap_or(false));
+        if music {
+            kinds
+        } else {
+            kinds.without_music()
+        }
     }
 
     /// `file_kinds.add`
@@ -230,19 +250,32 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(e.kind, Kind::Refused);
-        assert!(call(&k, Op::FileKindsAdd, None, json!({ "ending": "x", "kind": "music" })).is_err());
+        assert!(call(&k, Op::FileKindsAdd, None, json!({ "ending": "x", "kind": "songs" })).is_err());
+        // Music is a kind of its own: an ending of your own can be music,
+        // and music is never a photo.
+        let mine = call(&k, Op::FileKindsAdd, None, json!({ "ending": "xmus", "kind": "music" })).unwrap();
+        assert_eq!(mine["kind"], "music");
+        call(&k, Op::FileKindsRemove, None, json!({ "ending": "xmus" })).unwrap();
+        let e = call(&k, Op::FileKindsAdd, None, json!({ "ending": "mp3", "kind": "photo" })).unwrap_err();
+        assert!(e.message.contains("are music"), "{}", e.message);
         // A document is never a photo, but can be carried along as an
         // other file.
         let e = call(&k, Op::FileKindsAdd, None, json!({ "ending": "pdf", "kind": "photo" })).unwrap_err();
         assert!(e.message.contains("add .pdf as an other file"), "{}", e.message);
-        let flac = call(&k, Op::FileKindsAdd, None, json!({ "ending": "flac", "kind": "other" })).unwrap();
+        let blend = call(
+            &k,
+            Op::FileKindsAdd,
+            None,
+            json!({ "ending": "blend", "kind": "other" }),
+        )
+        .unwrap();
         assert_eq!(
-            flac,
-            json!({ "ending": "flac", "kind": "other", "on": true, "builtIn": false, "usual": true, "unsure": false })
+            blend,
+            json!({ "ending": "blend", "kind": "other", "on": true, "builtIn": false, "usual": true, "unsure": false })
         );
         assert!(k.lists_other_files());
         assert!(k.log_tail(5).contains("as other files"));
-        call(&k, Op::FileKindsRemove, None, json!({ "ending": "flac" })).unwrap();
+        call(&k, Op::FileKindsRemove, None, json!({ "ending": "blend" })).unwrap();
 
         let off = call(
             &other,

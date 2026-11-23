@@ -45,6 +45,18 @@ pub fn preview(
 pub const NO_PICTURE_OF_OTHER_FILES: &str =
     "Keevoro doesn't make pictures of other files. Use Show in File Explorer to open it.";
 
+/// What is said when a picture of music is asked for: it is never opened.
+pub const NO_PICTURE_OF_MUSIC: &str = "Keevoro doesn't open music to show it. Use Show in File Explorer to play it.";
+
+/// Why there is no picture of a file of this kind, which is never opened.
+pub fn no_picture_of(kind: MediaKind) -> &'static str {
+    if kind == MediaKind::Music {
+        NO_PICTURE_OF_MUSIC
+    } else {
+        NO_PICTURE_OF_OTHER_FILES
+    }
+}
+
 /// What is said when a picture of a file in cloud storage is asked for:
 /// none is made, as it would mean downloading it.
 pub const NO_PICTURE_IN_CLOUD_STORAGE: &str =
@@ -65,8 +77,8 @@ pub fn preview_at(
         bail!("That photo isn't known to this backup.");
     };
     let id = &hash[..hash.len().min(16)];
-    if kind == MediaKind::Other {
-        bail!(NO_PICTURE_OF_OTHER_FILES);
+    if !kind.is_media() {
+        bail!(no_picture_of(kind));
     }
     // A file in cloud storage is never downloaded to make a picture.
     if keevoro_core::bucket::is_bucket_path(&source) && catalog.collected_path(&hash)?.is_none() {
@@ -77,7 +89,7 @@ pub fn preview_at(
         let rendition = match (kind, look) {
             (MediaKind::Photo, Look::Small) => Rendition::Thumb,
             (MediaKind::Photo, Look::Closer) => Rendition::Display,
-            (MediaKind::Video | MediaKind::Other, _) => Rendition::Poster,
+            (MediaKind::Video | MediaKind::Other | MediaKind::Music, _) => Rendition::Poster,
         };
         let in_library = rendition_path(rendition, id)
             .split('/')
@@ -102,7 +114,7 @@ pub fn preview_at(
     let bytes = match kind {
         MediaKind::Photo => render_photo(&source).map(|r| if closer_photo { r.display } else { r.thumb }),
         MediaKind::Video => video::still(video_tools, &source).map(|still| still.webp),
-        MediaKind::Other => bail!(NO_PICTURE_OF_OTHER_FILES),
+        MediaKind::Other | MediaKind::Music => bail!(no_picture_of(kind)),
     }
     .with_context(|| {
         if source.exists() {

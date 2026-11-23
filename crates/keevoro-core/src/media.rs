@@ -1,33 +1,48 @@
-//! What counts as a photo or a video, and the third kind a person can ask
-//! for: other files, carried along.
+//! What counts as a photo, a video or music, and the fourth kind a person
+//! can ask for: other files, carried along.
 
 use serde::{Deserialize, Serialize};
 
-/// The kinds of file Keevoro backs up. Photos and videos are what it is
-/// for; an other file is one a person asked it to take along (music, a
-/// document, a project file): found, backed up and proved exactly, but
-/// never opened to be shown and never grouped by date.
+/// The kinds of file Keevoro backs up. Photos, videos and music are what
+/// a backup can be for; an other file is one a person asked it to take
+/// along (a document, a project file).
+///
+/// Music and other files are found by the ending of their names alone,
+/// never opened to see what they are, and never grouped by date: each
+/// keeps the folders it came from. They are backed up and proved exactly
+/// as a photo is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MediaKind {
     Photo,
     Video,
     Other,
+    /// A song, a recording or a playlist. Listed last, so the order of
+    /// the kinds Keevoro had before is unchanged.
+    Music,
 }
 
 impl MediaKind {
-    /// "photo", "video", "other file".
+    /// "photo", "video", "track", "other file": one of them, counted.
     pub fn word(self) -> &'static str {
         match self {
             MediaKind::Photo => "photo",
             MediaKind::Video => "video",
+            MediaKind::Music => "track",
             MediaKind::Other => "other file",
         }
     }
 
-    /// Photos and videos are shown and grouped; other files are not.
+    /// Photos and videos are opened, shown and grouped by date; music and
+    /// other files are not.
     pub fn is_media(self) -> bool {
-        self != MediaKind::Other
+        matches!(self, MediaKind::Photo | MediaKind::Video)
+    }
+
+    /// Found by its ending alone and never opened during a search: music
+    /// and other files.
+    pub fn by_ending_alone(self) -> bool {
+        !self.is_media()
     }
 }
 
@@ -74,8 +89,14 @@ pub fn is_raw_extension(ext: &str) -> bool {
 /// A drive holds far more programs, documents and music than photos, and
 /// opening each one to check is most of the time a search takes. Files
 /// with these endings are passed over without being opened. The list only
-/// names kinds of file that are never a memory; anything unfamiliar, or
-/// with no ending at all, is still opened and judged by what is inside.
+/// names kinds of file that are never a photo or video; anything
+/// unfamiliar, or with no ending at all, is still opened and judged by
+/// what is inside.
+///
+/// Music is on it too, every ending Keevoro knows as music, so a backup
+/// that is not for music passes it over as it always did, without opening
+/// it. A backup that is for music finds it first on the list of kinds,
+/// which is asked before this.
 pub fn never_media_extension(ext: &str) -> bool {
     // Asked of nearly every file on a drive, so lowered without allocating.
     // None of these is longer than eight letters.
@@ -97,8 +118,10 @@ pub fn never_media_extension(ext: &str) -> bool {
         | "sql" | "map" | "lock"
         // Archives and disk images
         | "zip" | "rar" | "7z" | "gz" | "tar" | "bz2" | "xz" | "iso"
-        // Music and sound
-        | "mp3" | "wav" | "flac" | "ogg" | "m4a" | "wma" | "aac" | "mid"
+        // Music, sound and playlists: every kind Keevoro knows as music
+        | "mp3" | "flac" | "m4a" | "aac" | "wav" | "ogg" | "opus" | "wma" | "aiff" | "aif" | "ape" | "wv" | "dsf"
+        | "dff" | "mka" | "mpc" | "tta" | "ac3" | "amr" | "mid" | "midi" | "au" | "ra" | "caf" | "m4b" | "oga"
+        | "spx" | "tak" | "m3u" | "m3u8" | "pls" | "cue"
         // Fonts and shortcuts
         | "ttf" | "otf" | "woff" | "woff2" | "lnk" | "url"
     )
@@ -133,7 +156,9 @@ mod tests {
 
     #[test]
     fn programs_documents_and_music_are_passed_over_by_name() {
-        for ext in ["exe", "DLL", ".txt", "Pdf", "mp3", "zip", "js", "MANIFEST", "woff2"] {
+        for ext in [
+            "exe", "DLL", ".txt", "Pdf", "mp3", "zip", "js", "MANIFEST", "woff2", "FLAC", "m3u8", "cue",
+        ] {
             assert!(never_media_extension(ext), "{ext}");
         }
         for ext in ["manifests", "ÉXE"] {
@@ -173,6 +198,9 @@ mod tests {
         assert_eq!(serde_json::to_string(&MediaKind::Video).unwrap(), "\"video\"");
         assert_eq!(serde_json::to_string(&MediaKind::Other).unwrap(), "\"other\"");
         assert_eq!(MediaKind::Other.word(), "other file");
-        assert!(MediaKind::Photo.is_media() && !MediaKind::Other.is_media());
+        assert_eq!(serde_json::to_string(&MediaKind::Music).unwrap(), "\"music\"");
+        assert_eq!(MediaKind::Music.word(), "track");
+        assert!(MediaKind::Photo.is_media() && !MediaKind::Other.is_media() && !MediaKind::Music.is_media());
+        assert!(MediaKind::Music.by_ending_alone() && !MediaKind::Video.by_ending_alone());
     }
 }

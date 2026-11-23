@@ -41,9 +41,18 @@ export function find(top: MapNode, keys: Map<MapNode, string>, key: string | nul
 export function mainKind(node: MapNode): MapKind {
   if (node.kind) return node.kind
   const carried = node.carriedBytes ?? 0
-  const most = Math.max(node.photoBytes, node.videoBytes, carried, node.otherBytes)
+  const music = node.musicBytes ?? 0
+  const most = Math.max(node.photoBytes, node.videoBytes, music, carried, node.otherBytes)
   if (most === 0) return 'other'
-  return most === node.photoBytes ? 'photo' : most === node.videoBytes ? 'video' : most === carried ? 'carried' : 'other'
+  return most === node.photoBytes
+    ? 'photo'
+    : most === node.videoBytes
+      ? 'video'
+      : most === music
+        ? 'music'
+        : most === carried
+          ? 'carried'
+          : 'other'
 }
 
 /** What a box holds, in words: "1,204 photos, 37 videos and 12 other files". */
@@ -51,6 +60,7 @@ export function holds(node: MapNode) {
   const parts = [
     node.photos > 0 ? count(node.photos, 'photo') : '',
     node.videos > 0 ? count(node.videos, 'video') : '',
+    (node.music ?? 0) > 0 ? count(node.music ?? 0, 'track') : '',
     // Other files a person put on the list, to be carried along.
     (node.carried ?? 0) > 0 ? `${count(node.carried ?? 0, 'file')} to carry along` : '',
     node.others > 0 ? count(node.others, 'other file') : '',
@@ -91,6 +101,7 @@ export function together(members: MapNode[], within: MapNode, share: number, key
     videoBytes: sum((m) => m.videoBytes),
     otherBytes: sum((m) => m.otherBytes),
     ...(members.some((m) => m.carried) ? { carried: sum((m) => m.carried), carriedBytes: sum((m) => m.carriedBytes) } : {}),
+    ...(members.some((m) => m.music) ? { music: sum((m) => m.music), musicBytes: sum((m) => m.musicBytes) } : {}),
     ...(members.some((m) => m.onlineOnlyBytes) ? { onlineOnlyBytes: sum((m) => m.onlineOnlyBytes) } : {}),
     // A folder is one, with what is in it; the API's own box already counts its folders.
     folders: members.reduce((n, m) => n + (m.node === 'smaller' ? (m.folders ?? 0) : (m.folders ?? 0) + 1), 0),
@@ -143,7 +154,9 @@ export function holdsPicked(node: MapNode, picked: Picked) {
         ? node.videos
         : picked.kind === 'carried'
           ? (node.carried ?? 0)
-          : node.others
+          : picked.kind === 'music'
+            ? (node.music ?? 0)
+            : node.others
   return files > 0
 }
 
@@ -152,6 +165,7 @@ export const KIND_NAMES = {
   photo: 'Photos',
   video: 'Videos',
   carried: 'Other files to carry along',
+  music: 'Music',
   other: 'Everything else',
 } as const
 

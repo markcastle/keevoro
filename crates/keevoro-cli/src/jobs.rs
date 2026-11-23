@@ -237,18 +237,18 @@ fn step(said: &Said) -> String {
             format!(
                 "Looking through {}: {} so far",
                 e.name,
-                keevoro_api::words::photos_and_videos(n(e.photos), n(e.videos), n(e.others))
+                keevoro_api::words::in_full(n(e.photos), n(e.videos), n(e.music), n(e.others))
             )
         }
         Said::Survey(e) if e.sizing => format!(
             "Found {} by name. Now measuring everything else for the map, {} folders so far",
-            keevoro_api::words::photos_and_videos(e.photos, e.videos, e.others),
+            keevoro_api::words::in_full(e.photos, e.videos, e.music, e.others),
             keevoro_api::words::thousands(e.folders)
         ),
         Said::Survey(e) => format!(
             "Looked in {} folders: {} by name so far",
             keevoro_api::words::thousands(e.folders),
-            keevoro_api::words::photos_and_videos(e.photos, e.videos, e.others)
+            keevoro_api::words::in_full(e.photos, e.videos, e.music, e.others)
         ),
         Said::Check(e) => format!(
             "Checking for duplicates: {} of {}",
@@ -408,6 +408,7 @@ mod tests {
             photos: 30,
             videos: 2,
             others: 0,
+            music: 0,
             sizing: false,
             top: Vec::new(),
         };
@@ -424,6 +425,8 @@ mod tests {
             other_bytes: 1,
             carried: 0,
             carried_bytes: 0,
+            music: 0,
+            music_bytes: 0,
             folders: 0,
         }];
         let line = step(&Said::Survey(grown));

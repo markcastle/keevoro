@@ -1492,6 +1492,9 @@ fn guide_facts(catalog: &Catalog, stored: &[&Kept<'_>]) -> Result<crate::layout:
     };
     Ok(crate::layout::GuideFacts {
         other_files: stored.iter().any(|k| k.item.kind == keevoro_core::MediaKind::Other),
+        music: stored.iter().any(|k| k.item.kind == keevoro_core::MediaKind::Music),
+        only_music: stored.iter().any(|k| k.item.kind == keevoro_core::MediaKind::Music)
+            && !stored.iter().any(|k| k.item.kind.is_media()),
         // A file kept by folder that was placed by date before the change
         // is in the backup by date, so it counts as that.
         by_date: stored.iter().any(|k| by_date(&k.path)),

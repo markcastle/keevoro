@@ -6,7 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Music is a kind of its own, beside photos and videos.** A backup can now be for photos, videos, music or any of them together, and a backup of just your music is a backup like any other. Keevoro knows 33 kinds of music file: the usual ones (.mp3, .flac, .m4a, .aac, .wav, .ogg, .opus, .wma, .aiff, .ape, .wv) and less common ones such as .dsf, .mka, MIDI files, .m4b audiobooks and playlists (.m3u, .pls, .cue), kept with the music so albums stay whole (.dts is listed switched off, as it is as often a program file). Music is found by its name alone and never opened: Keevoro does not read its tags, cover or length, so looking through a big music folder is quick, and a backup that is not for music passes music over exactly as it always did. Music keeps its folders (an artist, an album) in a folder called Music inside the backup, however your photos are arranged, and exact copies are kept once. Every backup you already have is for no music until you say otherwise. If you had added music endings such as .flac yourself as other files, they stay yours, exactly as you set them, and nothing already backed up is moved or sent again.
+- **"What do you want to back up?" is asked up front.** Starting a backup, on the first screen or with "Start a new backup…", asks it with three switches, Photos, Videos and Music, Photos and Videos on to begin with; at least one stays on, and Keevoro says so if you try. A backup of music alone keeps its folders as they are, so it is never asked how to arrange them. On "Find your photos", a line near the top says what the open backup is for ("Backing up: Photos, Videos") with "Change", which opens the same three switches right there. Settings, This backup has the same switches as before, and each source's own choice under File types has Music too. Switching Music on looks through your sources again for your music straight away.
+
+### Changed
+
+- **The words follow what a backup is for.** A backup of music says "Find your music", "Where is your music?" and "1,204 tracks"; one of photos and music says "Find your photos and music" and "238 photos and 1,204 tracks". Albums are listed by their folder under Music on "Which of these should we keep?", each track shown with a music note where a picture would be, and the command line and AI agents count music in tracks too.
 
 ## [0.52.2] - 2026-11-23
 

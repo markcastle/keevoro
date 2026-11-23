@@ -145,6 +145,9 @@ pub struct PhotoView {
     /// An other file: shown as its name and kind, never as a picture.
     #[serde(skip_serializing_if = "is_false")]
     pub is_other: bool,
+    /// Music: shown with a music note, never opened for a picture.
+    #[serde(skip_serializing_if = "is_false")]
+    pub is_music: bool,
     pub name: String,
     /// Where it is on its source. The app asks for a preview by `id`,
     /// never by this path; it is here for showing, not for reading.
@@ -169,7 +172,10 @@ pub struct CollectionView {
     /// Other files in it. Only a folder of other files has any.
     #[serde(skip_serializing_if = "is_none_of_them")]
     pub others: usize,
-    /// A folder of other files, listed under "Other files" by the folder
+    /// Tracks of music in it: an album's folder. Never said when none.
+    #[serde(skip_serializing_if = "is_none_of_them")]
+    pub music: usize,
+    /// A folder of music or other files, listed under "Other files" by the folder
     /// it came from rather than shown as photos.
     #[serde(skip_serializing_if = "is_false")]
     pub by_folder: bool,
@@ -236,6 +242,10 @@ pub struct Discover {
     /// there are none.
     #[serde(skip_serializing_if = "is_none_of_them")]
     pub others: usize,
+    /// Tracks of music, for a backup that is for it. Never said when there
+    /// are none.
+    #[serde(skip_serializing_if = "is_none_of_them")]
+    pub music: usize,
     pub bytes: u64,
     /// Extra copies that will be kept once.
     pub duplicates: usize,
@@ -314,16 +324,19 @@ fn photo_view(library: &Path, catalog: &Catalog, item: &FoundItem) -> Result<Pho
     let id = hash[..hash.len().min(16)].to_string();
     let is_video = item.kind == MediaKind::Video;
     let is_other = item.kind == MediaKind::Other;
+    let is_music = item.kind == MediaKind::Music;
     // A thumbnail exists once a backup has made the file's previews.
     let kind = if is_video { Rendition::Poster } else { Rendition::Thumb };
     let relative = rendition_path(kind, &id);
     let on_disk = relative.split('/').fold(library.to_path_buf(), |p, s| p.join(s));
-    let thumbnail = (!is_other && !id.is_empty() && catalog.collected_path(hash)?.is_some() && on_disk.is_file())
-        .then_some(relative);
+    let thumbnail =
+        (item.kind.is_media() && !id.is_empty() && catalog.collected_path(hash)?.is_some() && on_disk.is_file())
+            .then_some(relative);
     Ok(PhotoView {
         id,
         is_video,
         is_other,
+        is_music,
         name: item
             .path
             .file_name()
@@ -511,6 +524,7 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
             photos: c.photos,
             videos: c.videos,
             others: c.others,
+            music: c.music,
             by_folder: c.by_folder,
             kept_folders: c.kept_folders,
             bytes: if c.by_folder {
@@ -586,6 +600,7 @@ pub fn discover(library: &Path, catalog: &Catalog) -> Result<Discover> {
         photos: summary.photos,
         videos: summary.videos,
         others: summary.others,
+        music: summary.music,
         bytes: summary.bytes,
         duplicates: summary.duplicates.as_ref().map_or(0, |d| d.copies),
         duplicate_bytes: summary.duplicates.as_ref().map_or(0, |d| d.bytes),
@@ -668,7 +683,8 @@ pub struct PhotoChoice {
 }
 
 fn choice(library: &Path, catalog: &Catalog, item: &FoundItem) -> Result<PhotoChoice> {
-    let other = item.kind == MediaKind::Other;
+    // Music and other files are dated by the file itself, and listed by size.
+    let other = item.kind.by_ending_alone();
     Ok(PhotoChoice {
         photo: photo_view(library, catalog, item)?,
         taken: item.date.filter(|_| !other).map(|d| d.date.to_string()),
@@ -888,6 +904,7 @@ pub(crate) mod tests {
             photos: 1,
             videos: 0,
             others: 0,
+            music: 0,
             by_folder: false,
             kept_folders: false,
             cover,

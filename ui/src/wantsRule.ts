@@ -6,12 +6,27 @@ import type { Wants, WantsWord } from './backend'
 const WORDS: [WantsWord, string][] = [
   ['photos', 'Photos'],
   ['videos', 'Videos'],
+  ['music', 'Music'],
   ['others', 'Other files'],
 ]
 
-/** The words shown as tick boxes: other files only once they can mean something. */
+/**
+ * The words shown as switches: Photos, Videos and Music always, three equal
+ * choices; Other files only once it can mean something.
+ */
 export function shownWords(offersOthers: boolean): [WantsWord, string][] {
   return WORDS.filter(([word]) => word !== 'others' || offersOthers)
+}
+
+/** What a new backup is for until the person says: photos and videos, no music. */
+export const NEW_BACKUP_WANTS: WantsWord[] = ['photos', 'videos']
+
+/**
+ * The same rule for the question asked when a backup is made, where only
+ * the three are asked: the last one on stays on (`null`).
+ */
+export function toggledNew(wants: WantsWord[], word: WantsWord, on: boolean): WantsWord[] | null {
+  return toggled(wants, word, on, false)
 }
 
 /**

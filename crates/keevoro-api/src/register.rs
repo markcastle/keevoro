@@ -163,7 +163,7 @@ register! {
         "Takes a source off the backup. Nothing on it is touched",
         changes: Always, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     SourcesWants = "sources.wants",
-        "What one source is for: its backup's choice of photos, videos and other files, or its own",
+        "What one source is for: its backup's choice of photos, videos, music and other files, or its own",
         changes: OnlyWhenAsked, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     SourcesOnArrival = "sources.on_arrival",
         "Whether a source is backed up by itself whenever it is plugged in, and changing it",
@@ -270,7 +270,7 @@ register! {
         "What every backup did by itself since a time, what it caught up, and what waits for your say",
         changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     BackupWants = "backup.wants",
-        "What a backup is for: photos, videos, other files, or some of them, and changing it",
+        "What a backup is for: photos, videos, music, other files, or some of them, and changing it",
         changes: OnlyWhenAsked, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     BackupArrange = "backup.arrange",
         "How a backup arranges what it sends: by date, or keeping the folders as they are, and changing it",
@@ -344,13 +344,13 @@ register! {
 
     // The kinds of file looked for
     FileKindsList = "file_kinds.list",
-        "The kinds of file Keevoro looks for by ending: photo, video or other, usual or less common",
+        "The kinds of file Keevoro looks for by ending: photo, video, music or other, usual or less common",
         changes: Never, job: false, command_line: true, agents: Agents::Yes, implemented: true;
     FileKindsAdd = "file_kinds.add",
-        "Adds an ending for Keevoro to look for, as a photo, a video or an other file",
+        "Adds an ending for Keevoro to look for, as a photo, a video, music or an other file",
         changes: Always, job: false, command_line: true, agents: Agents::No, implemented: true;
     FileKindsChange = "file_kinds.change",
-        "Switches a kind of file on or off, makes it a photo, video or other file, or renames yours",
+        "Switches a kind of file on or off, makes it a photo, video, music or other file, or renames yours",
         changes: Always, job: false, command_line: true, agents: Agents::No, implemented: true;
     FileKindsRemove = "file_kinds.remove",
         "Takes an ending you added off the list. Nothing already found is taken away",
@@ -576,8 +576,10 @@ impl Op {
             ),
             Op::BackupsStart => (
                 "start_backup",
-                "Starts a new, empty backup with the name given, and gives back its name and id. It has no sources \
-                 or destinations yet: add them with look_through and add_destination.",
+                "Starts a new, empty backup with the name given, and gives back its name and id. Give wants (one or \
+                 more of photos, videos and music) to say what it is for; left out, photos and videos. A backup for \
+                 music alone keeps its folders as they are. It has no sources or destinations yet: add them with \
+                 look_through and add_destination.",
             ),
             Op::BackupsFindAt => (
                 "find_backup_at",
@@ -625,9 +627,10 @@ impl Op {
                 "files_in_folder",
                 "Lists the photos and videos directly in one folder, a page at a time (from and count, at most \
                  500), by name or by the file's date (sort: name, newest or oldest; the date is when the file last \
-                 changed, not when it was taken), all or only photos, videos or others (only): each one's path, \
-                 size, whether it is a video (or an other file) and how many seconds it lasts, and whether it is only \
-                 in online storage. Other files the person put on the kinds list are listed too. \
+                 changed, not when it was taken), all or only photos, videos, music or others (only): each one's \
+                 path, size, whether it is a video (or music, or an other file) and how many seconds it lasts, and \
+                 whether it is only in online storage. Music is listed only for a backup that is for music; other \
+                 files the person put on the kinds list are listed too. \
                  Give a path to show_picture as file to see one. Reads the folder's listing only; changes nothing \
                  and adds nothing to a backup. Only works in folders the person has allowed (see my_access).",
             ),
@@ -655,8 +658,8 @@ impl Op {
             ),
             Op::SourcesLookAgain => (
                 "look_again",
-                "Looks through a backup's sources again, or just one, to find photos added since last time. Only \
-                 reads the sources. It starts a job and gives back its id at once; follow it with job_status.",
+                "Looks through a backup's sources again, or just one, to find what was added since last time, and \
+                 music once a backup is for it. Only reads the sources. It starts a job and gives back its id at once; follow it with job_status.",
             ),
             Op::SourcesAddBucket => (
                 "add_bucket_source",
@@ -676,9 +679,11 @@ impl Op {
             Op::SourcesWants => (
                 "source_wants",
                 "Says what one source, by the id list_sources gives, is for: its backup's choice, or its own of \
-                 photos, videos and other files. Give wants (backup, or a list of one or more of photos, videos and \
-                 others) to change it. It counts at once on what was found, with no new search. Leaving a kind out \
-                 only means they are not offered or backed up from now on; nothing already backed up is touched.",
+                 photos, videos, music and other files. Give wants (backup, or a list of one or more of photos, \
+                 videos, music and others) to change it. It counts at once on what was found, with no new search, \
+                 except that music asked for where none was looked for before needs the sources looked through \
+                 again (looksAgain): use look_again. Leaving a kind out only means they are not offered or \
+                 backed up from now on; nothing already backed up is touched.",
             ),
             Op::SourcesArrange => (
                 "source_arrange",
@@ -708,15 +713,16 @@ impl Op {
             ),
             Op::FoundSummary => (
                 "summarise_backup",
-                "Says what a backup holds: how many photos and videos (and other files, when the person asked for \
-                 any), their size, the duplicates left out and the room that saves, and how many pictures were set \
+                "Says what a backup holds: how many photos and videos (and tracks of music and other files, when the \
+                 person asked for any), their size, the duplicates left out and the room that saves, and how many pictures were set \
                  aside as probably not photos. Changes nothing.",
             ),
             Op::CollectionsList => (
                 "list_collections",
                 "Lists a backup's collections (the folders and moments its photos fall into), newest first, with \
-                 each one's key, how many files it holds, and whether it is being kept. Other files the person asked \
-                 Keevoro to carry along come last, one per folder they came from (byFolder), each kept or left out \
+                 each one's key, how many files it holds, and whether it is being kept. Music (an album is its \
+                 folder) and other files the person asked Keevoro to carry along come last, one per folder they \
+                 came from (byFolder), each kept or left out \
                  as a whole with keep_collection. Changes nothing.",
             ),
             Op::CollectionsPhotos => (
@@ -808,10 +814,12 @@ impl Op {
             ),
             Op::BackupWants => (
                 "backup_wants",
-                "Says what a backup is for: photos, videos, and other files once the person has put a kind of them \
-                 on the list (offersOthers). Give wants (a list of one or more of photos, videos and others) to \
-                 change it. It counts at once on what was found, with no new search, and a \
-                 source can have its own choice (see source_wants). Nothing already backed up is touched.",
+                "Says what a backup is for: photos, videos, music, and other files once the person has put a kind \
+                 of them on the list (offersOthers). Give wants (a list of one or more of photos, videos, music and \
+                 others) to change it. It counts at once on what was found, with no new search, and a source can \
+                 have its own choice (see source_wants). Music is looked for only in a backup that is for it: \
+                 asked for where none was looked for before, the answer says looksAgain, and the sources are to be \
+                 looked through again (look_again) to find it. Nothing already backed up is touched.",
             ),
             Op::BackupArrange => (
                 "backup_arrange",
@@ -877,7 +885,7 @@ impl Op {
             Op::FileKindsList => (
                 "list_file_kinds",
                 "Lists the kinds of file Keevoro looks for on every source, by ending (such as jpg or mov): whether \
-                 each is a photo, a video or an other file carried along, whether it came with Keevoro or the person \
+                 each is a photo, a video, music or an other file carried along, whether it came with Keevoro or the person \
                  added it, and whether it is \
                  switched on. A search only finds files of kinds switched on, and a survey only counts them. You \
                  cannot change the list; the person can, in Settings, Advanced, Kinds of file, or with the keevoro \

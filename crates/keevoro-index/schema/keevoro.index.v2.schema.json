@@ -113,7 +113,7 @@
       ]
     },
     "Item": {
-      "description": "One photo, video or other file.",
+      "description": "One photo, video, track of music or other file.",
       "type": "object",
       "properties": {
         "blurhash": {
@@ -204,9 +204,14 @@
           ]
         },
         {
-          "description": "A file the person asked Keevoro to carry along (music, a document):\nkept exactly, with no renditions, in an album named after its folder.",
+          "description": "A file the person asked Keevoro to carry along (a document): kept\nexactly, with no renditions, in an album named after its folder.",
           "type": "string",
           "const": "other"
+        },
+        {
+          "description": "A song, a recording or a playlist: kept exactly, with no\nrenditions, in an album named after its folder.",
+          "type": "string",
+          "const": "music"
         }
       ]
     },

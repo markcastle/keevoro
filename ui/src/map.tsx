@@ -169,11 +169,12 @@ export function SpaceScreen(props: {
         <h1>Where the space goes on {name}</h1>
         <p className="status">
           {size(top.bytes)} in {top.name}: photos {size(top.photoBytes)}, videos {size(top.videoBytes)},{' '}
+          {top.musicBytes ? `music ${size(top.musicBytes)}, ` : ''}
           {top.carriedBytes ? `other files to carry along ${size(top.carriedBytes)}, ` : ''}everything else{' '}
           {size(top.otherBytes)}.{' '}
           {view.backup
             ? `This backup would take ${size(top.wouldBackUp)} of it.`
-            : `${size(top.wouldBackUp)} of it is ${top.carried ? 'photos, videos and other files' : 'photos and videos'} Keevoro would back up.`}
+            : `${size(top.wouldBackUp)} of it is ${top.carried ? 'photos, videos and other files' : top.music ? 'photos, videos and music' : 'photos and videos'} Keevoro would back up.`}
         </p>
         <p className="quiet small">
           Click a box to choose it, and again to go inside. Grey is not backed up.
@@ -274,7 +275,7 @@ export function SpaceScreen(props: {
               onOpenGathered={openGathered}
               onShare={setMapShare}
             />
-            <MapKey carried={(top.carried ?? 0) > 0} />
+            <MapKey carried={(top.carried ?? 0) > 0} music={(top.music ?? 0) > 0} />
           </div>
         )}
         <div className="space-side">
@@ -555,10 +556,11 @@ function ShareBar(props: { node: MapNode; whole: number }) {
   const { node, whole } = props
   const part = (bytes: number) => `${whole > 0 ? (bytes * 100) / whole : 0}%`
   return (
-    <span className="share" title={`${files(node.photos, node.videos, node.carried ?? 0)}, ${size(node.bytes)}`}>
+    <span className="share" title={`${files(node.photos, node.videos, node.carried ?? 0, node.music ?? 0)}, ${size(node.bytes)}`}>
       <span className="share-bar" aria-hidden>
         <span className="photo" style={{ width: part(node.photoBytes) }} />
         <span className="video" style={{ width: part(node.videoBytes) }} />
+        {node.musicBytes ? <span className="music" style={{ width: part(node.musicBytes) }} /> : null}
         {node.carriedBytes ? <span className="carried" style={{ width: part(node.carriedBytes) }} /> : null}
         <span className="other" style={{ width: part(node.otherBytes) }} />
       </span>

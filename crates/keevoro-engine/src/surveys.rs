@@ -39,7 +39,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 /// The version written into each file. Bump it to forget older ones.
-const VERSION: u32 = 2;
+const VERSION: u32 = 3;
 
 /// How many places' surveys are kept.
 pub const KEPT: usize = 8;
@@ -146,17 +146,19 @@ fn kind_from(number: u8) -> Kind {
         0 => Kind::Photo,
         1 => Kind::Video,
         3 => Kind::Carried,
+        4 => Kind::Music,
         _ => Kind::Other,
     }
 }
 
 /// The order a folder's sums are written in: the kinds a map has always
-/// had, then other files carried along.
-const WRITTEN: [Kind; 4] = [Kind::Photo, Kind::Video, Kind::Other, Kind::Carried];
+/// had, then other files carried along, then music.
+const WRITTEN: [Kind; 5] = [Kind::Photo, Kind::Video, Kind::Other, Kind::Carried, Kind::Music];
 
 /// What the suggestions did not count, in the order written: photos and
-/// videos not looked for, everything never seen, then other files.
-const UNCOUNTED: [(bool, Kind); 7] = [
+/// videos not looked for, everything never seen, then other files, then
+/// music.
+const UNCOUNTED: [(bool, Kind); 9] = [
     (true, Kind::Photo),
     (true, Kind::Video),
     (false, Kind::Photo),
@@ -164,6 +166,8 @@ const UNCOUNTED: [(bool, Kind); 7] = [
     (false, Kind::Other),
     (true, Kind::Carried),
     (false, Kind::Carried),
+    (true, Kind::Music),
+    (false, Kind::Music),
 ];
 
 /// Where surveys are kept inside the cache.

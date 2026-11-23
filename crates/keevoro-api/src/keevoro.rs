@@ -111,6 +111,9 @@ pub struct BackupCounts {
     /// Other files carried along. Never said when there are none.
     #[serde(skip_serializing_if = "is_none_of_them")]
     pub others: usize,
+    /// Tracks of music. Never said when there are none.
+    #[serde(skip_serializing_if = "is_none_of_them")]
+    pub music: usize,
     /// Files being kept that are not yet safely everywhere they should be,
     /// and the room they need.
     pub waiting: usize,
@@ -131,12 +134,14 @@ pub struct BackupCounts {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StartBackupRequest {
     pub name: String,
-    /// What it is for: one or more of `photos`, `videos` and `others`.
-    /// Left out, everything Keevoro looks for.
+    /// What it is for: one or more of `photos`, `videos`, `music` and
+    /// `others`. Left out, photos and videos (and other files once some
+    /// kind of them is on the list).
     #[serde(default)]
     pub wants: Option<Vec<crate::wants::WantsWord>>,
     /// How it arranges files where it sends them: `byDate` or `folders`.
-    /// Left out, it is asked the first time, and goes by date until then.
+    /// Left out, it is asked the first time, and goes by date until then;
+    /// a backup for music alone keeps its folders.
     #[serde(default)]
     pub arrange: Option<crate::arrange::ArrangeWord>,
 }
@@ -465,6 +470,7 @@ impl Keevoro {
                 photos: d.photos,
                 videos: d.videos,
                 others: d.others,
+                music: d.music,
                 waiting: d.waiting_to_gather,
                 waiting_bytes: d.waiting_bytes,
                 bytes: d.bytes,
@@ -484,6 +490,28 @@ impl Keevoro {
     pub fn start_backup(&self, name: &str) -> Result<Named> {
         let started = self.backups.start(name)?;
         self.log.say(&format!("Started backup \"{}\"", started.name));
+        Ok(started)
+    }
+
+    /// Starts a backup for what the person said it is for, arranged as
+    /// asked. A backup of music alone keeps its folders as they are unless
+    /// asked otherwise: music is never arranged by date, and a backup of
+    /// nothing else has nothing to arrange by date. Left out, it is for
+    /// photos and videos.
+    pub fn start_backup_for(
+        &self,
+        name: &str,
+        wants: Option<keevoro_core::Wants>,
+        arrange: Option<keevoro_core::Arrange>,
+    ) -> Result<Named> {
+        let started = self.start_backup(name)?;
+        let arrange = arrange.or_else(|| wants.filter(|w| w.music_only()).map(|_| keevoro_core::Arrange::Folders));
+        if let Some(wants) = wants {
+            self.set_backup_wants(&Backup::open(&started.home)?, wants)?;
+        }
+        if let Some(arrange) = arrange {
+            self.set_arrangement(&Backup::open(&started.home)?, arrange)?;
+        }
         Ok(started)
     }
 

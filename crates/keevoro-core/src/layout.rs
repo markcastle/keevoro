@@ -8,12 +8,16 @@
 //! originals/By date/2009/2009-07/IMG_0042.jpg        no useful folder, but dated
 //! originals/Undated/scan0001.jpg                     no believable date anywhere
 //! originals/Other files/Mum/Documents/Tax/return.pdf an other file, in its folder
+//! originals/Music/The Made-Up Band/Pretend Songs/01.flac music, in its folders
 //! ```
 //!
-//! Other files keep the folders they came from, starting with the source's
-//! own folder's name, under one clear folder of their own, so they never
-//! mix with the photos. Two sources with the same folders share them; a
-//! name already taken by a different file is numbered, as for photos.
+//! Music and other files keep the folders they came from, starting with
+//! the source's own folder's name, each under one clear folder of its own,
+//! so they never mix with the photos, however the photos are arranged.
+//! Music from a source that is itself a folder called Music (as most
+//! computers have) is not put in `Music/Music`. Two sources with the same
+//! folders share them; a name already taken by a different file is
+//! numbered, as for photos.
 //!
 //! Names are made safe for every disk the library might live on. A library
 //! built on a Mac must still open on a Windows PC, so the stricter Windows
@@ -27,6 +31,8 @@ pub const BY_DATE: &str = "By date";
 pub const UNDATED: &str = "Undated";
 /// Where other files go, inside `originals`.
 pub const OTHER_FILES: &str = "Other files";
+/// Where music goes, inside `originals`.
+pub const MUSIC: &str = "Music";
 
 /// The folders, from the library root down, that a file belongs in. For an
 /// other file, `album` is the folder it came from.
@@ -35,6 +41,15 @@ pub fn library_folder(kind: MediaKind, album: &[String], date: Option<&DateGuess
     if kind == MediaKind::Other {
         path.push(OTHER_FILES.to_string());
         path.extend(album.iter().map(|a| safe_name(a)));
+        return path;
+    }
+    if kind == MediaKind::Music {
+        path.push(MUSIC.to_string());
+        let inner = match album.split_first() {
+            Some((first, rest)) if first.eq_ignore_ascii_case(MUSIC) => rest,
+            _ => album,
+        };
+        path.extend(inner.iter().map(|a| safe_name(a)));
         return path;
     }
     if !album.is_empty() {
@@ -233,6 +248,24 @@ mod tests {
             library_folder(MediaKind::Other, &[], None),
             ["originals", "Other files"]
         );
+    }
+
+    #[test]
+    fn music_keeps_its_folders_under_its_own_and_is_never_put_by_date() {
+        let day = guess("2009-07-14", DateSource::Modified);
+        assert_eq!(
+            library_folder(
+                MediaKind::Music,
+                &album(&["Music", "The Made-Up Band", "Pretend Songs"]),
+                Some(&day)
+            ),
+            ["originals", "Music", "The Made-Up Band", "Pretend Songs"]
+        );
+        assert_eq!(
+            library_folder(MediaKind::Music, &album(&["Old laptop", "Music", "Albums"]), None),
+            ["originals", "Music", "Old laptop", "Music", "Albums"]
+        );
+        assert_eq!(library_folder(MediaKind::Music, &[], None), ["originals", "Music"]);
     }
 
     #[test]

@@ -286,8 +286,8 @@ pub fn still_to_make(catalog: &Catalog) -> Result<(u64, u64)> {
                     videos += 1;
                 }
             }
-            // No preview is ever made of an other file.
-            MediaKind::Other => {}
+            // No preview is ever made of music or an other file.
+            MediaKind::Other | MediaKind::Music => {}
         }
     }
     Ok((photos, videos))
@@ -315,7 +315,7 @@ pub fn without_previews(catalog: &Catalog) -> Result<(u64, u64)> {
                     videos += 1;
                 }
             }
-            MediaKind::Other => {}
+            MediaKind::Other | MediaKind::Music => {}
         }
     }
     Ok((photos, videos))

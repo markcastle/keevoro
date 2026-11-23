@@ -6,6 +6,8 @@
 // And Help, Compare cloud storage providers: a few words about Stratus and
 // a button that opens the same sheet "Where should they go?" opens.
 
+import { heading } from '../format'
+import { useHolds } from '../holds'
 import { useEffect, useState } from 'react'
 import type { Backend, KeepRunningView } from '../backend'
 import { CompareSheet } from '../compare'
@@ -33,11 +35,13 @@ export function HowToSection(props: { api: Backend; onGo: (going: Going) => void
     api.keepRunning().then(setClosing).catch(onProblem)
   }, [api, onProblem])
 
+  // The first step, named as the side band names it for this backup: "Find your music".
+  const findStep = `Find your ${heading(useHolds())}`
   const answers: Answer[] = [
     {
       id: 'howSource',
-      said: 'On Find your photos, choose a drive, a card or a folder. Keevoro looks through it and adds what it finds to this backup.',
-      button: 'Find your photos',
+      said: `On ${findStep}, choose a drive, a card or a folder. Keevoro looks through it and adds what it finds to this backup.`,
+      button: findStep,
       going: { step: 'find' },
     },
     {
@@ -54,8 +58,8 @@ export function HowToSection(props: { api: Backend; onGo: (going: Going) => void
     },
     {
       id: 'howPluggedIn',
-      said: 'On Find your photos, switch on “Back up when this is plugged in” under the drive or card. While Keevoro is running, it backs it up a few seconds after it is plugged in.',
-      button: 'Find your photos',
+      said: `On ${findStep}, switch on “Back up when this is plugged in” under the drive or card. While Keevoro is running, it backs it up a few seconds after it is plugged in.`,
+      button: findStep,
       going: { step: 'find' },
     },
     {
@@ -72,8 +76,8 @@ export function HowToSection(props: { api: Backend; onGo: (going: Going) => void
     },
     {
       id: 'howLeaveOut',
-      said: 'On Find your photos, choose Look inside or Where the space goes on a source, then Leave out beside the folder. Nothing in the folder is touched.',
-      button: 'Find your photos',
+      said: `On ${findStep}, choose Look inside or Where the space goes on a source, then Leave out beside the folder. Nothing in the folder is touched.`,
+      button: findStep,
       going: { step: 'find' },
     },
     {

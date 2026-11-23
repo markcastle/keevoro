@@ -823,8 +823,14 @@ fn smaller_things_a_backup_can_be_asked() {
     at.keevoro(&["sources", "wants", "1", "backup"]);
     let ran = at.keevoro(&["wants", "photos,videos"]);
     assert_eq!(ran.out.trim(), "This backup is for photos and videos.");
-    let ran = at.keevoro(&["wants", "music"]);
+    let ran = at.keevoro(&["wants", "songbooks"]);
     assert_eq!(ran.code, Code::NotUnderstood, "{}", ran.err);
+    // Music is a choice of its own, found by looking through again.
+    let ran = at.keevoro(&["wants", "music"]);
+    assert_eq!(ran.code, Code::Worked, "{}", ran.err);
+    assert!(ran.out.starts_with("This backup is for music only."), "{}", ran.out);
+    assert!(ran.out.contains("keevoro look --again"), "{}", ran.out);
+    at.keevoro(&["wants", "photos", "videos"]);
     let ran = at.keevoro(&["backups", "start", "Beach", "--wants", "videos", "--json"]);
     assert_eq!(ran.code, Code::Worked, "{}", ran.err);
     let ran = at.keevoro(&["-b", "Beach", "wants"]);
@@ -952,12 +958,20 @@ fn the_kinds_of_file_looked_for_are_listed_added_switched_and_put_back() {
     );
     assert!(
         ran.out
-            .contains("less common kinds, looked for too but 9 switched off: keevoro kinds --all lists them."),
+            .contains("less common kinds, looked for too but 10 switched off: keevoro kinds --all lists them."),
         "{}",
         ran.out
     );
+    assert!(ran.out.contains(".flac       music  built in  on"), "{}", ran.out);
     let ran = at.keevoro(&["kinds", "--all"]);
     assert!(ran.out.contains(".tga        photo  built in  on"), "{}", ran.out);
+    assert!(ran.out.contains(".m3u        music  built in  on"), "{}", ran.out);
+    assert!(
+        ran.out
+            .contains(".dts        music  built in  off  (often something else)"),
+        "{}",
+        ran.out
+    );
     assert!(
         ran.out
             .contains(".dat        video  built in  off  (often not a photo or video)"),

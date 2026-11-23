@@ -106,7 +106,10 @@ impl Known {
     fn unchanged(&self, path: &Path, listing: &std::fs::Metadata, opts: &ScanOptions) -> Option<FoundItem> {
         let before = self.0.get(path)?;
         let ending = path.extension().map(|e| e.to_string_lossy()).unwrap_or_default();
-        let same_sort = opts.kinds.is_other(&ending) == (before.kind == MediaKind::Other);
+        let same_sort = match opts.kinds.by_ending_alone(&ending) {
+            Some(kind) => before.kind == kind,
+            None => before.kind.is_media(),
+        };
         let full_enough = before.blake3.is_some() && (before.hashed || opts.quick);
         let same =
             listing.len() == before.bytes && modified_of(listing).is_some() && modified_of(listing) == before.modified;
@@ -231,7 +234,9 @@ pub struct ScanProgress {
     pub videos: u64,
     /// Other files a person asked for, found so far.
     pub others: u64,
-    /// Bytes of photos, videos and other files read so far.
+    /// Music found so far.
+    pub music: u64,
+    /// Bytes of photos, videos, music and other files read so far.
     pub bytes: u64,
     /// The folder of the file most recently looked at.
     pub folder: PathBuf,
@@ -377,6 +382,7 @@ pub fn scan(root: &Path, opts: &ScanOptions, on_progress: &mut dyn FnMut(&ScanPr
                         MediaKind::Photo => progress.photos += 1,
                         MediaKind::Video => progress.videos += 1,
                         MediaKind::Other => progress.others += 1,
+                        MediaKind::Music => progress.music += 1,
                     }
                     progress.bytes += item.bytes;
                     found.push((order, *item));
@@ -507,8 +513,10 @@ fn walk(
 /// Looks at one file. `Ok(None)` means it is not a photo or video.
 fn examine(root: &Path, path: &Path, opts: &ScanOptions) -> std::io::Result<Option<FoundItem>> {
     let ending = path.extension().map(|e| e.to_string_lossy()).unwrap_or_default();
-    if opts.kinds.is_other(&ending) {
-        return examine_other(root, path, opts).map(Some);
+    // Music and other files are found by their ending alone, and never
+    // opened to see what they are: read only to be fingerprinted.
+    if let Some(kind) = opts.kinds.by_ending_alone(&ending) {
+        return examine_other(root, path, opts, kind).map(Some);
     }
     let mut file = File::open(path)?;
     let mut head = vec![0u8; SNIFF_BYTES];
@@ -588,7 +596,7 @@ fn examine(root: &Path, path: &Path, opts: &ScanOptions) -> std::io::Result<Opti
                 });
             }
         }
-        MediaKind::Other => {}
+        MediaKind::Other | MediaKind::Music => {}
     }
     let file_name = path
         .file_name()
@@ -645,7 +653,7 @@ fn examine(root: &Path, path: &Path, opts: &ScanOptions) -> std::io::Result<Opti
 /// the source's own folder's name down, exactly as the person arranged it,
 /// and its date is when it last changed, as a file manager shows it. It is
 /// never set aside as junk: a person asked for it.
-fn examine_other(root: &Path, path: &Path, opts: &ScanOptions) -> std::io::Result<FoundItem> {
+fn examine_other(root: &Path, path: &Path, opts: &ScanOptions, kind: MediaKind) -> std::io::Result<FoundItem> {
     let mut file = File::open(path)?;
     let meta = file.metadata()?;
     let (blake3, hashed) = if !opts.hash {
@@ -680,8 +688,11 @@ fn examine_other(root: &Path, path: &Path, opts: &ScanOptions) -> std::io::Resul
         });
     Ok(FoundItem {
         path: path.to_path_buf(),
-        kind: MediaKind::Other,
-        mime: "application/octet-stream".to_string(),
+        kind,
+        mime: match kind {
+            MediaKind::Music => music_mime(path),
+            _ => "application/octet-stream".to_string(),
+        },
         bytes: meta.len(),
         blake3,
         hashed,
@@ -696,6 +707,20 @@ fn examine_other(root: &Path, path: &Path, opts: &ScanOptions) -> std::io::Resul
         junk: None,
         modified: modified_of(&meta),
     })
+}
+
+/// The type of a music file, from its ending alone: it is never opened to
+/// see. `audio/` and the ending, which is all anything later needs.
+fn music_mime(path: &Path) -> String {
+    let ending = path
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    match ending.as_str() {
+        "mp3" => "audio/mpeg".to_string(),
+        "m3u" | "m3u8" | "pls" | "cue" => format!("text/x-{ending}"),
+        _ => format!("audio/x-{ending}"),
+    }
 }
 
 /// True when `dir` sits directly inside a Photos, iPhoto or Aperture library.

@@ -57,6 +57,9 @@ type Look = {
   /** Other files a person put on the list, to be carried along. */
   carried: string
   carriedEdge: string
+  /** Music, for a backup that is for it. */
+  music: string
+  musicEdge: string
   ground: string
   strip: string
   ink: string
@@ -110,6 +113,8 @@ export function lookOf(ctx: CanvasRenderingContext2D): Look {
     otherEdge: token(style, '--map-other-edge'),
     carried: token(style, '--map-carried'),
     carriedEdge: token(style, '--map-carried-edge'),
+    music: token(style, '--map-music'),
+    musicEdge: token(style, '--map-music-edge'),
     ground: surface,
     strip: mix(lineStrong, sunken, 0.18),
     ink,
@@ -118,6 +123,7 @@ export function lookOf(ctx: CanvasRenderingContext2D): Look {
       photo: { fill: token(style, '--sun'), on: token(style, '--on-sun') },
       video: { fill: token(style, '--pine'), on: token(style, '--on-primary') },
       carried: { fill: token(style, '--peach'), on: token(style, '--on-sun') },
+      music: { fill: token(style, '--map-music-edge'), on: token(style, '--surface') },
       other: { fill: token(style, '--line-strong'), on: token(style, '--on-primary') },
     },
     focus: token(style, '--focus-ring'),
@@ -202,7 +208,9 @@ export function draw(ctx: CanvasRenderingContext2D, top: Laid<MapNode>, look: Lo
           ? look.videoEdge
           : kind === 'carried'
             ? look.carriedEdge
-            : look.otherEdge
+            : kind === 'music'
+              ? look.musicEdge
+              : look.otherEdge
     const opened = Boolean(b.inner && b.children.length > 0)
     ctx.fillStyle = opened ? mix(fill, look.ground, 0.35) : fill
     ctx.fillRect(b.x, b.y, b.w, b.h)
@@ -306,7 +314,9 @@ export const motionWelcome = () => !window.matchMedia('(prefers-reduced-motion: 
 
 /** What the map is, in words, for a screen reader: the list beside it says the rest. */
 function summary(top: MapNode) {
-  const carried = top.carriedBytes ? `, other files to carry along ${share(top.carriedBytes, top.bytes)}` : ''
+  const carried =
+    (top.musicBytes ? `, music ${share(top.musicBytes, top.bytes)}` : '') +
+    (top.carriedBytes ? `, other files to carry along ${share(top.carriedBytes, top.bytes)}` : '')
   return `Map of ${top.name}: ${size(top.bytes)}. Photos ${share(top.photoBytes, top.bytes)}, videos ${share(
     top.videoBytes,
     top.bytes,
@@ -613,7 +623,7 @@ export function MapCanvas(props: {
  * only sign. Other files to carry along are only in the key when the map
  * has some.
  */
-export function MapKey(props: { carried?: boolean }) {
+export function MapKey(props: { carried?: boolean; music?: boolean }) {
   return (
     <ul className="key" aria-label="Key">
       <li>
@@ -622,6 +632,11 @@ export function MapKey(props: { carried?: boolean }) {
       <li>
         <span className="swatch video" aria-hidden /> Videos
       </li>
+      {props.music && (
+        <li>
+          <span className="swatch music" aria-hidden /> Music
+        </li>
+      )}
       {props.carried && (
         <li>
           <span className="swatch carried" aria-hidden /> Other files to carry along

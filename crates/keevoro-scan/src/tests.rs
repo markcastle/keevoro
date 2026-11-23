@@ -971,13 +971,19 @@ mod other_files {
         t.add("Documents/notes.txt", b"not on the list");
         t.add("photo.jpg", &plain_jpeg(1));
 
-        let before = t.scan();
+        // A backup that is not for music.
+        let not_music = ScanOptions {
+            kinds: Kinds::default().without_music(),
+            ..ScanOptions::default()
+        };
+        let before = scan(t.root(), &not_music, &mut |_| {});
         let kinds: Vec<MediaKind> = before.items.iter().map(|i| i.kind).collect();
         assert_eq!(
             kinds,
             [MediaKind::Photo, MediaKind::Photo],
             "nothing is carried until a person adds a kind"
         );
+        assert_eq!(before.other_files, 3, "the song passed over unopened, as ever");
         let r = scan_with(&t, &with_others(&["pdf", "flac", "dat"]));
         assert_eq!(r.items.len(), 4, "{:?}", r.items);
         let root_name = t.root().file_name().unwrap().to_string_lossy().to_string();
@@ -1003,6 +1009,54 @@ mod other_files {
             assert_eq!(found.date.map(|d| d.source), Some(DateSource::Modified));
         }
         assert_eq!(item(&r, "photo.jpg").kind, MediaKind::Photo, "photos as ever");
+    }
+
+    #[test]
+    fn music_is_found_by_its_ending_never_opened_and_kept_in_its_folders() {
+        let t = Tree::new();
+        // A JPEG inside, named as music: the ending decides, and nothing
+        // inside is looked at.
+        t.add("Music/The Made-Up Band/Pretend Songs/Track 01.mp3", &plain_jpeg(3));
+        t.add("Music/The Made-Up Band/Pretend Songs/Track 02.flac", &[7u8; 64]);
+        t.add(
+            "Music/The Made-Up Band/Pretend Songs/album.cue",
+            b"FILE \"Track 02.flac\" WAVE",
+        );
+        t.add("Music/Old.mod", &[0u8; 1]);
+        t.add("photo.jpg", &plain_jpeg(1));
+        let music = ScanOptions {
+            kinds: Kinds::default().wanted_by(keevoro_core::Wants::only(MediaKind::Music)),
+            ..ScanOptions::default()
+        };
+        let r = scan(t.root(), &music, &mut |_| {});
+        let names: Vec<&str> = r
+            .items
+            .iter()
+            .map(|i| i.path.file_name().unwrap().to_str().unwrap())
+            .collect();
+        assert_eq!(
+            names.len(),
+            3,
+            "{names:?}: no photo, and .mod is still a camcorder video"
+        );
+        let root_name = t.root().file_name().unwrap().to_string_lossy().to_string();
+        for (name, mime) in [
+            ("Track 01.mp3", "audio/mpeg"),
+            ("Track 02.flac", "audio/x-flac"),
+            ("album.cue", "text/x-cue"),
+        ] {
+            let found = item(&r, name);
+            assert_eq!(found.kind, MediaKind::Music, "{name}");
+            assert_eq!(found.mime, mime, "{name}: from the ending, never sniffed");
+            assert_eq!(
+                found.folder.album,
+                [root_name.as_str(), "Music", "The Made-Up Band", "Pretend Songs"],
+                "{name}: its folders as they are"
+            );
+            assert_eq!(found.date.map(|d| d.source), Some(DateSource::Modified));
+            assert_eq!((found.width, found.height, found.junk), (None, None, None));
+            assert!(found.hashed);
+        }
     }
 
     #[test]

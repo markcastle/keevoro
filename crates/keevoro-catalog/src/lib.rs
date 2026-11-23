@@ -936,7 +936,24 @@ impl Catalog {
         self.set_setting(&left_out_key(&root), &serde_json::to_string(&list).map_err(damaged)?)
     }
 
-    /// Whether this backup wants photos and videos, or only one of them.
+    /// Is music looked for in this backup's sources: because it, or one of
+    /// its sources, is for music, or because it holds music found before?
+    /// Only then is music looked for at all, so a backup that never wanted
+    /// it spends nothing on it, and one that stops wanting it forgets
+    /// nothing it found.
+    pub fn looks_for_music(&self) -> Result<bool> {
+        let choices = self.choices()?;
+        if choices.backup.music || choices.sources.iter().any(|s| s.wants.is_some_and(|w| w.music)) {
+            return Ok(true);
+        }
+        let found = self
+            .conn
+            .query_row("SELECT 1 FROM items WHERE kind = 'music' LIMIT 1", [], |_| Ok(()))
+            .optional()?;
+        Ok(found.is_some())
+    }
+
+    /// What this backup is for: photos and videos unless the person chose.
     pub fn wants(&self) -> Result<keevoro_core::Wants> {
         Ok(self
             .setting(WANTS)?
@@ -1219,7 +1236,7 @@ impl Catalog {
                             choices.offered_in(&facts, &root).is_ok()
                         });
                         if arranged && choices.arrangement_in(&root) == Arrange::Folders {
-                            for item in items.iter_mut().filter(|i| i.kind != keevoro_core::MediaKind::Other) {
+                            for item in items.iter_mut().filter(|i| i.kind.is_media()) {
                                 item.folder = FolderHints {
                                     album: keevoro_core::arrange::kept_folders(&root, &name, &item.path),
                                     // A folder's date only places a file by date.

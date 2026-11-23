@@ -112,7 +112,7 @@ A folder backup is fingerprinted as it is sent and read back afterwards. Cloud s
 
 - [ ] Prove, as a job the person starts, whether every photo in an old library is already in a backup, so it can be removed knowing nothing is lost (see "Keevoro's own folders are never a source")
 - [ ] Show other programs' jobs in the app, and let Pause reach a survey or a check for duplicates running alone in another program
-- [ ] Music done properly: artist and album from the file's tags, cover art as the picture, lengths (see "Other kinds of file"). Only if carrying music along as "other" proves to be used
+- [ ] Music done further: artist and album from the file's tags, cover art as the picture, lengths (see "Other kinds of file"). Music is a kind of its own now; this is only if it proves to be used
 - [ ] Agents on other machines: reaching Keevoro over a network, with sign-in and encryption
 - [ ] The website: what Keevoro is, how to get it, that it is in beta, and where to send feedback (the spec is written; the domain and 16 questions are open)
 - [ ] Windows code signing and Apple notarisation, when certificates exist (the tester saw Microsoft's download warning; the owner has a guide to doing it cheaply and will decide when)
@@ -495,6 +495,14 @@ Step 1: "other" files, carried along
 - [x] The survey and the map count a wanted "other" kind as wanted, not as "everything else"
 - [x] The backup's layout at the destination says where other files go (`originals/Other files`, in their folders), and the guide note explains it
 - [x] On the command line and in the API; readable by an AI agent, which cannot change the list
+
+Step 1b: music a kind of its own (asked for by the owner: "I'd quite like music to be a top level type")
+
+- [x] Music is a kind of its own beside photos and videos: 33 built-in endings in two tiers, found by ending alone and never opened, a backup not for music passing it over exactly as before
+- [x] "What do you want to back up?" asked up front with Photos, Videos and Music when a backup is made, a "Backing up: … Change" line on the first step, and Music in Settings and each source's own choices
+- [x] A backup of music alone keeps its folders; music always keeps its folders under `originals/Music`, beside photos arranged by date
+- [x] The words follow the backup: "Find your music", "1,204 tracks", on the screens, the command line and for agents
+- [x] Every backup before is for no music, and endings a person added as other files stay theirs
 
 Step 2: music done properly (later, and only if step 1 is used for music)
 

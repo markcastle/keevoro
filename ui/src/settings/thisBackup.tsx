@@ -3,7 +3,7 @@
 // here is the open backup's own; another backup has its own.
 
 import { useEffect, useState } from 'react'
-import type { AppState, ArrangeView, Backend } from '../backend'
+import type { AppState, ArrangeView, Backend, WantsView } from '../backend'
 import { BackupArrange } from '../arrange'
 import { BackupWants } from '../wants'
 import { Group, OpenRow, Row, RowButton, RowSwitch, Said } from './parts'
@@ -16,6 +16,7 @@ export function ThisBackupSection(props: {
   kindsChanged: number
   onLibrary: (state: AppState) => void
   onArranged: (view: ArrangeView) => void
+  onWantsChanged: (view: WantsView) => void
   /** Goes to the step that chooses where it backs up to. */
   onSend: () => void
   onBackups: () => void
@@ -61,7 +62,10 @@ export function ThisBackupSection(props: {
             key={props.kindsChanged}
             load={() => api.backupWants()}
             choose={(wants) => api.setBackupWants(wants)}
-            onChanged={() => props.onLibrary(state)}
+            onChanged={(view) => {
+              props.onWantsChanged(view)
+              props.onLibrary(state)
+            }}
             onSaid={setWantsSaid}
             onProblem={onProblem}
           />
