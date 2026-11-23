@@ -115,7 +115,7 @@ const DISK: Made = {
             PICTURES,
             { name: 'Videos', folders: [{ name: 'Holidays', rest: { photo: [287, 1.8 * GB], video: [31, 86.2 * GB] } }] },
             { name: 'Documents', rest: { other: [4_120, 2.1 * GB], photo: [14, 30 * MB] } },
-            { name: 'Music', folders: [{ name: 'Holiday mix', rest: { other: [240, 7.2 * GB] } }] },
+            { name: 'Projects', folders: [{ name: 'Garden shed', rest: { other: [240, 7.2 * GB] } }] },
             { name: 'AppData', skipped: 'App or cache folder', rest: { other: [210_000, 9.4 * GB], photo: [30_000, 0.6 * GB] } },
           ],
         },
@@ -192,8 +192,8 @@ const endingOf = (folder: string, kind: Kind, file?: string) =>
             ? 'dll'
             : folder === 'Documents'
               ? 'pdf'
-              : folder === 'Holiday mix'
-                ? 'flac'
+              : folder === 'Garden shed'
+                ? 'blend'
                 : 'txt'
 
 type Sums = Record<Kind, [number, number]> & { online: number; folders: number }

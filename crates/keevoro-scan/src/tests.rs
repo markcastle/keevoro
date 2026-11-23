@@ -1016,11 +1016,11 @@ mod other_files {
         let t = Tree::new();
         // A JPEG inside, named as music: the ending decides, and nothing
         // inside is looked at.
-        t.add("Music/The Made-Up Band/Paper Boats/01 Harbour.mp3", &plain_jpeg(3));
-        t.add("Music/The Made-Up Band/Paper Boats/02 Tide.flac", &[7u8; 64]);
+        t.add("Music/The Made-Up Band/Pretend Songs/Track 01.mp3", &plain_jpeg(3));
+        t.add("Music/The Made-Up Band/Pretend Songs/Track 02.flac", &[7u8; 64]);
         t.add(
-            "Music/The Made-Up Band/Paper Boats/album.cue",
-            b"FILE \"02 Tide.flac\" WAVE",
+            "Music/The Made-Up Band/Pretend Songs/album.cue",
+            b"FILE \"Track 02.flac\" WAVE",
         );
         t.add("Music/Old.mod", &[0u8; 1]);
         t.add("photo.jpg", &plain_jpeg(1));
@@ -1041,8 +1041,8 @@ mod other_files {
         );
         let root_name = t.root().file_name().unwrap().to_string_lossy().to_string();
         for (name, mime) in [
-            ("01 Harbour.mp3", "audio/mpeg"),
-            ("02 Tide.flac", "audio/x-flac"),
+            ("Track 01.mp3", "audio/mpeg"),
+            ("Track 02.flac", "audio/x-flac"),
             ("album.cue", "text/x-cue"),
         ] {
             let found = item(&r, name);
@@ -1050,7 +1050,7 @@ mod other_files {
             assert_eq!(found.mime, mime, "{name}: from the ending, never sniffed");
             assert_eq!(
                 found.folder.album,
-                [root_name.as_str(), "Music", "The Made-Up Band", "Paper Boats"],
+                [root_name.as_str(), "Music", "The Made-Up Band", "Pretend Songs"],
                 "{name}: its folders as they are"
             );
             assert_eq!(found.date.map(|d| d.source), Some(DateSource::Modified));

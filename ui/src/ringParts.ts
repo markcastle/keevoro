@@ -30,6 +30,7 @@ export function ringParts(top: MapNode): RingPart[] {
   const all: [MapKind, number][] = [
     ['photo', top.photoBytes],
     ['video', top.videoBytes],
+    ['music', top.musicBytes ?? 0],
     ['carried', top.carriedBytes ?? 0],
     ['other', top.otherBytes],
   ]

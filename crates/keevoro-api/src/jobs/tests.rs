@@ -1872,23 +1872,23 @@ fn a_backup_of_music_alone_finds_only_music_keeps_its_folders_and_says_tracks() 
     let dir = tempfile::tempdir().unwrap();
     let keevoro = keevoro(dir.path());
     let music = dir.path().join("Music");
-    let album = ["The Made-Up Band", "Paper Boats"];
+    let album = ["The Made-Up Band", "Pretend Songs"];
     for (rel, bytes) in [
         (
-            vec!["The Made-Up Band", "Paper Boats", "01 Harbour.mp3"],
+            vec!["The Made-Up Band", "Pretend Songs", "Track 01.mp3"],
             vec![1u8; 3_000],
         ),
         (
-            vec!["The Made-Up Band", "Paper Boats", "02 Tide.flac"],
+            vec!["The Made-Up Band", "Pretend Songs", "Track 02.flac"],
             vec![2u8; 4_000],
         ),
         (
-            vec!["The Made-Up Band", "Paper Boats", "album.m3u"],
-            b"01 Harbour.mp3".to_vec(),
+            vec!["The Made-Up Band", "Pretend Songs", "album.m3u"],
+            b"Track 01.mp3".to_vec(),
         ),
         // The same song twice: left out once, as any exact copy is.
         (
-            vec!["Willow Street Trio", "Live at Home", "01 Harbour.mp3"],
+            vec!["Willow Street Trio", "Kitchen Sessions", "Track 01.mp3"],
             vec![1u8; 3_000],
         ),
         (vec!["IMG_20190601_120000.jpg"], large_photo(40)),
@@ -1921,7 +1921,7 @@ fn a_backup_of_music_alone_finds_only_music_keeps_its_folders_and_says_tracks() 
         .as_array()
         .unwrap()
         .iter()
-        .find(|c| c["title"] == "Paper Boats")
+        .find(|c| c["title"] == "Pretend Songs")
         .unwrap_or_else(|| panic!("an album is its folder: {collections}"));
     assert_eq!((&boats["music"], &boats["byFolder"]), (&json!(3), &json!(true)));
     assert_eq!(boats["summary"], "3 tracks");
@@ -1936,7 +1936,7 @@ fn a_backup_of_music_alone_finds_only_music_keeps_its_folders_and_says_tracks() 
     let there = album
         .iter()
         .fold(usb.join("originals").join(keevoro_core::MUSIC), |p, part| p.join(part));
-    for name in ["01 Harbour.mp3", "02 Tide.flac", "album.m3u"] {
+    for name in ["Track 01.mp3", "Track 02.flac", "album.m3u"] {
         assert!(there.join(name).is_file(), "{name} in Music, in its folders");
     }
     assert!(
@@ -1964,7 +1964,7 @@ fn a_backup_for_photos_and_music_keeps_music_in_its_folders_beside_the_photos_by
     let home = dir.path().join("Laptop");
     for (rel, bytes) in [
         (
-            vec!["Music", "The Made-Up Band", "Paper Boats", "01 Harbour.mp3"],
+            vec!["Music", "The Made-Up Band", "Pretend Songs", "Track 01.mp3"],
             vec![1u8; 3_000],
         ),
         (vec!["Pictures", "IMG_20190601_120000.jpg"], large_photo(40)),
@@ -1991,7 +1991,7 @@ fn a_backup_for_photos_and_music_keeps_music_in_its_folders_beside_the_photos_by
     keevoro.wait(job.id);
     keevoro.wait_for_jobs();
     let originals = usb.join("originals");
-    let song = ["Laptop", "Music", "The Made-Up Band", "Paper Boats", "01 Harbour.mp3"]
+    let song = ["Laptop", "Music", "The Made-Up Band", "Pretend Songs", "Track 01.mp3"]
         .iter()
         .fold(originals.join(keevoro_core::MUSIC), |p, part| p.join(part));
     assert!(

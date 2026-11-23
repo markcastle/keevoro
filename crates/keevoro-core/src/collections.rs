@@ -493,10 +493,10 @@ mod tests {
             ..other(folder, date)
         };
         let items = vec![
-            track(&["Music", "The Made-Up Band", "Paper Boats"], day(2019, 1, 2)),
+            track(&["Music", "The Made-Up Band", "Pretend Songs"], day(2019, 1, 2)),
             photo(&[], day(2019, 1, 2), 10),
-            track(&["Music", "The Made-Up Band", "Paper Boats"], day(2011, 5, 6)),
-            track(&["Music", "Willow Street Trio", "Live at Home"], None),
+            track(&["Music", "The Made-Up Band", "Pretend Songs"], day(2011, 5, 6)),
+            track(&["Music", "Willow Street Trio", "Kitchen Sessions"], None),
         ];
         let c = group_into_collections(&items);
         assert_eq!(c.len(), 3);
@@ -504,10 +504,10 @@ mod tests {
         let boats = &c[1];
         assert_eq!(
             (boats.title.as_str(), boats.music, boats.by_folder),
-            ("Paper Boats", 2, true)
+            ("Pretend Songs", 2, true)
         );
         assert_eq!(boats.parents, ["Music", "The Made-Up Band"]);
         assert_eq!(boats.summary(), "2 tracks");
-        assert_eq!(c[2].title, "Live at Home");
+        assert_eq!(c[2].title, "Kitchen Sessions");
     }
 }

@@ -849,10 +849,10 @@ fn a_backup_0_37_1_kept_is_for_no_music_and_music_a_person_added_as_other_files_
     };
     let before = backed_up();
     assert!(before.iter().all(Option::is_some));
-    let album = places.card.join("Music").join("The Made-Up Band").join("Paper Boats");
+    let album = places.card.join("Music").join("The Made-Up Band").join("Pretend Songs");
     std::fs::create_dir_all(&album).unwrap();
-    std::fs::write(album.join("01 Harbour.mp3"), b"ID3 a made-up song").unwrap();
-    std::fs::write(album.join("02 Tide.flac"), b"fLaC a made-up song").unwrap();
+    std::fs::write(album.join("Track 01.mp3"), b"ID3 a made-up song").unwrap();
+    std::fs::write(album.join("Track 02.flac"), b"fLaC a made-up song").unwrap();
     let look_again = || {
         let job = ask(
             &keevoro,
@@ -885,7 +885,7 @@ fn a_backup_0_37_1_kept_is_for_no_music_and_music_a_person_added_as_other_files_
     look_again();
     assert_eq!(
         found(),
-        [("02 Tide.flac".to_string(), keevoro_core::MediaKind::Other)],
+        [("Track 02.flac".to_string(), keevoro_core::MediaKind::Other)],
         "music passed over, as a backup for no music always did"
     );
 
@@ -900,8 +900,8 @@ fn a_backup_0_37_1_kept_is_for_no_music_and_music_a_person_added_as_other_files_
     assert_eq!(
         found(),
         [
-            ("01 Harbour.mp3".to_string(), keevoro_core::MediaKind::Music),
-            ("02 Tide.flac".to_string(), keevoro_core::MediaKind::Other),
+            ("Track 01.mp3".to_string(), keevoro_core::MediaKind::Music),
+            ("Track 02.flac".to_string(), keevoro_core::MediaKind::Other),
         ],
         "theirs stays an other file, found once"
     );

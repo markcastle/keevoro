@@ -11,6 +11,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import type { Arrange, ArrangeView, Collection, Source, SourceArrangeView } from './backend'
 import { Explained } from './explained'
+import { useHolds } from './holds'
 import { sourceArrangeChoice } from './wantsRule'
 
 /** "“Family Scans”", "“Family Scans” and “Card”", for up to three folders. */
@@ -47,6 +48,7 @@ function Choice(props: {
 /** The two choices and what each means, shared by the question and Settings. */
 function Choices(props: { view: ArrangeView; chosen: Arrange; onChoose: (a: Arrange) => void; label: string }) {
   const { view, chosen } = props
+  const holds = useHolds()
   const suggested = view.suggestion?.arrange
   return (
     <div className="arrange-choices" role="radiogroup" aria-label={props.label}>
@@ -69,9 +71,13 @@ function Choices(props: { view: ArrangeView; chosen: Arrange; onChoose: (a: Arra
         The same folders, starting with {folderNames(view.topFolders ?? [])}. Best for scans, and folders you have
         already sorted.
       </Choice>
+      {holds.includes('music') && <p className="quiet small arrange-music">{MUSIC_KEEPS_ITS_FOLDERS}</p>}
     </div>
   )
 }
+
+/** Said under the choices of a backup with music: it is never arranged by date. */
+export const MUSIC_KEEPS_ITS_FOLDERS = 'Music always keeps its folders, in a folder called Music.'
 
 /**
  * The first-time question: asked once, before "Choose what to keep", on a

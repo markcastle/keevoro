@@ -1,0 +1,9 @@
+[
+  [true, false, false, "photos", "photos"],
+  [true, true, false, "photos and videos", "photos"],
+  [false, true, false, "videos", "videos"],
+  [false, false, true, "music", "music"],
+  [true, false, true, "photos and music", "photos and music"],
+  [false, true, true, "videos and music", "videos and music"],
+  [true, true, true, "photos, videos and music", "photos and music"]
+]

@@ -16,7 +16,8 @@
 
 import { useCallback, useRef, useState } from 'react'
 import type { Backend, FilesShow, FilesSort, FileView, LeftOutFolder } from './backend'
-import { files, size, thousands } from './format'
+import { files, musicOnly, size, thousands } from './format'
+import { useHolds } from './holds'
 import { InfoTip } from './infoTip'
 import { LeaveOutButton, LeftOutSaid } from './leaveOut'
 import { fileKey } from './pictureQueue'
@@ -41,11 +42,13 @@ const SHOWS: { value: FilesShow; words: string }[] = [
   { value: 'all', words: 'All' },
   { value: 'photos', words: 'Photos' },
   { value: 'videos', words: 'Videos' },
+  { value: 'music', words: 'Music' },
   { value: 'others', words: 'Other files' },
 ]
 
 /** What the closer look says of an other file, which is never opened to be shown. */
 const NOT_SHOWN = 'An other file: Keevoro backs it up exactly, but does not show it'
+const MUSIC_NOT_SHOWN = 'Music: Keevoro backs it up exactly, but never opens it'
 
 /** The folder a file is in. */
 const folderOf = (path: string) => path.replace(/[\\/][^\\/]*$/, '')
@@ -68,6 +71,7 @@ export function LookInside(props: {
   onLookThrough: (folder: string) => void
   onProblem: (error: unknown) => void
 }) {
+  const holds = useHolds()
   const { api, place, onProblem } = props
   const lookThrough = props.lookThrough ?? 'Look through this folder'
   const [sort, setSort] = useState<FilesSort>('name')
@@ -103,16 +107,26 @@ export function LookInside(props: {
   }
 
   const name = props.name ?? nameOf(place)
-  const shownOf = (f: { photos: number; videos: number; others?: number }) =>
+  const shownOf = (f: { photos: number; videos: number; others?: number; music?: number }) =>
     only === 'photos'
       ? f.photos
       : only === 'videos'
         ? f.videos
-        : only === 'others'
-          ? (f.others ?? 0)
-          : f.photos + f.videos + (f.others ?? 0)
-  // "Other files" is only offered where there are some.
-  const shows = SHOWS.filter((show) => show.value !== 'others' || (outline?.others ?? 0) > 0)
+        : only === 'music'
+          ? (f.music ?? 0)
+          : only === 'others'
+            ? (f.others ?? 0)
+            : f.photos + f.videos + (f.others ?? 0) + (f.music ?? 0)
+  // "Music" and "Other files" are only offered where there are some, and
+  // in a folder of music alone, neither are photos and videos.
+  const musicHere = (outline?.music ?? 0) > 0
+  const picturesHere = (outline?.photos ?? 0) + (outline?.videos ?? 0) > 0 || !musicHere
+  const shows = SHOWS.filter(
+    (show) =>
+      (show.value !== 'others' || (outline?.others ?? 0) > 0) &&
+      (show.value !== 'music' || musicHere) &&
+      ((show.value !== 'photos' && show.value !== 'videos') || picturesHere),
+  )
   const sections: TileSection<FileView>[] = (outline?.folders ?? [])
     .filter((folder) => shownOf(folder) > 0)
     .map((folder) => ({
@@ -121,7 +135,7 @@ export function LookInside(props: {
       heading: (
         <>
           <b>{folder.relative || name}</b>
-          <span className="quiet small">{files(folder.photos, folder.videos, folder.others ?? 0)}</span>
+          <span className="quiet small">{files(folder.photos, folder.videos, folder.others ?? 0, folder.music ?? 0)}</span>
           {folder.leftOut && <span className="badge">Left out</span>}
           {!outline?.leftOut && (
             <LeaveOutButton
@@ -179,7 +193,7 @@ export function LookInside(props: {
         </button>
         <h1>Inside {name}</h1>
         <p className="status">
-          {`${files(outline.photos, outline.videos, outline.others ?? 0)} · ${size(outline.bytes)}. Nothing is added or changed until you choose.`}
+          {`${files(outline.photos, outline.videos, outline.others ?? 0, outline.music ?? 0, holds)} · ${size(outline.bytes)}. Nothing is added or changed until you choose.`}
         </p>
         {outline.onlineOnly > 0 && (
           <p className="online-only small">
@@ -245,21 +259,35 @@ export function LookInside(props: {
           </p>
         )}
       </header>
-      {outline.folders.length === 0 && <div className="empty quiet">No photos or videos were found here.</div>}
+      {outline.folders.length === 0 && (
+        <div className="empty quiet">
+          {musicOnly(holds) ? 'No music was found here.' : 'No photos or videos were found here.'}
+        </div>
+      )}
       {outline.folders.length > 0 && sections.length === 0 && <div className="empty quiet">There are no {only} here.</div>}
       <VirtualTiles
         key={`${sort} ${only} ${version}`}
-        label={`Photos and videos inside ${name}`}
+        label={musicOnly(holds) ? `Music inside ${name}` : `Photos and videos inside ${name}`}
         sections={sections}
         tile={(file, at, section) => (
           <div className="tile">
-            {file?.isOther ? (
+            {file?.isOther || file?.isMusic ? (
               <button
                 className="look"
                 onClick={() => setLooking({ folder: section.key, at, file })}
                 aria-label={`About ${file.name}`}
               >
-                <FileTile photo={{ id: file.path, isVideo: false, isOther: true, name: file.name, sourcePath: file.path, thumbnail: null }} />
+                <FileTile
+                  photo={{
+                    id: file.path,
+                    isVideo: false,
+                    isOther: !file.isMusic,
+                    isMusic: file.isMusic,
+                    name: file.name,
+                    sourcePath: file.path,
+                    thumbnail: null,
+                  }}
+                />
                 {file.leftOut && (
                   <span className="out-mark" title={`Left out: ${file.leftOut}`}>
                     Left out
@@ -297,7 +325,13 @@ export function LookInside(props: {
             name: current.name,
             isVideo: current.isVideo,
             where: current.path,
-            missing: current.onlineOnly ? ONLINE_ONLY : current.isOther ? NOT_SHOWN : undefined,
+            missing: current.onlineOnly
+              ? ONLINE_ONLY
+              : current.isMusic
+                ? MUSIC_NOT_SHOWN
+                : current.isOther
+                  ? NOT_SHOWN
+                  : undefined,
             seconds: current.seconds,
             leftOut: current.leftOut,
           }}
@@ -306,7 +340,7 @@ export function LookInside(props: {
           place={`${thousands(looking.at + 1)} of ${thousands(inFolder ? shownOf(inFolder) : 0)}`}
           actions={
             <>
-              {current.isOther && (
+              {(current.isOther || current.isMusic) && (
                 <button className="button" onClick={() => api.openPlace(folderOf(current.path)).catch(onProblem)}>
                   Show in {FILE_MANAGER}
                 </button>

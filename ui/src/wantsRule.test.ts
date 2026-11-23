@@ -1,16 +1,30 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { sameWants, shownWords, sourceArrangeChoice, sourceWantsChoice, toggled } from './wantsRule.ts'
+import { NEW_BACKUP_WANTS, sameWants, shownWords, sourceArrangeChoice, sourceWantsChoice, toggled, toggledNew } from './wantsRule.ts'
 
 test('other files are only a choice once a kind of them is on the list', () => {
   assert.deepEqual(
     shownWords(false).map(([w]) => w),
-    ['photos', 'videos'],
+    ['photos', 'videos', 'music'],
   )
   assert.deepEqual(
     shownWords(true).map(([w]) => w),
-    ['photos', 'videos', 'others'],
+    ['photos', 'videos', 'music', 'others'],
   )
+})
+
+test('a new backup is for photos and videos until the person says, and keeps one on', () => {
+  assert.deepEqual(NEW_BACKUP_WANTS, ['photos', 'videos'])
+  assert.deepEqual(toggledNew(['photos', 'videos'], 'music', true), ['photos', 'videos', 'music'])
+  assert.deepEqual(toggledNew(['photos'], 'music', true), ['photos', 'music'])
+  assert.deepEqual(toggledNew(['photos', 'music'], 'photos', false), ['music'])
+  assert.equal(toggledNew(['music'], 'music', false), null, 'at least one stays on')
+})
+
+test('music is a switch of its own, beside the others', () => {
+  assert.deepEqual(toggled(['photos', 'videos'], 'music', true, false), ['photos', 'videos', 'music'])
+  assert.equal(toggled(['music'], 'music', false, false), null)
+  assert.deepEqual(sourceWantsChoice(['music'], ['photos', 'videos']), ['music'])
 })
 
 test('unticking one keeps the others as they were, even one not shown', () => {

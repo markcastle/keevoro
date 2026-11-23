@@ -1321,8 +1321,8 @@ button.danger {
 }
 
 .backup .menu form {
-  display: flex;
-  gap: 6px;
+  display: grid;
+  gap: 8px;
   padding: 4px;
 }
 
@@ -1360,9 +1360,10 @@ button.danger {
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
 }
 
-.backup .menu form {
+.backup .menu form .naming-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
 }
 
 .backup .menu input {
@@ -1483,7 +1484,7 @@ h3 + .small {
 .choices button:not(.link),
 .kept li.source .confirm button,
 .update .actions button:not(.link),
-.backup .menu form button {
+.backup .menu form .naming-row button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1513,7 +1514,7 @@ h3 + .small {
 .primary,
 .choices .primary,
 .update .actions .primary,
-.backup .menu form .primary {
+.backup .menu form .naming-row .primary {
   background: var(--primary);
   border-color: transparent;
   color: var(--on-primary);
@@ -2097,7 +2098,7 @@ h2 .folder {
 .choices button.primary,
 .update .actions button.primary,
 .session .menu form button.primary,
-.backup .menu form button.primary {
+.backup .menu form .naming-row button.primary {
   background: var(--primary);
   border-color: transparent;
   color: var(--on-primary);
@@ -3984,6 +3985,15 @@ fieldset.wants {
   box-shadow: inset 0 0 0 1px var(--map-carried-edge);
 }
 
+/* Music, for a backup that is for it: a soft sky blue, edged. */
+.share-bar .music,
+.key .music,
+.kinds-list .swatch.music,
+.summary-ring .swatch.music {
+  background: var(--map-music);
+  box-shadow: inset 0 0 0 1px var(--map-music-edge);
+}
+
 /* In a share bar each part is too thin for an edge of its own. */
 .share-bar > span {
   box-shadow: none;
@@ -4959,6 +4969,10 @@ tr[aria-selected='true'] .share-bar .carried {
 
 .ring-part.carried {
   stroke: url(#ring-rows);
+}
+
+.ring-part.music {
+  stroke: var(--map-music);
 }
 
 .ring-part.other {
@@ -6747,4 +6761,87 @@ h3.kv-group-title {
 
 .source-arrange-choice .quiet {
   font-size: 13px;
+}
+
+/* What a backup is for, asked when it is made: "What do you want to back
+   up?" with Photos, Videos and Music as rows of a panel, as Settings lays
+   them out. On the first screen it sits above the name, as wide as it. */
+fieldset.what-to-back-up {
+  display: grid;
+  gap: 6px;
+  width: min(300px, 100%);
+  text-align: left;
+}
+
+fieldset.what-to-back-up legend {
+  padding: 0;
+  margin-bottom: 6px;
+  font-weight: 500;
+  text-align: center;
+  width: 100%;
+}
+
+.welcome fieldset.what-to-back-up {
+  margin-top: 10px;
+}
+
+.backup .menu fieldset.what-to-back-up {
+  width: 100%;
+}
+
+.backup .menu fieldset.what-to-back-up legend {
+  text-align: left;
+  font-size: 13px;
+  color: var(--ink-muted);
+}
+
+fieldset.what-to-back-up > p {
+  margin: 0;
+  text-align: center;
+}
+
+/* What the open backup is for, near the top of the first step. */
+.backing-up {
+  display: grid;
+  gap: var(--space-2);
+  max-width: 720px;
+  margin: 0 0 var(--space-4);
+}
+
+.backing-up-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-3);
+  margin: 0;
+  color: var(--ink-muted);
+}
+
+.backing-up-line strong {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.backing-up-choices {
+  max-width: 420px;
+}
+
+/* A track where a picture would be: a music note, never a blank tile. */
+.picture.file-tile.music-tile {
+  background: color-mix(in srgb, var(--map-music) 70%, var(--surface-raised));
+}
+
+.music-tile .music-note,
+.album-mark .music-note {
+  color: var(--map-music-edge);
+}
+
+.folder-rows .album-mark {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: var(--map-music);
+  box-shadow: inset 0 0 0 1px var(--map-music-edge);
 }

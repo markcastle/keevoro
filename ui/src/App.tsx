@@ -58,8 +58,10 @@ import type {
   Source,
   Backup,
   Update,
+  WantsView,
+  WantsWord,
 } from './backend'
-import { about, count, files, size, thousands, wholePlace } from './format'
+import { about, count, files, heading, musicOnly, named, namedWithOthers, size, thousands, wholePlace } from './format'
 import { heldShare } from './held'
 import lockupDarkLargeUrl from './assets/keevoro-lockup-reversed-large.png'
 import lockupShadowUrl from './assets/keevoro-lockup-shadow.png'
@@ -74,7 +76,9 @@ import { SpaceScreen } from './map'
 import { LiveMap } from './liveMap'
 import { LeaveOutButton, LeftOutByYou, LeftOutSaid, leftOutByYou } from './leaveOut'
 import { VirtualTiles } from './tiles'
-import { SourceWants } from './wants'
+import { BackingUpLine, SourceWants, WhatToBackUp } from './wants'
+import { HoldsContext, foundFor, useHolds } from './holds'
+import { NEW_BACKUP_WANTS } from './wantsRule'
 import { ArrangeQuestion, KeptFoldersSection, SourceArrange, arrangedLine, keptSaid } from './arrange'
 import { OtherFilesScreen, OtherFilesSection } from './otherFiles'
 import { ThereNow, WhatWasFound } from './whatIsThere'
@@ -105,15 +109,26 @@ type Overlay = { collection: Collection } | 'setAside' | 'duplicates' | Where | 
 /** Something asked of the backup screen from elsewhere: to add a destination, or set up one a comparison chose. */
 type SendAsk = { adding: true } | { setUp: SetUp }
 
-const STEPS: { id: Step; title: string }[] = [
-  { id: 'find', title: 'Find your photos' },
+/** The three steps, the first named for what the backup is for: "Find your music". */
+const stepsFor = (holds: readonly string[]): { id: Step; title: string }[] => [
+  { id: 'find', title: `Find your ${heading(holds)}` },
   { id: 'choose', title: 'Choose what to keep' },
   { id: 'send', title: 'Back them up somewhere safe' },
 ]
 
-/** How many are kept, in words: photos and videos as ever, or files once other files are among them. */
-const all = (n: number, withOthers = false) =>
-  withOthers ? count(n, 'file') : n === 1 ? '1 photo or video' : `${n.toLocaleString()} photos and videos`
+/**
+ * How many are kept, in words: photos and videos as ever, tracks for a
+ * backup of music alone, or files once music or other files are among
+ * photos and videos.
+ */
+const all = (n: number, withOthers = false, holds: readonly string[] = ['photos', 'videos']) =>
+  musicOnly(holds) && !withOthers
+    ? count(n, 'track')
+    : withOthers || holds.includes('music')
+      ? count(n, 'file')
+      : n === 1
+        ? '1 photo or video'
+        : `${n.toLocaleString()} photos and videos`
 
 export function App() {
   const [api, setApi] = useState<Backend | null>(null)
@@ -317,6 +332,16 @@ export function App() {
     (view: ArrangeView) => backupId && setArrangedFor({ backup: backupId, view }),
     [backupId],
   )
+  // What the open backup is for, kept with the backup it is for.
+  const [holdsFor, setHoldsFor] = useState<{ backup: string; wants: WantsWord[] } | null>(null)
+  const holds: WantsWord[] = holdsFor && holdsFor.backup === backupId ? holdsFor.wants : NEW_BACKUP_WANTS
+  useEffect(() => {
+    if (!api || !backupId) return
+    api
+      .backupWants()
+      .then((view) => setHoldsFor({ backup: backupId, wants: view.wants }))
+      .catch(report)
+  }, [api, backupId, report])
   const somethingFound = (found?.collections.length ?? 0) > 0
   useEffect(() => {
     if (!api || !backupId || !somethingFound || arranged?.asked) return
@@ -325,6 +350,15 @@ export function App() {
   }, [api, backupId, somethingFound, found?.sources.length, arranged?.asked, setArranged, report])
 
   if (!api || !state) return <div className="blank" />
+
+  // What the backup is for changed, from any screen: the words follow at
+  // once, and music asked for where none was looked for is looked for now.
+  const wantsChanged = (view: WantsView) => {
+    if (backupId) setHoldsFor({ backup: backupId, wants: view.wants })
+    if (view.looksAgain) api.lookAgain().catch(report)
+    void refresh(api)
+  }
+  const STEPS = stepsFor(holds)
 
   // Opening a backup (a new one, or another one) shows what it holds.
   const openBackup = (opened: Promise<AppState>) =>
@@ -409,7 +443,7 @@ export function App() {
   /** The screen in front of the person, in its own words, for a report. */
   const screenName = () =>
     overlay === 'activity' ? 'What Keevoro is doing'
-    : !state.backup ? 'Let’s find your photos'
+    : !state.backup ? 'Welcome'
     : overlay === 'backups' ? 'Manage backups'
     : overlay === 'duplicates' ? 'Duplicates'
     : overlay === 'setAside' ? 'Set aside'
@@ -546,6 +580,7 @@ export function App() {
 
   if (overlay === 'settings' || overlay === 'help') {
     return (
+      <HoldsContext.Provider value={holds}>
       <div className="app settings-open">
         {asks}
         <PlaceScreen
@@ -561,6 +596,7 @@ export function App() {
             void refresh(api)
           }}
           onArranged={setArranged}
+          onWantsChanged={wantsChanged}
           onSend={() => go('send')}
           onSources={() => go('find')}
           onBackups={() => {
@@ -598,6 +634,7 @@ export function App() {
           reportFrom={reportFrom}
         />
       </div>
+      </HoldsContext.Provider>
     )
   }
 
@@ -643,7 +680,7 @@ export function App() {
             />
           ) : (
             <Welcome
-              onStart={(name) => openBackup(api.startBackup(name))}
+              onStart={(name, wants) => openBackup(api.startBackup(name, wants))}
               onAlready={() => setOpeningFrom(true)}
               problem={problem}
             />
@@ -654,6 +691,7 @@ export function App() {
   }
 
   return (
+    <HoldsContext.Provider value={holds}>
     <div className="app">
       {asks}
       <aside className="sidebar">
@@ -664,7 +702,7 @@ export function App() {
           backup={state.backup}
           backups={state.backups}
           onSwitch={(id) => openBackup(api.switchBackup(id))}
-          onStart={(name) => openBackup(api.startBackup(name))}
+          onStart={(name, wants) => openBackup(api.startBackup(name, wants))}
           onManage={() => {
             setBackupsFromSettings(false)
             show('backups')
@@ -767,6 +805,7 @@ export function App() {
             justFound={justFound}
             checking={check !== null}
             arrange={arranged?.arrange ?? 'byDate'}
+            onWantsChanged={wantsChanged}
             onLog={() => openPlace('help', { where: 'help', section: 'log' })}
             onProblem={report}
             onStarted={() => setJustFound(null)}
@@ -777,7 +816,7 @@ export function App() {
             next={
               anythingFound && !scan ? (
                 <Next
-                  say={`${files(found?.photos ?? 0, found?.videos ?? 0, found?.others ?? 0)} found so far.`}
+                  say={`${foundFor(holds, found?.photos ?? 0, found?.videos ?? 0, found?.others ?? 0, found?.music ?? 0)} found so far.`}
                   button="See what was found"
                   onClick={() => go('choose')}
                 />
@@ -798,10 +837,8 @@ export function App() {
                   back={() => go('find')}
                   say={
                     <>
-                      Keeping <b>{all(waiting + safe, (found?.others ?? 0) > 0)}</b> in{' '}
-                      {kept.some((c) => c.byFolder)
-                        ? `${count(kept.filter((c) => !c.byFolder).length, 'collection')} and ${count(kept.filter((c) => c.byFolder).length, 'folder')} of other files`
-                        : count(kept.length, 'collection')}
+                      Keeping <b>{all(waiting + safe, (found?.others ?? 0) > 0, holds)}</b> in{' '}
+                      {keptIn(kept)}
                       .
                     </>
                   }
@@ -842,7 +879,7 @@ export function App() {
             next={
               <Next
                 back={() => go('choose')}
-                say={safe > 0 && waiting === 0 ? 'That’s everything. Have more photos somewhere else?' : undefined}
+                say={safe > 0 && waiting === 0 ? `That’s everything. Have more ${named(holds)} somewhere else?` : undefined}
                 button={safe > 0 && waiting === 0 ? 'Add another source' : undefined}
                 onClick={() => go('find')}
               />
@@ -851,7 +888,24 @@ export function App() {
         )}
       </main>
     </div>
+    </HoldsContext.Provider>
   )
+}
+
+/**
+ * Where what is kept is: "3 collections", "2 albums" for a backup of music
+ * alone, "3 collections and 2 albums", or folders of other files.
+ */
+function keptIn(kept: Collection[]) {
+  const pictures = kept.filter((c) => !c.byFolder).length
+  const albums = kept.filter((c) => c.byFolder && (c.music ?? 0) > 0).length
+  const folders = kept.filter((c) => c.byFolder && !(c.music ?? 0)).length
+  const parts = [
+    pictures > 0 || (albums === 0 && folders === 0) ? count(pictures, 'collection') : null,
+    albums > 0 ? count(albums, 'album') : null,
+    folders > 0 ? `${count(folders, 'folder')} of other files` : null,
+  ].filter((p): p is string => !!p)
+  return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts[0]
 }
 
 /** The step that still needs doing, for opening the app in the right place. */
@@ -908,14 +962,29 @@ function useFilledAbove(bar: RefObject<HTMLElement | null>): boolean {
   return filled
 }
 
-/** The name being typed on the first screen, kept while Keevoro is open so a look at Help or Settings loses nothing. */
-let welcomeName = 'My photos'
+/** The name a new backup is offered, for what it is for: "My photos", "My music". */
+const suggestedName = (wants: readonly string[]) => (musicOnly(wants) ? 'My music' : 'My photos')
 
-function Welcome(props: { onStart: (name: string) => void; onAlready: () => void; problem: string | null }) {
+/** The name being typed on the first screen, and what it is for, kept while Keevoro is open so a look at Help or Settings loses nothing. */
+let welcomeName = suggestedName(NEW_BACKUP_WANTS)
+let welcomeWants: WantsWord[] = NEW_BACKUP_WANTS
+
+function Welcome(props: {
+  onStart: (name: string, wants: WantsWord[]) => void
+  onAlready: () => void
+  problem: string | null
+}) {
   const [name, setTyped] = useState(welcomeName)
+  const [wants, setChosen] = useState<WantsWord[]>(welcomeWants)
   const setName = (typed: string) => {
     welcomeName = typed
     setTyped(typed)
+  }
+  const choose = (next: WantsWord[]) => {
+    welcomeWants = next
+    setChosen(next)
+    // A name still as it was suggested follows the choice.
+    if (name === suggestedName(wants)) setName(suggestedName(next))
   }
   return (
     <form
@@ -923,22 +992,24 @@ function Welcome(props: { onStart: (name: string) => void; onAlready: () => void
       onSubmit={(e) => {
         e.preventDefault()
         // Started: the next first screen (after a reset, say) suggests the name afresh.
-        welcomeName = 'My photos'
-        props.onStart(name)
+        welcomeName = suggestedName(NEW_BACKUP_WANTS)
+        welcomeWants = NEW_BACKUP_WANTS
+        props.onStart(name, wants)
       }}
     >
       <Logo large />
-      <h1>Let’s find your photos</h1>
+      <h1>Let’s find your {heading(wants)}</h1>
       <p>
-        Keevoro finds the photos and videos on your drives, cards and folders, and keeps a copy somewhere safe. It never
+        Keevoro finds the {named(wants)} on your drives, cards and folders, and keeps a copy somewhere safe. It never
         changes anything it looks at.
       </p>
+      <WhatToBackUp wants={wants} choose={choose} id="welcome-wants" />
       <div className="naming">
         <span className="with-tip">
           <label htmlFor="welcome-name">What shall we call this backup?</label>
           <InfoTip about="naming a backup">
-            A name such as “Family photos” or “Holiday videos”. You can have several backups, each with its own sources
-            and its own place to send things, and come back to any of them later.
+            A name such as “Family photos”, “Holiday videos” or “Music”. You can have several backups, each with its own
+            sources and its own place to send things, and come back to any of them later.
           </InfoTip>
         </span>
         <input id="welcome-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} autoFocus />
@@ -965,11 +1036,12 @@ function BackupPicker(props: {
   backup: Backup | null
   backups: Backup[]
   onSwitch: (id: string) => void
-  onStart: (name: string) => void
+  onStart: (name: string, wants: WantsWord[]) => void
   onManage: () => void
 }) {
   const [open, setOpen] = useState(false)
   const [naming, setNaming] = useState<string | null>(null)
+  const [wants, setWants] = useState<WantsWord[]>(NEW_BACKUP_WANTS)
   const others = props.backups.filter((s) => s.id !== props.backup?.id)
   const close = () => {
     setOpen(false)
@@ -999,7 +1071,13 @@ function BackupPicker(props: {
           ))}
           {naming === null ? (
             <>
-              <button className="button" onClick={() => setNaming('')}>
+              <button
+                className="button"
+                onClick={() => {
+                  setWants(NEW_BACKUP_WANTS)
+                  setNaming('')
+                }}
+              >
                 Start a new backup…
               </button>
               <button
@@ -1014,24 +1092,28 @@ function BackupPicker(props: {
             </>
           ) : (
             <form
+              className="new-backup"
               onSubmit={(e) => {
                 e.preventDefault()
                 const name = naming
                 close()
-                props.onStart(name)
+                props.onStart(name, wants)
               }}
             >
-              <input
-                value={naming}
-                onChange={(e) => setNaming(e.target.value)}
-                placeholder="Such as Holiday videos"
-                aria-label="Name for the new backup"
-                maxLength={60}
-                autoFocus
-              />
-              <button className="primary" type="submit">
-                Start
-              </button>
+              <WhatToBackUp wants={wants} choose={setWants} id="new-backup-wants" />
+              <span className="naming-row">
+                <input
+                  value={naming}
+                  onChange={(e) => setNaming(e.target.value)}
+                  placeholder={musicOnly(wants) ? 'Such as Music' : 'Such as Holiday videos'}
+                  aria-label="Name for the new backup"
+                  maxLength={60}
+                  autoFocus
+                />
+                <button className="primary" type="submit">
+                  Start
+                </button>
+              </span>
             </form>
           )}
         </div>
@@ -1053,11 +1135,14 @@ function FindScreen(props: {
   onChanged: () => void
   /** How the backup arranges what it sends, which a source follows unless it has its own way. */
   arrange: Arrange
+  /** What the backup is for changed, from the line at the top. */
+  onWantsChanged: (view: WantsView) => void
   /** Opens the log, in Settings. */
   onLog: () => void
   next: ReactNode
 }) {
   const { api, found, scan, justFound, onProblem } = props
+  const holds = useHolds()
   // A search passes through folders far faster than anyone can read, so the
   // one named on screen changes only every second and a half.
   const folder = useSteady(scan?.folder, 1500)
@@ -1306,18 +1391,26 @@ function FindScreen(props: {
   return (
     <section className="find">
       <header>
-        <h1>Where are your photos?</h1>
+        <h1>
+          Where {holds.length === 1 && holds[0] === 'music' ? 'is' : 'are'} your {heading(holds)}?
+        </h1>
         <p className="status">
-          A source is anywhere your photos might be: a drive, USB stick, memory card or folder. Keevoro only ever reads
-          it.
+          A source is anywhere your {heading(holds)} might be: a drive, USB stick, memory card or folder. Keevoro only ever
+          reads it.
         </p>
       </header>
+      <BackingUpLine
+        load={() => api.backupWants()}
+        choose={(wants) => api.setBackupWants(wants)}
+        onChanged={props.onWantsChanged}
+        onProblem={onProblem}
+      />
 
       {scan ? (
         <div className="panel searching">
           <Spinner />
           <h2>Looking through {scan.name}…</h2>
-          <p className="big-count">{files(scan.photos, scan.videos, scan.others ?? 0)}</p>
+          <p className="big-count">{foundFor(holds, scan.photos, scan.videos, scan.others ?? 0, scan.music ?? 0)}</p>
           <p className="quiet">found so far. Nothing on it is changed, and you can leave this running.</p>
           {!scan.saving && (
             <p className="choices stop">
@@ -1359,15 +1452,25 @@ function FindScreen(props: {
       ) : survey && !survey.found ? (
         <div className="panel searching">
           <Spinner />
-          <h2>Finding where the photos are on {survey.name}…</h2>
+          <h2>
+            Finding where the {heading(holds)} {holds.length === 1 && holds[0] === 'music' ? 'is' : 'are'} on {survey.name}…
+          </h2>
           <p className="big-count">
-            {survey.progress ? files(survey.progress.photos, survey.progress.videos, survey.progress.others ?? 0) : 'Starting…'}
+            {survey.progress
+              ? foundFor(
+                  holds,
+                  survey.progress.photos,
+                  survey.progress.videos,
+                  survey.progress.others ?? 0,
+                  survey.progress.music ?? 0,
+                )
+              : 'Starting…'}
           </p>
           <p className="quiet">spotted so far, by name. Only the list of what is in each folder is read; no file is opened.</p>
           <LiveMap name={survey.name} top={survey.progress?.top} />
           {survey.progress?.sizing && (
             <p className="quiet">
-              Every folder with {(survey.progress.others ?? 0) > 0 ? 'photos, videos and other files' : 'photos and videos'} is
+              Every folder with {(survey.progress.others ?? 0) > 0 ? namedWithOthers(holds) : named(holds)} is
               found. Now measuring the rest, such as system and app folders, so you can see where the space goes.
             </p>
           )}
@@ -1454,7 +1557,8 @@ function FindScreen(props: {
               ) : (
                 <>
                   <h2>
-                    Found {files(justFound.photos, justFound.videos, justFound.others ?? 0)} on {justFound.name}
+                    Found {foundFor(holds, justFound.photos, justFound.videos, justFound.others ?? 0, justFound.music ?? 0)} on{' '}
+                    {justFound.name}
                   </h2>
                   {(justFound.unreadable ?? 0) > 0 && (
                     <p className="quiet small unreadable">
@@ -1543,11 +1647,13 @@ function FindScreen(props: {
               className="again"
               action={
                 <button className="button small" onClick={lookAgain}>
-                  {found.sources.length === 1 ? 'Look again for new photos' : `Look through all ${found.sources.length} again for new photos`}
+                  {found.sources.length === 1
+                    ? `Look again for new ${heading(holds)}`
+                    : `Look through all ${found.sources.length} again for new ${heading(holds)}`}
                 </button>
               }
             >
-              Taken more photos since last time? This finds just what is new.
+              {musicOnly(holds) ? 'Added more music' : 'Taken more photos'} since last time? This finds just what is new.
             </Explained>
           )}
           <ul className="kept">
@@ -1569,7 +1675,7 @@ function FindScreen(props: {
                   )}
                 </div>
                 <div className="count">
-                  <b>{all(s.items, (found.others ?? 0) > 0)}</b>
+                  <b>{all(s.items, (found.others ?? 0) > 0, holds)}</b>
                   <span className="quiet small">{size(s.bytes)}</span>
                 </div>
                 {removing === s.id ? (
@@ -1593,7 +1699,7 @@ function FindScreen(props: {
                       className="button small"
                       onClick={() => lookInside(s.root, { name: sourceTitle(s, places) })}
                       aria-label={`Look inside ${s.name}`}
-                      title="See its photos and videos, folder by folder. Nothing is changed."
+                      title={`See its ${named(holds)}, folder by folder. Nothing is changed.`}
                     >
                       Look inside
                     </button>
@@ -1740,7 +1846,9 @@ function FileTypes(props: {
         load={() => api.sourceWants(source.id)}
         loadBackup={() => api.backupWants()}
         choose={(wants) => api.setSourceWants(source.id, wants)}
-        onChanged={() => {
+        onChanged={(view) => {
+          // Music asked for here, where none was looked for: this source is looked through again for it.
+          if (view.looksAgain) api.lookAgain(source.id).catch(onProblem)
           void reload()
           props.onChanged()
         }}
@@ -2062,10 +2170,13 @@ function ChooseScreen(props: {
   next: ReactNode
 }) {
   const { found } = props
-  // Folders of other files are listed apart, by folder, under the
-  // collections, and so are folders kept as they are, under their source.
+  const holds = useHolds()
+  // Albums of music and folders of other files are listed apart, by
+  // folder, under the collections, and so are folders kept as they are,
+  // under their source.
   const [hero, ...rest] = (found?.collections ?? []).filter((c) => !c.byFolder && !c.keptFolders)
-  const folders = (found?.collections ?? []).filter((c) => c.byFolder)
+  const albums = (found?.collections ?? []).filter((c) => c.byFolder && (c.music ?? 0) > 0)
+  const folders = (found?.collections ?? []).filter((c) => c.byFolder && !(c.music ?? 0))
   const kept = (found?.collections ?? []).filter((c) => c.keptFolders)
   const card = (c: Collection) => (
     <article className={c.kept ? 'card' : 'card skipped'} key={c.key}>
@@ -2083,12 +2194,13 @@ function ChooseScreen(props: {
       <header>
         <h1>Which of these should we keep?</h1>
         <p className="status">
-          Keevoro has sorted what it found into collections, by folder name or by month. Everything is kept unless you
-          say otherwise; click one to choose photo by photo.
+          {musicOnly(holds)
+            ? 'Keevoro has sorted your music by album, as its folders are. Everything is kept unless you say otherwise; click one to choose track by track.'
+            : 'Keevoro has sorted what it found into collections, by folder name or by month. Everything is kept unless you say otherwise; click one to choose photo by photo.'}
           {keptSaid(kept) && ` ${keptSaid(kept)}`}
         </p>
       </header>
-      {found && (hero || folders.length > 0 || kept.length > 0) && (
+      {found && (hero || albums.length > 0 || folders.length > 0 || kept.length > 0) && (
         <Tally found={found} onDuplicates={props.onDuplicates} onSetAside={props.onSetAside} />
       )}
 
@@ -2122,6 +2234,13 @@ function ChooseScreen(props: {
       {rest.length > 0 && <div className="grid">{rest.map(card)}</div>}
 
       <KeptFoldersSection folders={kept} card={card} />
+
+      <OtherFilesSection
+        music
+        folders={albums}
+        onOpen={props.onOpen}
+        keep={(folder) => <KeepButton collection={folder} onKeep={props.onKeep} small />}
+      />
 
       <OtherFilesSection
         folders={folders}
@@ -2165,15 +2284,18 @@ function KeepButton(props: { collection: Collection; onKeep: (c: Collection, kep
  */
 function Tally(props: { found: Discover; onDuplicates: () => void; onSetAside?: () => void }) {
   const { found } = props
-  const keeping = found.collections.filter((c) => c.kept).reduce((n, c) => n + c.photos + c.videos + (c.others ?? 0), 0)
-  const all = found.photos + found.videos + (found.others ?? 0) + found.duplicates
+  const holds = useHolds()
+  const keeping = found.collections
+    .filter((c) => c.kept)
+    .reduce((n, c) => n + c.photos + c.videos + (c.others ?? 0) + (c.music ?? 0), 0)
+  const all = found.photos + found.videos + (found.others ?? 0) + (found.music ?? 0) + found.duplicates
   return (
     <dl className="tally" aria-label="This backup in figures">
       <div>
         <dt>Keeping</dt>
         <dd>{thousands(keeping)}</dd>
         <dd className="quiet small">
-          of {files(found.photos, found.videos, found.others ?? 0)} found · {size(found.bytes)}
+          of {files(found.photos, found.videos, found.others ?? 0, found.music ?? 0, holds)} found · {size(found.bytes)}
         </dd>
       </div>
       <button className="stat" onClick={props.onDuplicates} disabled={found.duplicates === 0}>
@@ -2185,7 +2307,7 @@ function Tally(props: { found: Discover; onDuplicates: () => void; onSetAside?: 
             : `saving ${size(found.duplicateBytes)} · ${Math.round((found.duplicates / Math.max(all, 1)) * 100)}% of all files found · see them`}
         </dd>
       </button>
-      {props.onSetAside && (
+      {props.onSetAside && !musicOnly(holds) && (
         <button className="stat" onClick={props.onSetAside} disabled={found.junk === 0}>
           <dt>Set aside</dt>
           <dd>{thousands(found.junk)}</dd>
@@ -2232,7 +2354,8 @@ function SendScreen(props: {
       {props.found && <Tally found={props.found} onDuplicates={props.onDuplicates} />}
       {props.found && props.arrange && (
         <p className="quiet small arranged">
-          {arrangedLine(props.arrange, props.found.sources)}{' '}
+          {arrangedLine(props.arrange, props.found.sources)}
+          {props.arrange === 'byDate' && (props.found.music ?? 0) > 0 && ' Music keeps its folders.'}{' '}
           <button className="link" onClick={() => props.onSettings('arrange')}>
             Change
           </button>
@@ -2243,6 +2366,7 @@ function SendScreen(props: {
         name={props.name}
         destinations={props.found?.destinations ?? []}
         withOtherFiles={(props.found?.others ?? 0) > 0}
+        withMusic={(props.found?.music ?? 0) > 0}
         waiting={props.waiting}
         safe={props.safe}
         onProblem={props.onProblem}
@@ -2267,6 +2391,8 @@ function SendPanel(props: {
   name: string
   /** Each place this backup goes to, with what has reached it. */
   destinations: Destination[]
+  /** The backup holds music, so what is in it says where it goes. */
+  withMusic?: boolean
   /** The backup holds other files, so what is in it says where they go. */
   withOtherFiles?: boolean
   onProblem: (error: unknown) => void
@@ -2882,10 +3008,17 @@ function SendPanel(props: {
                 folder is the backup. Inside, there is one folder per
                 collection, and <code>By date</code> for anything that did not
                 belong to one.
+                {props.withMusic && (
+                  <>
+                    {' '}
+                    Music is in <code>Music</code> inside it, in the folders it came from (an artist, an album),
+                    however your photos are arranged. Keevoro makes no renditions of it.
+                  </>
+                )}
                 {props.withOtherFiles && (
                   <>
                     {' '}
-                    Other files you asked Keevoro to carry along, such as music and documents, are in{' '}
+                    Other files you asked Keevoro to carry along, such as documents, are in{' '}
                     <code>Other files</code> inside it, in the folders they came from. Keevoro makes no renditions of
                     them.
                   </>
@@ -3428,14 +3561,16 @@ function SurveyResult(props: {
   const photos = picked.reduce((n, h) => n + h.photos, 0)
   const videos = picked.reduce((n, h) => n + h.videos, 0)
   const others = picked.reduce((n, h) => n + (h.others ?? 0), 0)
+  const music = picked.reduce((n, h) => n + (h.music ?? 0), 0)
   const bytes = picked.reduce((n, h) => n + h.bytes, 0)
+  const holds = useHolds()
   // Other files are only spoken of when some are among the suggestions.
-  const what = found.hints.some((h) => (h.others ?? 0) > 0) ? 'photos, videos and other files' : 'photos and videos'
+  const what = found.hints.some((h) => (h.others ?? 0) > 0) ? namedWithOthers(holds) : named(holds)
   return (
     <div className="panel survey">
       <h2>
         {found.hints.length === 0
-          ? `No photos or videos were spotted on ${props.name}`
+          ? `No ${musicOnly(holds) ? 'music was' : 'photos or videos were'} spotted on ${props.name}`
           : `${count(found.hints.length, 'folder')} on ${props.name} ${found.hints.length === 1 ? 'seems' : 'seem'} to hold ${what}`}
       </h2>
       <p className="quiet">
@@ -3463,7 +3598,7 @@ function SurveyResult(props: {
               {/* What is in it, and what is known of it, together before its buttons. */}
               <span className="about">
                 <span className="quiet small">
-                  {files(hint.photos, hint.videos, hint.others ?? 0)} · {size(hint.bytes)}
+                  {foundFor(holds, hint.photos, hint.videos, hint.others ?? 0, hint.music ?? 0)} · {size(hint.bytes)}
                 </span>
                 {outNow.has(hint.folder) && <span className="badge">Left out of this backup</span>}
                 {hint.alreadyASource && <span className="badge">Already a source</span>}
@@ -3536,7 +3671,7 @@ function SurveyResult(props: {
         </button>
         {picked.length > 0 && (
           <span className="quiet small">
-            About {files(photos, videos, others)}, {size(bytes)}.
+            About {foundFor(holds, photos, videos, others, music)}, {size(bytes)}.
           </span>
         )}
       </p>

@@ -8,7 +8,7 @@
 //! originals/By date/2009/2009-07/IMG_0042.jpg        no useful folder, but dated
 //! originals/Undated/scan0001.jpg                     no believable date anywhere
 //! originals/Other files/Mum/Documents/Tax/return.pdf an other file, in its folder
-//! originals/Music/The Made-Up Band/Paper Boats/01.flac music, in its folders
+//! originals/Music/The Made-Up Band/Pretend Songs/01.flac music, in its folders
 //! ```
 //!
 //! Music and other files keep the folders they came from, starting with
@@ -256,10 +256,10 @@ mod tests {
         assert_eq!(
             library_folder(
                 MediaKind::Music,
-                &album(&["Music", "The Made-Up Band", "Paper Boats"]),
+                &album(&["Music", "The Made-Up Band", "Pretend Songs"]),
                 Some(&day)
             ),
-            ["originals", "Music", "The Made-Up Band", "Paper Boats"]
+            ["originals", "Music", "The Made-Up Band", "Pretend Songs"]
         );
         assert_eq!(
             library_folder(MediaKind::Music, &album(&["Old laptop", "Music", "Albums"]), None),

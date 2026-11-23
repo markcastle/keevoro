@@ -12,7 +12,7 @@ import { count, size } from './format'
 import { endingName, KIND_NAMES } from './mapWords'
 import type { Picked } from './mapWords'
 
-const KINDS = ['photo', 'video', 'carried', 'other'] as const
+const KINDS = ['photo', 'video', 'music', 'carried', 'other'] as const
 
 export function KindsList(props: { view: MapView; picked: Picked | null; onPick: (picked: Picked | null) => void }) {
   const { view, picked, onPick } = props
@@ -22,6 +22,7 @@ export function KindsList(props: { view: MapView; picked: Picked | null; onPick:
     photo: [top.photos, top.photoBytes],
     video: [top.videos, top.videoBytes],
     carried: [top.carried ?? 0, top.carriedBytes ?? 0],
+    music: [top.music ?? 0, top.musicBytes ?? 0],
     other: [top.others, top.otherBytes],
   }
   const same = (a: Picked | null, b: Picked) => a !== null && a.kind === b.kind && a.ending === b.ending

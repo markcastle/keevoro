@@ -224,17 +224,14 @@ mod tests {
         }
     }
 
+    /// The one table the app's screens are tested against too
+    /// (`ui/src/holdsWords.json`).
     #[test]
     fn what_a_backup_holds_is_named_from_what_it_is_for() {
-        for (p, v, m, said, title) in [
-            (true, false, false, "photos", "photos"),
-            (true, true, false, "photos and videos", "photos"),
-            (false, true, false, "videos", "videos"),
-            (false, false, true, "music", "music"),
-            (true, false, true, "photos and music", "photos and music"),
-            (false, true, true, "videos and music", "videos and music"),
-            (true, true, true, "photos, videos and music", "photos and music"),
-        ] {
+        let cases: Vec<(bool, bool, bool, String, String)> =
+            serde_json::from_str(include_str!("../../../ui/src/holdsWords.json")).unwrap();
+        assert_eq!(cases.len(), 7);
+        for (p, v, m, said, title) in cases {
             assert_eq!(named(wants(p, v, m)), said);
             assert_eq!(heading(wants(p, v, m)), title, "{said}");
         }
