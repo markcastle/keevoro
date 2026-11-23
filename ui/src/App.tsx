@@ -3,7 +3,7 @@
 // Keevoro is used by people who would not call themselves technical, so
 // the app is a short walk with one question per screen:
 //
-//   1  Find your photos              pick a drive, or a folder
+//   1  Find your photos (or music)   pick a drive, or a folder; named for what the backup is for
 //   2  Choose what to keep           collections, all kept unless you say
 //   3  Back them up somewhere safe   another disk, or cloud storage
 //
