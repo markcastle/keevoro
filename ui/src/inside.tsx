@@ -22,7 +22,7 @@ import { InfoTip } from './infoTip'
 import { LeaveOutButton, LeftOutSaid } from './leaveOut'
 import { fileKey } from './pictureQueue'
 import { Picture, Viewer } from './pictures'
-import { FileTile } from './otherFiles'
+import { FileTile, MusicNote, kindOfFile } from './otherFiles'
 import { FILE_MANAGER } from './mapWords'
 import { SurveyingPanel, useAfterSurvey } from './surveyFirst'
 import { VirtualTiles } from './tiles'
@@ -45,6 +45,13 @@ const SHOWS: { value: FilesShow; words: string }[] = [
   { value: 'music', words: 'Music' },
   { value: 'others', words: 'Other files' },
 ]
+
+/** A file's date as a person reads it: "3 March 2019". */
+const dayOf = (seconds: number) =>
+  seconds > 0 ? new Date(seconds * 1000).toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: 'numeric' }) : ''
+
+/** What a row of the list calls a file's kind. */
+const kindOf = (file: FileView) => (file.isMusic || file.isOther ? kindOfFile(file.name) : file.isVideo ? 'Video' : 'Photo')
 
 /** What the closer look says of an other file, which is never opened to be shown. */
 const NOT_SHOWN = 'An other file: Keevoro backs it up exactly, but does not show it'
@@ -76,6 +83,9 @@ export function LookInside(props: {
   const lookThrough = props.lookThrough ?? 'Look through this folder'
   const [sort, setSort] = useState<FilesSort>('name')
   const [only, setOnly] = useState<FilesShow>('all')
+  // Pictures or a list. Until the person chooses, a place with no photos
+  // or videos is a list: a tile of music shows nothing a name does not.
+  const [view, setView] = useState<'tiles' | 'list' | null>(null)
   // What has been fetched, so the closer look can move to the next one.
   const fetched = useRef(new Map<string, Map<number, FileView>>())
   const [looking, setLooking] = useState<{ folder: string; at: number; file: FileView } | null>(null)
@@ -121,6 +131,7 @@ export function LookInside(props: {
   // in a folder of music alone, neither are photos and videos.
   const musicHere = (outline?.music ?? 0) > 0
   const picturesHere = (outline?.photos ?? 0) + (outline?.videos ?? 0) > 0 || !musicHere
+  const asList = (view ?? (picturesHere ? 'tiles' : 'list')) === 'list'
   const shows = SHOWS.filter(
     (show) =>
       (show.value !== 'others' || (outline?.others ?? 0) > 0) &&
@@ -242,6 +253,19 @@ export function LookInside(props: {
                 ))}
               </div>
             </span>
+            <span className="sort">
+              <span className="quiet small" id="inside-view">
+                View
+              </span>
+              <div className="segmented" role="radiogroup" aria-labelledby="inside-view">
+                <button role="radio" aria-checked={!asList} onClick={() => setView('tiles')}>
+                  Pictures
+                </button>
+                <button role="radio" aria-checked={asList} onClick={() => setView('list')}>
+                  List
+                </button>
+              </div>
+            </span>
             <label className="sort">
               <span className="quiet small">Sort by</span>
               <select value={sort} onChange={(e) => choose({ sort: e.target.value as FilesSort })}>
@@ -276,7 +300,32 @@ export function LookInside(props: {
         key={`${sort} ${only} ${version}`}
         label={musicOnly(holds) ? `Music inside ${name}` : `Photos and videos inside ${name}`}
         sections={sections}
-        tile={(file, at, section) => (
+        list={asList}
+        tile={(file, at, section) =>
+          asList ? (
+            file ? (
+              <button
+                className={file.leftOut ? 'file-row out' : 'file-row'}
+                onClick={() => setLooking({ folder: section.key, at, file })}
+                aria-label={`${file.isOther || file.isMusic ? 'About' : 'Look at'} ${file.name}`}
+              >
+                <span className="file-row-mark" aria-hidden="true">
+                  {file.isMusic ? <MusicNote /> : null}
+                </span>
+                <span className="file-row-name">{file.name}</span>
+                {file.leftOut && (
+                  <span className="badge" title={`Left out: ${file.leftOut}`}>
+                    Left out
+                  </span>
+                )}
+                <span className="file-row-kind quiet small">{kindOf(file)}</span>
+                <span className="file-row-size quiet small">{size(file.bytes)}</span>
+                <span className="file-row-date quiet small">{dayOf(file.modified)}</span>
+              </button>
+            ) : (
+              <div className="file-row waiting" />
+            )
+          ) : (
           <div className="tile">
             {file?.isOther || file?.isMusic ? (
               <button
@@ -323,7 +372,8 @@ export function LookInside(props: {
               <Picture id={`${section.key} ${at}`} name="" isVideo={false} />
             )}
           </div>
-        )}
+          )
+        }
       />
       {current && looking && (
         <Viewer

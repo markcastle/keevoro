@@ -77,7 +77,7 @@ import { LiveMap } from './liveMap'
 import { LeftOutByYou, LeftOutSaid, leftOutByYou } from './leaveOut'
 import { VirtualTiles } from './tiles'
 import { BackingUpLine, SourceWants, WhatToBackUp } from './wants'
-import { HoldsContext, foundFor, useHolds } from './holds'
+import { HoldsContext, foundFor, foundOrNoneFor, useHolds } from './holds'
 import { NEW_BACKUP_WANTS } from './wantsRule'
 import { ArrangeQuestion, KeptFoldersSection, SourceArrange, arrangedLine, keptSaid } from './arrange'
 import { OtherFilesScreen, OtherFilesSection } from './otherFiles'
@@ -1590,7 +1590,7 @@ function FindScreen(props: {
               ) : (
                 <>
                   <h2>
-                    Found {foundFor(holds, justFound.photos, justFound.videos, justFound.others ?? 0, justFound.music ?? 0)} on{' '}
+                    Found {foundOrNoneFor(holds, justFound.photos, justFound.videos, justFound.others ?? 0, justFound.music ?? 0)} on{' '}
                     {justFound.name}
                   </h2>
                   {(justFound.unreadable ?? 0) > 0 && (

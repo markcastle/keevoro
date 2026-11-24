@@ -5,7 +5,7 @@
 
 import { createContext, useContext } from 'react'
 import type { WantsWord } from './backend'
-import { files, musicOnly } from './format'
+import { files, foundOrNone, musicOnly } from './format'
 
 export const HoldsContext = createContext<WantsWord[]>(['photos', 'videos'])
 
@@ -21,4 +21,13 @@ export function useHolds(): WantsWord[] {
  */
 export function foundFor(holds: readonly string[], photos: number, videos: number, others = 0, music = 0) {
   return musicOnly(holds) ? files(0, 0, others, music, holds) : files(photos, videos, others, music, holds)
+}
+
+/**
+ * As `foundFor`, for a sentence about a search that has ended: when nothing
+ * at all was found it names everything the backup is for, "no photos,
+ * videos or music", never only the first of them.
+ */
+export function foundOrNoneFor(holds: readonly string[], photos: number, videos: number, others = 0, music = 0) {
+  return musicOnly(holds) ? foundOrNone(holds, 0, 0, others, music) : foundOrNone(holds, photos, videos, others, music)
 }

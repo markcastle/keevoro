@@ -7008,3 +7008,83 @@ fieldset.what-to-back-up > p {
     transition: none;
   }
 }
+
+/* Look inside as a list: one file to a row, with its kind, size and date. */
+.tiles.list {
+  gap: 0;
+}
+
+.file-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  height: 44px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.file-row:hover {
+  background: var(--surface-sunken);
+}
+
+.file-row.out .file-row-name {
+  color: var(--ink-muted);
+}
+
+.file-row-mark {
+  flex: none;
+  width: 20px;
+  display: inline-flex;
+  justify-content: center;
+  color: var(--pine);
+}
+
+.file-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-row-kind,
+.file-row-size,
+.file-row-date {
+  flex: none;
+  white-space: nowrap;
+}
+
+.file-row-kind {
+  width: 90px;
+}
+
+.file-row-size {
+  width: 80px;
+  text-align: right;
+}
+
+.file-row-date {
+  width: 100px;
+  text-align: right;
+}
+
+/* In a narrow window the name matters most. */
+@media (max-width: 560px) {
+  .file-row-kind,
+  .file-row-date {
+    display: none;
+  }
+}
+
+.file-row > * {
+  margin: 0;
+  line-height: 1.2;
+}
