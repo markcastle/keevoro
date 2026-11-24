@@ -418,6 +418,17 @@ export function App() {
       .catch(report)
   }
 
+  // A whole folder of albums at once: shown at once, then told to the engine one after another.
+  const keepAll = (collections: Collection[], isKept: boolean) => {
+    const keys = new Set(collections.filter((c) => c.kept !== isKept).map((c) => c.key))
+    if (keys.size === 0) return
+    setFound((d) => d && { ...d, collections: d.collections.map((c) => (keys.has(c.key) ? { ...c, kept: isKept } : c)) })
+    ;[...keys]
+      .reduce((before, key) => before.then(() => api.keepCollection(key, isKept)), Promise.resolve())
+      .then(() => refresh(api))
+      .catch(report)
+  }
+
   // What each step has to say for itself in the list down the side.
   const done: Record<Step, boolean> = {
     find: anythingFound,
@@ -831,6 +842,7 @@ export function App() {
             api={api}
             found={found}
             onKeep={keep}
+            onKeepAll={keepAll}
             onOpen={(collection) => show({ collection })}
             onSetAside={() => show('setAside')}
             onDuplicates={() => show('duplicates')}
@@ -2185,6 +2197,7 @@ function ChooseScreen(props: {
   api: Backend
   found: Discover | null
   onKeep: (collection: Collection, kept: boolean) => void
+  onKeepAll: (collections: Collection[], kept: boolean) => void
   onOpen: (collection: Collection) => void
   onSetAside: () => void
   onDuplicates: () => void
@@ -2261,12 +2274,14 @@ function ChooseScreen(props: {
         folders={albums}
         onOpen={props.onOpen}
         keep={(folder) => <KeepButton collection={folder} onKeep={props.onKeep} small />}
+        keepAll={props.onKeepAll}
       />
 
       <OtherFilesSection
         folders={folders}
         onOpen={props.onOpen}
         keep={(folder) => <KeepButton collection={folder} onKeep={props.onKeep} small />}
+        keepAll={props.onKeepAll}
       />
 
       {props.next}

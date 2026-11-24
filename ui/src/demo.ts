@@ -170,6 +170,10 @@ const MUSIC_ALBUMS: { folder: string[]; files: [string, number][] }[] = [
     folder: ['Music', 'Field Recordings', 'Garden in spring'],
     files: Array.from({ length: 3 }, (_, i): [string, number] => [`Recording ${i + 1}.wav`, (52 + i * 4) * 1024 ** 2]),
   },
+  {
+    folder: ['Music', 'The Made-Up Band', 'Second Helpings'],
+    files: Array.from({ length: 2 }, (_, i): [string, number] => [`Track ${String(i + 1).padStart(2, '0')}.flac`, (28 + i * 3) * 1024 ** 2]),
+  },
 ]
 /** How many tracks the made-up music holds. */
 const MUSIC_TRACKS = MUSIC_ALBUMS.reduce((n, a) => n + a.files.length, 0)

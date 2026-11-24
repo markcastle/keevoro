@@ -6,7 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **Music is shown in its folders.** On "Choose what to keep", albums that sit in the same folder are now one row for that folder, with how many albums and tracks are in it and how much room they take. Click it to open or close it, and keep or leave out the whole folder with one button. A folder with more than six albums starts closed, so a long list of single tracks no longer fills the screen. Folders of other files are shown the same way.
 
 ## [0.54.0] - 2026-11-24
 
