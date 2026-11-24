@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { ago } from './format.ts'
 import type { Looked } from './backend.ts'
-import { certain, lookedSaid, mainButtonWords, outOfReachLine, thereNow } from './thereWords.ts'
+import { allThere, certain, lookedSaid, mainButtonWords, outOfReachLine, thereNow } from './thereWords.ts'
 
 const NOW = 1_800_000_000
 const at = (secondsAgo: number) => NOW - secondsAgo
@@ -79,4 +79,12 @@ test('after a backup that missed files, the main button says what it will do', (
   assert.equal(mainButtonWords(200, 132), 'Back up now', 'new files too: not only the missed ones')
   assert.equal(mainButtonWords(4, 0), 'Back up now')
   assert.equal(mainButtonWords(0, 0), 'Back up again')
+})
+
+test('everything is said to be there, with its tick, only when it is certain and nothing waits', () => {
+  const here = { there: 5, waiting: 0, looked: fresh }
+  assert.equal(allThere(0, 5, [here]), true)
+  assert.equal(allThere(1, 5, [here]), false)
+  assert.equal(allThere(0, 0, [here]), false)
+  assert.equal(allThere(0, 5, [{ ...here, looked: old }]), false)
 })

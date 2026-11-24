@@ -6938,3 +6938,32 @@ fieldset.what-to-back-up > p {
   background: var(--map-music);
   box-shadow: inset 0 0 0 1px var(--map-music-edge);
 }
+
+/* A line that says everything went well: a green tick, then the words. */
+.went-well {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.went-well > span {
+  min-width: 0;
+}
+
+.went-well-tick {
+  flex: none;
+  /* Sits level with the first line of the words beside it. */
+  margin-top: 0.1em;
+}
+
+.went-well-tick circle {
+  fill: var(--status-done);
+}
+
+.went-well-tick path {
+  fill: none;
+  stroke: var(--surface-raised);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}

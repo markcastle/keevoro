@@ -97,7 +97,8 @@ import { WholeDiskAsked } from './wholeDisk'
 import { SurveyHints } from './surveyHints'
 import { groupHints, outBy } from './surveyGroups'
 import { InfoTip } from './infoTip'
-import { splitSummary } from './summaryLines'
+import { splitSummary, wentWell } from './summaryLines'
+import { Tick } from './tick'
 import { PlaceScreen } from './settings/shell'
 import { parsePlace, placeOfRow } from './settings/places'
 import type { Place as PlaceAt, Where } from './settings/places'
@@ -2999,8 +3000,9 @@ function SendPanel(props: {
           {/* What the last backup said is about that one, so it steps aside while another runs. */}
           {!running &&
             splitSummary(said?.summary ?? []).shown.map((line) => (
-              <p className="done" key={line}>
-                {line}
+              <p className={wentWell(line) ? 'done went-well' : 'done'} key={line}>
+                {wentWell(line) && <Tick />}
+                <span>{line}</span>
               </p>
             ))}
           {!running && splitSummary(said?.summary ?? []).more.length > 0 && (

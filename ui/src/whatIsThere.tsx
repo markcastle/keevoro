@@ -11,7 +11,8 @@
 import { useState } from 'react'
 import type { Backend, Destination } from './backend'
 import { ago } from './format'
-import { lookedSaid, thereNow } from './thereWords'
+import { allThere, lookedSaid, thereNow } from './thereWords'
+import { Tick } from './tick'
 
 /** Each sentence the last looks at this backup's destinations have to say. */
 export function WhatWasFound(props: {
@@ -53,5 +54,12 @@ export function WhatWasFound(props: {
 
 /** How much is waiting and how much is there, said as surely as Keevoro knows it. */
 export function ThereNow(props: { destinations: Destination[]; waiting: number; safe: number }) {
-  return <p>{thereNow(props.waiting, props.safe, props.destinations, (then) => ago(then))}</p>
+  const words = thereNow(props.waiting, props.safe, props.destinations, (then) => ago(then))
+  if (!allThere(props.waiting, props.safe, props.destinations)) return <p>{words}</p>
+  return (
+    <p className="went-well">
+      <Tick />
+      <span>{words}</span>
+    </p>
+  )
 }

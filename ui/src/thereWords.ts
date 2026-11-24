@@ -15,6 +15,11 @@ export function certain(places: Place[]) {
   return places.length > 0 && places.every((p) => p.looked?.fresh === true)
 }
 
+/** Is everything being kept there for certain, with nothing waiting? Only then does the line earn its tick. */
+export function allThere(waiting: number, safe: number, places: Place[]) {
+  return waiting === 0 && safe > 0 && certain(places)
+}
+
 /** The oldest moment any place was last reached, for saying when Keevoro last looked. */
 function lastLooked(places: Place[]) {
   const times = places.map((p) => p.looked?.lastReached ?? null)
