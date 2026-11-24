@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.55.1] - 2026-11-24
+
 ### Fixed
 
 - **Cloud storage works on networks that go through a proxy.** On an office or school network that lets traffic out only through a proxy, Keevoro now reaches Google Cloud Storage, Amazon S3, Cloudflare R2 and other cloud storage through it, as it already did for reports: the proxy set in `HTTPS_PROXY` or `ALL_PROXY` (minding `NO_PROXY`) or, on Windows, the one in its Internet settings. Before, every bucket on such a network failed with "couldn't reach it". Storage on this computer or your own network, such as a NAS, is still reached directly.
@@ -926,7 +930,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.55.0...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.55.1...HEAD
+[0.55.1]: https://github.com/markcastle/keevoro/compare/v0.55.0...v0.55.1
 [0.55.0]: https://github.com/markcastle/keevoro/compare/v0.54.1...v0.55.0
 [0.54.1]: https://github.com/markcastle/keevoro/compare/v0.54.0...v0.54.1
 [0.54.0]: https://github.com/markcastle/keevoro/compare/v0.53.1...v0.54.0
