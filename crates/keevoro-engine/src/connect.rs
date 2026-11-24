@@ -253,7 +253,13 @@ impl Saved {
         Some(Self {
             kind: kind.to_string(),
             place,
-            bucket: flags.bucket.clone().filter(|_| kind != "folder"),
+            // A bucket's name as it was pasted, tidied the same way as a
+            // bucket source's.
+            bucket: flags
+                .bucket
+                .as_deref()
+                .filter(|_| kind != "folder")
+                .map(keevoro_core::bucket::bucket_name),
             base_url: flags.base_url.clone(),
             target: None,
             volume: None,
@@ -691,6 +697,51 @@ mod tests {
         assert_eq!(google.describe(), "the Google Cloud Storage bucket family-archive");
         assert_eq!(google.preset(), Some(Preset::GoogleCloud));
         assert_eq!(google.secret_name(), "gcs:storage.googleapis.com/family-archive");
+    }
+
+    #[test]
+    fn a_bucket_pasted_as_its_address_is_remembered_by_its_name() {
+        for (pasted, kind) in [("gs://family-archive/", "gcs"), ("s3://family-archive", "s3")] {
+            let saved = Saved::from_flags(&Flags {
+                to_gcs: kind == "gcs",
+                to_s3: (kind == "s3").then(|| "eu-west-2".into()),
+                bucket: Some(pasted.into()),
+                ..flags()
+            })
+            .unwrap();
+            assert_eq!(saved.bucket.as_deref(), Some("family-archive"), "{pasted}");
+        }
+    }
+
+    #[test]
+    fn google_keys_of_the_wrong_kind_are_refused_in_words_before_anything_is_sent() {
+        let dir = tempfile::tempdir().unwrap();
+        let catalog = Catalog::open(&dir.path().join("c.sqlite")).unwrap();
+        let secrets = MemorySecrets::default();
+        let world = World {
+            secrets: &secrets,
+            environment: &no_environment,
+        };
+        let google = Saved::from_flags(&Flags {
+            to_gcs: true,
+            bucket: Some("family-archive".into()),
+            ..flags()
+        })
+        .unwrap();
+        let json = "{\"type\": \"service_account\", \"private_key\": \"MARKER-SECRET\"}";
+        for (access, secret) in [
+            ("AKIAMARKER-ACCESS", "MARKER-SECRET"),
+            ("GOOGMARKER-ACCESS", json),
+            ("GOOGMARKER-ACCESS", "-----BEGIN PRIVATE KEY-----MARKER-SECRET"),
+        ] {
+            let e = add(&mut Vec::new(), &catalog, &google, Keys::new(access, secret), &world).unwrap_err();
+            let said = format!("{e:#}");
+            assert!(said.contains("needs an HMAC key"), "{said}");
+            assert!(said.contains("Interoperability"), "{said}");
+            assert!(!said.contains("MARKER"), "{said}");
+        }
+        assert!(secrets.0.borrow().is_empty());
+        assert!(destinations(&catalog).unwrap().is_empty());
     }
 
     #[test]

@@ -25,10 +25,6 @@ serde_json.workspace = true
 sysinfo.workspace = true
 ureq.workspace = true
 
-# The proxy Windows' Internet settings name, read for sending reports.
-[target.'cfg(windows)'.dependencies]
-winreg = "0.56"
-
 [dev-dependencies]
 flate2.workspace = true
 image.workspace = true

@@ -40,6 +40,24 @@ pub fn place_for(kind: &str, asked: &str) -> String {
     }
 }
 
+/// A bucket's name as it is asked for, tidied: what a console copies,
+/// `gs://family-photos/` or `s3://family-photos`, becomes the name alone.
+/// Anything still in it that a name never holds (a `/` or a `:`) is kept,
+/// for the storage to refuse in words when it is tried.
+pub fn bucket_name(asked: &str) -> String {
+    let asked = asked.trim();
+    let rest = ["gs://", "s3://"]
+        .iter()
+        .find_map(|scheme| {
+            asked
+                .get(..scheme.len())
+                .filter(|start| start.eq_ignore_ascii_case(scheme))
+                .map(|_| &asked[scheme.len()..])
+        })
+        .unwrap_or(asked);
+    rest.trim_end_matches('/').trim().to_string()
+}
+
 /// Where a bucket source is. Holds nothing secret: the keys are in the
 /// computer's keychain, under [`BucketPlace::secret_name`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -58,17 +76,17 @@ pub struct BucketPlace {
 }
 
 impl BucketPlace {
-    /// A place as it is asked for, tidied: the prefix without slashes at
-    /// either end. `None` when the kind is not one Keevoro knows, or the
-    /// place or bucket is empty. Google Cloud Storage needs no place: it is
-    /// filled in.
+    /// A place as it is asked for, tidied: the bucket by [`bucket_name`],
+    /// the prefix without slashes at either end. `None` when the kind is
+    /// not one Keevoro knows, or the place or bucket is empty. Google Cloud
+    /// Storage needs no place: it is filled in.
     pub fn new(kind: &str, place: &str, bucket: &str, prefix: &str) -> Option<Self> {
-        let (place, bucket) = (place_for(kind, place), bucket.trim());
+        let (place, bucket) = (place_for(kind, place), bucket_name(bucket));
         let known = KINDS.contains(&kind);
         (known && !place.is_empty() && !bucket.is_empty()).then(|| Self {
             kind: kind.to_string(),
             place,
-            bucket: bucket.to_string(),
+            bucket,
             prefix: prefix
                 .trim()
                 .trim_matches('/')
@@ -283,6 +301,32 @@ mod tests {
         assert_eq!(file.file_name().unwrap(), "IMG_1.jpg");
         assert_eq!(file.extension().unwrap(), "jpg");
         assert!(crate::places::within(file, Path::new(&p.root())));
+    }
+
+    #[test]
+    fn a_bucket_name_pasted_as_its_address_is_taken_as_the_name() {
+        for pasted in [
+            "gs://family-photos",
+            "gs://family-photos/",
+            " GS://family-photos// ",
+            "s3://family-photos",
+            "S3://family-photos/",
+            "family-photos/",
+            "family-photos",
+        ] {
+            assert_eq!(bucket_name(pasted), "family-photos", "{pasted:?}");
+            let p = BucketPlace::new("gcs", "", pasted, "").unwrap();
+            assert_eq!(p.bucket, "family-photos", "{pasted:?}");
+            assert_eq!(p.root(), "gcs://family-photos", "{pasted:?}");
+        }
+        // What is left that is not a name is kept, for the storage to
+        // refuse in words.
+        assert_eq!(bucket_name("gs://family-photos/Scans"), "family-photos/Scans");
+        assert_eq!(
+            bucket_name("https://storage.googleapis.com/family-photos"),
+            "https://storage.googleapis.com/family-photos"
+        );
+        assert!(BucketPlace::new("gcs", "", "gs://", "").is_none());
     }
 
     #[test]

@@ -136,6 +136,93 @@ fn connecting_checks_the_bucket_name_and_names_the_target_without_secrets() {
 }
 
 #[test]
+fn a_bucket_given_as_an_address_or_a_link_is_refused_in_words() {
+    for pasted in [
+        "gs://family-photos",
+        "family-photos/Scans",
+        "storage.googleapis.com:443",
+    ] {
+        let mut s = settings(Preset::AmazonS3 {
+            region: "eu-west-2".into(),
+        });
+        s.bucket = pasted.into();
+        let Err(StorageError::Provider(said)) = S3Store::connect(&s) else {
+            panic!("{pasted} was taken")
+        };
+        assert_eq!(
+            said, "Enter only the bucket's name, such as family-photos, not its address or a link",
+            "{pasted}"
+        );
+    }
+}
+
+#[test]
+fn google_is_given_an_hmac_key_or_told_how_to_make_one_before_anything_is_sent() {
+    let json = r#"{"type": "service_account", "private_key": "MARKER"}"#;
+    for (access, secret) in [
+        ("AKIAMARKER", "MARKERsecret"),
+        ("GOOGMARKER", json),
+        ("GOOGMARKER", "-----BEGIN PRIVATE KEY-----\nMARKER"),
+        (" ", "MARKERsecret"),
+    ] {
+        let mut s = settings(Preset::GoogleCloud);
+        (s.access_key_id, s.secret_access_key) = (access.into(), secret.into());
+        let Err(StorageError::Provider(said)) = S3Store::connect(&s) else {
+            panic!("{access} was taken")
+        };
+        assert_eq!(said, GOOGLE_NEEDS_HMAC, "{access}");
+        assert!(!said.contains("MARKER"));
+    }
+    assert!(GOOGLE_NEEDS_HMAC.starts_with("Google Cloud Storage needs an HMAC key, not a service account's JSON key."));
+    let mut right = settings(Preset::GoogleCloud);
+    (right.access_key_id, right.secret_access_key) = (" GOOG1EXAMPLE ".into(), "c2VjcmV0".into());
+    assert!(S3Store::connect(&right).is_ok());
+    // Other kinds of storage have keys of their own shapes.
+    assert!(S3Store::connect(&settings(Preset::AmazonS3 {
+        region: "eu-west-2".into()
+    }))
+    .is_ok());
+}
+
+#[test]
+fn keys_with_characters_no_key_has_are_refused_before_anything_is_sent() {
+    for (access, secret) in [("AKIA\u{7}MARKER", "secret"), ("AKIAMARKER", "sec ret\u{2019}MARKER")] {
+        let mut s = settings(Preset::AmazonS3 {
+            region: "eu-west-2".into(),
+        });
+        (s.access_key_id, s.secret_access_key) = (access.into(), secret.into());
+        let Err(StorageError::Provider(said)) = S3Store::connect(&s) else {
+            panic!("{access:?} was taken")
+        };
+        assert_eq!(said, KEYS_CANT_BE_RIGHT);
+    }
+}
+
+#[test]
+fn an_answer_that_cannot_be_read_or_a_request_that_cannot_be_made_is_said_plainly() {
+    use aws_sdk_s3::operation::list_objects_v2::ListObjectsV2Error;
+    use aws_sdk_s3::primitives::SdkBody;
+    let page = aws_sdk_s3::config::http::HttpResponse::new(
+        200.try_into().unwrap(),
+        SdkBody::from("<html>Sign in to use this network</html>"),
+    );
+    let unreadable: SdkError<ListObjectsV2Error> = SdkError::response_error("not XML", page);
+    let StorageError::Provider(said) = map_err(unreadable, "family-photos") else {
+        panic!("not said plainly")
+    };
+    assert_eq!(
+        said,
+        "The storage answered in a way Keevoro could not read. A sign-in page or a filter on this network may \
+         be in the way"
+    );
+    let unmade: SdkError<ListObjectsV2Error> = SdkError::construction_failure("invalid header value");
+    let StorageError::Provider(said) = map_err(unmade, "family-photos") else {
+        panic!("not said plainly")
+    };
+    assert_eq!(said, KEYS_CANT_BE_RIGHT);
+}
+
+#[test]
 fn upload_ids_carry_their_key_and_write_once_flag() {
     let packed = PackedUploadId {
         create_only: true,
@@ -336,6 +423,53 @@ fn speaking_to(stand_in: &stand_in::StandIn, kind: Preset) -> S3Store {
     let mut keys = settings(kind);
     keys.access_key_id = "GOOGEXAMPLE1234567890AB".into();
     S3Store::connect_resolved(&resolved, &keys).unwrap()
+}
+
+/// On a network that lets traffic out only through a proxy, every request
+/// goes to the proxy: a secure one, as to Google, is asked for with
+/// `CONNECT`, and a plain one is sent to it whole.
+#[tokio::test]
+async fn requests_go_through_the_proxy_this_computer_would_use() {
+    let proxy = stand_in::start();
+    let through = keevoro_core::proxy::ProxyAddress::from_setting(&proxy.address);
+    let google = S3Store::connect_through(
+        &Preset::GoogleCloud.resolve().unwrap(),
+        &google_keys(),
+        Some(through.clone()),
+    )
+    .unwrap();
+    // The stand-in cannot be Google, so the request itself fails: what
+    // matters is where it went.
+    assert!(google.list_page("", None).await.is_err());
+    let seen = proxy.seen.lock().unwrap().clone();
+    assert_eq!(seen[0].method, "CONNECT", "{seen:?}");
+    assert_eq!(seen[0].target, "storage.googleapis.com:443");
+
+    let plain = stand_in::start();
+    let mut nas = Preset::Custom {
+        endpoint: "http://storage.example.org:9000".into(),
+        region: None,
+        path_style: true,
+    }
+    .resolve()
+    .unwrap();
+    nas.path_style = true;
+    let via = keevoro_core::proxy::ProxyAddress::from_setting(&plain.address);
+    let store = S3Store::connect_through(&nas, &google_keys(), Some(via)).unwrap();
+    store.list_page("Scans/", None).await.unwrap();
+    let seen = plain.seen.lock().unwrap().clone();
+    assert!(
+        seen[0]
+            .target
+            .starts_with("http://storage.example.org:9000/family-photos"),
+        "{seen:?}"
+    );
+}
+
+fn google_keys() -> S3Settings {
+    let mut keys = settings(Preset::GoogleCloud);
+    keys.access_key_id = "GOOGEXAMPLE1234567890AB".into();
+    keys
 }
 
 /// Everything one backup sends: a small original, a big one in parts,

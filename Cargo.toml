@@ -29,6 +29,9 @@ keevoro-update = { path = "crates/keevoro-update" }
 anyhow = "1"
 async-trait = "0.1"
 aws-sdk-s3 = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio", "sigv4a"] }
+# The client aws-sdk-s3 already uses, named so it can be given a proxy:
+# the same version and TLS as its default, nothing new in the tree.
+aws-smithy-http-client = { version = "1.5", default-features = false, features = ["rustls-aws-lc"] }
 blake3 = "1"
 blurhash = { version = "0.2", default-features = false }
 dirs = "7"

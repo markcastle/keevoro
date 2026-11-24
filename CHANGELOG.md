@@ -6,7 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **Cloud storage works on networks that go through a proxy.** On an office or school network that lets traffic out only through a proxy, Keevoro now reaches Google Cloud Storage, Amazon S3, Cloudflare R2 and other cloud storage through it, as it already did for reports: the proxy set in `HTTPS_PROXY` or `ALL_PROXY` (minding `NO_PROXY`) or, on Windows, the one in its Internet settings. Before, every bucket on such a network failed with "couldn't reach it". Storage on this computer or your own network, such as a NAS, is still reached directly.
+- **A bucket pasted as its address is understood.** Pasting what Google's or Amazon's console copies, such as `gs://family-photos/` or `s3://family-photos`, as a bucket's name now works for sources and destinations alike. Anything else that is an address or a link is refused with "Enter only the bucket's name, such as family-photos, not its address or a link", instead of saying the name has spaces in it.
+- **Google Cloud Storage says which key it needs.** Giving it a service account's JSON key, or anything else that is not an HMAC key, is now refused before anything is sent, with where in Google Cloud to make the right one. The keys are never repeated.
+- **Google Cloud Storage says how to let a key read a bucket.** When it refuses the keys for a source, Keevoro now adds which role to give the key's service account, and that a new role can take a minute or two to apply.
+- **Clearer words when cloud storage can't be talked to.** An answer Keevoro can't read is no longer blamed on the internet connection: it says a sign-in page or a filter on the network may be in the way. Keys holding characters a key never has are refused before anything is sent, saying so, instead of with a technical error.
 
 ## [0.55.0] - 2026-11-24
 

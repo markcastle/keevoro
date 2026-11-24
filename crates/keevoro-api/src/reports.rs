@@ -14,9 +14,9 @@
 //! A work computer may reach the internet only through a proxy, or look
 //! inside secure connections. Keevoro goes through the proxy named in
 //! `HTTPS_PROXY` (or `ALL_PROXY`, minding `NO_PROXY`) and, on Windows, the
-//! one set in its Internet settings. When it still cannot reach the
-//! service, the app's window, which goes through the system's own network
-//! settings, sends the very same text and hands back the answer
+//! one set in its Internet settings, chosen in `keevoro_core::proxy` as for
+//! cloud storage. When it still cannot reach the service, the app's window,
+//! which goes through the system's own network settings, sends the very same text and hands back the answer
 //! (`reports.note`), and asks after reports the same way (`reports.asking`
 //! and `reports.heard`). Why it could not be reached is logged and said in
 //! plain words; a report and its token never are.
@@ -459,89 +459,10 @@ impl Unreached {
     }
 }
 
-/// A proxy set in Windows' Internet settings, for secure addresses.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SystemProxy {
-    pub(crate) host: String,
-    pub(crate) port: u16,
-    /// The addresses it is not used for, as Windows lists them.
-    pub(crate) not_for: Vec<String>,
-}
-
-/// The proxy for secure addresses that Windows' Internet settings name:
-/// `ProxyEnable`, `ProxyServer` (`host:port` for everything, or
-/// `http=host:port;https=host:port;...` one for each kind of address) and
-/// `ProxyOverride` (addresses to reach directly, by `;`). None when it is
-/// off, or none is set for secure addresses.
-// Read on Windows alone; checked everywhere.
-#[cfg_attr(not(windows), allow(dead_code))]
-pub(crate) fn system_proxy_from(enabled: bool, server: &str, overrides: &str) -> Option<SystemProxy> {
-    if !enabled {
-        return None;
-    }
-    let parts: Vec<&str> = server.split(';').map(str::trim).filter(|p| !p.is_empty()).collect();
-    let chosen = if parts.iter().any(|p| p.contains('=')) {
-        parts.iter().find_map(|p| {
-            let (kind, place) = p.split_once('=')?;
-            kind.trim().eq_ignore_ascii_case("https").then_some(place.trim())
-        })?
-    } else {
-        parts.first().copied()?
-    };
-    let place = chosen
-        .strip_prefix("http://")
-        .or_else(|| chosen.strip_prefix("https://"))
-        .unwrap_or(chosen)
-        .trim_end_matches('/');
-    let (host, port) = place.rsplit_once(':')?;
-    let port = port.parse().ok()?;
-    if host.is_empty() {
-        return None;
-    }
-    let not_for = overrides
-        .split(';')
-        .map(str::trim)
-        .filter(|o| !o.is_empty() && !o.eq_ignore_ascii_case("<local>"))
-        .map(str::to_string)
-        .collect();
-    Some(SystemProxy {
-        host: host.to_string(),
-        port,
-        not_for,
-    })
-}
-
-/// The proxy set in this user's Windows Internet settings, if any.
-#[cfg(windows)]
-fn system_proxy() -> Option<SystemProxy> {
-    use winreg::enums::{HKEY_CURRENT_USER, KEY_READ};
-    let settings = winreg::RegKey::predef(HKEY_CURRENT_USER)
-        .open_subkey_with_flags(r"Software\Microsoft\Windows\CurrentVersion\Internet Settings", KEY_READ)
-        .ok()?;
-    let enabled = settings.get_value::<u32, _>("ProxyEnable").is_ok_and(|on| on == 1);
-    let server: String = settings.get_value("ProxyServer").unwrap_or_default();
-    let overrides: String = settings.get_value("ProxyOverride").unwrap_or_default();
-    system_proxy_from(enabled, &server, &overrides)
-}
-
-#[cfg(not(windows))]
-fn system_proxy() -> Option<SystemProxy> {
-    None
-}
-
-/// The proxy to go through: the one named in the environment, else the
-/// one Windows is set to use, else none.
-fn proxy() -> Option<ureq::Proxy> {
-    ureq::Proxy::try_from_env().or_else(|| {
-        let set = system_proxy()?;
-        let mut builder = ureq::Proxy::builder(ureq::ProxyProtocol::Http)
-            .host(&set.host)
-            .port(set.port);
-        for address in &set.not_for {
-            builder = builder.no_proxy(address);
-        }
-        builder.build().ok()
-    })
+/// The proxy to reach the service at `base` through, chosen as for
+/// everything Keevoro sends: see `keevoro_core::proxy`.
+fn proxy(base: &str) -> Option<ureq::Proxy> {
+    ureq::Proxy::new(keevoro_core::proxy::for_address(base)?.url()).ok()
 }
 
 /// Why sending did not work: the service was not reached, or it answered.
@@ -578,7 +499,7 @@ impl Service {
         let agent = ureq::Agent::config_builder()
             .timeout_global(Some(WAIT))
             .timeout_connect(Some(CONNECT_WAIT))
-            .proxy(proxy())
+            .proxy(proxy(base))
             .http_status_as_error(false)
             .tls_config(tls)
             .build()

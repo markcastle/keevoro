@@ -9,7 +9,9 @@ license.workspace = true
 [dependencies]
 async-trait.workspace = true
 aws-sdk-s3.workspace = true
+aws-smithy-http-client.workspace = true
 blake3.workspace = true
+keevoro-core.workspace = true
 keevoro-storage.workspace = true
 tokio.workspace = true
 

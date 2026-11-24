@@ -467,6 +467,36 @@ fn a_source_where_the_backup_itself_goes_is_refused_and_keys_are_tested_by_readi
     assert!(b.secrets.0.borrow().is_empty(), "no key was kept");
 }
 
+#[test]
+fn google_keys_of_the_wrong_kind_are_refused_in_words_and_never_saved() {
+    let b = Bench::new(&[]);
+    let google = BucketPlace::new("gcs", "", "gs://family-archive/", "Scans").unwrap();
+    let keys = Keys::new("AKIAMARKER", "{\"private_key\": \"secret-marker\"}");
+    let e = add(&b.catalog, &google, None, keys, &b.world()).unwrap_err();
+    let said = format!("{e:#}");
+    assert!(said.starts_with("Google Cloud Storage needs an HMAC key"), "{said}");
+    assert!(!said.contains("MARKER") && !said.contains("secret-marker"), "{said}");
+    assert!(b.secrets.0.borrow().is_empty(), "no key was kept");
+}
+
+#[test]
+fn google_refusing_the_keys_says_which_role_to_give() {
+    let google = BucketPlace::new("gcs", "", "family-archive", "").unwrap();
+    let refused = StorageError::AccessDenied("AccessDenied (403)".into());
+    assert_eq!(
+        reaching_said(&google, &refused),
+        "The Google Cloud Storage bucket family-archive refused these keys. Check they are right and are \
+         allowed to list and read the bucket. In Google Cloud, give the key's service account the Storage \
+         Object Viewer role on this bucket; a new role can take a minute or two to apply."
+    );
+    let amazon = BucketPlace::new("s3", "eu-west-2", "family-archive", "").unwrap();
+    assert_eq!(
+        reaching_said(&amazon, &refused),
+        "The Amazon S3 bucket family-archive refused these keys. Check they are right and are allowed to \
+         list and read the bucket."
+    );
+}
+
 /// Against a real S3-compatible server where one is set up (MinIO in CI):
 /// a bucket source is added with keys tested by reading, looked through,
 /// and backed up to a folder through `send::everywhere` exactly as a

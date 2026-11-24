@@ -14,6 +14,10 @@ regex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
+# The proxy Windows' Internet settings name, read by `proxy::for_address`.
+[target.'cfg(windows)'.dependencies]
+winreg = "0.56"
+
 [dev-dependencies]
 
 [lints]
