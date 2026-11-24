@@ -10,11 +10,12 @@
 // Nothing here opens a file: a file's closer look is its details and Show
 // in File Explorer, never a picture.
 
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { Backend, Collection, Photo, PhotoChoice } from './backend'
 import { count, size, thousands } from './format'
 import { InfoTip } from './infoTip'
+import { folderGroups, keptOf, startsOpen, type FolderGroup, type FolderItem } from './folderGroups'
 import { FILE_MANAGER } from './mapWords'
 
 /** "PDF file", "FLAC file", or "File" for a name with no ending. */
@@ -87,6 +88,8 @@ export function OtherFilesSection(props: {
   folders: Collection[]
   onOpen: (folder: Collection) => void
   keep: (folder: Collection) => ReactNode
+  /** Keeps, or stops keeping, every one of these at once: a whole folder of them. */
+  keepAll: (folders: Collection[], kept: boolean) => void
   /** Albums of music, rather than folders of other files. */
   music?: boolean
 }) {
@@ -116,29 +119,102 @@ export function OtherFilesSection(props: {
         </p>
       )}
       <ul className="folder-rows">
-        {props.folders.map((folder) => (
-          <li key={folder.key} className={folder.kept ? undefined : 'skipped'}>
-            <button className="open-folder" onClick={() => props.onOpen(folder)} aria-label={`Open ${folder.title}`}>
-              {props.music ? (
-                <span className="album-mark">
-                  <MusicNote />
-                </span>
-              ) : (
-                <span className="folder-mark" aria-hidden />
-              )}
-              <span className="folder-words">
-                <b>{folder.title}</b>
-                {folder.parents.length > 0 && <span className="parents quiet small">{folder.parents.join(' › ')}</span>}
-                <span className="quiet small">
-                  {folder.summary} · {size(folder.bytes ?? 0)}
-                </span>
-              </span>
-            </button>
-            {props.keep(folder)}
-          </li>
+        {folderGroups(props.folders).map((item) => (
+          <Item key={item.kind === 'group' ? item.key : item.collection.key} item={item} {...props} />
         ))}
       </ul>
     </section>
+  )
+}
+
+type Rows = {
+  onOpen: (folder: Collection) => void
+  keep: (folder: Collection) => ReactNode
+  keepAll: (folders: Collection[], kept: boolean) => void
+  music?: boolean
+}
+
+function Item(props: Rows & { item: FolderItem }) {
+  const { item } = props
+  if (item.kind === 'group') return <Group {...props} group={item} />
+  const folder = item.collection
+  return (
+    <li className={folder.kept ? undefined : 'skipped'}>
+      <button className="open-folder" onClick={() => props.onOpen(folder)} aria-label={`Open ${folder.title}`}>
+        {props.music ? (
+          <span className="album-mark">
+            <MusicNote />
+          </span>
+        ) : (
+          <span className="folder-mark" aria-hidden />
+        )}
+        <span className="folder-words">
+          <b>{item.label}</b>
+          {/* Inside a folder, the folder above already says where it is. */}
+          {!item.inGroup && folder.parents.length > 0 && (
+            <span className="parents quiet small">{folder.parents.join(' › ')}</span>
+          )}
+          <span className="quiet small">
+            {folder.summary} · {size(folder.bytes ?? 0)}
+          </span>
+        </span>
+      </button>
+      {props.keep(folder)}
+    </li>
+  )
+}
+
+/** A folder holding several albums, or several folders of files: one row that opens, kept or left out as a whole. */
+function Group(props: Rows & { group: FolderGroup }) {
+  const { group } = props
+  const id = useId()
+  const [open, setOpen] = useState(() => startsOpen(group))
+  const kept = keptOf(group.collections)
+  const inside = group.collections.length
+  const keeping = group.collections.filter((c) => c.kept).length
+  return (
+    <li className={kept === 'none' ? 'folder-group skipped' : 'folder-group'}>
+      <div className="folder-group-head">
+        <button
+          className="open-folder"
+          aria-expanded={open}
+          aria-controls={open ? id : undefined}
+          aria-label={`${open ? 'Close' : 'Open'} the folder ${group.label}`}
+          onClick={() => setOpen(!open)}
+        >
+          <span className="disclosure" aria-hidden="true">
+            ›
+          </span>
+          <span className="folder-mark" aria-hidden />
+          <span className="folder-words">
+            <b>{group.label}</b>
+            <span className="quiet small">
+              {count(inside, props.music ? 'album' : 'folder')} · {count(group.files, props.music ? 'track' : 'file')} ·{' '}
+              {size(group.bytes)}
+            </span>
+          </span>
+        </button>
+        <div className="keep small">
+          <button
+            className={kept === 'all' ? 'toggle on' : 'toggle off'}
+            aria-label={kept === 'all' ? `Don’t keep anything in ${group.label}` : `Keep everything in ${group.label}`}
+            onClick={() => props.keepAll(group.collections, kept !== 'all')}
+          >
+            <span className="keeping">
+              {kept === 'all' ? '✓ Keeping all' : kept === 'none' ? 'Not keeping' : `Keeping ${thousands(keeping)} of ${thousands(inside)}`}
+            </span>
+            <span className="undo">{kept === 'all' ? 'Don’t keep' : 'Keep all'}</span>
+          </button>
+        </div>
+      </div>
+      {open && (
+        <ul className="folder-rows" id={id}>
+          {group.items.map((item) => (
+            <Item key={item.kind === 'group' ? item.key : item.collection.key} {...props} item={item} />
+          ))}
+        </ul>
+      )}
+    </li>
   )
 }
 

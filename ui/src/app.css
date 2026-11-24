@@ -6967,3 +6967,44 @@ fieldset.what-to-back-up > p {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+
+/* Albums, or folders of files, that sit in one folder: a row that opens to show them. */
+.folder-rows li.folder-group {
+  display: block;
+  padding: 0;
+}
+
+.folder-group-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  min-width: 0;
+}
+
+.folder-group .disclosure {
+  flex: none;
+  width: 14px;
+  text-align: center;
+  color: var(--ink-muted);
+  transition: transform 0.12s ease;
+}
+
+.folder-group .open-folder[aria-expanded='true'] .disclosure {
+  transform: rotate(90deg);
+}
+
+/* What is inside sits a step in, on the page's own ground so each row still reads as a row. */
+.folder-group > .folder-rows {
+  margin: 0;
+  padding: var(--space-2) var(--space-3) var(--space-3) var(--space-6);
+  border-top: 1px solid var(--line);
+  background: var(--surface-sunken);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .folder-group .disclosure {
+    transition: none;
+  }
+}
