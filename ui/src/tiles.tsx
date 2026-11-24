@@ -31,6 +31,8 @@ const SMALLEST = 170
 const GAP = 12
 /** The height of a section's heading, as `.tiles-heading` has it. */
 const HEADING = 56
+/** The height of one row when the items are shown as a list, as `.tiles.list` has it. */
+const LIST_ROW = 44
 /** How many items are fetched at a time. */
 const PAGE = 100
 
@@ -40,6 +42,8 @@ export function VirtualTiles<T>(props: {
   tile: (item: T | null, at: number, section: TileSection<T>) => ReactNode
   /** A label for the whole grid, for a screen reader. */
   label: string
+  /** Shown as a list, one item to a row, rather than as tiles. */
+  list?: boolean
 }) {
   const { sections } = props
   const box = useRef<HTMLDivElement>(null)
@@ -86,9 +90,9 @@ export function VirtualTiles<T>(props: {
     }
   }, [look])
 
-  const columns = Math.max(1, Math.floor((width + GAP) / (SMALLEST + GAP)))
+  const columns = props.list ? 1 : Math.max(1, Math.floor((width + GAP) / (SMALLEST + GAP)))
   const tileSize = width > 0 ? (width - GAP * (columns - 1)) / columns : SMALLEST
-  const row = tileSize + GAP
+  const row = props.list ? LIST_ROW : tileSize + GAP
 
   // Where each section sits, from the counts alone.
   const placed = sections.reduce<{ section: TileSection<T>; count: number; top: number; heading: number; rows: number }[]>(
@@ -147,7 +151,7 @@ export function VirtualTiles<T>(props: {
             {section.heading && <div className="tiles-heading">{section.heading}</div>}
             {shown.length > 0 && (
               <div
-                className="tiles"
+                className={props.list ? 'tiles list' : 'tiles'}
                 role="list"
                 style={{ top: heading + first * row, gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
               >

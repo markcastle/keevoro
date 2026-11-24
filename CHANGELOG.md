@@ -6,7 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Look inside as a list.** "Look inside" now has a View choice: Pictures or List. The list shows each file's name, kind, size and date on one row. A place with only music or other files opens as a list from the start, as a tile for a track shows nothing its name does not.
+
+### Fixed
+
+- **Finding nothing names everything that was looked for.** A backup for photos, videos and music that found nothing in a place said "Found 0 photos". It now says "Found no photos, videos or music".
 
 ## [0.54.1] - 2026-11-24
 
