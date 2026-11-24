@@ -2950,7 +2950,6 @@ dependencies = [
  "sysinfo",
  "tempfile",
  "ureq",
- "winreg",
 ]
 
 [[package]]
@@ -3028,6 +3027,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "winreg",
 ]
 
 [[package]]
@@ -3173,7 +3173,9 @@ version = "0.54.1"
 dependencies = [
  "async-trait",
  "aws-sdk-s3",
+ "aws-smithy-http-client",
  "blake3",
+ "keevoro-core",
  "keevoro-storage",
  "tokio",
 ]

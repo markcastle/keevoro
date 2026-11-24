@@ -2,7 +2,10 @@
 //!
 //! This crate has no I/O. Everything here is pure functions over plain data,
 //! which keeps the rules that decide what a user's memories are called, dated
-//! and skipped easy to test exhaustively.
+//! and skipped easy to test exhaustively. The one exception is
+//! [`proxy::for_address`], which reads this computer's proxy settings (its
+//! environment and, on Windows, the registry) for the pure choice beside it,
+//! so every part of Keevoro that goes online goes the same way.
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
@@ -24,6 +27,7 @@ pub mod media;
 pub mod meter;
 pub mod pause;
 pub mod places;
+pub mod proxy;
 pub mod recognise;
 pub mod report;
 pub mod schedule;

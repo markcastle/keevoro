@@ -664,6 +664,15 @@ async fn documents_like_the_index_are_stored_and_replaced() {
 fn reasons_read_plainly() {
     assert!(plain_reason(&StorageError::Provider("500".into())).starts_with("The storage reported a problem"));
     assert!(plain_reason(&StorageError::Network("x".into())).contains("connection kept dropping"));
+    // What a store already said for a person is passed on as it is.
+    for said in [
+        "Enter only the bucket's name, such as family-photos, not its address or a link",
+        "Google Cloud Storage needs an HMAC key, not a service account's JSON key",
+        "These keys can't be right: they contain characters a storage key never has",
+        "The storage answered in a way Keevoro could not read. A sign-in page may be in the way",
+    ] {
+        assert_eq!(plain_reason(&StorageError::Provider(said.into())), said);
+    }
 }
 
 #[tokio::test]

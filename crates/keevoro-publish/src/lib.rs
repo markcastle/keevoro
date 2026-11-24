@@ -646,6 +646,19 @@ fn blake3_hex(bytes: &[u8]) -> String {
     blake3::hash(bytes).to_hex().to_string()
 }
 
+/// How the messages a store writes for a person begin, so they are passed
+/// on as they are.
+const ALREADY_SAID: [&str; 8] = [
+    "That doesn't look like",
+    "The storage address",
+    "There isn't room",
+    "Keevoro needs the storage keys",
+    "Enter only the bucket's name",
+    "Google Cloud Storage needs an HMAC key",
+    "These keys can't be right",
+    "The storage answered in a way Keevoro could not read",
+];
+
 /// Says a storage problem in words a non-technical person can act on.
 pub fn plain_reason(e: &StorageError) -> String {
     match e {
@@ -669,10 +682,7 @@ pub fn plain_reason(e: &StorageError) -> String {
         ),
         // Messages already written for the user, such as a mistyped
         // account ID, are passed on as they are.
-        StorageError::Provider(said) if said.starts_with("That doesn't look like") => said.clone(),
-        StorageError::Provider(said) if said.starts_with("The storage address") => said.clone(),
-        StorageError::Provider(said) if said.starts_with("There isn't room") => said.clone(),
-        StorageError::Provider(said) if said.starts_with("Keevoro needs the storage keys") => said.clone(),
+        StorageError::Provider(said) if ALREADY_SAID.iter().any(|start| said.starts_with(start)) => said.clone(),
         other => format!("The storage reported a problem ({other})"),
     }
 }

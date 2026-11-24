@@ -30,6 +30,15 @@
 //!   See [`PackedUploadId`].
 //! - **Secrets are passed in, never read from disk here.** The caller
 //!   fetches them from the system keychain or the environment.
+//! - **Through this computer's proxy.** An office network may let traffic
+//!   out only through a proxy. The SDK's own client would see one named in
+//!   the environment but never Windows' own setting, so each store is given
+//!   a client with the proxy `keevoro_core::proxy` chooses for its address,
+//!   as reports use. Its name and password are never shown.
+//! - **Keys are looked at before anything is sent.** Ones holding
+//!   characters no key has are refused, and so, for Google Cloud Storage,
+//!   is anything but an HMAC key (a service account's JSON key is the usual
+//!   mistake), each in words that never repeat them.
 //!
 //! This crate is checked by the shared conformance suite against a real
 //! S3-compatible server (MinIO in CI). Without a server configured, only
@@ -39,12 +48,13 @@
 
 use async_trait::async_trait;
 use aws_sdk_s3::config::{
-    BehaviorVersion, Credentials, Region, RequestChecksumCalculation, ResponseChecksumValidation,
+    BehaviorVersion, Credentials, Region, RequestChecksumCalculation, ResponseChecksumValidation, SharedHttpClient,
 };
 use aws_sdk_s3::error::{ProvideErrorMetadata, SdkError};
 use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::types::{CompletedMultipartUpload, CompletedPart};
 use aws_sdk_s3::Client;
+use aws_smithy_http_client::{proxy::ProxyConfig, tls};
 use keevoro_storage::{
     ByteSource, Capabilities, ConnectionReport, Downloaded, ListPage, MultipartLimits, MultipartStore, ObjectInfo,
     ObjectKey, ObjectStore, PartReceipt, PutOptions, PutReceipt, StorageError, UploadId,
@@ -103,6 +113,69 @@ pub const GOOGLE_ENDPOINT: &str = "https://storage.googleapis.com";
 /// answers 412 Precondition Failed otherwise, as S3 does to
 /// `If-None-Match: *`.
 pub const GOOGLE_WRITE_ONCE: (&str, &str) = ("x-goog-if-generation-match", "0");
+
+/// Said when Google Cloud Storage is given anything but an HMAC key.
+pub const GOOGLE_NEEDS_HMAC: &str = "Google Cloud Storage needs an HMAC key, not a service account's JSON key. In \
+     Google Cloud, open Cloud Storage, then Settings, then Interoperability, and create a key there: its access key \
+     starts with GOOG";
+
+/// Said when the keys hold characters a key never has, so no request
+/// could be made with them.
+pub const KEYS_CANT_BE_RIGHT: &str = "These keys can't be right: they contain characters a storage key never has. \
+     Copy them again from where they were made";
+
+/// Said when a bucket's address or a link is given for its name.
+pub const ONLY_THE_NAME: &str = "Enter only the bucket's name, such as family-photos, not its address or a link";
+
+/// Said when the storage's answer could not be understood.
+pub const ANSWER_UNREADABLE: &str = "The storage answered in a way Keevoro could not read. A sign-in page or a \
+     filter on this network may be in the way";
+
+/// Could these be Google Cloud Storage HMAC keys? Its access keys start
+/// `GOOG`; a service account's JSON key, the usual mistake, is JSON or a
+/// PEM private key.
+fn google_hmac(access: &str, secret: &str) -> bool {
+    access.starts_with("GOOG") && !secret.starts_with('{') && !secret.contains("BEGIN PRIVATE KEY")
+}
+
+/// Keys are printable ASCII: anything else could never be sent in a
+/// request, and would only fail later with a muddle of an error.
+fn plain_key(key: &str) -> bool {
+    key.chars().all(|c| c.is_ascii_graphic())
+}
+
+impl Resolved {
+    /// The address requests for `bucket` go to, to choose a proxy by.
+    fn address_of(&self, bucket: &str) -> String {
+        match &self.endpoint {
+            Some(endpoint) => endpoint.clone(),
+            None => format!("https://{bucket}.s3.{}.amazonaws.com", self.region),
+        }
+    }
+}
+
+/// The HTTP client every request goes out by: the SDK's own default (its
+/// TLS, trusting what this computer trusts), given the proxy chosen for
+/// the storage's address. With none, it reaches the storage directly. A
+/// proxy it cannot use is left to the SDK, which reads the environment as
+/// it always has.
+fn http_client(proxy: Option<keevoro_core::proxy::ProxyAddress>) -> SharedHttpClient {
+    let config = match proxy {
+        Some(proxy) => ProxyConfig::all(proxy.url()).unwrap_or_else(|_| ProxyConfig::from_env()),
+        None => ProxyConfig::disabled(),
+    };
+    // As the SDK builds its own default client, with the proxy set.
+    aws_smithy_http_client::Builder::new().build_with_connector_fn(move |settings, components| {
+        let mut connector = aws_smithy_http_client::Connector::builder()
+            .tls_provider(tls::Provider::Rustls(tls::rustls_provider::CryptoMode::AwsLc));
+        connector.set_connector_settings(settings.cloned());
+        if let Some(components) = components {
+            connector.set_sleep_impl(components.sleep_impl());
+        }
+        connector.set_proxy_config(Some(config.clone()));
+        connector.build()
+    })
+}
 
 impl Preset {
     fn resolve(&self) -> Result<Resolved, StorageError> {
@@ -186,31 +259,48 @@ impl S3Store {
     }
 
     fn connect_resolved(resolved: &Resolved, settings: &S3Settings) -> Result<Self, StorageError> {
+        let proxy = keevoro_core::proxy::for_address(&resolved.address_of(settings.bucket.trim()));
+        Self::connect_through(resolved, settings, proxy)
+    }
+
+    /// Prepares a connection whose requests all go through `proxy`, or
+    /// straight to the storage when there is none.
+    fn connect_through(
+        resolved: &Resolved,
+        settings: &S3Settings,
+        proxy: Option<keevoro_core::proxy::ProxyAddress>,
+    ) -> Result<Self, StorageError> {
         let bucket = settings.bucket.trim().to_string();
-        if bucket.is_empty() || bucket.contains('/') || bucket.contains(char::is_whitespace) {
+        if bucket.contains(['/', ':']) {
+            return Err(StorageError::Provider(ONLY_THE_NAME.into()));
+        }
+        if bucket.is_empty() || bucket.contains(char::is_whitespace) {
             return Err(StorageError::Provider(
                 "That doesn't look like a bucket name. It is a single word with no spaces".into(),
             ));
         }
+        let (access, secret) = (settings.access_key_id.trim(), settings.secret_access_key.trim());
+        if resolved.google && !google_hmac(access, secret) {
+            return Err(StorageError::Provider(GOOGLE_NEEDS_HMAC.into()));
+        }
+        if !plain_key(access) || !plain_key(secret) {
+            return Err(StorageError::Provider(KEYS_CANT_BE_RIGHT.into()));
+        }
+        let http = http_client(proxy);
         let base = || {
             let mut b = aws_sdk_s3::Config::builder()
                 .behavior_version(BehaviorVersion::latest())
                 .region(Region::new(resolved.region.clone()))
                 .force_path_style(resolved.path_style)
                 .request_checksum_calculation(RequestChecksumCalculation::WhenRequired)
-                .response_checksum_validation(ResponseChecksumValidation::WhenRequired);
+                .response_checksum_validation(ResponseChecksumValidation::WhenRequired)
+                .http_client(http.clone());
             if let Some(url) = &resolved.endpoint {
                 b = b.endpoint_url(url);
             }
             b
         };
-        let credentials = Credentials::new(
-            settings.access_key_id.trim(),
-            settings.secret_access_key.trim(),
-            None,
-            None,
-            "keevoro",
-        );
+        let credentials = Credentials::new(access, secret, None, None, "keevoro");
         let name = format!(
             "s3:{}/{bucket}",
             resolved
@@ -304,9 +394,13 @@ where
     E: ProvideErrorMetadata + std::fmt::Debug,
 {
     match &e {
-        SdkError::DispatchFailure(_) | SdkError::TimeoutError(_) | SdkError::ResponseError(_) => {
-            StorageError::Network(format!("{e:?}"))
-        }
+        SdkError::DispatchFailure(_) | SdkError::TimeoutError(_) => StorageError::Network(format!("{e:?}")),
+        // Something answered, but not as storage does: often a network's
+        // sign-in page or filter, which trying again would only meet again.
+        SdkError::ResponseError(_) => StorageError::Provider(ANSWER_UNREADABLE.into()),
+        // Keys are checked as a store is made, so what is left is a key
+        // that slipped past that check.
+        SdkError::ConstructionFailure(_) => StorageError::Provider(KEYS_CANT_BE_RIGHT.into()),
         SdkError::ServiceError(service) => {
             let status = service.raw().status().as_u16();
             let detail = format!(

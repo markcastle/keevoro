@@ -53,7 +53,7 @@ pub fn open(place: &BucketPlace, keys: &Keys) -> Result<ReadOnly> {
         access_key_id: keys.access().to_string(),
         secret_access_key: keys.secret().to_string(),
     })
-    .map_err(|e| anyhow::anyhow!("{}", keevoro_publish::plain_reason(&e)))?;
+    .map_err(|e| anyhow::anyhow!("{}.", keevoro_publish::plain_reason(&e)))?;
     Ok(ReadOnly::new(Arc::new(store)))
 }
 
@@ -88,10 +88,21 @@ pub fn keys_for(place: &BucketPlace, world: &World<'_>) -> Result<(Keys, KeysFro
 /// What went wrong reaching a bucket source, said for the person.
 fn reaching_said(place: &BucketPlace, e: &StorageError) -> String {
     match e {
-        StorageError::AccessDenied(_) => format!(
-            "{} refused these keys. Check they are right and are allowed to list and read the bucket.",
-            capital(&place.describe())
-        ),
+        StorageError::AccessDenied(_) => {
+            let mut said = format!(
+                "{} refused these keys. Check they are right and are allowed to list and read the bucket.",
+                capital(&place.describe())
+            );
+            // Google's keys belong to a service account, which needs a role
+            // on the bucket before it may read it.
+            if place.kind == "gcs" {
+                said.push_str(
+                    " In Google Cloud, give the key's service account the Storage Object Viewer role on this \
+                     bucket; a new role can take a minute or two to apply.",
+                );
+            }
+            said
+        }
         StorageError::NotFound(_) => format!("Keevoro can't find {}. Check its name.", place.describe()),
         StorageError::Network(_) => format!(
             "Keevoro couldn't reach {}. Check the internet connection and try again.",

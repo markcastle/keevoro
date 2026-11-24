@@ -327,36 +327,6 @@ fn the_operations_are_reached_by_name_and_a_reset_forgets_the_list() {
 }
 
 #[test]
-fn the_windows_proxy_setting_is_read_in_each_of_its_forms() {
-    let proxy = |enabled, server, overrides| system_proxy_from(enabled, server, overrides);
-    // One for everything.
-    let all = proxy(true, "proxy.example.com:8080", "").unwrap();
-    assert_eq!((all.host.as_str(), all.port), ("proxy.example.com", 8080));
-    assert!(all.not_for.is_empty());
-    // One for each kind of address: the secure one is the one used.
-    let each = proxy(
-        true,
-        "http=web.example.com:80;https=secure.example.com:3128;ftp=files.example.com:21",
-        "",
-    )
-    .unwrap();
-    assert_eq!((each.host.as_str(), each.port), ("secure.example.com", 3128));
-    // Written with its scheme, or with spaces.
-    let written = proxy(true, " https = http://secure.example.com:8443 ", "").unwrap();
-    assert_eq!((written.host.as_str(), written.port), ("secure.example.com", 8443));
-    // None for secure addresses, switched off, or nothing usable: none.
-    assert_eq!(proxy(true, "http=web.example.com:80", ""), None);
-    assert_eq!(proxy(false, "proxy.example.com:8080", ""), None);
-    assert_eq!(proxy(true, "", ""), None);
-    assert_eq!(proxy(true, "proxy.example.com", ""), None, "no port");
-    assert_eq!(proxy(true, "proxy.example.com:port", ""), None);
-    // The addresses it is not used for, without Windows' own word for
-    // names with no dot in them.
-    let skipping = proxy(true, "proxy.example.com:8080", "*.example.com; intranet ;<local>;;").unwrap();
-    assert_eq!(skipping.not_for, ["*.example.com", "intranet"]);
-}
-
-#[test]
 fn not_reaching_the_service_is_told_apart_from_its_answer_and_said_in_plain_words() {
     use std::io::{Error as IoError, ErrorKind};
     for (error, cause) in [
