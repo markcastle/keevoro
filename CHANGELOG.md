@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.55.0] - 2026-11-24
+
 ### Added
 
 - **Look inside as a list.** "Look inside" now has a View choice: Pictures or List. The list shows each file's name, kind, size and date on one row. A place with only music or other files opens as a list from the start, as a tile for a track shows nothing its name does not.
@@ -916,7 +920,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.54.1...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.55.0...HEAD
+[0.55.0]: https://github.com/markcastle/keevoro/compare/v0.54.1...v0.55.0
 [0.54.1]: https://github.com/markcastle/keevoro/compare/v0.54.0...v0.54.1
 [0.54.0]: https://github.com/markcastle/keevoro/compare/v0.53.1...v0.54.0
 [0.53.1]: https://github.com/markcastle/keevoro/compare/v0.53.0...v0.53.1
