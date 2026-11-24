@@ -49,6 +49,19 @@ export function named(holds: readonly string[]) {
   return words.length ? joined([...words]) : 'files'
 }
 
+/**
+ * What was found, for a heading: the counts when there are any, and when
+ * there are none, everything that was looked for, so a backup for photos,
+ * videos and music never says only "0 photos": "no photos, videos or music".
+ */
+export function foundOrNone(holds: readonly string[], photos: number, videos: number, others = 0, music = 0) {
+  if (photos + videos + others + music > 0) return files(photos, videos, others, music, holds)
+  const words: string[] = (['photos', 'videos', 'music'] as const).filter((w) => holds.includes(w))
+  if (holds.includes('others')) words.push('other files')
+  if (words.length === 0) return 'no files'
+  return `no ${words.length > 1 ? `${words.slice(0, -1).join(', ')} or ${words[words.length - 1]}` : words[0]}`
+}
+
 /** As `named`, with other files after: "photos, videos and other files". */
 export function namedWithOthers(holds: readonly string[]) {
   const words = (['photos', 'videos', 'music'] as const).filter((w) => holds.includes(w))

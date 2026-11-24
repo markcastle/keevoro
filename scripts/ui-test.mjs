@@ -911,7 +911,7 @@ try {
 
   // One button looks through every source again for anything new.
   await page.getByRole('button', { name: 'Look through all 2 again for new photos' }).click()
-  await page.getByRole('heading', { name: /^Found [\d,]+ photos/ }).waitFor()
+  await page.getByRole('heading', { name: /^Found / }).waitFor()
   await page.getByRole('button', { name: 'Look through all 2 again for new photos' }).waitFor()
   assert.equal(await page.locator('.kept li.source').count(), 2, 'looking again adds no source twice')
 
@@ -3738,10 +3738,22 @@ try {
   assert.match(await text('.next .say'), /^20 tracks found so far\.$/)
   await shot('m2-find-music')
   await fitsNarrow('Find your music')
-  // A music source looked inside: a music note where each picture would be, never a blank tile.
+  // A music source looked inside is a list from the start: name, kind, size and date, as a tile of music shows nothing more than its name.
   await page.getByRole('button', { name: 'Look inside Music' }).click()
-  await page.locator('.music-tile').first().waitFor()
+  await page.locator('.file-row').first().waitFor()
+  const viewAs = page.getByRole('radiogroup', { name: 'View' })
+  assert.equal(await viewAs.getByRole('radio', { name: 'List' }).getAttribute('aria-checked'), 'true', 'music opens as a list')
+  assert.match(await page.locator('.file-row').first().innerText(), /^Track 01\.flac\s+FLAC file\s+[\d.]+ MB\s+\d+ \w+ \d{4}$/)
   assert.equal(await page.locator('.inside img').count(), 0, 'music is never opened for a picture')
+  await shot('m3-music-source-list')
+  await fitsNarrow('A music source looked inside, as a list')
+  // A row opens the same closer look a tile does.
+  await page.getByRole('button', { name: 'About Track 01.flac' }).first().click()
+  await page.getByRole('dialog').waitFor()
+  await page.keyboard.press('Escape')
+  // Pictures is still there for anyone who wants it: a music note where each picture would be, never a blank tile.
+  await viewAs.getByRole('radio', { name: 'Pictures' }).click()
+  await page.locator('.music-tile').first().waitFor()
   assert.match(await page.locator('.music-tile').first().innerText(), /Track 01\.flac\s+No preview/)
   await shot('m3-music-source-tiles')
   await fitsNarrow('A music source looked inside')

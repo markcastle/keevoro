@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
-import { files, heading, holdsLine, musicOnly, named, namedWithOthers } from './format.ts'
+import { files, heading, holdsLine, musicOnly, named, namedWithOthers, foundOrNone } from './format.ts'
 
 // The one table keevoro_core::words is tested against too, so the screens
 // and the engine say counts the same way.
@@ -42,4 +42,12 @@ test('music is counted in tracks, and nothing is said in what the backup is for'
 test('with no other files the words are what they always were', () => {
   assert.equal(files(12_431, 312), '12,431 photos and 312 videos')
   assert.equal(files(0, 0), '0 photos')
+})
+
+test('finding nothing names everything that was looked for, never only photos', () => {
+  assert.equal(foundOrNone(['photos', 'videos', 'music'], 0, 0, 0, 0), 'no photos, videos or music')
+  assert.equal(foundOrNone(['photos', 'videos'], 0, 0), 'no photos or videos')
+  assert.equal(foundOrNone(['music'], 0, 0), 'no music')
+  assert.equal(foundOrNone(['photos', 'others'], 0, 0), 'no photos or other files')
+  assert.equal(foundOrNone(['photos', 'videos', 'music'], 3, 0, 0, 2), '3 photos and 2 tracks')
 })
