@@ -700,6 +700,8 @@ try {
   await unfinished.getByRole('button', { name: 'Done' }).click()
   await page.getByRole('button', { name: 'Check they all arrived' }).click()
   await page.getByText(/^Your backup: all [\d,]+ originals are there\.$/).waitFor()
+  // Both lines that say all is well carry the green tick; it is drawn, not text.
+  assert.equal(await page.locator('p.went-well svg.went-well-tick').count(), 2, 'a green tick beside each line that says everything is there')
   assert.equal(await page.locator('.steps li.done').count(), 2, 'finding and choosing are ticked off')
   assert.equal(await page.locator('.steps li').count(), 3, 'there are three steps, not four')
   await shot('9-sent')

@@ -6,7 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **A green tick when everything is there.** The line that says everything you are keeping is there, and the result of "Check they all arrived" or "Prove every copy…" when every file is found, now start with a green tick. A line about only some files, or about anything that needs attention, never gets one.
 
 ## [0.53.1] - 2026-11-23
 

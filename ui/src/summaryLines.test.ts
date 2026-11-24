@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { splitSummary } from './summaryLines.ts'
+import { splitSummary, wentWell } from './summaryLines.ts'
 
 test('the routine figures wait under More about; what happened is shown', () => {
   const said = [
@@ -26,4 +26,23 @@ test('anything that went wrong is always shown, wherever it comes', () => {
 test('nothing routine, nothing under More about', () => {
   assert.deepEqual(splitSummary(['Stopped.']), { shown: ['Stopped.'], more: [] })
   assert.deepEqual(splitSummary([]), { shown: [], more: [] })
+})
+
+test('a line saying everything is safely there went well; anything less did not', () => {
+  for (const line of [
+    'Your backup: all 2,017 originals are there.',
+    'Your backup: all 2,017 originals are there, and each one was read back and matches exactly.',
+    'All 48,078 files you are keeping are safely at the folder D:\\Backups.',
+    'Your backup at the folder F:\\Family Backup is right: all 12 files you are keeping are there, and every one was read back in full and matches.',
+  ]) {
+    assert.equal(wentWell(line), true, line)
+  }
+  for (const line of [
+    'Safely backed up 48,078 files (312.4 GB).',
+    'Your backup: 2,010 fine, 7 with a problem:',
+    '48,078 of the 48,210 files you are keeping are safely at the folder Z:\\Photos. 132 still need attention.',
+    'Stopped.',
+  ]) {
+    assert.equal(wentWell(line), false, line)
+  }
 })
