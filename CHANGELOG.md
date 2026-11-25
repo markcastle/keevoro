@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.55.2] - 2026-11-25
+
 ### Fixed
 
 - **Back up again backs up the files you added since.** Pressing Back up now or Back up again first looks through the backup's sources for anything new or changed, then backs up, as one step. Before, it sent only what Keevoro had found at the last look, so photos copied onto a source since then were left out until you looked through it again. While it looks, it says so ("Looking for anything new in Family photos…"), and at the end it says what it found ("Found 14 new photos in Family photos."), saying nothing extra when there was nothing new. A source that is not plugged in is passed over and said, and the rest is still backed up, with nothing found on it before forgotten. Anything you chose not to keep stays not kept, and Stop works while it looks, leaving everything as it was. It never waits for battery, a metered connection or quiet hours: you asked for it now. The same goes for the icon by the clock, `keevoro run` and an AI agent's `run_backup`; an agent now needs to be allowed to look in each source too.
@@ -932,7 +936,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.55.1...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.55.2...HEAD
+[0.55.2]: https://github.com/markcastle/keevoro/compare/v0.55.1...v0.55.2
 [0.55.1]: https://github.com/markcastle/keevoro/compare/v0.55.0...v0.55.1
 [0.55.0]: https://github.com/markcastle/keevoro/compare/v0.54.1...v0.55.0
 [0.54.1]: https://github.com/markcastle/keevoro/compare/v0.54.0...v0.54.1
