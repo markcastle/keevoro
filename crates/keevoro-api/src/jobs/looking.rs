@@ -13,6 +13,7 @@ use keevoro_catalog::Catalog;
 use keevoro_core::recognise::{Mark, Recognised};
 use keevoro_core::Kinds;
 use keevoro_engine::friendly_path;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
@@ -317,6 +318,126 @@ pub(super) struct HowToLook {
     pub(super) kinds: Kinds,
     pub(super) skip: keevoro_core::SkipRules,
     pub(super) for_agent: Option<AgentAccess>,
+}
+
+/// What looking through a backup's sources again, before it sends, did.
+pub(super) struct LookedFirst {
+    /// The names of the sources looked through.
+    pub(super) looked_again: Vec<String>,
+    /// Sentences: the sources passed over, and why.
+    pub(super) passed_over: Vec<String>,
+    /// Sources whose place holds another drive now, not looked through.
+    pub(super) different: Vec<DifferentDrive>,
+    /// True when the person stopped it part-way. Nothing from the source in
+    /// hand was kept.
+    pub(super) stopped: bool,
+}
+
+/// Looks through `backup`'s sources again (only `only`, when given), as a
+/// backup does before it sends anything, whether the person started it or
+/// it runs by itself. Each is looked through quickly, reading only what is
+/// new or changed, except every so often (`may_look_quickly`). A source
+/// that is not there, or that holds another drive now, is passed over and
+/// said, and everything found on it before is kept.
+pub(super) fn look_again_first(
+    ctx: &Context,
+    job: &Arc<Job>,
+    backup: &Named,
+    only: Option<i64>,
+    how: &HowToLook,
+) -> LookedFirst {
+    let home = &backup.home;
+    let to_look = what_to_look_again(backup, only, None)
+        .map(|(to_look, _)| to_look)
+        .unwrap_or_else(|e| ToLook {
+            passed_over: vec![e.message],
+            ..ToLook::default()
+        });
+    let mut looked = LookedFirst {
+        looked_again: Vec::new(),
+        passed_over: to_look.passed_over,
+        different: to_look.different,
+        stopped: false,
+    };
+    for step in &to_look.steps {
+        if job.stopped() {
+            looked.stopped = true;
+            break;
+        }
+        match get_ready(ctx, home, step) {
+            Ok(said) => looked.passed_over.extend(said),
+            Err(e) => {
+                looked.passed_over.push(e.message);
+                continue;
+            }
+        }
+        let place = place_of(step);
+        let line = crate::words::looking_for_anything_new(&name_at(home, place));
+        job.note_line(&line);
+        ctx.jobs.heard(job, Said::Send(super::SendEvent::progress(&line)), true);
+        let quickly = may_look_quickly(home, place, ctx.clock.now().as_second());
+        let said = look_through(ctx, job, home, place, &how.kinds, &how.skip, quickly);
+        let real = std::fs::canonicalize(place).unwrap_or_else(|_| place.to_path_buf());
+        keevoro_engine::surveys::mark_out_of_date(&ctx.cache, &real);
+        let stopped = said.stopped || job.stopped();
+        if !stopped {
+            if let Some(problem) = &said.problem {
+                looked
+                    .passed_over
+                    .push(format!("{} couldn't be looked through: {problem}", said.name));
+            } else {
+                looked.passed_over.extend(said.unplugged.clone());
+                looked.looked_again.push(said.name.clone());
+            }
+        }
+        // Always its last word, so a screen showing the search in hand
+        // never waits on one that has ended.
+        ctx.jobs.heard(job, Said::Scan(said), true);
+        if stopped {
+            looked.stopped = true;
+            break;
+        }
+    }
+    looked
+}
+
+/// Every file found on the backup's sources now, by where it is.
+pub(super) fn found_paths(home: &Path) -> HashSet<PathBuf> {
+    Catalog::open_in_library(home)
+        .and_then(|c| c.load_reports_as_found())
+        .map(|reports| reports.into_iter().flat_map(|r| r.items).map(|i| i.path).collect())
+        .unwrap_or_default()
+}
+
+/// What is found on each source now that was not among `before`, said
+/// one sentence for each source with something new
+/// (`keevoro_core::words::found_new`); nothing when nothing is new.
+pub(super) fn found_new_said(home: &Path, before: &HashSet<PathBuf>) -> Vec<String> {
+    let Ok(catalog) = Catalog::open_in_library(home) else {
+        return Vec::new();
+    };
+    let (Ok(reports), Ok(sources)) = (catalog.load_reports(), catalog.sources()) else {
+        return Vec::new();
+    };
+    reports
+        .iter()
+        .filter_map(|report| {
+            let mut new = keevoro_core::words::Tally::default();
+            for item in report.items.iter().filter(|i| !before.contains(&i.path)) {
+                match item.kind {
+                    keevoro_core::MediaKind::Photo => new.photos += 1,
+                    keevoro_core::MediaKind::Video => new.videos += 1,
+                    keevoro_core::MediaKind::Music => new.music += 1,
+                    keevoro_core::MediaKind::Other => new.others += 1,
+                }
+            }
+            let name = sources
+                .iter()
+                .find(|s| s.root == report.root)
+                .map_or_else(|| name_of(&report.root), |s| s.name.clone());
+            keevoro_core::words::found_new(&name, new)
+        })
+        .collect()
 }
 
 /// Starts looking through what `to_look` says, one place after another.

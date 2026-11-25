@@ -682,11 +682,23 @@ fn exit_codes_say_what_happened_without_reading_the_words() {
     assert!(!usb.exists());
     std::fs::create_dir(&usb).unwrap();
 
-    // A file gone from its source since it was found cannot be backed up.
-    std::fs::remove_file(card.join("DCIM/100CANON/IMG_20120304_153012.jpg")).unwrap();
+    // A source not plugged in is passed over and said; what was found on
+    // it is kept, but cannot be backed up until it is back.
+    let drawer = dir.path().join("In a drawer");
+    std::fs::rename(&card, &drawer).unwrap();
     let ran = at.keevoro(&["run"]);
     assert_eq!(ran.code, Code::SomeFiles, "{}{}", ran.out, ran.err);
-    assert!(ran.out.contains("Couldn't back up 1 file"), "{}", ran.out);
+    assert!(
+        ran.out.contains("can't be found, so it was not looked through"),
+        "{}",
+        ran.out
+    );
+    std::fs::rename(&drawer, &card).unwrap();
+    // A file gone from its source since it was found is found gone when
+    // the backup looks first, so it is not missed.
+    std::fs::remove_file(card.join("DCIM/100CANON/IMG_20120304_153012.jpg")).unwrap();
+    let ran = at.keevoro(&["run"]);
+    assert_eq!(ran.code, Code::Worked, "{}{}", ran.out, ran.err);
 
     // Another program working on the backup.
     let app = keevoro_in(dir.path(), FrontEnd::App);

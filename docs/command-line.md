@@ -466,7 +466,7 @@ A collection is named by its whole name, such as "Holidays / Cornwall", or by it
 | Command | What it does |
 | --- | --- |
 | `keevoro rehearse` | What backing up now would do: how many files, how much, to where, after looking at what is really at each place. Sends nothing. |
-| `keevoro run` | Backs up to every destination, originals first. |
+| `keevoro run` | Looks through the sources for anything new or changed, then backs up to every destination, originals first. A source that is not there is passed over and said; what was found on it before is kept and backed up as known. Never waits for a good moment. |
 | `keevoro schedule` | When the backup backs up by itself, when it runs next, and how its last few runs went. |
 | `keevoro schedule set daily 02:30` | Backs it up by itself every day at that time, in this computer's own time. Also `weekly sun 09:00`, `monthly 31 02:30` (the last day of shorter months), `off`, `pause` and `carry-on` (which never catches up what was missed while paused). Saving never runs it at once. The app runs it while it is open; see [For a system scheduler](#for-a-system-scheduler) for when it is not. |
 | `keevoro schedule skip [--undo]` | Skips the next run by itself, or stops skipping it. |

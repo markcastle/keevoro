@@ -866,7 +866,7 @@ pub static ROWS: &[Row] = &[
         words: &["run"],
         ops: &[Op::BackupRun, Op::ScheduleRun],
         about: Some(
-            "Backs up to every destination, originals first. With --unattended, runs as a schedule does, for a system scheduler: looks through the sources again, holds back what needs your say, waits while this computer is on battery or busy, and sends what is new.",
+            "Looks through the sources for anything new, then backs up to every destination, originals first. With --unattended, runs as a schedule does, for a system scheduler: looks through the sources again, holds back what needs your say, waits while this computer is on battery or busy, and sends what is new.",
         ),
         args: |c| {
             c.arg(flag(

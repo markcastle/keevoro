@@ -1779,6 +1779,22 @@ try {
   await leftBehind.getByRole('button', { name: 'Use this folder as it is now' }).click()
   await leftBehind.getByText(/looks emptied or replaced/).waitFor()
 
+  // --- Back up again looks through the sources for anything new first,
+  // says so while it looks, and says what it found at the end: photos
+  // copied onto a source since are never left out.
+  await page.goto(`${base}/?fast&slow`)
+  await page.getByRole('button', { name: 'Choose where they go' }).click()
+  await page.getByRole('button', { name: /^A folder/ }).click()
+  await page.getByRole('button', { name: 'Back up now' }).click()
+  await page.getByText(/^Everything you are keeping is there: [\d,]+ files\.$/).waitFor()
+  assert.equal(await page.getByText(/^Found [\d,]+ new/).count(), 0, 'nothing new, nothing extra said')
+  await page.evaluate(() => window.keevoroAddPhotos(14))
+  await page.getByRole('button', { name: 'Back up again' }).click()
+  await page.locator('.panel.send .running').getByText('Looking for anything new in Family hard drive…').waitFor()
+  await page.getByText('Found 14 new photos in Family hard drive.', { exact: true }).waitFor()
+  await page.getByText(/^Safely backed up 14 files\.$/).waitFor()
+  await page.getByText(/^Everything you are keeping is there: [\d,]+ files\.$/).waitFor()
+
   // --- A search can be stopped, and then nothing from it is kept.
   await page.goto(`${base}/?demo=empty&slow`)
   await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()

@@ -22,7 +22,7 @@
 //!   usual lock keeps every other program off the backup while it runs.
 
 use super::backing_up::{send_and_record, ByItselfSoFar};
-use super::looking::{self, ToLook};
+use super::looking;
 use super::{spawn, Context, Job, JobHandle, JobKind, Listener, Outcome, Said, SendEvent};
 use crate::backup::Backup;
 use crate::backups::Named;
@@ -440,49 +440,18 @@ impl Run {
         if job.stopped() {
             return self.end(ctx, job, Ending::Stopped);
         }
-        let home = &self.backup.home;
-        let found_before = found_paths(home);
-        let to_look = looking::what_to_look_again(&self.backup, self.only, None)
-            .map(|(to_look, _)| to_look)
-            .unwrap_or_else(|e| ToLook {
-                passed_over: vec![e.message],
-                ..ToLook::default()
-            });
-        let mut looked_again = Vec::new();
-        let mut passed_over = said_first;
-        passed_over.extend(to_look.passed_over.iter().cloned());
-        for step in &to_look.steps {
-            match looking::get_ready(ctx, home, step) {
-                Ok(said) => passed_over.extend(said),
-                Err(e) => {
-                    passed_over.push(e.message);
-                    continue;
-                }
-            }
-            let place = looking::place_of(step);
-            // Quickly, reading only what is new or changed, except every so
-            // often, when every file is read again.
-            let quickly = looking::may_look_quickly(home, place, self.clock.now().as_second());
-            let said = looking::look_through(ctx, job, home, place, &self.how.kinds, &self.how.skip, quickly);
-            let real = std::fs::canonicalize(place).unwrap_or_else(|_| place.to_path_buf());
-            keevoro_engine::surveys::mark_out_of_date(&ctx.cache, &real);
-            if said.stopped || job.stopped() {
-                return self.end(ctx, job, Ending::Stopped);
-            }
-            if let Some(problem) = &said.problem {
-                passed_over.push(format!("{} couldn't be looked through: {problem}", said.name));
-            } else if let Some(unplugged) = &said.unplugged {
-                passed_over.push(unplugged.clone());
-                looked_again.push(said.name.clone());
-            } else {
-                looked_again.push(said.name.clone());
-            }
-            ctx.jobs.heard(job, Said::Scan(said), true);
+        let found_before = looking::found_paths(&self.backup.home);
+        let looked = looking::look_again_first(ctx, job, &self.backup, self.only, &self.how);
+        if looked.stopped {
+            return self.end(ctx, job, Ending::Stopped);
         }
-        for different in &to_look.different {
+        let looked_again = looked.looked_again;
+        let mut passed_over = said_first;
+        passed_over.extend(looked.passed_over);
+        for different in &looked.different {
             ctx.log.say(&different.said);
         }
-        let (facts, found) = match self.facts(&to_look, &found_before) {
+        let (facts, found) = match self.facts(&looked.different, &found_before) {
             Ok(facts) => facts,
             Err(e) => return self.end(ctx, job, Ending::Problem(e.message)),
         };
@@ -504,9 +473,9 @@ impl Run {
             &self.backup,
             tracker,
             JobKind::BackUp,
+            &passed_over,
             Some(ByItselfSoFar {
                 record,
-                said_first: passed_over,
                 waiting: waits.into_iter().map(|w| w.said).collect(),
             }),
         )
@@ -555,7 +524,7 @@ impl Run {
 
     /// What the run knows before it sends anything, and what looking again
     /// found new, in words.
-    fn facts(&self, to_look: &ToLook, before: &HashSet<PathBuf>) -> Result<(Facts, Vec<String>)> {
+    fn facts(&self, different: &[super::DifferentDrive], before: &HashSet<PathBuf>) -> Result<(Facts, Vec<String>)> {
         let catalog = Catalog::open_in_library(&self.backup.home)?;
         let reports = catalog.load_reports().map_err(Error::from)?;
         let mut copies: HashMap<&str, usize> = HashMap::new();
@@ -615,7 +584,7 @@ impl Run {
                 arrange_asked: catalog.arrange()?.is_some(),
                 new_set_aside: set_aside,
                 new_copies,
-                different_drives: to_look.different.iter().map(|d| d.name.clone()).collect(),
+                different_drives: different.iter().map(|d| d.name.clone()).collect(),
                 cost,
             },
             found,
@@ -676,14 +645,6 @@ enum Ending {
         record: keevoro_engine::history::ByItself,
         waiting: Vec<String>,
     },
-}
-
-/// Every file found on the backup's sources now, by where it is.
-fn found_paths(home: &Path) -> HashSet<PathBuf> {
-    Catalog::open_in_library(home)
-        .and_then(|c| c.load_reports_as_found())
-        .map(|reports| reports.into_iter().flat_map(|r| r.items).map(|i| i.path).collect())
-        .unwrap_or_default()
 }
 
 /// True when the backup reads or sends over the internet: a destination in

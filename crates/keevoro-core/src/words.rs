@@ -129,6 +129,25 @@ impl Tally {
     }
 }
 
+/// What looking through the source `name` again found that was not there
+/// before, said, or `None` when there was nothing: "Found 14 new photos in
+/// Family photos.", and with more than one kind, "Found 14 new files in
+/// Family photos: 12 photos and 2 videos." Music is counted in tracks. The
+/// app's demo says the same through `foundNew` in `ui/src/format.ts`, and
+/// both are tested against one table, `ui/src/foundNewWords.json`.
+pub fn found_new(name: &str, new: Tally) -> Option<String> {
+    let total = new.photos + new.videos + new.music + new.others;
+    if total == 0 {
+        return None;
+    }
+    let kinds: Vec<(usize, &str)> = new.parts().into_iter().filter(|(n, _)| *n > 0).collect();
+    Some(match kinds.as_slice() {
+        [(n, word)] if new.others == 0 => format!("Found {} in {name}.", count(*n, &format!("new {word}"))),
+        _ if new.others == total => format!("Found {} in {name}.", count(total, "new file")),
+        _ => format!("Found {} in {name}: {}.", count(total, "new file"), new.said()),
+    })
+}
+
 fn first_word(wants: Wants) -> &'static str {
     if !wants.photos && !wants.videos && wants.music {
         "track"
@@ -305,6 +324,23 @@ mod tests {
             if music == 0 {
                 assert_eq!(files(photos, videos, others), said, "{photos} {videos} {others}");
             }
+        }
+    }
+
+    /// The one table the app's demo is tested against too.
+    #[test]
+    fn what_looking_again_found_new_is_said_as_the_shared_table_says() {
+        type Case = (String, usize, usize, usize, usize, Option<String>);
+        let cases: Vec<Case> = serde_json::from_str(include_str!("../../../ui/src/foundNewWords.json")).unwrap();
+        assert!(cases.len() >= 6);
+        for (name, photos, videos, others, music, said) in cases {
+            let tally = Tally {
+                photos,
+                videos,
+                music,
+                others,
+            };
+            assert_eq!(found_new(&name, tally), said, "{name} {tally:?}");
         }
     }
 }

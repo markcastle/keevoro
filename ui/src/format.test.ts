@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
-import { files, heading, holdsLine, musicOnly, named, namedWithOthers, foundOrNone } from './format.ts'
+import { files, foundNew, heading, holdsLine, musicOnly, named, namedWithOthers, foundOrNone } from './format.ts'
 
 // The one table keevoro_core::words is tested against too, so the screens
 // and the engine say counts the same way.
@@ -12,6 +12,17 @@ const cases: [number, number, number, number, string][] = JSON.parse(
 test('counts are said the way the engine says them', () => {
   assert.ok(cases.length >= 8)
   for (const [photos, videos, others, music, said] of cases) assert.equal(files(photos, videos, others, music), said)
+})
+
+// The one table keevoro_core::words::found_new is tested against too.
+const foundNewCases: [string, number, number, number, number, string | null][] = JSON.parse(
+  readFileSync(new URL('./foundNewWords.json', import.meta.url), 'utf8'),
+)
+
+test('what looking again found new is said the way the engine says it, and nothing new says nothing', () => {
+  assert.ok(foundNewCases.length >= 6)
+  for (const [name, photos, videos, others, music, said] of foundNewCases)
+    assert.equal(foundNew(name, photos, videos, others, music), said)
 })
 
 // The one table keevoro_core::words::named and heading are tested against.

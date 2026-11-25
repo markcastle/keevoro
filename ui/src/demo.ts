@@ -56,7 +56,7 @@ import type {
   ConnectRequest,
   FoundBackup,
 } from './backend'
-import { count, size } from './format'
+import { count, foundNew, size } from './format'
 import { PictureQueue, fileKey } from './pictureQueue'
 import { ReportNotSent } from './reportsWindow'
 
@@ -484,6 +484,10 @@ export function demoBackend(): Backend {
   // On a Mac or Linux an unplugged drive can leave the folder it was
   // mounted on behind, empty, on the computer's own disk.
   byHand.keevoroUnplugLeavingTheFolder = () => (leaveEmptyOnLook = true)
+  // Photos copied onto the first source since it was last looked through,
+  // which the next backup finds before it sends.
+  let addedSinceTheLook = 0
+  ;(window as unknown as { keevoroAddPhotos: (n: number) => void }).keevoroAddPhotos = (n) => (addedSinceTheLook += n)
   // What Keevoro would say of a destination it has just looked at, in the
   // words keevoro_engine::confirm uses.
   const lookedAt = (d: Place) => {
@@ -2423,13 +2427,32 @@ export function demoBackend(): Backend {
       awayView = { since: hoursAgo(0), backups: [], waiting: [] }
     },
     async send() {
-      const kept = collections.filter((c) => c.kept)
-      const keptOthers = otherFolders().flatMap((f) => otherRowsIn(f.key)).filter((r) => r.kept)
-      const total = kept.reduce((n, c) => n + c.photos + c.videos, 0) + keptOthers.length
       stopAsked = false
       sendStarted = Date.now()
       sendShare = 0
       void (async () => {
+        // It looks through each source for anything new first, as the
+        // engine does, and says what it found at the end.
+        const found: string[] = []
+        for (const source of sources) {
+          sendListeners.forEach((l) => l({ line: `Looking for anything new in ${source.name}\u2026`, finished: false }))
+          await later(new URLSearchParams(window.location.search).has('slow') ? 500 : 200 * pace)
+          if (stopAsked) {
+            sendStarted = null
+            sendListeners.forEach((l) => l({ finished: true, outcome: 'stopped', summary: ['Stopped. Everything backed up so far is safe where it is. Back up again whenever you like and it carries on from here.'] }))
+            return
+          }
+          const into = collections.find((c) => c.kept)
+          if (source === sources[0] && addedSinceTheLook > 0 && into) {
+            into.photos += addedSinceTheLook
+            source.items += addedSinceTheLook
+            found.push(foundNew(source.name, addedSinceTheLook, 0) ?? '')
+            addedSinceTheLook = 0
+          }
+        }
+        const kept = collections.filter((c) => c.kept)
+        const keptOthers = otherFolders().flatMap((f) => otherRowsIn(f.key)).filter((r) => r.kept)
+        const total = kept.reduce((n, c) => n + c.photos + c.videos, 0) + keptOthers.length
         sendListeners.forEach((l) => l({ line: 'Telling apart files that look alike: 0 of 12', finished: false }))
         await later(200 * pace)
         for (let step = 1; step <= 6; step++) {
@@ -2519,6 +2542,7 @@ export function demoBackend(): Backend {
               missed: 5,
               checkAdvised: true,
               summary: [
+                ...found,
                 `Safely backed up ${n(fresh - 5)} files.`,
                 `Couldn't back up 5 files, because the connection to ${to} was lost for a while: IMG_1001.jpg, IMG_1002.jpg, IMG_1003.jpg and 2 more.`,
                 'Back up again to try them once more.',
@@ -2533,6 +2557,7 @@ export function demoBackend(): Backend {
           l({
             finished: true,
             summary: [
+              ...found,
               ...goneSaid,
               fresh > 0
                 ? `Safely backed up ${fresh.toLocaleString('en-GB')} files.`

@@ -788,11 +788,13 @@ impl Op {
             ),
             Op::BackupRun => (
                 "run_backup",
-                "Backs up everything being kept to every destination, originals first, and proves each copy exact. \
-                 It can take hours, so it starts a job and gives back its id at once; follow it with job_status, and \
-                 read last_summary when it ends. Never changes or deletes anything on a source, and never replaces \
-                 or removes anything already backed up. Safe to stop and run again. Every folder it backs up to must \
-                 be one the person has allowed (see my_access).",
+                "Looks through the backup's sources for anything new or changed (passing over, and saying, any \
+                 that are not there), then backs up everything being kept to every destination, originals first, \
+                 and proves each copy exact. It can take hours, so it starts a job and gives back its id at once; \
+                 follow it with job_status, and read last_summary when it ends. Never changes or deletes anything \
+                 on a source, and never replaces or removes anything already backed up. Safe to stop and run \
+                 again. Every source it looks through and every folder it backs up to must be one the person has \
+                 allowed (see my_access).",
             ),
             Op::BackupCheck => (
                 "check_arrived",
