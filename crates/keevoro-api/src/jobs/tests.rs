@@ -3313,3 +3313,158 @@ fn back_up_now_anyway_starts_on_battery_and_outside_the_hours_chosen() {
     assert_eq!((last.not_now, last.outcome), (None, Some(Outcome::Worked)));
     assert!(usb.join("originals").is_dir());
 }
+
+/// A backup the person starts, and what it said at the end.
+fn pressed(keevoro: &Keevoro, named: &Named, listener: Option<Listener>) -> SendEvent {
+    let job = keevoro.run_backup(named, listener).unwrap();
+    let Some(Said::Send(last)) = keevoro.wait(job.id) else {
+        panic!("a backup ends with what it said")
+    };
+    keevoro.wait_for_jobs();
+    last
+}
+
+fn found_lines(last: &SendEvent) -> Vec<&String> {
+    last.summary.iter().filter(|l| l.starts_with("Found ")).collect()
+}
+
+#[test]
+fn backing_up_looks_through_the_sources_first_and_backs_up_what_is_new_even_on_battery() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    // On battery, with Keevoro set to wait then: a backup the person
+    // starts never waits.
+    let keevoro = keevoro(dir.path()).with_signals(on_battery());
+    let (named, card, usb) = card_going_to_usb(dir.path(), &keevoro);
+    let originals = || walk_files(&usb.join("originals")).len();
+
+    // Nothing new: nothing extra is said.
+    let last = pressed(&keevoro, &named, None);
+    assert_eq!(last.outcome, Some(Outcome::Worked), "{last:?}");
+    assert!(found_lines(&last).is_empty(), "{last:?}");
+    assert_eq!(originals(), 3);
+
+    // A photo copied onto the source since: found, said and backed up.
+    std::fs::write(card.join("DCIM/IMG_0048.jpg"), crate::backup::tests::real_jpeg(42)).unwrap();
+    let heard = Heard::default();
+    let last = pressed(&keevoro, &named, heard.listener());
+    assert_eq!(last.outcome, Some(Outcome::Worked), "{last:?}");
+    assert_eq!(found_lines(&last), ["Found 1 new photo in Card."], "{last:?}");
+    assert!(
+        last.summary.iter().any(|l| l.starts_with("Safely backed up 1 file")),
+        "{last:?}"
+    );
+    assert_eq!(originals(), 4, "the new photo is at the destination");
+    assert_eq!(there(&named), 4);
+    let lines = heard.lines();
+    let looking = lines
+        .iter()
+        .position(|l| l == "Looking for anything new in Card\u{2026}")
+        .unwrap_or_else(|| panic!("it says it is looking: {lines:?}"));
+    let sending = lines
+        .iter()
+        .position(|l| l.contains(" safely backed up\t"))
+        .unwrap_or_else(|| panic!("{lines:?}"));
+    assert!(looking < sending, "it looks first, then backs up: {lines:?}");
+
+    // Nothing new again: nothing is said, and nothing is sent twice.
+    let last = pressed(&keevoro, &named, None);
+    assert!(found_lines(&last).is_empty(), "{last:?}");
+    assert!(
+        !last.summary.iter().any(|l| l.starts_with("Safely backed up")),
+        "{last:?}"
+    );
+    assert_eq!(originals(), 4);
+}
+
+#[test]
+fn backing_up_passes_over_a_source_that_is_not_there_says_so_and_backs_up_the_rest() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro(dir.path());
+    let (named, card, usb) = card_going_to_usb(dir.path(), &keevoro);
+    let holiday = dir.path().join("Holiday videos");
+    std::fs::create_dir_all(&holiday).unwrap();
+    std::fs::write(holiday.join("IMG_0049.jpg"), crate::backup::tests::real_jpeg(60)).unwrap();
+    let looked = keevoro.look(&named, &holiday, None).unwrap();
+    keevoro.wait(looked.id);
+    keevoro.wait_for_jobs();
+    let found_before = Backup::open(&named.home).unwrap().found().unwrap().photos;
+
+    // The second source in a drawer, and a new photo on the first.
+    let drawer = dir.path().join("In a drawer");
+    std::fs::rename(&holiday, &drawer).unwrap();
+    std::fs::write(card.join("DCIM/IMG_0048.jpg"), crate::backup::tests::real_jpeg(42)).unwrap();
+    let last = pressed(&keevoro, &named, None);
+    assert!(last.problem.is_none(), "it never fails the whole backup: {last:?}");
+    assert!(
+        last.summary.iter().any(|l| l.ends_with(
+            "Holiday videos can't be found, so it was not looked through. Is its drive plugged in? What was found in it before is kept."
+        )),
+        "{last:?}"
+    );
+    assert_eq!(found_lines(&last), ["Found 1 new photo in Card."], "{last:?}");
+    let sent: Vec<String> = walk_files(&usb.join("originals"))
+        .iter()
+        .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    assert!(sent.iter().any(|n| n == "IMG_0048.jpg"), "{sent:?}");
+    assert_eq!(sent.len(), 4, "the card's photos, new one too: {sent:?}");
+    assert_eq!(
+        Backup::open(&named.home).unwrap().found().unwrap().photos,
+        found_before + 1,
+        "nothing found on the source in a drawer is forgotten"
+    );
+    std::fs::rename(&drawer, &holiday).unwrap();
+}
+
+#[test]
+fn backing_up_keeps_what_the_person_chose_not_to_keep_unkept_after_looking_again() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro(dir.path());
+    let (named, card, usb) = card_going_to_usb(dir.path(), &keevoro);
+    let catalog = Catalog::open_in_library(&named.home).unwrap();
+    keevoro_engine::set_collection_kept(&catalog, "Holidays / Cornwall", false).unwrap();
+
+    std::fs::write(card.join("DCIM/IMG_0048.jpg"), crate::backup::tests::real_jpeg(42)).unwrap();
+    let last = pressed(&keevoro, &named, None);
+    assert_eq!(found_lines(&last), ["Found 1 new photo in Card."], "{last:?}");
+    let mut sent: Vec<String> = walk_files(&usb.join("originals"))
+        .iter()
+        .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    sent.sort();
+    assert_eq!(
+        sent,
+        ["IMG_0048.jpg", "IMG_20120304_153012.jpg"],
+        "the collection not kept stays not kept; the new photo is kept"
+    );
+}
+
+#[test]
+fn stopping_a_backup_while_it_looks_leaves_everything_as_it_was() {
+    let _turn = one_at_a_time();
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro(dir.path());
+    let (named, card, usb) = card_going_to_usb(dir.path(), &keevoro);
+    let before = Backup::open(&named.home).unwrap().sources().unwrap()[0].items;
+    std::fs::write(card.join("DCIM/IMG_0048.jpg"), crate::backup::tests::real_jpeg(42)).unwrap();
+
+    // Stopped the moment the look says how far it has got.
+    let (jobs, log) = (keevoro.jobs.clone(), keevoro.log_shared());
+    let stopper: Listener = Arc::new(move |event: &Event| {
+        if matches!(&event.said, Said::Scan(e) if !e.finished) {
+            jobs.stop(Which::Job(event.job), &log);
+        }
+    });
+    let last = pressed(&keevoro, &named, Some(stopper));
+    assert_eq!(last.outcome, Some(Outcome::Stopped), "{last:?}");
+    assert!(found_lines(&last).is_empty(), "{last:?}");
+    assert!(!usb.join("originals").exists(), "nothing was sent");
+    assert_eq!(
+        Backup::open(&named.home).unwrap().sources().unwrap()[0].items,
+        before,
+        "what was found is as it was"
+    );
+}

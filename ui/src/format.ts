@@ -26,6 +26,26 @@ export function files(photos: number, videos: number, others = 0, music = 0, hol
   return joined(parts)
 }
 
+/**
+ * What looking through a source again before a backup found new, or null
+ * when nothing: "Found 14 new photos in Family photos.", and with more than
+ * one kind, "Found 14 new files in Family photos: 12 photos and 2 videos."
+ * The same as `keevoro_core::words::found_new`, tested against
+ * `foundNewWords.json`.
+ */
+export function foundNew(name: string, photos: number, videos: number, others = 0, music = 0): string | null {
+  const total = photos + videos + others + music
+  if (total === 0) return null
+  const kinds = [
+    [photos, 'photo'],
+    [videos, 'video'],
+    [music, 'track'],
+  ].filter(([n]) => (n as number) > 0) as [number, string][]
+  if (others === 0 && kinds.length === 1) return `Found ${count(kinds[0][0], `new ${kinds[0][1]}`)} in ${name}.`
+  if (others === total) return `Found ${count(total, 'new file')} in ${name}.`
+  return `Found ${count(total, 'new file')} in ${name}: ${files(photos, videos, others, music)}.`
+}
+
 function joined(parts: string[]) {
   return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts.join('')
 }

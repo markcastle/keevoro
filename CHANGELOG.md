@@ -6,7 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **Back up again backs up the files you added since.** Pressing Back up now or Back up again first looks through the backup's sources for anything new or changed, then backs up, as one step. Before, it sent only what Keevoro had found at the last look, so photos copied onto a source since then were left out until you looked through it again. While it looks, it says so ("Looking for anything new in Family photos…"), and at the end it says what it found ("Found 14 new photos in Family photos."), saying nothing extra when there was nothing new. A source that is not plugged in is passed over and said, and the rest is still backed up, with nothing found on it before forgotten. Anything you chose not to keep stays not kept, and Stop works while it looks, leaving everything as it was. It never waits for battery, a metered connection or quiet hours: you asked for it now. The same goes for the icon by the clock, `keevoro run` and an AI agent's `run_backup`; an agent now needs to be allowed to look in each source too.
 
 ## [0.55.1] - 2026-11-24
 

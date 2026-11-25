@@ -449,9 +449,21 @@ pub(crate) struct Job {
     /// True once a person, or another program for one, asked it to stop:
     /// not when it gives way, or its program closes.
     asked_to_stop: AtomicBool,
-    /// True for a backup that runs by itself, which looks through the
-    /// sources again first: no search may start beside it.
+    /// True for a backup that looks through the sources again first (one
+    /// that runs by itself, or one the person started with no search of
+    /// that backup running): no search may start beside it.
     also_looks: bool,
+}
+
+/// Whether a job looks through its backup's sources too, and so holds the
+/// looking slot on that backup as well as its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Looks {
+    No,
+    /// Always: refused while a search of that backup runs.
+    First,
+    /// Only when no search of that backup is running.
+    IfFree,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -627,7 +639,21 @@ impl Jobs {
     /// Registers a new job, unless another already holds the slot it needs
     /// on that backup, here or in another program.
     fn begin(self: &Arc<Self>, kind: JobKind, backup: Option<&Named>, listener: Option<Listener>) -> Result<Arc<Job>> {
-        self.begin_unless(kind, backup, listener, false, None, None)
+        self.begin_unless(kind, backup, listener, false, None, None, Looks::No)
+    }
+
+    /// As [`Jobs::begin`], for a backup the person started, which looks
+    /// through the sources first, holding the looking slot too, unless a
+    /// search of that backup is running already: then it only sends, as it
+    /// always could beside a search, and the search finds what is new.
+    /// Whether it looks is the job's `also_looks`.
+    fn begin_looking_first_if_free(
+        self: &Arc<Self>,
+        kind: JobKind,
+        backup: &Named,
+        listener: Option<Listener>,
+    ) -> Result<Arc<Job>> {
+        self.begin_unless(kind, Some(backup), listener, false, None, None, Looks::IfFree)
     }
 
     /// As [`Jobs::begin`], for a job of `kind` that `op` starts: putting a
@@ -640,7 +666,7 @@ impl Jobs {
         backup: &Named,
         listener: Option<Listener>,
     ) -> Result<Arc<Job>> {
-        self.begin_unless(kind, Some(backup), listener, false, None, Some(op))
+        self.begin_unless(kind, Some(backup), listener, false, None, Some(op), Looks::No)
     }
 
     /// Registers a backup that runs by itself, which looks through the
@@ -651,11 +677,21 @@ impl Jobs {
         occasion: keevoro_core::unattended::Occasion,
         listener: Option<Listener>,
     ) -> Result<Arc<Job>> {
-        self.begin_unless(JobKind::BackUp, Some(backup), listener, false, Some(occasion), None)
+        self.begin_unless(
+            JobKind::BackUp,
+            Some(backup),
+            listener,
+            false,
+            Some(occasion),
+            None,
+            Looks::First,
+        )
     }
 
     /// As [`Jobs::begin`]; with `only_one`, refused too while another job
-    /// of the same kind is running anywhere in this program.
+    /// of the same kind is running anywhere in this program. `looks` says
+    /// whether it looks through the sources too.
+    #[allow(clippy::too_many_arguments)]
     fn begin_unless(
         self: &Arc<Self>,
         kind: JobKind,
@@ -664,9 +700,10 @@ impl Jobs {
         only_one: bool,
         by_itself: Option<keevoro_core::unattended::Occasion>,
         op: Option<Op>,
+        looks: Looks,
     ) -> Result<Arc<Job>> {
         let _starting = lock(&self.starting);
-        {
+        let also_looks = {
             let registry = lock(&self.registry);
             if only_one
                 && registry
@@ -676,23 +713,30 @@ impl Jobs {
             {
                 return Err(Error::busy("That is running already."));
             }
-            if let (Some(slot), Some(backup)) = (kind.slot(), backup) {
-                let needs = if by_itself.is_some() {
+            let taken = |slot: Slot| {
+                backup.is_some_and(|backup| {
+                    registry
+                        .running
+                        .iter()
+                        .any(|job| job.on_backup(&backup.id) && job.holds(slot))
+                })
+            };
+            if let Some(slot) = kind.slot() {
+                let needs = if looks == Looks::First {
                     vec![Slot::Looking, slot]
                 } else {
                     vec![slot]
                 };
-                for slot in needs {
-                    let taken = registry
-                        .running
-                        .iter()
-                        .any(|job| job.on_backup(&backup.id) && job.holds(slot));
-                    if taken {
-                        return Err(Error::busy(slot.refusal()));
-                    }
+                if let Some(slot) = needs.into_iter().find(|slot| taken(*slot)) {
+                    return Err(Error::busy(slot.refusal()));
                 }
             }
-        }
+            match looks {
+                Looks::No => false,
+                Looks::First => true,
+                Looks::IfFree => !taken(Slot::Looking),
+            }
+        };
         if let (Some(backup), Some(across)) = (backup, self.across()) {
             if kind.slot().is_some() {
                 let work: Arc<dyn Work> = self.clone();
@@ -741,7 +785,7 @@ impl Jobs {
             gone: AtomicBool::new(false),
             held: AtomicBool::new(false),
             asked_to_stop: AtomicBool::new(false),
-            also_looks: by_itself.is_some(),
+            also_looks,
         });
         lock(&self.registry).running.push(job.clone());
         self.changed.notify_all();
@@ -752,7 +796,8 @@ impl Jobs {
     /// Registers the background check, unless one is running already, or
     /// another program is working on that backup.
     fn begin_only_one(self: &Arc<Self>, kind: JobKind, backup: &Named) -> Option<Arc<Job>> {
-        self.begin_unless(kind, Some(backup), None, true, None, None).ok()
+        self.begin_unless(kind, Some(backup), None, true, None, None, Looks::No)
+            .ok()
     }
 
     /// Writes what this program's jobs on `job`'s backup are doing for
@@ -1550,15 +1595,24 @@ impl Keevoro {
         }
     }
 
-    /// `backup.run`: backs up to every destination, originals first, and
-    /// records how it went.
+    /// `backup.run`: looks through the backup's sources for anything new or
+    /// changed, then backs up to every destination, originals first, and
+    /// records how it went. A source that is not there is passed over and
+    /// said; what was found on it is kept and backed up as known. It never
+    /// waits for a good moment: the person asked for it now.
     pub fn run_backup(&self, backup: &Named, listener: Option<Listener>) -> Result<JobHandle> {
-        backing_up::start(&self.context(), backup, JobKind::BackUp, listener)
+        backing_up::start(
+            &self.context(),
+            backup,
+            JobKind::BackUp,
+            Some(self.how_to_look(backup)),
+            listener,
+        )
     }
 
     /// `backup.check`: confirms what is at each destination.
     pub fn check_backup(&self, backup: &Named, listener: Option<Listener>) -> Result<JobHandle> {
-        backing_up::start(&self.context(), backup, JobKind::Check, listener)
+        backing_up::start(&self.context(), backup, JobKind::Check, None, listener)
     }
 
     /// `backup.put_right`: puts each destination right, reading copies

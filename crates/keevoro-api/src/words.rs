@@ -6,6 +6,12 @@ pub use keevoro_core::words::{heading, in_full, named, photos_and_videos, Tally}
 pub use keevoro_engine::history::duration;
 pub use keevoro_engine::summary::{ago, bytes, count, files, thousands};
 
+/// What a backup is doing while it looks through the source `name` for
+/// anything new or changed, before it sends.
+pub fn looking_for_anything_new(name: &str) -> String {
+    format!("Looking for anything new in {name}\u{2026}")
+}
+
 /// A search cut short by its drive going: what happened and what to do.
 /// `drive` is what the drive is called when the place looked through is a
 /// whole drive; otherwise the folder's name.

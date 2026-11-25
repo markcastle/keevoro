@@ -1,0 +1,10 @@
+[
+  ["Family photos", 0, 0, 0, 0, null],
+  ["Family photos", 1, 0, 0, 0, "Found 1 new photo in Family photos."],
+  ["Family photos", 14, 0, 0, 0, "Found 14 new photos in Family photos."],
+  ["Holiday videos", 0, 3, 0, 0, "Found 3 new videos in Holiday videos."],
+  ["Mum's card", 0, 0, 0, 12, "Found 12 new tracks in Mum's card."],
+  ["Mum's card", 0, 0, 2, 0, "Found 2 new files in Mum's card."],
+  ["Family photos", 12, 2, 0, 0, "Found 14 new files in Family photos: 12 photos and 2 videos."],
+  ["Family photos", 1203, 0, 4, 1, "Found 1,208 new files in Family photos: 1,203 photos, 1 track and 4 other files."]
+]

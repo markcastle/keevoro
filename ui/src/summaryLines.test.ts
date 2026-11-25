@@ -46,3 +46,14 @@ test('a line saying everything is safely there went well; anything less did not'
     assert.equal(wentWell(line), false, line)
   }
 })
+
+test('what looking again found new, and a source passed over, are news, never a routine figure or a green tick', () => {
+  const said = [
+    'Found 14 new files in Family photos: 12 photos and 2 videos.',
+    "Mum's card can't be found, so it was not looked through. Is its drive plugged in? What was found in it before is kept.",
+    'Safely backed up 14 files (41.0 MB).',
+    'That took about 2 minutes: 41.0 MB at an average of 0.3 MB a second.',
+  ]
+  assert.deepEqual(splitSummary(said), { shown: said.slice(0, 3), more: said.slice(3) })
+  assert.equal(wentWell(said[0]), false)
+})

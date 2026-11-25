@@ -123,14 +123,7 @@ fn allowed(keevoro: &Keevoro, op: Op, backup: Option<&str>, mut request: Value) 
         // record by the work itself, so they are checked and not passed on.
         Op::SourcesLookAgain => {
             let one = request.get("source").and_then(Value::as_i64);
-            let sources = keevoro.backups().open(backup)?.sources()?;
-            for source in sources.iter().filter(|s| one.is_none_or(|id| s.id == id)) {
-                if source.bucket.is_some() {
-                    return Err(Error::refused(BUCKET_FOR_THE_PERSON));
-                }
-                // One set aside is looked for where it was.
-                may_look_in(&access, source.set_aside_from.as_ref().unwrap_or(&source.root))?;
-            }
+            may_look_again(&access, &keevoro.backups().open(backup)?.sources()?, one)?;
         }
         Op::PhotosPicture if !text(&request, "file").is_empty() => look_in(&access, &mut request, "file")?,
         Op::SourcesLeaveOut => match text(&request, "folder") {
@@ -182,6 +175,10 @@ fn allowed(keevoro: &Keevoro, op: Op, backup: Option<&str>, mut request: Value) 
                 if let Some(folder) = &destination.folder {
                     may_back_up_to(&access, folder)?;
                 }
+            }
+            // A backup looks through every source for anything new first.
+            if op == Op::BackupRun {
+                may_look_again(&access, &opened.sources()?, None)?;
             }
         }
         _ => {}
@@ -250,6 +247,19 @@ fn asks_for_anything(request: &Value) -> bool {
         Value::Object(fields) => fields.values().any(|v| !v.is_null()),
         _ => true,
     }
+}
+
+/// Refuses unless an agent may look through again each of `sources` (only
+/// `one`, when given): never a bucket, which is the person's to read.
+fn may_look_again(access: &AgentAccess, sources: &[keevoro_engine::SourceView], one: Option<i64>) -> Result<()> {
+    for source in sources.iter().filter(|s| one.is_none_or(|id| s.id == id)) {
+        if source.bucket.is_some() {
+            return Err(Error::refused(BUCKET_FOR_THE_PERSON));
+        }
+        // One set aside is looked for where it was.
+        may_look_in(access, source.set_aside_from.as_ref().unwrap_or(&source.root))?;
+    }
+    Ok(())
 }
 
 fn may_look_in(access: &AgentAccess, place: &str) -> Result<()> {
@@ -578,6 +588,11 @@ mod tests {
         let e = refused(call_for_agent(k, Op::BackupRun, None, json!({})));
         assert!(e.contains("back up to"), "{e}");
         refused(call_for_agent(k, Op::BackupCheck, None, json!({})));
+        // A backup looks through its sources first, so an agent may start
+        // one only when it may look in every one of them.
+        allow(k, &[], &[&usb], true);
+        let e = refused(call_for_agent(k, Op::BackupRun, None, json!({})));
+        assert!(e.contains("look in") && e.contains("Card"), "{e}");
         keevoro.wait_for_jobs();
     }
 

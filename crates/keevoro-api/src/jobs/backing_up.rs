@@ -7,7 +7,7 @@
 //! backup's history, and what it said when it ended is kept with the
 //! backup until the next one, so it is still there after closing Keevoro.
 
-use super::{seconds_now, spawn, Context, Every, JobHandle, JobKind, Listener, Outcome, Said, SendEvent};
+use super::{looking, seconds_now, spawn, Context, Every, JobHandle, JobKind, Listener, Outcome, Said, SendEvent};
 use crate::backup::Backup;
 use crate::backups::Named;
 use crate::error::Result;
@@ -21,9 +21,21 @@ use std::path::Path;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-pub(super) fn start(ctx: &Context, backup: &Named, kind: JobKind, listener: Option<Listener>) -> Result<JobHandle> {
+/// Starts a backup (or a check). A backup given `look_first` looks through
+/// its sources for anything new or changed before it sends, as one job,
+/// unless a search of that backup is already doing so.
+pub(super) fn start(
+    ctx: &Context,
+    backup: &Named,
+    kind: JobKind,
+    look_first: Option<looking::HowToLook>,
+    listener: Option<Listener>,
+) -> Result<JobHandle> {
     let record = kind == JobKind::BackUp;
-    let job = ctx.jobs.begin(kind, Some(backup), listener)?;
+    let job = match &look_first {
+        Some(_) => ctx.jobs.begin_looking_first_if_free(kind, backup, listener)?,
+        None => ctx.jobs.begin(kind, Some(backup), listener)?,
+    };
     let handle = job.handle.clone();
     let home = backup.home.clone();
     // One estimate of the time left for the whole backup, which starts
@@ -48,7 +60,11 @@ pub(super) fn start(ctx: &Context, backup: &Named, kind: JobKind, listener: Opti
     }
     let backup = backup.clone();
     spawn(ctx, &job, move |ctx, job, ending| {
-        let last = send_and_record(ctx, job, &backup, &tracker, kind, None);
+        let said_first = match &look_first {
+            Some(how) if job.also_looks => look_first_said(ctx, job, &backup, how),
+            _ => Vec::new(),
+        };
+        let last = send_and_record(ctx, job, &backup, &tracker, kind, &said_first, None);
         // Whatever the backup did not fingerprint is picked up again now.
         super::duplicates::start(ctx, &backup, None, super::duplicates::Why::AfterWork);
         ending.with(Some(last));
@@ -56,25 +72,44 @@ pub(super) fn start(ctx: &Context, backup: &Named, kind: JobKind, listener: Opti
     Ok(handle)
 }
 
+/// Looks through the backup's sources for anything new or changed, and
+/// gives what to say first when the backup ends: what was found new on
+/// each source, and each source passed over and why. Nothing, when the
+/// person stopped it: the backup then says it was stopped.
+fn look_first_said(ctx: &Context, job: &Arc<super::Job>, backup: &Named, how: &looking::HowToLook) -> Vec<String> {
+    let before = looking::found_paths(&backup.home);
+    let looked = looking::look_again_first(ctx, job, backup, None, how);
+    if looked.stopped {
+        return Vec::new();
+    }
+    let mut said = looking::found_new_said(&backup.home, &before);
+    said.extend(looked.passed_over);
+    said.extend(looked.different.into_iter().map(|d| d.said));
+    for line in &said {
+        ctx.log.say(line);
+    }
+    said
+}
+
 /// For a backup that runs by itself: what it did before sending, for its
 /// history, and what waits for the person, which it says at the end.
 pub(super) struct ByItselfSoFar {
     pub(super) record: keevoro_engine::history::ByItself,
-    /// Said first in its summary: the sources passed over.
-    pub(super) said_first: Vec<String>,
     /// What waits for the person's say, found before sending.
     pub(super) waiting: Vec<String>,
 }
 
 /// Backs up (or checks) on this job's thread, says how it went, writes it
-/// into the backup's history, and gives its last word. The job lets go of
-/// its backup before it says that last word.
+/// into the backup's history, and gives its last word, `said_first` first
+/// (what looking again found, and the sources passed over). The job lets
+/// go of its backup before it says that last word.
 pub(super) fn send_and_record(
     ctx: &Context,
     job: &Arc<super::Job>,
     backup: &Named,
     tracker: &Tracker,
     kind: JobKind,
+    said_first: &[String],
     by_itself: Option<ByItselfSoFar>,
 ) -> Said {
     let record = kind == JobKind::BackUp;
@@ -83,11 +118,9 @@ pub(super) fn send_and_record(
         unattended: by_itself.is_some(),
     };
     let mut said = Vec::new();
-    if let Some(so_far) = &by_itself {
-        for line in &so_far.said_first {
-            said.extend_from_slice(line.as_bytes());
-            said.push(b'\n');
-        }
+    for line in said_first {
+        said.extend_from_slice(line.as_bytes());
+        said.push(b'\n');
     }
     let mut every = Every::now(ctx.jobs.progress_every());
     // How each destination's turn went, for the backup's record.
