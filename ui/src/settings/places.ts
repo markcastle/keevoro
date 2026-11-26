@@ -22,7 +22,7 @@ export type SectionId =
   | 'about'
 
 /** The pages that open from a row, each with a way back. */
-export type DetailId = 'kinds' | 'agents' | 'licences'
+export type DetailId = 'kinds' | 'agents' | 'licences' | 'changelog'
 
 export type Section = {
   id: SectionId
@@ -51,6 +51,7 @@ export const DETAILS: Record<DetailId, { section: SectionId; title: string }> = 
   kinds: { section: 'advanced', title: 'Kinds of file Keevoro looks for' },
   agents: { section: 'advanced', title: 'AI agents' },
   licences: { section: 'about', title: 'Open source licences' },
+  changelog: { section: 'about', title: 'What’s new in each version' },
 }
 
 export type RowInfo = {
@@ -112,6 +113,7 @@ export const ROWS: RowInfo[] = [
   { id: 'log', section: 'log', title: 'What Keevoro has been doing', words: 'log record history diagnostics problem wrong slow' },
   { id: 'about', section: 'about', title: 'About Keevoro', words: 'version name who made' },
   { id: 'aboutVersion', section: 'about', title: 'Version and updates', words: 'version updates check newer' },
+  { id: 'changelog', section: 'about', title: 'What’s new in each version', words: 'changelog change log changes release notes history versions new added fixed whats' },
   { id: 'promises', section: 'about', title: 'What Keevoro promises', words: 'promises safe never changes sources read only rules' },
   { id: 'privacy', section: 'about', title: 'What leaves this computer', words: 'privacy internet data sent account server telemetry' },
   { id: 'thanks', section: 'about', title: 'Thank you', words: 'credits thanks made by maker' },

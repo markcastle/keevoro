@@ -6,7 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **What's new, inside Keevoro.** Help, About Keevoro now has "What's new in each version": every change you would notice, newest first, without leaving the app or needing the internet.
+
+### Changed
+
+- **The comparison of cloud storage fills the window.** The panel that shows Stratus is now as tall as the window, and wider, where it stopped at a fixed height.
 
 ## [0.58.1] - 2026-11-26
 

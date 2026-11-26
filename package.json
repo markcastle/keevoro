@@ -13,7 +13,7 @@
     "lint": "oxlint ui/src",
     "ui:test": "node scripts/ui-test.mjs",
     "ui:words": "node scripts/word-count.mjs",
-    "ui:unit": "node --test ui/src/treemap.test.ts ui/src/ringParts.test.ts ui/src/held.test.ts ui/src/format.test.ts ui/src/wantsRule.test.ts ui/src/thereWords.test.ts ui/src/noReload.test.ts ui/src/stratus.test.ts ui/src/settings/places.test.ts ui/src/menu.test.ts ui/src/reportsWindow.test.ts ui/src/tipPlace.test.ts ui/src/summaryLines.test.ts ui/src/surveyGroups.test.ts ui/src/folderGroups.test.ts",
+    "ui:unit": "node --test ui/src/treemap.test.ts ui/src/ringParts.test.ts ui/src/held.test.ts ui/src/format.test.ts ui/src/wantsRule.test.ts ui/src/thereWords.test.ts ui/src/noReload.test.ts ui/src/stratus.test.ts ui/src/settings/places.test.ts ui/src/menu.test.ts ui/src/reportsWindow.test.ts ui/src/tipPlace.test.ts ui/src/summaryLines.test.ts ui/src/surveyGroups.test.ts ui/src/folderGroups.test.ts ui/src/changelogWords.test.ts",
     "tokens": "node scripts/make-tokens.mjs"
   },
   "dependencies": {
