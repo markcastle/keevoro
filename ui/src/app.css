@@ -6142,9 +6142,75 @@ h3.kv-group-title {
   grid-column: 1 / -1;
 }
 
+/* Each report is a row that opens in place, with a small chevron that
+   turns, to read again what was sent. */
+.report-open {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px var(--space-3);
+  align-items: baseline;
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+  border-radius: 6px;
+}
+
+.report-open .report-line::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin: 0 8px 2px 0;
+  border-right: 1.5px solid var(--ink-muted);
+  border-bottom: 1.5px solid var(--ink-muted);
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+
+.report-open[aria-expanded='true'] .report-line::before {
+  transform: rotate(45deg);
+}
+
+.report-sent {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 6px;
+  margin-top: 6px;
+  padding-left: 14px;
+  min-width: 0;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.report-sent[hidden] {
+  display: none;
+}
+
+.report-open + .report-note {
+  padding-left: 14px;
+}
+
+.report-message {
+  color: var(--ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .report-open .report-line::before {
+    transition: none;
+  }
+}
+
 @media (max-width: 480px) {
-  .report-list li {
+  .report-list li,
+  .report-open {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .report-open .report-status {
+    padding-left: 14px;
   }
 
   .report-status {

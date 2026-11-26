@@ -13,13 +13,22 @@
 // system's own network settings, and Keevoro keeps the answer; it asks
 // after reports the same way.
 //
+// Each report under Your reports opens in place to read again what was
+// sent: the whole message, what kind it was, when, the Keevoro and screen
+// it went from, and whether the log and a way to reach them went with it
+// (never either itself, which Keevoro does not keep). A report sent before
+// whole messages were kept shows its first line and says so.
+//
+// Keevoro sends no email, so the thank you says that, and where to look.
+//
 // A reporting code, if the person has one, is behind a quiet link. It is
 // kept in the keychain by Keevoro and never comes back to the window: the
 // page knows only whether one is kept. What is typed is kept only while it
 // is typed, never in `kept`, and goes to the keychain before sending.
 
 import { useCallback, useEffect, useId, useState } from 'react'
-import type { Backend, ReportKind, ReportRequest, ReportsView, SentReport } from '../backend'
+import type { Backend, ReportKind, ReportListed, ReportRequest, ReportsView, SentReport } from '../backend'
+import { reportFacts } from '../reportFacts'
 import { Toggle } from '../toggle'
 import { askThroughWindow, checkedCode, ReportNotSent, sendThroughWindow } from '../reportsWindow'
 import { Group, Intro } from './parts'
@@ -237,7 +246,7 @@ export function ReportPage(props: {
             <b>{sent.said}</b>
           </p>
           {sent.codeSaid && <p className="small report-code-said">{sent.codeSaid}</p>}
-          <p className="quiet small">How it is getting on is under Your reports, below.</p>
+          <p className="quiet small report-email-said">{sent.emailSaid}</p>
           <p className="choices">
             <button type="button" className="button small" onClick={() => setSent(null)}>
               Write another
@@ -409,14 +418,7 @@ export function ReportPage(props: {
         >
           <ul id="setting-yourReports" className="report-list" tabIndex={-1}>
             {reports.reports.map((r) => (
-              <li key={r.reference}>
-                <span className="report-line">
-                  <b>{r.reference}</b> <span>{r.firstLine}</span>
-                  {r.recognised && <span className="report-recognised">Recognised</span>}
-                </span>
-                <span className={`report-status ${r.status ?? 'new'}`}>{r.statusSaid}</span>
-                {r.note && <span className="quiet small report-note">{r.note}</span>}
-              </li>
+              <SentReportRow key={r.reference} report={r} />
             ))}
           </ul>
         </Group>
@@ -425,3 +427,32 @@ export function ReportPage(props: {
   )
 }
 
+
+/** One report sent from this computer: a row that opens in place to read again what was sent. */
+function SentReportRow({ report: r }: { report: ReportListed }) {
+  const [open, setOpen] = useState(false)
+  const shown = useId()
+  return (
+    <li className={open ? 'open' : undefined}>
+      <button
+        type="button"
+        className="report-open"
+        aria-expanded={open}
+        aria-controls={shown}
+        onClick={() => setOpen((was) => !was)}
+      >
+        <span className="report-line">
+          <b>{r.reference}</b> <span>{r.firstLine}</span>
+          {r.recognised && <span className="report-recognised">Recognised</span>}
+        </span>
+        <span className={`report-status ${r.status ?? 'new'}`}>{r.statusSaid}</span>
+      </button>
+      {r.note && <span className="quiet small report-note">{r.note}</span>}
+      <div className="report-sent" id={shown} hidden={!open}>
+        <p className="report-message">{r.message ?? r.firstLine}</p>
+        {r.keptSaid && <p className="quiet small report-kept-said">{r.keptSaid}</p>}
+        <p className="quiet small report-facts">{reportFacts(r).join(' ')}</p>
+      </div>
+    </li>
+  )
+}

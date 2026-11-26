@@ -720,9 +720,9 @@ fn reports_kept_before_reporting_codes_read_as_before_and_a_report_with_a_code_l
         json!([
             { "reference": "K-1041", "kind": "idea", "firstLine": "A calmer map", "sentAt": 1_794_100_000,
               "status": "shipped", "statusSaid": "Done in version 0.47.0",
-              "note": "Thank you. The map is quieter now.", "shippedIn": "0.47.0" },
+              "note": "Thank you. The map is quieter now.", "shippedIn": "0.47.0", "keptSaid": ONLY_FIRST_LINE },
             { "reference": "K-1040", "kind": "problem", "firstLine": "It stopped half way", "sentAt": 1_794_000_000,
-              "status": "in_progress", "statusSaid": "Being worked on" }
+              "status": "in_progress", "statusSaid": "Being worked on", "keptSaid": ONLY_FIRST_LINE }
         ]),
         "read as before, with nothing marked recognised"
     );
@@ -781,6 +781,114 @@ fn reports_kept_before_reporting_codes_read_as_before_and_a_report_with_a_code_l
         !kept.to_string().contains("TESTER-1234"),
         "the code is never in the file"
     );
+    assert_eq!(std::fs::read_to_string(&settings).unwrap(), before);
+}
+
+const ONLY_FIRST_LINE: &str = "Only the first line was kept for reports sent before this version.";
+
+/// A stand-in for the reports service, which takes one report and gives
+/// `answer`. Its address.
+fn one_report_service(answer: &'static str) -> String {
+    use std::io::{BufRead, BufReader, Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = format!("http://{}", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut length = 0;
+        loop {
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            if line.trim().is_empty() {
+                break;
+            }
+            if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                length = value.trim().parse().unwrap();
+            }
+        }
+        reader.read_exact(&mut vec![0; length]).unwrap();
+        write!(
+            stream,
+            "HTTP/1.1 201 Created\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{answer}",
+            answer.len()
+        )
+        .unwrap();
+    });
+    address
+}
+
+/// From 0.59 each report keeps the person's words in full, the version and
+/// screen it was sent from, and only whether the log and a way to reach
+/// them went, as new optional fields in `reports.json`, so it can be opened
+/// and read again. Reports a 0.58 kept have only their first line: they
+/// read as before, open with that line and a sentence saying only it was
+/// kept, and a new report sent afterwards leaves them exactly as written.
+#[test]
+fn reports_kept_before_whole_messages_open_with_their_first_line_and_a_new_one_leaves_them_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let (keevoro, places) = as_0_37_1_left_it(dir.path());
+    let config = &places.folders.config;
+    // Two reports, as 0.58 wrote them.
+    let older = json!({
+        "v": 1,
+        "reports": [
+            { "reference": "K-1040", "token": "0123456789abcdef0123456789abcdef01234567", "kind": "problem",
+              "firstLine": "It stopped half way", "sentAt": 1_794_000_000, "status": "in_progress" },
+            { "reference": "K-1041", "token": "89abcdef0123456789abcdef0123456789abcdef", "kind": "idea",
+              "firstLine": "A calmer map", "sentAt": 1_794_100_000, "status": "new", "recognised": true }
+        ]
+    });
+    std::fs::write(
+        config.join("reports.json"),
+        serde_json::to_string_pretty(&older).unwrap(),
+    )
+    .unwrap();
+    let listed = ask(&keevoro, Op::ReportsList, None, Value::Null);
+    for (one, line) in listed["reports"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .zip(["A calmer map", "It stopped half way"])
+    {
+        assert_eq!(one["firstLine"], line);
+        assert_eq!(one["keptSaid"], ONLY_FIRST_LINE);
+        for none in ["message", "appVersion", "screen", "withLog", "withContact"] {
+            assert_eq!(one.get(none), None, "{none}");
+        }
+    }
+    assert_eq!(listed["reports"][0]["recognised"], true);
+    assert!(!config.join("reports that could not be read.json").exists());
+
+    let address = one_report_service(r#"{"ok":true,"reference":"K-1042","token":"abc123"}"#);
+    let keevoro = keevoro.with_environment(move |name| (name == "KEEVORO_REPORTS_URL").then(|| address.clone()));
+    let settings = config.join("settings.json");
+    let before = std::fs::read_to_string(&settings).unwrap();
+    let prepared = ask(
+        &keevoro,
+        Op::ReportsPrepare,
+        None,
+        json!({ "kind": "idea", "message": "Bigger previews\nOn the first screen.", "contact": "you@example.com" }),
+    );
+    let sent = ask(&keevoro, Op::ReportsSend, None, json!({ "prepared": prepared["body"] }));
+    assert_eq!(
+        sent["emailSaid"],
+        "Keevoro does not send an email to confirm. This report is listed under Your reports below, and Keevoro's maker may write to you about it."
+    );
+    let listed = ask(&keevoro, Op::ReportsList, None, Value::Null);
+    let newest = &listed["reports"][0];
+    assert_eq!(newest["message"], "Bigger previews\nOn the first screen.");
+    assert_eq!(newest["withContact"], true);
+    assert_eq!(newest.get("keptSaid"), None);
+
+    let kept: Value = serde_json::from_str(&std::fs::read_to_string(config.join("reports.json")).unwrap()).unwrap();
+    let reports = kept["reports"].as_array().unwrap();
+    assert_eq!(reports.len(), 3);
+    assert_eq!(
+        &reports[..2],
+        older["reports"].as_array().unwrap().as_slice(),
+        "nothing else changed"
+    );
+    assert!(!kept.to_string().contains("you@example.com"), "never the contact");
     assert_eq!(std::fs::read_to_string(&settings).unwrap(), before);
 }
 

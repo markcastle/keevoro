@@ -6,7 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Added
+
+- **Read again what you sent.** Under Help, Report a problem or suggest an idea, each report in Your reports now opens when you click it, or press Return or Space on it, to show your whole message, whether it was a problem or an idea, when you sent it, which version of Keevoro and which screen it came from, and whether it went with your log or your contact details (never the log or the details themselves). Reports sent before this version kept only their first line, so they show that line and say so.
+
 ### Changed
+
+- **Keevoro says it does not send emails.** After you send a report, the thank you now says that Keevoro does not send an email to confirm it, and that the report is listed under Your reports, where you can see how it is getting on. If you gave a way to reach you, it says Keevoro's maker may write to you about it.
 
 - **No choice where there is none.** Looking inside a place that holds only music no longer offers "Show: All / Music", which were the same thing.
 

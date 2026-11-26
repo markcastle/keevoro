@@ -3322,12 +3322,64 @@ try {
   await fitsNarrow('A report refused')
   await page.getByRole('button', { name: 'Try again' }).click()
   await page.getByText('Thank you. Your reference is K-1042.').waitFor()
+  // Keevoro sends no email, and says so where one might be expected; with
+  // a way to reach them given, that its maker may write.
+  assert.equal(
+    await page.locator('.report-thanks .report-email-said').innerText(),
+    "Keevoro does not send an email to confirm. This report is listed under Your reports below, and Keevoro's maker may write to you about it.",
+  )
   // The list of reports says how each is getting on, newest first.
   const reportRows = page.locator('#setting-yourReports li')
   await page.waitForFunction(() => document.querySelectorAll('#setting-yourReports li').length === 3)
   assert.match(await reportRows.nth(0).innerText(), /^K-1042 The map went blank after a search\.\s+Received$/)
   assert.match(await reportRows.nth(1).innerText(), /^K-1041 Could the map of where the space goes be calmer\?\s+Done in version 0\.47\.0\s+Thank you\. The map is quieter now\.$/)
   assert.match(await reportRows.nth(2).innerText(), /Being worked on$/)
+  // Each opens in place to read again what was sent: the whole message,
+  // what it was, when, and from where, and only whether the log and a way
+  // to reach them went, never either itself.
+  const opener = (row) => reportRows.nth(row).locator('button.report-open')
+  for (const row of [0, 1, 2]) assert.equal(await opener(row).getAttribute('aria-expanded'), 'false', `report ${row} starts closed`)
+  await opener(0).click()
+  assert.equal(await opener(0).getAttribute('aria-expanded'), 'true')
+  const reportOpened = (row) => reportRows.nth(row).locator('.report-sent')
+  await reportOpened(0).waitFor()
+  const today = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+  assert.equal(await reportOpened(0).locator('.report-message').innerText(), 'The map went blank after a search.')
+  assert.equal(
+    await reportOpened(0).locator('.report-facts').innerText(),
+    `A problem, sent on ${today}. Sent from Keevoro 9.8.0 on the Choose what to keep screen. Sent with your log and with your contact details.`,
+  )
+  assert.doesNotMatch(await reportOpened(0).innerText(), /you@example\.com|Looking through/, 'never the contact or the log itself')
+  assert.equal(await reportOpened(0).evaluate((e) => getComputedStyle(e.querySelector('.report-message')).userSelect), 'text', 'what was sent can be selected')
+  // From the keyboard: Enter opens, Space closes, and the words are all there.
+  await opener(1).focus()
+  await page.keyboard.press('Enter')
+  assert.equal(await opener(1).getAttribute('aria-expanded'), 'true', 'Enter opens it')
+  assert.equal(
+    await reportOpened(1).locator('.report-message').innerText(),
+    'Could the map of where the space goes be calmer?\nThe bright colours make it hard to read.\n\nSofter ones would suit it better.',
+  )
+  assert.equal(
+    await reportOpened(1).locator('.report-facts').innerText(),
+    'An idea, sent on 14 November 2026. Sent from Keevoro 9.7.0 on the Where the space goes screen. Sent with your contact details.',
+  )
+  assert.equal(await reportOpened(1).locator('.report-kept-said').count(), 0)
+  await page.keyboard.press('Space')
+  assert.equal(await opener(1).getAttribute('aria-expanded'), 'false', 'Space closes it')
+  assert.equal(await reportOpened(1).isVisible(), false)
+  await page.keyboard.press('Space')
+  assert.equal(await opener(1).getAttribute('aria-expanded'), 'true', 'Space opens it too')
+  // One sent before whole messages were kept shows its first line, and says so.
+  await opener(2).focus()
+  await page.keyboard.press('Enter')
+  assert.equal(await reportOpened(2).locator('.report-message').innerText(), 'The previews of Family photos were very slow')
+  assert.equal(await reportOpened(2).locator('.report-kept-said').innerText(), 'Only the first line was kept for reports sent before this version.')
+  assert.equal(await reportOpened(2).locator('.report-facts').innerText(), 'A problem, sent on 2 November 2026.')
+  await shot('13-report-opened')
+  await fitsNarrow('Your reports, opened to read again')
+  await narrowShots('13-report-opened', reportRows.nth(1))
+  for (const row of [0, 1, 2]) await opener(row).click()
+  for (const row of [0, 1, 2]) assert.equal(await opener(row).getAttribute('aria-expanded'), 'false')
   await shot('13-report-sent')
   await fitsNarrow('A report sent, and the list of reports')
   await page.setViewportSize({ width: 400, height: 800 })
@@ -3383,6 +3435,11 @@ try {
   const shownThroughWindow = await sentText()
   await page.getByRole('button', { name: 'Send', exact: true }).click()
   await page.getByText('Thank you. Your reference is K-2001.').waitFor()
+  assert.equal(
+    await page.locator('.report-thanks .report-email-said').innerText(),
+    'Keevoro does not send emails. This report is listed under Your reports below, where you can see how it is getting on.',
+    'sent through the window, it says no email comes all the same',
+  )
   const posted = reportsAsked.filter((r) => r.method === 'POST')
   assert.equal(posted.length, 1)
   assert.equal(posted[0].url, 'https://reports.keevoro.com/v1/reports')

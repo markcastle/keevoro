@@ -1203,6 +1203,8 @@ export type SentReport = {
   recognised?: boolean
   /** That, in a sentence, to say quietly after `said`. */
   codeSaid?: string
+  /** That Keevoro sends no email, and where to see how it is getting on, said quietly after the rest. */
+  emailSaid: string
 }
 
 /** One report sent from this computer, as last heard of. */
@@ -1210,6 +1212,16 @@ export type ReportListed = {
   reference: string
   kind: ReportKind
   firstLine: string
+  /** The person's words in full, as sent, for reports sent from 0.59. */
+  message?: string
+  /** For a report sent before then: that only its first line was kept. */
+  keptSaid?: string
+  /** The Keevoro it was sent from, and the screen the person was on. */
+  appVersion?: string
+  screen?: string
+  /** Only whether the log and a way to reach the person went with it; neither is kept. */
+  withLog?: boolean
+  withContact?: boolean
   /** When it was sent, in seconds since 1970. */
   sentAt: number
   status?: string

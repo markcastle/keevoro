@@ -133,7 +133,10 @@ fn what_is_sent_is_byte_for_byte_what_was_shown_and_the_log_is_scrubbed_first() 
     assert!(!serde_json::to_string(&listed).unwrap().contains(TOKEN));
     let file = std::fs::read_to_string(keevoro.backups().config_folder().join(FILE)).unwrap();
     assert!(file.contains(TOKEN), "the token is kept, to ask after it");
-    assert!(!file.contains("after a search"), "only the first line is kept");
+    assert!(
+        file.contains("after a search"),
+        "the whole message is kept, to read again"
+    );
 }
 
 #[test]
@@ -732,4 +735,149 @@ fn an_agent_never_reads_a_code_and_saves_or_forgets_one_only_once_allowed_to_mak
     assert!(!log.contains("TESTER"), "{log}");
     // Sending a report stays the person's.
     assert!(Op::ReportsSend.tool().is_none());
+}
+
+/// The keys a kept report has in `reports.json`.
+fn kept_keys(keevoro: &Keevoro, reference: &str) -> Vec<String> {
+    let file = std::fs::read_to_string(keevoro.backups().config_folder().join(FILE)).unwrap();
+    let all: Value = serde_json::from_str(&file).unwrap();
+    let one = all["reports"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["reference"] == reference)
+        .unwrap();
+    let mut keys: Vec<String> = one.as_object().unwrap().keys().cloned().collect();
+    keys.sort();
+    keys
+}
+
+#[test]
+fn a_new_report_keeps_the_whole_message_and_how_it_went_but_never_the_log_or_the_contact() {
+    let dir = tempfile::tempdir().unwrap();
+    let (address, _) = fake_service(vec![received("K-1042")]);
+    let keevoro = keevoro_reporting_to(dir.path(), &address);
+    keevoro.log().say("Looking through Holiday videos");
+    let words = "A calmer map\nWith fewer colours.\n\nAnd softer edges.";
+    let mut request = asked(KindWord::Idea, words, true);
+    request.contact = Some("you@example.com".into());
+    let prepared = keevoro.prepare_report(&request).unwrap();
+    assert!(prepared.body.contains("Holiday videos") && prepared.body.contains("you@example.com"));
+    let sent = keevoro.send_report(&prepared.body, None).unwrap();
+    assert_eq!(sent.email_said, NO_EMAIL_MAY_WRITE);
+
+    let one = &keevoro.reports().reports[0];
+    assert_eq!(one.first_line, "A calmer map");
+    assert_eq!(one.message.as_deref(), Some(words), "the whole message, to read again");
+    assert_eq!(one.kind, ReportKind::Idea);
+    assert_eq!(one.app_version.as_deref(), Some(env!("CARGO_PKG_VERSION")));
+    assert_eq!(one.screen.as_deref(), Some("Choose what to keep"));
+    assert!(one.with_log && one.with_contact);
+    assert_eq!(one.kept_said, None);
+
+    // Only that the log and a way to reach them went, never either itself.
+    assert_eq!(
+        kept_keys(&keevoro, "K-1042"),
+        [
+            "appVersion",
+            "firstLine",
+            "kind",
+            "message",
+            "reference",
+            "screen",
+            "sentAt",
+            "status",
+            "token",
+            "withContact",
+            "withLog"
+        ]
+    );
+    let file = std::fs::read_to_string(keevoro.backups().config_folder().join(FILE)).unwrap();
+    assert!(!file.contains("Holiday videos"), "never the log");
+    assert!(!file.contains("you@example.com"), "never the contact");
+    assert!(file.contains("\"withLog\": true") && file.contains("\"withContact\": true"));
+}
+
+#[test]
+fn without_the_log_or_a_contact_neither_is_noted_and_the_thank_you_says_no_email_comes() {
+    let dir = tempfile::tempdir().unwrap();
+    let (address, _) = fake_service(vec![received("K-1043")]);
+    let keevoro = keevoro_reporting_to(dir.path(), &address);
+    let prepared = keevoro
+        .prepare_report(&asked(KindWord::Problem, "It stopped\nhalf way", false))
+        .unwrap();
+    let sent = keevoro.send_report(&prepared.body, None).unwrap();
+    assert_eq!(sent.said, "Thank you. Your reference is K-1043.");
+    assert_eq!(sent.email_said, NO_EMAIL);
+    assert_eq!(
+        NO_EMAIL,
+        "Keevoro does not send emails. This report is listed under Your reports below, where you can see how it is getting on."
+    );
+    assert_eq!(
+        NO_EMAIL_MAY_WRITE,
+        "Keevoro does not send an email to confirm. This report is listed under Your reports below, and Keevoro's maker may write to you about it."
+    );
+    let one = &keevoro.reports().reports[0];
+    assert_eq!(one.message.as_deref(), Some("It stopped\nhalf way"));
+    assert!(!one.with_log && !one.with_contact);
+    let keys = kept_keys(&keevoro, "K-1043");
+    assert!(!keys.contains(&"withLog".to_string()) && !keys.contains(&"withContact".to_string()));
+    let shown = serde_json::to_value(one).unwrap();
+    assert_eq!(shown["message"], "It stopped\nhalf way");
+    assert_eq!(shown.get("withLog"), None);
+    assert_eq!(shown.get("keptSaid"), None);
+}
+
+#[test]
+fn a_report_kept_before_this_version_opens_with_its_first_line_and_says_only_that_was_kept() {
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro_reporting_to(dir.path(), &nowhere());
+    let config = keevoro.backups().config_folder().to_path_buf();
+    std::fs::create_dir_all(&config).unwrap();
+    let older = json!({
+        "v": 1,
+        "reports": [
+            { "reference": "K-1040", "token": TOKEN, "kind": "problem", "firstLine": "It stopped half way",
+              "sentAt": 1_794_000_000, "status": "in_progress", "recognised": true }
+        ]
+    });
+    std::fs::write(config.join(FILE), serde_json::to_string_pretty(&older).unwrap()).unwrap();
+    let one = &keevoro.reports().reports[0];
+    assert_eq!(one.first_line, "It stopped half way");
+    assert_eq!(one.message, None);
+    assert_eq!(one.kept_said.as_deref(), Some(ONLY_FIRST_LINE));
+    assert_eq!(
+        ONLY_FIRST_LINE,
+        "Only the first line was kept for reports sent before this version."
+    );
+    assert_eq!((one.app_version.as_deref(), one.screen.as_deref()), (None, None));
+    assert!(!one.with_log && !one.with_contact);
+    // Changing the file leaves it as it was written.
+    ReportsFile::change(&config, |_| {}).unwrap();
+    let saved: Value = serde_json::from_str(&std::fs::read_to_string(config.join(FILE)).unwrap()).unwrap();
+    assert_eq!(saved["reports"], older["reports"]);
+}
+
+#[test]
+fn a_report_the_window_sent_keeps_its_whole_message_and_says_no_email_comes() {
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro_reporting_to(dir.path(), &nowhere());
+    let mut request = asked(KindWord::Idea, "Bigger previews\nOn the first screen.", false);
+    request.contact = Some("you@example.com".into());
+    let prepared = keevoro.prepare_report(&request).unwrap();
+    let sent = call(
+        &keevoro,
+        Op::ReportsNote,
+        None,
+        json!({ "prepared": prepared.body, "reference": "K-1042", "token": TOKEN }),
+    )
+    .unwrap();
+    assert_eq!(sent["emailSaid"], NO_EMAIL_MAY_WRITE);
+    let listed = call(&keevoro, Op::ReportsList, None, Value::Null).unwrap();
+    assert_eq!(listed["reports"][0]["message"], "Bigger previews\nOn the first screen.");
+    assert_eq!(listed["reports"][0]["withContact"], true);
+    assert!(!listed.to_string().contains("you@example.com"));
+    assert!(!std::fs::read_to_string(keevoro.backups().config_folder().join(FILE))
+        .unwrap()
+        .contains("you@example.com"));
 }

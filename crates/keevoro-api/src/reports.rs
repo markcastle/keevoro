@@ -32,7 +32,10 @@
 //! `reports.json` in Keevoro's config folder, never in `settings.json`
 //! (older versions write that back without parts they do not know). Each
 //! has its reference, the token that lets Keevoro ask after it, its first
-//! line and what was last heard of it. The file is read a report at a time,
+//! line and what was last heard of it and, from 0.59, the person's words in
+//! full, the version and screen it was sent from, and only whether the log
+//! and a way to reach them went with it, never either itself, so the person
+//! can read again what they sent. The file is read a report at a time,
 //! so one that cannot be understood costs that one alone, and is changed
 //! under a lock, so the app and the `keevoro` command never undo each
 //! other's changes.
@@ -74,6 +77,15 @@ pub(crate) const CODE_ENTRY: &str = "reporting code";
 const CODE_RECOGNISED: &str = "Your reporting code was recognised.";
 const CODE_NOT_RECOGNISED: &str = "That reporting code was not recognised, so this was sent as an ordinary report. \
      Check the code with whoever gave it to you.";
+/// Said after the thank you, as a person may wait for an email that never
+/// comes: Keevoro sends none.
+pub const NO_EMAIL: &str = "Keevoro does not send emails. This report is listed under Your reports below, \
+     where you can see how it is getting on.";
+/// That, when the person gave a way to reach them.
+pub const NO_EMAIL_MAY_WRITE: &str = "Keevoro does not send an email to confirm. This report is listed under Your \
+     reports below, and Keevoro's maker may write to you about it.";
+/// Said under a report sent before its whole message was kept.
+pub const ONLY_FIRST_LINE: &str = "Only the first line was kept for reports sent before this version.";
 
 /// `problem` or `idea`, as a request names it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -277,6 +289,9 @@ pub struct Sent {
     /// That, in a sentence, to say quietly after `said`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code_said: Option<String>,
+    /// That no email comes, and where to see how it is getting on, to say
+    /// quietly after the rest.
+    pub email_said: String,
 }
 
 /// One report sent from this computer, as the list shows it.
@@ -286,6 +301,23 @@ pub struct ReportView {
     pub reference: String,
     pub kind: ReportKind,
     pub first_line: String,
+    /// The person's words in full, as sent, for reports sent from 0.59.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    /// When only the first line was kept, a sentence saying so.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kept_said: Option<String>,
+    /// The Keevoro it was sent from, and the screen the person was on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub app_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub screen: Option<String>,
+    /// True when it went with the end of the log, and with a way to reach
+    /// the person. Neither is ever kept.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub with_log: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub with_contact: bool,
     /// When it was sent, in seconds since 1970.
     pub sent_at: i64,
     /// The service's word for how it is getting on, as last heard.
@@ -325,6 +357,21 @@ struct Kept {
     token: String,
     kind: ReportKind,
     first_line: String,
+    /// The person's words in full, as sent (from 0.59). Older reports kept
+    /// only the first line.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    message: Option<String>,
+    /// The Keevoro it was sent from, and the screen (from 0.59).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    app_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    screen: Option<String>,
+    /// Only whether the log and a way to reach the person went (from
+    /// 0.59), never either of them.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    with_log: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    with_contact: bool,
     sent_at: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     status: Option<String>,
@@ -346,6 +393,12 @@ impl Kept {
             reference: self.reference.clone(),
             kind: self.kind,
             first_line: self.first_line.clone(),
+            message: self.message.clone(),
+            kept_said: self.message.is_none().then(|| ONLY_FIRST_LINE.to_string()),
+            app_version: self.app_version.clone(),
+            screen: self.screen.clone(),
+            with_log: self.with_log,
+            with_contact: self.with_contact,
             sent_at: self.sent_at,
             status: self.status.clone(),
             status_said: report::status_said(self.status.as_deref(), self.shipped_in.as_deref()),
@@ -895,6 +948,11 @@ impl Keevoro {
             token,
             kind: report.kind,
             first_line: report::first_line(&report.message),
+            message: Some(report.message.clone()),
+            app_version: Some(report.app_version.clone()),
+            screen: report.screen.clone(),
+            with_log: report.log_tail.is_some(),
+            with_contact: report.contact.is_some(),
             sent_at: now(),
             status: Some("new".into()),
             note: None,
@@ -914,6 +972,12 @@ impl Keevoro {
             reference,
             recognised,
             code_said: recognised.map(|yes| if yes { CODE_RECOGNISED } else { CODE_NOT_RECOGNISED }.to_string()),
+            email_said: if report.contact.is_some() {
+                NO_EMAIL_MAY_WRITE
+            } else {
+                NO_EMAIL
+            }
+            .to_string(),
         }
     }
 
