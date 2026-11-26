@@ -6,7 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **No choice where there is none.** Looking inside a place that holds only music no longer offers "Show: All / Music", which were the same thing.
 
 ## [0.58.0] - 2026-11-26
 

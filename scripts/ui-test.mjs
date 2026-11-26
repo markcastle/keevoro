@@ -3851,6 +3851,7 @@ try {
   await page.locator('.file-row').first().waitFor()
   const viewAs = page.getByRole('radiogroup', { name: 'View' })
   assert.equal(await viewAs.getByRole('radio', { name: 'List' }).getAttribute('aria-checked'), 'true', 'music opens as a list')
+  assert.equal(await page.getByRole('radiogroup', { name: 'Show' }).count(), 0, 'with only music here there is nothing to choose between, so no Show')
   assert.match(await page.locator('.file-row').first().innerText(), /^Track 01\.flac\s+FLAC file\s+[\d.]+ MB\s+\d+ \w+ \d{4}$/)
   assert.equal(await page.locator('.inside img').count(), 0, 'music is never opened for a picture')
   await shot('m3-music-source-list')

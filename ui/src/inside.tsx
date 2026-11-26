@@ -236,6 +236,8 @@ export function LookInside(props: {
         <LeftOutSaid done={said} />
         {outline.folders.length > 0 && (
           <div className="arrange">
+            {/* "All" and one other kind are the same thing, so there is nothing to choose. */}
+            {shows.length > 2 && (
             <span className="sort">
               <span className="quiet small" id="inside-show">
                 Show
@@ -253,6 +255,7 @@ export function LookInside(props: {
                 ))}
               </div>
             </span>
+            )}
             <span className="sort">
               <span className="quiet small" id="inside-view">
                 View
