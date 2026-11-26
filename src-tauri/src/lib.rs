@@ -29,6 +29,7 @@ mod keep_running;
 mod notices;
 #[cfg(test)]
 mod parity;
+mod placing;
 mod relaunch;
 mod startup;
 mod tray;

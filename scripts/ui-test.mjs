@@ -194,7 +194,7 @@ const footHere = async (where, band = '.sidebar') => {
   assert.equal(await foot.count(), 1, `${where}: the side band has its foot`)
   assert.ok(await foot.isVisible(), `${where}: the foot can be seen`)
   const links = await foot.locator(':scope > button.link').evaluateAll((all) => all.map((b) => b.firstChild?.textContent?.trim()))
-  assert.deepEqual(links, ['What Keevoro is doing', 'Settings', 'Help'], `${where}: the foot holds what Keevoro is doing, Settings and Help`)
+  assert.deepEqual(links, ['What Keevoro is doing', 'Settings', 'Help', 'Report a problem or idea'], `${where}: the foot holds what Keevoro is doing, Settings, Help and reporting`)
   const side = await page.locator(band).boundingBox()
   const box = await foot.boundingBox()
   assert.ok(side && box && box.x >= side.x && box.x + box.width <= side.x + side.width + 1, `${where}: the foot is inside the side band`)
@@ -256,6 +256,12 @@ try {
   )
   // Settings and Help are where they always are, even before the first backup.
   await footHere('The first screen')
+  // Reporting is one click from anywhere: the foot's link opens the form itself.
+  await page.locator('.sidebar .foot').getByRole('button', { name: 'Report a problem or idea' }).click()
+  await page.getByRole('heading', { name: 'Report a problem or suggest an idea' }).waitFor()
+  // Help remembers where you were, so the rest of this walk starts from its first page again.
+  await page.locator('button[data-section="howTo"]').click()
+  await page.getByRole('button', { name: '‹ Back' }).click()
   assert.equal(await page.getByLabel('What shall we call this backup?').inputValue(), 'My photos', 'with a name already suggested')
   await page.getByLabel('What shall we call this backup?').fill('Family photos')
   // What Keevoro is for is said in view, in two short sentences, not behind a disclosure.

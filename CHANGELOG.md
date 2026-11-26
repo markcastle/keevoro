@@ -10,6 +10,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 - **An optional reporting code.** If Keevoro's maker gave you a reporting code, choose "I have a reporting code" under Help, Report a problem or suggest an idea, and type it in. It is kept in this computer's keychain, never shown again and never in what Keevoro writes down, and "See exactly what will be sent" says only "Your reporting code". After sending, Keevoro says whether it was recognised, and Your reports marks those that were. "Forget it" removes it, and so does starting Keevoro again from nothing. At the command line it is `keevoro reports code --save` and `--forget`.
 
+## [0.57.0] - 2026-11-26
+
+### Added
+
+- **Keevoro's window opens the way you left it.** It remembers its size, where it was and whether you maximised it, and opens like that the next time you start Keevoro, and when you open it again from the icon by the clock. The first time, it opens at its usual size in the middle of the screen, and on a small screen it fills the screen instead of hanging off the edge. If it was last on a screen that is no longer plugged in, it opens in the middle of your main screen. Un-maximising gives you back the size it had before, and Reset Keevoro in Settings forgets it.
+- **Reporting is one click away.** "Report a problem or idea" is now at the bottom left of every screen, under Help, and opens the form straight away.
+
 ## [0.56.0] - 2026-11-26
 
 ### Added
@@ -944,7 +951,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.56.0...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.57.0...HEAD
+[0.57.0]: https://github.com/markcastle/keevoro/compare/v0.56.0...v0.57.0
 [0.56.0]: https://github.com/markcastle/keevoro/compare/v0.55.2...v0.56.0
 [0.55.2]: https://github.com/markcastle/keevoro/compare/v0.55.1...v0.55.2
 [0.55.1]: https://github.com/markcastle/keevoro/compare/v0.55.0...v0.55.1
