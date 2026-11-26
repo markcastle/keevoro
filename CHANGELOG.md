@@ -6,7 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Keevoro's window opens the way you left it.** It remembers its size, where it was and whether you maximised it, and opens like that the next time you start Keevoro, and when you open it again from the icon by the clock. The first time, it opens at its usual size in the middle of the screen, and on a small screen it fills the screen instead of hanging off the edge. If it was last on a screen that is no longer plugged in, it opens in the middle of your main screen. Un-maximising gives you back the size it had before, and Reset Keevoro in Settings forgets it.
+- **Reporting is one click away.** "Report a problem or idea" is now at the bottom left of every screen, under Help, and opens the form straight away.
 
 ## [0.56.0] - 2026-11-26
 

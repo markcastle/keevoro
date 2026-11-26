@@ -57,6 +57,7 @@ pub mod space;
 pub mod synced;
 pub mod wants;
 pub mod window;
+pub mod window_place;
 pub mod words;
 
 pub use agents::{AgentAccess, AgentsAccessRequest};
