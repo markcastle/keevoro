@@ -13,6 +13,7 @@ Nothing yet.
 ### Added
 
 - **The logo takes you home.** Clicking the Keevoro logo at the top left closes whatever is open and goes back to your backup, at the step it has reached.
+- **Reporting is one click away.** "Report a problem or idea" is now at the bottom left of every screen, under Help, and opens the form straight away.
 
 ## [0.55.2] - 2026-11-25
 
