@@ -748,6 +748,38 @@ fn closing_minimising_and_starting_with_the_computer_are_set_by_the_names_and_sh
 }
 
 #[test]
+fn where_the_window_was_never_stops_it_opening_and_is_not_forgotten_when_no_screen_is_known() {
+    use keevoro_api::window_place::{Rect, WindowPlace, FILE};
+    // A damaged file: the window opens all the same, and nothing is made up.
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("config");
+    fs::create_dir_all(&config).unwrap();
+    fs::write(config.join(FILE), "{ half a fi").unwrap();
+    let (app, _window, _heard) = the_app(dir.path());
+    crate::placing::write(&app.state::<Shared>());
+    assert_eq!(fs::read_to_string(config.join(FILE)).unwrap(), "{ half a fi");
+
+    // Remembered, on a stand-in with no screens to check it against: kept
+    // as it was, to open there once there are.
+    let dir = tempfile::tempdir().unwrap();
+    let kept = WindowPlace {
+        rect: Rect {
+            x: 100,
+            y: 80,
+            width: 1500,
+            height: 900,
+        },
+        maximised: true,
+    };
+    kept.save(&dir.path().join("config")).unwrap();
+    let (app, _window, _heard) = the_app(dir.path());
+    let shared = app.state::<Shared>();
+    assert_eq!(shared.desk.place.place(), Some(kept));
+    crate::placing::write(&shared);
+    assert_eq!(shared.keevoro.window_place(), Some(kept));
+}
+
+#[test]
 fn what_waits_for_the_window_is_taken_once_and_quitting_with_work_in_hand_asks_first() {
     let dir = tempfile::tempdir().unwrap();
     let (app, window, _heard) = the_app(dir.path());

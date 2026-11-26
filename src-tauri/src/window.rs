@@ -91,6 +91,8 @@ pub struct Desk {
     /// or last pressed Done on "While you were away": what that tells is
     /// what happened since.
     away_since: AtomicI64,
+    /// Where the window is, to open it there next time (`placing.rs`).
+    pub(crate) place: crate::placing::Kept,
 }
 
 impl Desk {
@@ -103,6 +105,7 @@ impl Desk {
             startup,
             seen_since: AtomicI64::new(seen_since.unwrap_or(0)),
             away_since: AtomicI64::new(seen_since.unwrap_or(0)),
+            place: crate::placing::Kept::default(),
         }
     }
 
@@ -167,7 +170,9 @@ fn seen<R: Runtime>(app: &AppHandle<R>) {
     let _ = shared.keevoro.change_window_settings(|w| w.seen_at = Some(now));
 }
 
-/// Opens the window, as `tauri.conf.json` describes it.
+/// Opens the window, as `tauri.conf.json` describes it, the way the person
+/// left it: made hidden, put where it was, then shown, so it never shows
+/// first somewhere else.
 pub fn open<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<WebviewWindow<R>> {
     let config = app
         .config()
@@ -177,7 +182,11 @@ pub fn open<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<WebviewWindow<R>> {
         .find(|w| w.label == WINDOW)
         .cloned()
         .ok_or_else(|| tauri::Error::WindowNotFound)?;
-    let window = tauri::WebviewWindowBuilder::from_config(app, &config)?.build()?;
+    let window = tauri::WebviewWindowBuilder::from_config(app, &config)?
+        .visible(false)
+        .build()?;
+    crate::placing::put(&window, config.width, config.height);
+    window.show()?;
     keevoro_api::activity::rest(false);
     Ok(window)
 }
@@ -256,6 +265,12 @@ pub fn on_window_event<R: Runtime>(window: &Window<R>, event: &WindowEvent) {
     }
     let app = window.app_handle();
     let shared = app.state::<Shared>();
+    match event {
+        WindowEvent::Moved(_) | WindowEvent::Resized(_) => crate::placing::moved(window),
+        // Written as it goes, so it opens there next time.
+        WindowEvent::CloseRequested { .. } | WindowEvent::Destroyed => crate::placing::write(&shared),
+        _ => {}
+    }
     match event {
         WindowEvent::CloseRequested { api, .. } => {
             let said = shared.keevoro.window_settings().explained_close;
