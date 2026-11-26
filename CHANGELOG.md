@@ -10,6 +10,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 - **An optional reporting code.** If Keevoro's maker gave you a reporting code, choose "I have a reporting code" under Help, Report a problem or suggest an idea, and type it in. It is kept in this computer's keychain, never shown again and never in what Keevoro writes down, and "See exactly what will be sent" says only "Your reporting code". After sending, Keevoro says whether it was recognised, and Your reports marks those that were. "Forget it" removes it, and so does starting Keevoro again from nothing. At the command line it is `keevoro reports code --save` and `--forget`.
 
+### Changed
+
+- **No choice where there is none.** Looking inside a place that holds only music no longer offers "Show: All / Music", which were the same thing.
+
 ## [0.57.0] - 2026-11-26
 
 ### Added
