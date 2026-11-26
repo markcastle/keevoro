@@ -3774,7 +3774,11 @@ try {
   await shot('m3-music-source-tiles')
   await fitsNarrow('A music source looked inside')
   await narrowShots('m3-music-source-tiles', page.locator('.music-tile').first())
-  await page.getByRole('button', { name: '‹ Back' }).first().click()
+  // The logo is the way home: from deep inside a source, one click is back at the backup.
+  await page.getByRole('button', { name: 'Keevoro: back to this backup' }).click()
+  await page.getByRole('heading', { name: /^Inside Music$/ }).waitFor({ state: 'detached' })
+  assert.equal(await page.locator('.steps [aria-current="step"]').count(), 1, 'home is the backup, at the step it has reached')
+  await page.locator('.steps button').nth(0).click()
   // Nothing to arrange by date: a backup of music alone keeps its folders, and is not asked.
   await page.getByRole('button', { name: 'See what was found' }).click()
   await page.getByRole('heading', { name: 'Which of these should we keep?', level: 1 }).waitFor()

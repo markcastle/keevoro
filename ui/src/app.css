@@ -7088,3 +7088,18 @@ fieldset.what-to-back-up > p {
   margin: 0;
   line-height: 1.2;
 }
+
+/* The logo is the way home: a button that looks exactly like the logo. */
+button.brand.home {
+  height: auto;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  align-self: flex-start;
+}
+
+button.brand.home:hover {
+  background: none;
+  opacity: 0.85;
+}

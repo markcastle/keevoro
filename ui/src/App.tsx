@@ -141,6 +141,8 @@ export function App() {
   const [found, setFound] = useState<Discover | null>(null)
   const [step, setStep] = useState<Step>('find')
   const [overlay, setOverlay] = useState<Overlay>(null)
+  // Goes up each time the logo is pressed, so whatever a screen has open is closed.
+  const [homeAsked, setHomeAsked] = useState(0)
   // Where Settings and Help are, remembered while Keevoro is open, so each opens there again.
   const [placesAt, setPlacesAt] = useState<Record<Where, PlaceAt>>({
     settings: { where: 'settings', section: null },
@@ -408,6 +410,12 @@ export function App() {
   const go = (to: Step) => {
     setOverlay(null)
     setStep(to)
+  }
+  // The logo is the way home: whatever is open is closed, and the backup
+  // is shown at the step it has reached.
+  const goHome = () => {
+    setHomeAsked((n) => n + 1)
+    go(found ? nextToDo(found, sendingTo ?? null) : 'find')
   }
   const keep = (collection: Collection, isKept: boolean) => {
     // Show the choice at once; the engine's answer follows.
@@ -709,9 +717,9 @@ export function App() {
     <div className="app">
       {asks}
       <aside className="sidebar">
-        <div className="brand">
+        <button className="brand home" onClick={goHome} aria-label="Keevoro: back to this backup" title="Back to this backup">
           <Logo />
-        </div>
+        </button>
         <BackupPicker
           backup={state.backup}
           backups={state.backups}
@@ -817,6 +825,7 @@ export function App() {
             found={found}
             scan={scan}
             justFound={justFound}
+            homeAsked={homeAsked}
             checking={check !== null}
             arrange={arranged?.arrange ?? 'byDate'}
             onWantsChanged={wantsChanged}
@@ -1143,6 +1152,8 @@ function FindScreen(props: {
   found: Discover | null
   scan: ScanEvent | null
   justFound: ScanEvent | null
+  /** Goes up each time the logo is pressed: whatever is open here (a look inside, a map of space) is closed. */
+  homeAsked: number
   /** True while the background check for duplicates runs, as it may after a search is stopped. */
   checking: boolean
   onProblem: (error: unknown) => void
@@ -1190,6 +1201,12 @@ function FindScreen(props: {
   const [inside, setInside] = useState<{ place: string; name?: string; again?: boolean } | null>(null)
   // Where the space goes in a place, under a look inside opened from it.
   const [space, setSpace] = useState<{ place: string; name?: string; at?: string } | null>(null)
+  const { homeAsked } = props
+  useEffect(() => {
+    if (homeAsked === 0) return
+    setInside(null)
+    setSpace(null)
+  }, [homeAsked])
   const surveyScroll = useRef(0)
   useEffect(
     () =>
