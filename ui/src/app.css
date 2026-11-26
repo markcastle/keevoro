@@ -6218,6 +6218,59 @@ h3.kv-group-title {
   }
 }
 
+/* A picture added to a report: a quiet link until one is added, then the
+   picture itself, never wider than the form, with its size and Remove. */
+.report-picture {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+  min-width: 0;
+}
+
+.report-picture p {
+  margin: 0;
+  max-width: 34em;
+}
+
+.report-picture .quiet-link {
+  color: var(--ink-muted);
+  font-size: 13px;
+}
+
+.report-picture-shown {
+  display: block;
+  max-width: 100%;
+  max-height: 320px;
+  height: auto;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  background: var(--surface-raised);
+}
+
+.report-picture-about {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px var(--space-3);
+}
+
+.report-picture-why {
+  color: var(--danger);
+}
+
+.report-picture-line {
+  margin: var(--space-2) 0 0;
+  font-family: var(--font-mono);
+  color: var(--ink-muted);
+}
+
+/* A picture dragged over the form: the form says it can take it. */
+.report-form.dropping {
+  outline: 2px dashed var(--focus-ring);
+  outline-offset: 6px;
+  border-radius: var(--radius-md);
+}
+
 /* A reporting code: a quiet link until opened, and small once saved. */
 .report-code {
   display: grid;

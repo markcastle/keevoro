@@ -67,7 +67,14 @@ await page.route(REPORTS, (route) => {
   const request = route.request()
   const open = { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET, POST, OPTIONS', 'access-control-allow-headers': 'content-type' }
   if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: open })
-  reportsAsked.push({ method: request.method(), url: request.url(), body: request.postData(), cookie: request.headers().cookie })
+  reportsAsked.push({
+    method: request.method(),
+    url: request.url(),
+    body: request.postData(),
+    bytes: request.postDataBuffer(),
+    type: request.headers()['content-type'],
+    cookie: request.headers().cookie,
+  })
   if (!reportsService) return route.abort('internetdisconnected')
   const { status, answer } = reportsService(request)
   return route.fulfill({ status, headers: { ...open, 'content-type': 'application/json' }, body: JSON.stringify(answer) })
@@ -3578,6 +3585,213 @@ try {
   assert.deepEqual(wentWithCode, shownWithCode, 'and otherwise exactly what was shown')
   assert.doesNotMatch(await page.content(), /TESTER-1234/)
   reportsService = null
+
+  // --- A picture with a report, such as a screenshot: one quiet control,
+  // and three ways in (chosen, pasted, dropped), all ending the same way.
+  // The person sees it, its size and Remove, and "what will be sent" lists
+  // it. Nothing is added by itself. One too big is made smaller first; one
+  // that is not a picture is refused before anything is sent.
+  await page.goto(`${base}/?fast&page=help/report`)
+  const addPicture = page.getByRole('button', { name: 'Add a picture' })
+  await addPicture.waitFor()
+  await page.locator('.report-picture').getByText('(optional)').waitFor()
+  const pictureShown = page.getByRole('img', { name: 'The picture that will be sent' })
+  assert.equal(await pictureShown.count(), 0, 'nothing is added by itself')
+  // A tiny real PNG, made here on a canvas.
+  const tinyPng = Buffer.from(
+    await page.evaluate(async () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = 48
+      canvas.height = 32
+      const pen = canvas.getContext('2d')
+      pen.fillStyle = '#2f6f5e'
+      pen.fillRect(0, 0, 48, 32)
+      pen.fillStyle = '#f4efe6'
+      pen.fillRect(8, 8, 20, 12)
+      const blob = await new Promise((done) => canvas.toBlob(done, 'image/png'))
+      return [...new Uint8Array(await blob.arrayBuffer())]
+    }),
+  )
+  const tinySize = `${tinyPng.length} bytes`
+  // Reached from the keyboard, straight after the words.
+  await page.getByLabel('What happened?').fill('The map went blank. Here is how it looked.')
+  await page.getByLabel('What happened?').focus()
+  await page.keyboard.press('Tab')
+  assert.equal(await page.evaluate(() => document.activeElement?.textContent), 'Add a picture', 'Tab reaches Add a picture')
+  // Chosen: as a file, known by what is in it.
+  await page.getByLabel('Choose a picture').setInputFiles({ name: 'IMG_0048.png', mimeType: 'image/png', buffer: tinyPng })
+  await pictureShown.waitFor()
+  assert.equal(await page.locator('.report-picture-size').innerText(), tinySize)
+  await page.getByText('Only Keevoro’s maker can see it. Look at it first: it is sent as it is.').waitFor()
+  await page.getByText('See exactly what will be sent').click()
+  await page.waitForFunction(() => document.querySelector('.report-preview pre')?.textContent.includes('Here is how it looked'))
+  assert.equal(await page.locator('.report-picture-line').innerText(), `A picture, ${tinySize}`, 'listed with what will be sent')
+  assert.equal(JSON.parse(await sentText()).picture, undefined, 'never inside the report itself')
+  await shot('13-report-picture')
+  await fitsNarrow('A report with a picture')
+  // Remove, from the keyboard: gone from the form and from what will be sent.
+  await page.getByRole('button', { name: 'Remove', exact: true }).focus()
+  await page.keyboard.press('Enter')
+  await pictureShown.waitFor({ state: 'detached' })
+  assert.equal(await page.locator('.report-picture-line').count(), 0)
+  await addPicture.waitFor()
+  // Pasted while the form has the focus, as after taking a screenshot.
+  const handOver = (how, bytes, type, name) =>
+    page.evaluate(
+      ({ how, bytes, type, name }) => {
+        const list = new DataTransfer()
+        list.items.add(new File([new Uint8Array(bytes)], name, { type }))
+        const words = document.querySelector('.report-words textarea')
+        if (how === 'paste') {
+          words.focus()
+          words.dispatchEvent(new ClipboardEvent('paste', { clipboardData: list, bubbles: true, cancelable: true }))
+        } else {
+          const form = document.querySelector('.report-form')
+          form.dispatchEvent(new DragEvent('dragover', { dataTransfer: list, bubbles: true, cancelable: true }))
+          form.dispatchEvent(new DragEvent('drop', { dataTransfer: list, bubbles: true, cancelable: true }))
+        }
+      },
+      { how, bytes: [...bytes], type, name },
+    )
+  await handOver('paste', tinyPng, 'image/png', 'image.png')
+  await pictureShown.waitFor()
+  assert.equal(await page.getByLabel('What happened?').inputValue(), 'The map went blank. Here is how it looked.', 'the words are as they were')
+  assert.equal(await page.locator('.report-picture-line').innerText(), `A picture, ${tinySize}`)
+  // Something that is not a picture, whatever its name, is refused plainly
+  // and leaves the picture there as it was.
+  await page.getByLabel('Choose a picture').setInputFiles({ name: 'IMG_0049.png', mimeType: 'image/png', buffer: Buffer.from('%PDF-1.7 not a picture') })
+  await page.getByRole('alert').filter({ hasText: 'That isn’t a picture Keevoro can send. Choose a PNG, JPEG or WebP picture.' }).waitFor()
+  assert.equal(await pictureShown.count(), 1)
+  // One too big is made smaller here, and what is shown is what will go.
+  await page.evaluate(async () => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 3200
+    canvas.height = 2000
+    const pen = canvas.getContext('2d')
+    const sky = pen.createLinearGradient(0, 0, 3200, 2000)
+    sky.addColorStop(0, '#9cc3d5')
+    sky.addColorStop(1, '#2f6f5e')
+    pen.fillStyle = sky
+    pen.fillRect(0, 0, 3200, 2000)
+    // A little grain, so it does not squeeze small as a PNG.
+    const grain = pen.getImageData(0, 0, 3200, 2000)
+    let seed = 48210
+    const next = () => (seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) >>> 29
+    for (let i = 0; i < grain.data.length; i += 4) {
+      grain.data[i] += next()
+      grain.data[i + 1] += next()
+      grain.data[i + 2] += next()
+    }
+    pen.putImageData(grain, 0, 0)
+    const blob = await new Promise((done) => canvas.toBlob(done, 'image/png'))
+    if (blob.size <= 3 * 1024 * 1024) throw new Error(`the big picture is only ${blob.size} bytes`)
+    const list = new DataTransfer()
+    list.items.add(new File([blob], 'Screenshot.png', { type: 'image/png' }))
+    const form = document.querySelector('.report-form')
+    form.dispatchEvent(new DragEvent('dragover', { dataTransfer: list, bubbles: true, cancelable: true }))
+    form.dispatchEvent(new DragEvent('drop', { dataTransfer: list, bubbles: true, cancelable: true }))
+  })
+  await page.locator('.report-picture-size', { hasText: 'Made smaller to send' }).waitFor({ timeout: 30_000 })
+  const smaller = await page.locator('.report-picture-size').innerText()
+  const now = smaller.match(/^Made smaller to send: now (\d+ KB|\d\.\d MB)$/)
+  assert.ok(now, smaller)
+  assert.ok(!now[1].endsWith('MB') || Number(now[1].split(' ')[0]) <= 3, `small enough to go: ${smaller}`)
+  assert.equal(await page.locator('.report-picture-line').innerText(), `A picture, ${now[1]}`, 'what will be sent says the size that goes')
+  assert.deepEqual(
+    await pictureShown.evaluate((img) => [img.naturalWidth, img.naturalHeight]),
+    [2560, 1600],
+    'its longer side at most 2560, its shape kept',
+  )
+  const fits = await pictureShown.evaluate((img) => img.getBoundingClientRect().width <= img.closest('form').getBoundingClientRect().width)
+  assert.ok(fits, 'the picture is never wider than the form')
+  await shot('13-report-picture-made-smaller')
+  await fitsNarrow('A report with a picture made smaller')
+  await narrowShots('13-report-picture-made-smaller', page.locator('.report-picture'))
+  // Too big, and cannot be opened to be made smaller: refused plainly.
+  const junk = new Uint8Array(3 * 1024 * 1024 + 1)
+  junk.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+  await page.getByLabel('Choose a picture').setInputFiles({ name: 'IMG_0050.png', mimeType: 'image/png', buffer: Buffer.from(junk) })
+  await page.getByRole('alert').filter({ hasText: 'That picture couldn’t be opened to make it smaller. Try a smaller one, or crop it first.' }).waitFor()
+  // Dropped: the small one again, in place of the one there.
+  await handOver('drop', tinyPng, 'image/png', 'IMG_0048.png')
+  await page.locator('.report-picture-size', { hasText: tinySize }).waitFor()
+  assert.equal(await page.getByRole('alert').filter({ hasText: 'picture' }).count(), 0, 'what went wrong before is cleared')
+  // Sent: the report, then its picture; opened, the report says it had one.
+  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await page.getByText(/^Thank you\. Your reference is K-\d+\.$/).waitFor()
+  assert.equal(await page.locator('.report-picture-said').count(), 0)
+  assert.equal(await pictureShown.count(), 0, 'the picture is gone once sent')
+  const pictureRow = page.locator('#setting-yourReports li').first()
+  await pictureRow.locator('button.report-open').click()
+  assert.match(await pictureRow.locator('.report-facts').innerText(), /Sent with a picture\.$/)
+  assert.equal(await pictureRow.locator('img').count(), 0, 'only that it went, never the picture itself')
+  await shot('13-report-sent-with-a-picture')
+  await fitsNarrow('A report sent with a picture, opened')
+
+  // The report goes and its picture cannot: the report is sent and listed,
+  // said plainly, and nothing offers to send it again.
+  await page.goto(`${base}/?fast&pictureRefused&page=help/report`)
+  await page.getByLabel('What happened?').fill('The map went blank again.')
+  await page.getByLabel('Choose a picture').setInputFiles({ name: 'IMG_0048.png', mimeType: 'image/png', buffer: tinyPng })
+  await pictureShown.waitFor()
+  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await page.getByText(/^Thank you\. Your reference is K-\d+\.$/).waitFor()
+  assert.equal(
+    await page.locator('.report-picture-said').innerText(),
+    'Your report was sent, but its picture could not be: Pictures can’t be taken just now. Please try again later.',
+  )
+  assert.equal(await page.getByRole('button', { name: /Try again|Send/ }).count(), 0, 'nothing that would send it twice')
+  const notPictured = page.locator('#setting-yourReports li').first()
+  assert.match(await notPictured.innerText(), /The map went blank again\./)
+  await notPictured.locator('button.report-open').click()
+  assert.doesNotMatch(await notPictured.locator('.report-facts').innerText(), /picture/)
+  await shot('13-report-picture-not-sent')
+  await fitsNarrow('A report sent without its picture')
+
+  // Through the window, when Keevoro cannot reach the service: the window
+  // sends the report, then the picture after it with the report's token,
+  // as it is and with its kind.
+  reportsService = (request) =>
+    request.url().endsWith('/v1/reports')
+      ? { status: 201, answer: { ok: true, reference: 'K-2003', token: WINDOW_TOKEN } }
+      : { status: 201, answer: { ok: true } }
+  const askedBeforePicture = reportsAsked.length
+  await page.goto(`${base}/?fast&reportUnreachable&page=help/report`)
+  await page.getByLabel('What happened?').fill('Sending a report sat on Sending.')
+  await page.getByLabel('Choose a picture').setInputFiles({ name: 'IMG_0048.png', mimeType: 'image/png', buffer: tinyPng })
+  await pictureShown.waitFor()
+  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await page.getByText('Thank you. Your reference is K-2003.').waitFor()
+  const throughWindow = reportsAsked.slice(askedBeforePicture).filter((r) => r.method === 'POST')
+  assert.deepEqual(
+    throughWindow.map((r) => r.url),
+    ['https://reports.keevoro.com/v1/reports', `https://reports.keevoro.com/v1/reports/K-2003/picture?token=${WINDOW_TOKEN}`],
+    'the report first, then its picture',
+  )
+  assert.equal(throughWindow[1].type, 'image/png')
+  assert.ok(Buffer.compare(throughWindow[1].bytes, tinyPng) === 0, 'the picture as it is')
+  assert.equal(throughWindow[1].cookie, undefined)
+  const windowRow = page.locator('#setting-yourReports li', { hasText: 'K-2003' })
+  await windowRow.locator('button.report-open').click()
+  assert.match(await windowRow.locator('.report-facts').innerText(), /Sent with a picture\.$/)
+  // Its picture refused through the window: the report stays sent, and why is said.
+  reportsService = (request) =>
+    request.url().endsWith('/v1/reports')
+      ? { status: 201, answer: { ok: true, reference: 'K-2004', token: WINDOW_TOKEN } }
+      : { status: 409, answer: { ok: false, why: 'That report already has a picture.' } }
+  await page.goto(`${base}/?fast&reportUnreachable&page=help/report`)
+  await page.getByLabel('What happened?').fill('Sending a report sat on Sending.')
+  await page.getByLabel('Choose a picture').setInputFiles({ name: 'IMG_0048.png', mimeType: 'image/png', buffer: tinyPng })
+  await pictureShown.waitFor()
+  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await page.getByText('Thank you. Your reference is K-2004.').waitFor()
+  assert.equal(
+    await page.locator('.report-picture-said').innerText(),
+    'Your report was sent, but its picture could not be: That report already has a picture.',
+  )
+  reportsService = null
+  // The browser notes the refusal the stand-in gave; that was the point.
+  problems.splice(0, problems.length, ...problems.filter((p) => !/status of 409 \(Conflict\)/.test(p)))
 
   // --- A backup that is already somewhere: picked up on a new computer.
   await page.goto(`${base}/?demo=new&fast`)

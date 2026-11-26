@@ -590,7 +590,8 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
         }
         Op::ReportsSend => {
             let r: reports::SendReportRequest = read(request)?;
-            answer(keevoro.send_report(&r.prepared, r.code.as_deref())?)
+            let picture = r.picture.as_deref().map(reports::picture_from_base64).transpose()?;
+            answer(keevoro.send_report_with_picture(&r.prepared, r.code.as_deref(), picture.as_deref())?)
         }
         Op::ReportsCode => {
             let r: reports::ReportingCodeRequest = read(request)?;

@@ -27,3 +27,13 @@ test('the log and a way to reach the person are only said to have gone, never sh
 test('a report kept before this version says only what is known of it', () => {
   assert.deepEqual(reportFacts({ kind: 'problem', sentAt: NOON }), ['A problem, sent on 14 November 2026.'])
 })
+
+test('a picture is only said to have gone, with the rest that went', () => {
+  const base = { kind: 'problem' as const, sentAt: NOON, appVersion: '0.59.0' }
+  assert.equal(reportFacts({ ...base, withPicture: true })[2], 'Sent with a picture.')
+  assert.equal(reportFacts({ ...base, withLog: true, withPicture: true })[2], 'Sent with your log and with a picture.')
+  assert.equal(
+    reportFacts({ ...base, withLog: true, withContact: true, withPicture: true })[2],
+    'Sent with your log, with your contact details and with a picture.',
+  )
+})

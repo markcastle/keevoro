@@ -6,8 +6,9 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 
-/// What the fake service heard: each request's first line and its body.
-type Heard = Arc<Mutex<Vec<(String, String)>>>;
+/// What the fake service heard: each request's first line, its body as
+/// text, its content type and its body as it came.
+type Heard = Arc<Mutex<Vec<(String, String, String, Vec<u8>)>>>;
 
 /// A tiny stand-in for the reports service on this computer, which gives
 /// these answers in turn, one to each request, and notes what it heard.
@@ -23,6 +24,7 @@ fn fake_service(answers: Vec<(u16, Value)>) -> (String, Heard) {
             let mut first = String::new();
             reader.read_line(&mut first).unwrap();
             let mut length = 0;
+            let mut kind = String::new();
             loop {
                 let mut line = String::new();
                 reader.read_line(&mut line).unwrap();
@@ -33,14 +35,19 @@ fn fake_service(answers: Vec<(u16, Value)>) -> (String, Heard) {
                     if name.eq_ignore_ascii_case("content-length") {
                         length = value.trim().parse().unwrap();
                     }
+                    if name.eq_ignore_ascii_case("content-type") {
+                        kind = value.trim().to_string();
+                    }
                 }
             }
             let mut body = vec![0; length];
             reader.read_exact(&mut body).unwrap();
-            noted
-                .lock()
-                .unwrap()
-                .push((first.trim().to_string(), String::from_utf8(body).unwrap()));
+            noted.lock().unwrap().push((
+                first.trim().to_string(),
+                String::from_utf8_lossy(&body).into_owned(),
+                kind,
+                body,
+            ));
             let text = answer.to_string();
             let mut stream = stream;
             write!(
@@ -370,7 +377,7 @@ fn not_reaching_the_service_is_told_apart_from_its_answer_and_said_in_plain_word
     let dir = tempfile::tempdir().unwrap();
     let keevoro = keevoro_reporting_to(dir.path(), &nowhere());
     let prepared = keevoro.prepare_report(&asked(KindWord::Idea, "Hello", false)).unwrap();
-    let failed = keevoro.send_report_saying_why(&prepared.body, None).unwrap_err();
+    let failed = keevoro.send_report_saying_why(&prepared.body, None, None).unwrap_err();
     assert_eq!(
         (failed.error.kind, failed.error.message.as_str()),
         (Kind::Unreachable, UNREACHABLE)
@@ -384,7 +391,7 @@ fn not_reaching_the_service_is_told_apart_from_its_answer_and_said_in_plain_word
     let why = "That's a lot of reports from one computer today. Please try again tomorrow.";
     let (address, _) = fake_service(vec![(429, json!({ "ok": false, "why": why }))]);
     let answered = keevoro_reporting_to(dir.path(), &address)
-        .send_report_saying_why(&prepared.body, None)
+        .send_report_saying_why(&prepared.body, None, None)
         .unwrap_err();
     assert_eq!((answered.error.kind, answered.cause), (Kind::Refused, None));
 }
@@ -679,10 +686,10 @@ fn when_keevoro_cannot_reach_the_service_the_window_is_given_the_report_with_the
     let dir = tempfile::tempdir().unwrap();
     let keevoro = keevoro_reporting_to(dir.path(), &nowhere());
     let prepared = keevoro.prepare_report(&asked(KindWord::Idea, "Hello", false)).unwrap();
-    let not = keevoro.send_report_saying_why(&prepared.body, None).unwrap_err();
+    let not = keevoro.send_report_saying_why(&prepared.body, None, None).unwrap_err();
     assert_eq!(not.send_as, None, "without a code the window sends what it was shown");
     code(&keevoro, json!({ "code": CODE })).unwrap();
-    let not = keevoro.send_report_saying_why(&prepared.body, None).unwrap_err();
+    let not = keevoro.send_report_saying_why(&prepared.body, None, None).unwrap_err();
     assert_eq!(not.error.kind, Kind::Unreachable);
     let send_as = not.send_as.clone().unwrap();
     assert_eq!(send_as.0, keevoro_core::report::with_code(&prepared.body, CODE));
@@ -694,7 +701,7 @@ fn when_keevoro_cannot_reach_the_service_the_window_is_given_the_report_with_the
     // An answer the service refused is no reason to give it out.
     let (address, _) = fake_service(vec![(429, json!({ "ok": false, "why": "Not today." }))]);
     let refused = keevoro_reporting_to(dir.path(), &address)
-        .send_report_saying_why(&prepared.body, None)
+        .send_report_saying_why(&prepared.body, None, None)
         .unwrap_err();
     assert_eq!(refused.send_as, None);
 
@@ -880,4 +887,269 @@ fn a_report_the_window_sent_keeps_its_whole_message_and_says_no_email_comes() {
     assert!(!std::fs::read_to_string(keevoro.backups().config_folder().join(FILE))
         .unwrap()
         .contains("you@example.com"));
+}
+
+/// A made-up picture of each kind: the right first bytes, then a mark that
+/// is easy to look for wherever it should not be.
+const MARK: &[u8] = b"made-up picture 0048";
+fn picture(start: &[u8]) -> Vec<u8> {
+    let mut bytes = start.to_vec();
+    bytes.extend_from_slice(MARK);
+    bytes.resize(412 * 1024, 7);
+    bytes
+}
+const PNG: &[u8] = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR";
+const JPEG: &[u8] = b"\xff\xd8\xff\xe0\0\x10JFIF\0";
+const WEBP: &[u8] = b"RIFF\x24\0\0\0WEBPVP8 ";
+fn taken() -> (u16, Value) {
+    (201, json!({ "ok": true }))
+}
+
+/// Every file under `dir`, read as bytes.
+fn everything_under(dir: &Path) -> Vec<(std::path::PathBuf, Vec<u8>)> {
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(dir).unwrap().flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            found.extend(everything_under(&path));
+        } else {
+            found.push((path.clone(), std::fs::read(&path).unwrap_or_default()));
+        }
+    }
+    found
+}
+
+fn holds(bytes: &[u8], part: &[u8]) -> bool {
+    bytes.windows(part.len()).any(|w| w == part)
+}
+
+#[test]
+fn a_picture_follows_its_report_once_it_is_accepted_as_the_kind_its_bytes_say() {
+    let dir = tempfile::tempdir().unwrap();
+    let (address, heard) = fake_service(vec![
+        received("K-1042"),
+        taken(),
+        received("K-1043"),
+        taken(),
+        received("K-1044"),
+        taken(),
+    ]);
+    let keevoro = keevoro_reporting_to(dir.path(), &address);
+    let prepared = keevoro
+        .prepare_report(&asked(KindWord::Problem, "The map went blank", false))
+        .unwrap();
+    for (start, kind, reference) in [
+        (PNG, "image/png", "K-1042"),
+        (JPEG, "image/jpeg", "K-1043"),
+        (WEBP, "image/webp", "K-1044"),
+    ] {
+        let bytes = picture(start);
+        let sent = keevoro
+            .send_report_with_picture(&prepared.body, None, Some(&bytes))
+            .unwrap();
+        assert_eq!(sent.reference, reference);
+        assert!(sent.with_picture);
+        assert_eq!(sent.picture_said, None);
+        let heard = heard.lock().unwrap().clone();
+        let (report, sent_picture) = (&heard[heard.len() - 2], &heard[heard.len() - 1]);
+        assert_eq!(report.0, "POST /v1/reports HTTP/1.1", "the report goes first");
+        assert_eq!(report.1, prepared.body, "exactly as shown, with no picture in it");
+        assert_eq!(
+            sent_picture.0,
+            format!("POST /v1/reports/{reference}/picture?token={TOKEN} HTTP/1.1")
+        );
+        assert_eq!(sent_picture.2, kind, "from its first bytes");
+        assert_eq!(sent_picture.3, bytes, "the picture as it is");
+    }
+
+    // Only whether a picture went is kept, and it is said when it is opened.
+    let listed = keevoro.reports();
+    assert!(listed.reports.iter().all(|r| r.with_picture));
+    assert_eq!(
+        call(&keevoro, Op::ReportsList, None, Value::Null).unwrap()["reports"][0]["withPicture"],
+        true
+    );
+    assert!(kept_keys(&keevoro, "K-1042").contains(&"withPicture".to_string()));
+    let file = std::fs::read_to_string(keevoro.backups().config_folder().join(FILE)).unwrap();
+    assert!(file.contains("\"withPicture\": true"), "{file}");
+
+    // Nothing of the picture is anywhere on disk, or in the log.
+    let written = crate::picture::base64(&picture(PNG));
+    for (path, bytes) in everything_under(dir.path()) {
+        assert!(!holds(&bytes, MARK), "{}", path.display());
+        assert!(!holds(&bytes, &written.as_bytes()[..64]), "{}", path.display());
+    }
+    let log = keevoro.log_tail(200);
+    assert!(log.contains("Sent the picture with report K-1042"), "{log}");
+    assert!(!log.contains(TOKEN), "{log}");
+}
+
+#[test]
+fn a_picture_that_is_not_one_or_too_big_is_refused_before_anything_is_sent() {
+    let dir = tempfile::tempdir().unwrap();
+    // Nothing answers: a refusal must come before any sending.
+    let keevoro = keevoro_reporting_to(dir.path(), &nowhere());
+    let prepared = keevoro.prepare_report(&asked(KindWord::Idea, "Hello", false)).unwrap();
+    let not = keevoro
+        .send_report_with_picture(&prepared.body, None, Some(b"%PDF-1.7 IMG_0048.jpg"))
+        .unwrap_err();
+    assert_eq!(
+        (not.kind, not.message.as_str()),
+        (
+            Kind::Refused,
+            "That isn't a picture Keevoro can send. Choose a PNG, JPEG or WebP picture."
+        )
+    );
+    let mut big = picture(PNG);
+    big.resize(keevoro_core::report::PICTURE_MOST + 1, 7);
+    let too_big = keevoro
+        .send_report_with_picture(&prepared.body, None, Some(&big))
+        .unwrap_err();
+    assert_eq!(too_big.kind, Kind::Refused);
+    assert!(
+        too_big.message.starts_with("That picture is too big to send"),
+        "{}",
+        too_big.message
+    );
+    // Through the operation, a picture that is not Base64 is refused too.
+    let garbled = call(
+        &keevoro,
+        Op::ReportsSend,
+        None,
+        json!({ "prepared": prepared.body, "picture": "not base64!" }),
+    )
+    .unwrap_err();
+    assert_eq!(
+        (garbled.kind, garbled.message.as_str()),
+        (Kind::Refused, "That picture couldn't be read. Add it again.")
+    );
+    assert!(
+        !keevoro.log_tail(50).contains("Couldn't send a report"),
+        "nothing was tried"
+    );
+    assert!(keevoro.reports().reports.is_empty());
+}
+
+#[test]
+fn a_picture_that_does_not_follow_leaves_its_report_sent_and_says_why() {
+    let dir = tempfile::tempdir().unwrap();
+    let why = "That report already has a picture.";
+    let (address, heard) = fake_service(vec![
+        received("K-1042"),
+        (409, json!({ "ok": false, "why": why })),
+        received("K-1043"),
+        (503, json!("a proxy's page")),
+        received("K-1044"),
+    ]);
+    let keevoro = keevoro_reporting_to(dir.path(), &address);
+    let prepared = keevoro.prepare_report(&asked(KindWord::Idea, "Hello", false)).unwrap();
+    let bytes = picture(JPEG);
+    let sent = keevoro
+        .send_report_with_picture(&prepared.body, None, Some(&bytes))
+        .unwrap();
+    assert_eq!(sent.said, "Thank you. Your reference is K-1042.");
+    assert!(!sent.with_picture);
+    assert_eq!(
+        sent.picture_said.as_deref(),
+        Some("Your report was sent, but its picture could not be: That report already has a picture.")
+    );
+    let answered = call(
+        &keevoro,
+        Op::ReportsSend,
+        None,
+        json!({ "prepared": prepared.body, "picture": crate::picture::base64(&bytes) }),
+    )
+    .unwrap();
+    assert_eq!(answered["reference"], "K-1043");
+    assert_eq!(
+        answered["pictureSaid"],
+        "Your report was sent, but its picture could not be: Keevoro's reports service didn't take it."
+    );
+    assert_eq!(answered.get("withPicture"), None);
+    // Nothing answers after the report: the connection is said plainly.
+    let sent = keevoro
+        .send_report_with_picture(&prepared.body, None, Some(&bytes))
+        .unwrap();
+    assert_eq!(sent.reference, "K-1044");
+    assert_eq!(
+        sent.picture_said,
+        Some(format!(
+            "Your report was sent, but its picture could not be: {}",
+            Unreached::Connection.said().unwrap()
+        ))
+    );
+    assert_eq!(heard.lock().unwrap().len(), 5);
+    // Every report is listed, none with a picture, and each was sent once.
+    let listed = keevoro.reports();
+    assert_eq!(listed.reports.len(), 3);
+    assert!(listed.reports.iter().all(|r| !r.with_picture));
+    assert!(!kept_keys(&keevoro, "K-1042").contains(&"withPicture".to_string()));
+    let log = keevoro.log_tail(50);
+    assert!(
+        log.contains("Couldn't send the picture with report K-1042: That report already has a picture."),
+        "{log}"
+    );
+    assert!(!log.contains(TOKEN), "{log}");
+}
+
+#[test]
+fn a_report_refused_takes_no_picture_after_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let why = "That's a lot of reports from one computer today. Please try again tomorrow.";
+    let (address, heard) = fake_service(vec![(429, json!({ "ok": false, "why": why }))]);
+    let keevoro = keevoro_reporting_to(dir.path(), &address);
+    let prepared = keevoro.prepare_report(&asked(KindWord::Idea, "Hello", false)).unwrap();
+    let refused = keevoro
+        .send_report_with_picture(&prepared.body, None, Some(&picture(PNG)))
+        .unwrap_err();
+    assert_eq!(refused.message, why);
+    assert_eq!(heard.lock().unwrap().len(), 1, "no picture after a report refused");
+    // Not reached at all, the window is left to send both.
+    let unreached = keevoro_reporting_to(dir.path(), &nowhere())
+        .send_report_saying_why(&prepared.body, None, Some(&picture(PNG)))
+        .unwrap_err();
+    assert_eq!(unreached.error.kind, Kind::Unreachable);
+    // A request to send one never prints the picture.
+    let request: SendReportRequest =
+        serde_json::from_value(json!({ "prepared": "{}", "picture": crate::picture::base64(&picture(PNG)) })).unwrap();
+    let printed = format!("{request:?}");
+    assert!(printed.contains("412 KB"), "{printed}");
+    assert!(!printed.contains(&crate::picture::base64(MARK)[..8]), "{printed}");
+}
+
+#[test]
+fn a_picture_the_window_sent_is_noted_and_one_it_could_not_is_said() {
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro_reporting_to(dir.path(), &nowhere());
+    let prepared = keevoro
+        .prepare_report(&asked(KindWord::Problem, "It stopped", false))
+        .unwrap();
+    let sent = call(
+        &keevoro,
+        Op::ReportsNote,
+        None,
+        json!({ "prepared": prepared.body, "reference": "K-2001", "token": TOKEN, "withPicture": true }),
+    )
+    .unwrap();
+    assert_eq!(sent["withPicture"], true);
+    assert_eq!(sent.get("pictureSaid"), None);
+    let not = call(
+        &keevoro,
+        Op::ReportsNote,
+        None,
+        json!({ "prepared": prepared.body, "reference": "K-2002", "token": TOKEN,
+                "pictureWhy": "Pictures can't be taken just now." }),
+    )
+    .unwrap();
+    assert_eq!(
+        not["pictureSaid"],
+        "Your report was sent, but its picture could not be: Pictures can't be taken just now."
+    );
+    let listed = keevoro.reports();
+    let with: Vec<(&str, bool)> = listed
+        .reports
+        .iter()
+        .map(|r| (r.reference.as_str(), r.with_picture))
+        .collect();
+    assert!(with.contains(&("K-2001", true)) && with.contains(&("K-2002", false)));
 }

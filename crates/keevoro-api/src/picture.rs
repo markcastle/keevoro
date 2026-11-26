@@ -279,7 +279,7 @@ fn pictured(cache: &Path) {
 
 /// Standard Base64 with padding. A few lines here rather than a crate for
 /// one use.
-fn base64(bytes: &[u8]) -> String {
+pub(crate) fn base64(bytes: &[u8]) -> String {
     const LETTERS: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
@@ -301,7 +301,7 @@ fn base64(bytes: &[u8]) -> String {
 }
 
 /// The bytes written by [`base64`], or `None` for anything else.
-fn from_base64(text: &str) -> Option<Vec<u8>> {
+pub(crate) fn from_base64(text: &str) -> Option<Vec<u8>> {
     let value = |c: u8| match c {
         b'A'..=b'Z' => Some(c - b'A'),
         b'a'..=b'z' => Some(c - b'a' + 26),

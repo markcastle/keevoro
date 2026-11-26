@@ -114,6 +114,37 @@ export async function sendThroughWindow(
   return { why: why || `Keevoro’s reports service didn’t answer as expected (it said ${response.status}). Try again later.` }
 }
 
+/** Said when the window could not reach the service to send a picture. */
+export const PICTURE_UNREACHED = 'This computer couldn’t reach Keevoro’s reports service to send it.'
+
+/**
+ * Sends a picture after the report `reference` the service has accepted,
+ * with that report's token: whether it went, and if not why, in the
+ * service's own words (empty when it gave none) or plainly when it could
+ * not be reached. The picture goes as it is, with its kind.
+ */
+export async function sendPictureThroughWindow(
+  sendTo: string,
+  reference: string,
+  token: string,
+  picture: { bytes: Uint8Array; type: string },
+  fetcher: Fetcher = fetch,
+  wait = WAIT,
+): Promise<{ sent: true } | { sent: false; why: string }> {
+  const url = `${sendTo}/v1/reports/${encodeURIComponent(reference)}/picture?token=${encodeURIComponent(token)}`
+  const response = await ask(
+    fetcher,
+    url,
+    { method: 'POST', headers: { 'content-type': picture.type }, body: picture.bytes as BodyInit },
+    wait,
+  )
+  if (!response) return { sent: false, why: PICTURE_UNREACHED }
+  const answer = await answerOf(response)
+  if (response.ok && answer.ok === true) return { sent: true }
+  const why = typeof answer.why === 'string' ? answer.why.replace(/\p{Cc}/gu, '').trim().slice(0, 300) : ''
+  return { sent: false, why }
+}
+
 /**
  * Asks after each report in turn, stopping at the first the service could
  * not be reached for: what was heard of each, and whether all were asked.
