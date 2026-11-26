@@ -9,6 +9,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Changed
 
 - **No choice where there is none.** Looking inside a place that holds only music no longer offers "Show: All / Music", which were the same thing.
+- **The places to look are in the order you look for them.** On the first step: anything just plugged in, then this computer's own disk, "Choose a folder", folders synced with OneDrive or Dropbox, and cloud storage last.
+- **The logo is on Settings, Help and the report form too**, and takes you home from there the same way.
+- **Room for longer names.** The band down the left is a little wider, so "Find your photos and music" stays on one row, and the sentence under "Where are your photos?" keeps to one row where the window has room.
+- **"Your reports" says whether each one was a problem or an idea.**
+- **The comparison of cloud storage writes "The prices are Stratus’"**, as its maker does, where it said "Stratus’s".
 
 ## [0.58.0] - 2026-11-26
 

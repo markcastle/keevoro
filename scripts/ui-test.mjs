@@ -261,7 +261,9 @@ try {
   await page.getByRole('heading', { name: 'Report a problem or suggest an idea' }).waitFor()
   // Help remembers where you were, so the rest of this walk starts from its first page again.
   await page.locator('button[data-section="howTo"]').click()
-  await page.getByRole('button', { name: '‹ Back' }).click()
+  // Settings, Help and the report form carry the logo too, and it is the same way home.
+  await page.locator('.kv-side').getByRole('button', { name: 'Keevoro: back to this backup' }).click()
+  await page.locator('.kv-side').waitFor({ state: 'detached' })
   assert.equal(await page.getByLabel('What shall we call this backup?').inputValue(), 'My photos', 'with a name already suggested')
   await page.getByLabel('What shall we call this backup?').fill('Family photos')
   // What Keevoro is for is said in view, in two short sentences, not behind a disclosure.
@@ -288,13 +290,22 @@ try {
   await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
   assert.match(await currentStep(), /Find your photos/)
   const places = page.locator('.places .place')
-  assert.equal(await places.count(), 5, 'the USB drive, OneDrive, a folder, cloud storage, and this computer’s disk')
+  assert.equal(await places.count(), 5, 'the USB drive, this computer’s disk, a folder, OneDrive and cloud storage')
+  // After anything plugged in: this computer's own disk, any folder, the synced folders, then cloud storage.
+  assert.deepEqual(
+    await places.locator('b').evaluateAll((all) => all.map((b) => b.textContent.trim())),
+    ['KINGSTON (E:)', 'Windows (C:)', 'Choose a folder…', 'OneDrive', 'Add cloud storage as a source…'],
+    'the places in the order a person looks for them',
+  )
+  // The sentence under the heading is one thought, kept to one row where the window has room.
+  const oneRow = (el) => { const r = document.createRange(); r.selectNodeContents(el); return new Set([...r.getClientRects()].map((x) => Math.round(x.top))).size }
+  assert.equal(await page.locator('.find > header p.status').evaluate(oneRow), 1, 'the sentence about sources is on one row')
   assert.match(await places.first().innerText(), /^KINGSTON \(E:\)\s+USB or external drive · 32 GB$/)
   // A folder OneDrive keeps in step is offered by its name, after the
   // drives plugged in, and never looks chosen.
   const oneDrive = page.locator('.place.synced')
   assert.match(await oneDrive.innerText(), /^OneDrive\s+Synced with Microsoft’s cloud · C:\\Users\\You\\OneDrive$/)
-  assert.equal(await places.nth(1).innerText(), await oneDrive.innerText(), 'after the USB drive')
+  assert.equal(await places.nth(3).innerText(), await oneDrive.innerText(), 'after the disks and choosing a folder')
   assert.equal(
     await oneDrive.evaluate((el) => getComputedStyle(el).backgroundColor),
     await places.first().evaluate((el) => getComputedStyle(el).backgroundColor),
@@ -525,7 +536,7 @@ try {
   await page.getByRole('button', { name: 'Compare providers' }).click()
   const compare = page.getByRole('dialog', { name: 'Compare cloud storage' })
   await compare.waitFor()
-  assert.match(await compare.innerText(), /This loads a comparison page from the internet\. Keevoro tells it only the size of this backup, about [\d,]+ GB, and your currency\. The prices are Stratus’s, not Keevoro’s/)
+  assert.match(await compare.innerText(), /This loads a comparison page from the internet\. Keevoro tells it only the size of this backup, about [\d,]+ GB, and your currency\. The prices are Stratus’, not Keevoro’s/)
   assert.match(await compare.innerText(), /Comparison by Stratus, made by Adam Sparshott\./)
   const frame = compare.locator('iframe')
   assert.equal(await frame.getAttribute('sandbox'), 'allow-scripts allow-same-origin', 'no popups, no moving the app away, no forms')
@@ -1047,7 +1058,7 @@ try {
   await page.getByRole('button', { name: 'Compare providers' }).click()
   const helpCompare = page.getByRole('dialog', { name: 'Compare cloud storage' })
   await helpCompare.waitFor()
-  assert.match(await helpCompare.innerText(), /This loads a comparison page from the internet\. Keevoro tells it only the size of this backup, about 1 GB, and your currency\. The prices are Stratus’s, not Keevoro’s/)
+  assert.match(await helpCompare.innerText(), /This loads a comparison page from the internet\. Keevoro tells it only the size of this backup, about 1 GB, and your currency\. The prices are Stratus’, not Keevoro’s/)
   assert.match(await helpCompare.innerText(), /Comparison by Stratus, made by Adam Sparshott\./)
   await page.frameLocator('.compare-sheet iframe').getByRole('button', { name: 'Pick R2 Standard' }).click()
   assert.ok(stratusAsked.length > askedBefore && stratusAsked.every((url) => STRATUS.test(url)), 'only the stand-in is ever asked')
@@ -3325,8 +3336,8 @@ try {
   // The list of reports says how each is getting on, newest first.
   const reportRows = page.locator('#setting-yourReports li')
   await page.waitForFunction(() => document.querySelectorAll('#setting-yourReports li').length === 3)
-  assert.match(await reportRows.nth(0).innerText(), /^K-1042 The map went blank after a search\.\s+Received$/)
-  assert.match(await reportRows.nth(1).innerText(), /^K-1041 Could the map of where the space goes be calmer\?\s+Done in version 0\.47\.0\s+Thank you\. The map is quieter now\.$/)
+  assert.match(await reportRows.nth(0).innerText(), /^K-1042 Problem The map went blank after a search\.\s+Received$/)
+  assert.match(await reportRows.nth(1).innerText(), /^K-1041 Idea Could the map of where the space goes be calmer\?\s+Done in version 0\.47\.0\s+Thank you\. The map is quieter now\.$/)
   assert.match(await reportRows.nth(2).innerText(), /Being worked on$/)
   await shot('13-report-sent')
   await fitsNarrow('A report sent, and the list of reports')
@@ -3458,6 +3469,9 @@ try {
   await page.getByText('Your reporting code was recognised.').waitFor()
   await page.locator('#setting-yourReports li', { hasText: 'K-1042' }).getByText('Recognised', { exact: true }).waitFor()
   assert.equal(await page.locator('#setting-yourReports .report-recognised').count(), 1, 'only the one recognised')
+  // Each report says whether it was a problem or an idea.
+  assert.ok((await page.locator('#setting-yourReports .report-kind').count()) > 0)
+  assert.equal(await page.locator('#setting-yourReports li').evaluateAll((all) => all.every((li) => /^(Problem|Idea)$/.test(li.querySelector('.report-kind')?.textContent ?? ''))), true, 'every report says Problem or Idea')
   await shot('13-report-code-recognised')
   // A code that is not one the maker gave: said plainly, and kept to put right.
   await page.getByRole('button', { name: 'Write another' }).click()
@@ -3935,6 +3949,15 @@ try {
   // The words follow the backup on each step.
   await page.getByRole('heading', { name: 'Where are your photos and music?', level: 1 }).waitFor()
   assert.match(await currentStep(), /^1\s+Find your photos and music/)
+  // Music in the backup never pushes the step's name onto a second row.
+  assert.ok(
+    await page.locator('.steps li.now button > span:last-child').evaluate((el) => {
+      const r = document.createRange()
+      r.selectNodeContents(el.firstChild)
+      return r.getBoundingClientRect().height < parseFloat(getComputedStyle(el).fontSize) * 1.3 * 1.5
+    }),
+    '“Find your photos and music” is on one row',
+  )
   await page.getByRole('heading', { name: /^Found [\d,]+ photos(, [\d,]+ videos)? and 20 tracks on Family hard drive$/ }).waitFor()
   await shot('m7-mixed-found')
   await fitsNarrow('Find your photos and music')

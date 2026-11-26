@@ -81,6 +81,8 @@ export function PlaceScreen(props: {
   banner: ReactNode
   /** The foot of the side band, as on every other screen. */
   foot?: ReactNode
+  /** The logo, which is also the way home, at the top of the side band. */
+  logo?: ReactNode
   /** The screen the person was on, when they came here to report something. */
   reportFrom?: string | null
 }) {
@@ -274,6 +276,7 @@ export function PlaceScreen(props: {
     <main className="settings-main">
       <div className="kv-settings" data-at={atPage ? 'page' : 'list'} data-place={where}>
         <div className="kv-side">
+          {props.logo}
           <button type="button" className="link kv-leave" onClick={props.onBack}>
             ‹ Back
           </button>

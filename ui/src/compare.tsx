@@ -124,7 +124,7 @@ export function CompareSheet(props: {
         </header>
         <p className="quiet small">
           This loads a comparison page from the internet. Keevoro tells it only the size of this backup, about{' '}
-          {gigabytesToAsk(keptBytes).toLocaleString('en-GB')} GB, and your currency. The prices are Stratus’s, not
+          {gigabytesToAsk(keptBytes).toLocaleString('en-GB')} GB, and your currency. The prices are Stratus’, not
           Keevoro’s: check them with the provider before you buy.
         </p>
         {choice && (
