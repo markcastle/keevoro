@@ -1242,8 +1242,12 @@ pub static ROWS: &[Row] = &[
                     .help("A way to reach you, such as an email address"),
             )
             .arg(flag("dry-run", "Only show exactly what would be sent, and send nothing"))
+            .arg(flag(
+                "code-from-stdin",
+                "Send it with a reporting code read from standard input, without keeping it. `keevoro reports code --save` keeps one for every report",
+            ))
         },
-        ask: |c, m, _| {
+        ask: |c, m, io| {
             let (kind, words) = match text(m, "idea") {
                 Some(words) => ("idea", words),
                 None => ("problem", required(m, "problem")),
@@ -1255,14 +1259,42 @@ pub static ROWS: &[Row] = &[
                 "contact": text(m, "contact"),
                 "screen": "The command line",
             });
+            let code = if m.get_flag("code-from-stdin") {
+                Some(crate::keys::reporting_code(io, false)?)
+            } else {
+                None
+            };
             if m.get_flag("dry-run") {
                 return Ok((Op::ReportsPrepare, request));
             }
             // What is sent is exactly what was made, as in the app.
             let prepared = c.ask(Op::ReportsPrepare, request)?;
-            Ok((Op::ReportsSend, json!({ "prepared": prepared["body"] })))
+            Ok((Op::ReportsSend, json!({ "prepared": prepared["body"], "code": code })))
         },
         show: show::report,
+    },
+    Row {
+        words: &["reports", "code"],
+        ops: &[Op::ReportsCode],
+        about: Some(
+            "Says whether a reporting code is kept on this computer. If Keevoro's maker gave you one, your reports are recognised as yours. --save keeps one in this computer's keychain, read from standard input or asked for without being shown; --forget forgets it. It is never shown again.",
+        ),
+        args: |c| {
+            c.arg(flag("save", "Keep a reporting code, read from standard input or asked for without being shown"))
+                .arg(flag("forget", "Forget the reporting code kept on this computer").conflicts_with("save"))
+        },
+        ask: |_, m, io| {
+            let code = if m.get_flag("save") {
+                Some(crate::keys::reporting_code(io, true)?)
+            } else {
+                None
+            };
+            Ok((
+                Op::ReportsCode,
+                json!({ "code": code, "forget": m.get_flag("forget").then_some(true) }),
+            ))
+        },
+        show: show::reporting_code,
     },
     Row {
         words: &["reports"],

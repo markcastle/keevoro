@@ -589,7 +589,11 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
         }
         Op::ReportsSend => {
             let r: reports::SendReportRequest = read(request)?;
-            answer(keevoro.send_report(&r.prepared)?)
+            answer(keevoro.send_report(&r.prepared, r.code.as_deref())?)
+        }
+        Op::ReportsCode => {
+            let r: reports::ReportingCodeRequest = read(request)?;
+            answer(keevoro.reporting_code(&r)?)
         }
         Op::ReportsList => {
             read::<Nothing>(request)?;

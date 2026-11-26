@@ -114,7 +114,7 @@ fn what_is_sent_is_byte_for_byte_what_was_shown_and_the_log_is_scrubbed_first() 
     assert_eq!(report["appVersion"], env!("CARGO_PKG_VERSION"));
     assert!(report["os"].as_str().is_some_and(|os| !os.is_empty()));
 
-    let sent = keevoro.send_report(&prepared.body).unwrap();
+    let sent = keevoro.send_report(&prepared.body, None).unwrap();
     assert_eq!(sent.reference, "K-1042");
     assert_eq!(sent.said, "Thank you. Your reference is K-1042.");
     let heard = heard.lock().unwrap().clone();
@@ -155,7 +155,7 @@ fn a_refusal_says_why_in_the_services_words_and_nothing_is_kept() {
     let (address, _) = fake_service(vec![(429, json!({ "ok": false, "why": why }))]);
     let keevoro = keevoro_reporting_to(dir.path(), &address);
     let prepared = keevoro.prepare_report(&asked(KindWord::Idea, "Hello", false)).unwrap();
-    let refused = keevoro.send_report(&prepared.body).unwrap_err();
+    let refused = keevoro.send_report(&prepared.body, None).unwrap_err();
     assert_eq!(refused.kind, Kind::Refused);
     assert_eq!(refused.message, why);
     assert!(keevoro.reports().reports.is_empty());
@@ -166,7 +166,7 @@ fn a_service_that_cannot_be_reached_says_so_plainly() {
     let dir = tempfile::tempdir().unwrap();
     let keevoro = keevoro_reporting_to(dir.path(), &nowhere());
     let prepared = keevoro.prepare_report(&asked(KindWord::Idea, "Hello", false)).unwrap();
-    let failed = keevoro.send_report(&prepared.body).unwrap_err();
+    let failed = keevoro.send_report(&prepared.body, None).unwrap_err();
     assert_eq!(failed.kind, Kind::Unreachable);
     assert_eq!(
         failed.message,
@@ -183,11 +183,14 @@ fn an_answer_that_is_not_one_is_said_without_pretending() {
     ]);
     let keevoro = keevoro_reporting_to(dir.path(), &address);
     let prepared = keevoro.prepare_report(&asked(KindWord::Idea, "Hello", false)).unwrap();
-    let failed = keevoro.send_report(&prepared.body).unwrap_err();
+    let failed = keevoro.send_report(&prepared.body, None).unwrap_err();
     assert_eq!(failed.kind, Kind::Failed);
     assert!(failed.message.contains("502"), "{}", failed.message);
     // A reference that could not be put in an address is not taken.
-    assert_eq!(keevoro.send_report(&prepared.body).unwrap_err().kind, Kind::Failed);
+    assert_eq!(
+        keevoro.send_report(&prepared.body, None).unwrap_err().kind,
+        Kind::Failed
+    );
 }
 
 #[test]
@@ -196,7 +199,7 @@ fn a_report_changed_after_it_was_made_is_refused_and_not_sent() {
     let keevoro = keevoro_reporting_to(dir.path(), &nowhere());
     let prepared = keevoro.prepare_report(&asked(KindWord::Idea, "Hello", false)).unwrap();
     let changed = prepared.body.replacen('{', "{\"details\": \"more\",", 1);
-    let refused = keevoro.send_report(&changed).unwrap_err();
+    let refused = keevoro.send_report(&changed, None).unwrap_err();
     assert_eq!(refused.kind, Kind::Refused, "refused before anything is sent");
     let empty = keevoro
         .prepare_report(&asked(KindWord::Problem, "   ", false))
@@ -219,7 +222,7 @@ fn asking_after_reports_notes_what_is_heard_and_says_it_in_plain_words() {
     let prepared = keevoro
         .prepare_report(&asked(KindWord::Idea, "A dark map", false))
         .unwrap();
-    keevoro.send_report(&prepared.body).unwrap();
+    keevoro.send_report(&prepared.body, None).unwrap();
     let view = keevoro.refresh_reports();
     assert!(view.checked);
     assert_eq!(view.said, None);
@@ -243,7 +246,7 @@ fn offline_the_list_is_as_last_heard_and_says_it_could_not_check() {
     let prepared = keevoro
         .prepare_report(&asked(KindWord::Problem, "It stopped", false))
         .unwrap();
-    keevoro.send_report(&prepared.body).unwrap();
+    keevoro.send_report(&prepared.body, None).unwrap();
     let offline = keevoro_reporting_to(dir.path(), &nowhere());
     let view = offline.refresh_reports();
     assert!(!view.checked);
@@ -321,9 +324,14 @@ fn the_operations_are_reached_by_name_and_a_reset_forgets_the_list() {
     )
     .unwrap_err();
     assert_eq!(refused.kind, Kind::NotUnderstood);
+    call(&keevoro, Op::ReportsCode, None, json!({ "code": "TESTER-1234" })).unwrap();
     keevoro.reset().unwrap();
     assert!(keevoro.reports().reports.is_empty());
     assert!(!keevoro.backups().config_folder().join(FILE).exists());
+    // And the reporting code goes from the keychain.
+    assert_eq!(keevoro.secrets().get(CODE_ENTRY).unwrap(), None);
+    let after = call(&keevoro, Op::ReportsCode, None, json!({})).unwrap();
+    assert_eq!(after["hasCode"], false);
 }
 
 #[test]
@@ -359,7 +367,7 @@ fn not_reaching_the_service_is_told_apart_from_its_answer_and_said_in_plain_word
     let dir = tempfile::tempdir().unwrap();
     let keevoro = keevoro_reporting_to(dir.path(), &nowhere());
     let prepared = keevoro.prepare_report(&asked(KindWord::Idea, "Hello", false)).unwrap();
-    let failed = keevoro.send_report_saying_why(&prepared.body).unwrap_err();
+    let failed = keevoro.send_report_saying_why(&prepared.body, None).unwrap_err();
     assert_eq!(
         (failed.error.kind, failed.error.message.as_str()),
         (Kind::Unreachable, UNREACHABLE)
@@ -373,7 +381,7 @@ fn not_reaching_the_service_is_told_apart_from_its_answer_and_said_in_plain_word
     let why = "That's a lot of reports from one computer today. Please try again tomorrow.";
     let (address, _) = fake_service(vec![(429, json!({ "ok": false, "why": why }))]);
     let answered = keevoro_reporting_to(dir.path(), &address)
-        .send_report_saying_why(&prepared.body)
+        .send_report_saying_why(&prepared.body, None)
         .unwrap_err();
     assert_eq!((answered.error.kind, answered.cause), (Kind::Refused, None));
 }
@@ -446,7 +454,7 @@ fn the_window_asks_after_reports_when_keevoro_cannot_and_what_it_heard_is_kept()
     let prepared = keevoro
         .prepare_report(&asked(KindWord::Problem, "It stopped", false))
         .unwrap();
-    keevoro.send_report(&prepared.body).unwrap();
+    keevoro.send_report(&prepared.body, None).unwrap();
     let asking = call(&keevoro, Op::ReportsAsking, None, Value::Null).unwrap();
     assert_eq!(asking["sendTo"], address);
     assert_eq!(asking["reports"], json!([{ "reference": "K-7", "token": TOKEN }]));
@@ -481,4 +489,247 @@ fn the_window_asks_after_reports_when_keevoro_cannot_and_what_it_heard_is_kept()
     assert_eq!(unchanged["reports"][0]["statusSaid"], "Done in version 0.47.0");
     assert_eq!(unchanged["checked"], false);
     assert_eq!(unchanged["said"], "Couldn't check just now.");
+}
+
+const CODE: &str = "TESTER-1234";
+
+fn recognised(reference: &str, recognised: Option<bool>) -> (u16, Value) {
+    let mut answer = json!({ "ok": true, "reference": reference, "token": TOKEN });
+    if let Some(recognised) = recognised {
+        answer["recognised"] = recognised.into();
+    }
+    (201, answer)
+}
+
+fn code(keevoro: &Keevoro, request: Value) -> crate::error::Result<Value> {
+    call(keevoro, Op::ReportsCode, None, request)
+}
+
+#[test]
+fn a_reporting_code_is_kept_in_the_keychain_sent_only_once_saved_and_never_shown_kept_or_logged() {
+    let dir = tempfile::tempdir().unwrap();
+    let (address, heard) = fake_service(vec![received("K-1"), recognised("K-2", Some(true))]);
+    let keevoro = keevoro_reporting_to(dir.path(), &address);
+
+    // None saved: none goes, and the report is sent exactly as shown.
+    assert_eq!(code(&keevoro, json!({})).unwrap(), json!({ "hasCode": false }));
+    let plain = keevoro.prepare_report(&asked(KindWord::Idea, "First", false)).unwrap();
+    assert!(!plain.with_code);
+    let sent = keevoro.send_report(&plain.body, None).unwrap();
+    assert_eq!((sent.recognised, sent.code_said.as_deref()), (None, None));
+
+    // Saved, trimmed, in the keychain, and only whether one is saved comes back.
+    let saved = code(&keevoro, json!({ "code": format!("  {CODE} ") })).unwrap();
+    assert_eq!(saved["hasCode"], true);
+    assert!(!saved.to_string().contains(CODE), "{saved}");
+    assert_eq!(keevoro.secrets().get(CODE_ENTRY).unwrap().as_deref(), Some(CODE));
+    assert!(!code(&keevoro, json!({})).unwrap().to_string().contains(CODE));
+
+    // Never in what is shown: the preview only says one will go.
+    let prepared = keevoro.prepare_report(&asked(KindWord::Idea, "Second", false)).unwrap();
+    assert!(prepared.with_code);
+    assert!(!prepared.body.contains(CODE) && !prepared.body.contains("\"code\""));
+    let shown = call(
+        &keevoro,
+        Op::ReportsPrepare,
+        None,
+        json!({ "kind": "idea", "message": "Second" }),
+    )
+    .unwrap();
+    assert!(!shown.to_string().contains(CODE));
+    assert_eq!(shown["withCode"], true);
+
+    // Sent with the report, after everything shown, which is as it was.
+    let sent = keevoro.send_report(&prepared.body, None).unwrap();
+    assert_eq!(sent.recognised, Some(true));
+    assert_eq!(sent.code_said.as_deref(), Some("Your reporting code was recognised."));
+    assert!(!serde_json::to_string(&sent).unwrap().contains(CODE));
+    let heard = heard.lock().unwrap().clone();
+    assert_eq!(heard[0].1, plain.body, "none goes before one is saved");
+    assert_eq!(heard[1].1, keevoro_core::report::with_code(&prepared.body, CODE));
+    let went: Value = serde_json::from_str(&heard[1].1).unwrap();
+    assert_eq!(went["code"], CODE);
+
+    // The list marks the one recognised; the code is in no file and no log.
+    let listed = keevoro.reports();
+    let recognised: Vec<(&str, bool)> = listed
+        .reports
+        .iter()
+        .map(|r| (r.reference.as_str(), r.recognised))
+        .collect();
+    assert!(recognised.contains(&("K-2", true)) && recognised.contains(&("K-1", false)));
+    let config = keevoro.backups().config_folder();
+    for file in std::fs::read_dir(config).unwrap().flatten() {
+        if file.path().is_file() {
+            let text = std::fs::read_to_string(file.path()).unwrap_or_default();
+            assert!(!text.contains(CODE), "{}", file.path().display());
+        }
+    }
+    let kept = std::fs::read_to_string(config.join(FILE)).unwrap();
+    assert!(kept.contains("\"recognised\": true"), "{kept}");
+    assert!(!keevoro.log_tail(200).contains(CODE));
+    assert!(!call(&keevoro, Op::ReportsList, None, Value::Null)
+        .unwrap()
+        .to_string()
+        .contains(CODE));
+    assert!(!call(&keevoro, Op::ReportsAsking, None, Value::Null)
+        .unwrap()
+        .to_string()
+        .contains(CODE));
+}
+
+#[test]
+fn a_code_not_recognised_says_so_and_stays_saved_and_an_older_service_says_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let (address, heard) = fake_service(vec![recognised("K-3", Some(false)), recognised("K-4", None)]);
+    let keevoro = keevoro_reporting_to(dir.path(), &address);
+    code(&keevoro, json!({ "code": "TESTER-9999" })).unwrap();
+    let prepared = keevoro
+        .prepare_report(&asked(KindWord::Problem, "It stopped", false))
+        .unwrap();
+    let sent = keevoro.send_report(&prepared.body, None).unwrap();
+    assert_eq!(sent.said, "Thank you. Your reference is K-3.");
+    assert_eq!(sent.recognised, Some(false));
+    assert_eq!(
+        sent.code_said.as_deref(),
+        Some("That reporting code was not recognised, so this was sent as an ordinary report. Check the code with whoever gave it to you.")
+    );
+    assert_eq!(
+        code(&keevoro, json!({})).unwrap()["hasCode"],
+        true,
+        "kept, to be put right"
+    );
+    // A service that does not know of codes says nothing of it.
+    let sent = keevoro.send_report(&prepared.body, None).unwrap();
+    assert_eq!((sent.recognised, sent.code_said), (None, None));
+    assert!(heard.lock().unwrap()[1].1.contains("TESTER-9999"));
+    assert!(keevoro.reports().reports.iter().all(|r| !r.recognised));
+    let kept = std::fs::read_to_string(keevoro.backups().config_folder().join(FILE)).unwrap();
+    assert!(kept.contains("\"recognised\": false"), "{kept}");
+}
+
+#[test]
+fn a_code_given_only_with_one_report_goes_with_it_and_is_not_kept() {
+    let dir = tempfile::tempdir().unwrap();
+    let (address, heard) = fake_service(vec![recognised("K-5", Some(true))]);
+    let keevoro = keevoro_reporting_to(dir.path(), &address);
+    let prepared = keevoro.prepare_report(&asked(KindWord::Idea, "Hello", false)).unwrap();
+    let sent = call(
+        &keevoro,
+        Op::ReportsSend,
+        None,
+        json!({ "prepared": prepared.body, "code": format!(" {CODE}") }),
+    )
+    .unwrap();
+    assert_eq!(sent["codeSaid"], "Your reporting code was recognised.");
+    assert_eq!(
+        heard.lock().unwrap()[0].1,
+        keevoro_core::report::with_code(&prepared.body, CODE)
+    );
+    assert_eq!(code(&keevoro, json!({})).unwrap()["hasCode"], false);
+}
+
+#[test]
+fn forgetting_a_code_takes_it_from_the_keychain_and_none_goes_after() {
+    let dir = tempfile::tempdir().unwrap();
+    let (address, heard) = fake_service(vec![received("K-6")]);
+    let keevoro = keevoro_reporting_to(dir.path(), &address);
+    code(&keevoro, json!({ "code": CODE })).unwrap();
+    let forgot = code(&keevoro, json!({ "forget": true })).unwrap();
+    assert_eq!(forgot["hasCode"], false);
+    assert_eq!(keevoro.secrets().get(CODE_ENTRY).unwrap(), None);
+    let prepared = keevoro.prepare_report(&asked(KindWord::Idea, "Hello", false)).unwrap();
+    assert!(!prepared.with_code);
+    keevoro.send_report(&prepared.body, None).unwrap();
+    assert_eq!(heard.lock().unwrap()[0].1, prepared.body);
+    // Forgetting none is harmless; asking both at once is not understood.
+    assert_eq!(code(&keevoro, json!({ "forget": true })).unwrap()["hasCode"], false);
+    let both = code(&keevoro, json!({ "code": CODE, "forget": true })).unwrap_err();
+    assert_eq!(both.kind, Kind::NotUnderstood);
+    assert!(!both.message.contains(CODE), "{}", both.message);
+}
+
+#[test]
+fn a_code_with_anything_but_letters_digits_and_hyphens_is_refused_before_anything_is_sent() {
+    let dir = tempfile::tempdir().unwrap();
+    // Nothing answers: a refusal must come before any sending.
+    let keevoro = keevoro_reporting_to(dir.path(), &nowhere());
+    for bad in ["TESTER 1234", "tester_1", "a;b", "", &"a".repeat(65)] {
+        let refused = code(&keevoro, json!({ "code": bad })).unwrap_err();
+        assert_eq!(refused.kind, Kind::Refused, "{bad}");
+        assert_eq!(keevoro.secrets().get(CODE_ENTRY).unwrap(), None);
+    }
+    let prepared = keevoro.prepare_report(&asked(KindWord::Idea, "Hello", false)).unwrap();
+    let refused = keevoro.send_report(&prepared.body, Some("TESTER 1234")).unwrap_err();
+    assert_eq!(
+        (refused.kind, refused.message.as_str()),
+        (
+            Kind::Refused,
+            "A reporting code has only letters, digits and hyphens in it. Check it and try again."
+        )
+    );
+    assert!(!keevoro.log_tail(50).contains("TESTER"));
+}
+
+#[test]
+fn when_keevoro_cannot_reach_the_service_the_window_is_given_the_report_with_the_code_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro_reporting_to(dir.path(), &nowhere());
+    let prepared = keevoro.prepare_report(&asked(KindWord::Idea, "Hello", false)).unwrap();
+    let not = keevoro.send_report_saying_why(&prepared.body, None).unwrap_err();
+    assert_eq!(not.send_as, None, "without a code the window sends what it was shown");
+    code(&keevoro, json!({ "code": CODE })).unwrap();
+    let not = keevoro.send_report_saying_why(&prepared.body, None).unwrap_err();
+    assert_eq!(not.error.kind, Kind::Unreachable);
+    let send_as = not.send_as.clone().unwrap();
+    assert_eq!(send_as.0, keevoro_core::report::with_code(&prepared.body, CODE));
+    assert!(
+        !format!("{not:?}").contains(CODE),
+        "never in what is printed for a developer"
+    );
+    assert!(!keevoro.log_tail(50).contains(CODE));
+    // An answer the service refused is no reason to give it out.
+    let (address, _) = fake_service(vec![(429, json!({ "ok": false, "why": "Not today." }))]);
+    let refused = keevoro_reporting_to(dir.path(), &address)
+        .send_report_saying_why(&prepared.body, None)
+        .unwrap_err();
+    assert_eq!(refused.send_as, None);
+
+    // What the window heard is kept, recognised or not.
+    let sent = call(
+        &keevoro,
+        Op::ReportsNote,
+        None,
+        json!({ "prepared": prepared.body, "reference": "K-1042", "token": TOKEN, "recognised": true }),
+    )
+    .unwrap();
+    assert_eq!(sent["codeSaid"], "Your reporting code was recognised.");
+    assert!(keevoro.reports().reports[0].recognised);
+}
+
+#[test]
+fn an_agent_never_reads_a_code_and_saves_or_forgets_one_only_once_allowed_to_make_changes() {
+    let dir = tempfile::tempdir().unwrap();
+    let keevoro = keevoro_reporting_to(dir.path(), &nowhere());
+    let agent = |request: Value| crate::call_for_agent(&keevoro, Op::ReportsCode, None, request);
+    assert_eq!(agent(json!({})).unwrap(), json!({ "hasCode": false }));
+    let refused = agent(json!({ "code": CODE })).unwrap_err();
+    assert_eq!(refused.message, crate::for_agents::LOOK_ONLY);
+    assert_eq!(
+        agent(json!({ "forget": true })).unwrap_err().message,
+        crate::for_agents::LOOK_ONLY
+    );
+    assert_eq!(keevoro.secrets().get(CODE_ENTRY).unwrap(), None);
+    call(&keevoro, Op::AgentsAccess, None, json!({ "mayChange": true })).unwrap();
+    assert_eq!(agent(json!({ "code": CODE })).unwrap()["hasCode"], true);
+    let looked = agent(json!({})).unwrap();
+    assert_eq!(looked, json!({ "hasCode": true }), "only whether one is saved");
+    let bad = agent(json!({ "code": "TESTER 1234!" })).unwrap_err();
+    assert!(!bad.message.contains("TESTER"), "{}", bad.message);
+    assert_eq!(agent(json!({ "forget": true })).unwrap()["hasCode"], false);
+    let log = keevoro.log_tail(200);
+    assert!(log.contains("An AI agent used reporting_code"), "{log}");
+    assert!(!log.contains("TESTER"), "{log}");
+    // Sending a report stays the person's.
+    assert!(Op::ReportsSend.tool().is_none());
 }

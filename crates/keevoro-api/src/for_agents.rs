@@ -285,7 +285,7 @@ fn not_allowed(place: &str, to: &str) -> Error {
 /// The storage keys a request carries, so that they can be taken out of
 /// anything said about it.
 fn keys_in(request: &Value) -> Vec<String> {
-    ["accessKeyId", "secretAccessKey"]
+    ["accessKeyId", "secretAccessKey", "code"]
         .iter()
         .filter_map(|field| request.get(field))
         .map(|key| match key {

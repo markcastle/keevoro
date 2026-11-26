@@ -138,10 +138,14 @@ mod tests {
             "install_update",
             "add_file_kind",
             "change_file_kind",
+            // A report is the person's own; an agent may only keep or
+            // forget a reporting code for them.
+            "send_report",
+            "prepare_report",
         ] {
             assert!(op_named(kept).is_none(), "{kept}");
         }
-        assert_eq!(tools.len(), 52);
+        assert_eq!(tools.len(), 53);
         assert_eq!(title("run_backup"), "Run backup");
         assert_eq!(title("about_keevoro"), "About Keevoro");
     }

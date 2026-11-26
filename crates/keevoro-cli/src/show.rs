@@ -1063,13 +1063,32 @@ pub fn log(io: &mut Io<'_>, _: &ArgMatches, text: &Value) -> Said_ {
 
 /// What `keevoro report` made or sent: with --dry-run the report exactly as
 /// it would go, otherwise the reference to quote.
-pub fn report(io: &mut Io<'_>, _: &ArgMatches, answer: &Value) -> Said_ {
+pub fn report(io: &mut Io<'_>, m: &ArgMatches, answer: &Value) -> Said_ {
     match answer.get("body").and_then(Value::as_str) {
         Some(body) => {
             writeln!(io.out, "This is exactly what would be sent. Nothing has been sent.")?;
             writeln!(io.out, "{body}")?;
+            // The code itself is never shown, only that it goes.
+            let typed = m.try_get_one::<bool>("code-from-stdin").ok().flatten() == Some(&true);
+            if typed || yes(answer, "withCode") {
+                writeln!(io.out, "Your reporting code")?;
+            }
         }
-        None => writeln!(io.out, "{}", s(answer, "said"))?,
+        None => {
+            writeln!(io.out, "{}", s(answer, "said"))?;
+            if let Some(code_said) = answer.get("codeSaid").and_then(Value::as_str) {
+                writeln!(io.out, "{code_said}")?;
+            }
+        }
+    }
+    Ok(Code::Worked)
+}
+
+pub fn reporting_code(io: &mut Io<'_>, _: &ArgMatches, answer: &Value) -> Said_ {
+    if yes(answer, "hasCode") {
+        writeln!(io.out, "A reporting code is kept on this computer.")?;
+    } else {
+        writeln!(io.out, "No reporting code is kept on this computer.")?;
     }
     Ok(Code::Worked)
 }

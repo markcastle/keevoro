@@ -1417,6 +1417,48 @@ fn a_report_is_shown_before_it_is_sent_and_then_sent_exactly_so() {
 }
 
 #[test]
+fn a_reporting_code_is_kept_and_forgotten_never_shown_and_sent_with_a_report_from_standard_input() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut at = At::new(dir.path());
+    let none = at.keevoro(&["reports", "code"]);
+    assert_eq!(none.code, Code::Worked, "{}", none.err);
+    assert_eq!(none.out, "No reporting code is kept on this computer.\n");
+    at.stdin = "  TESTER-1234 \n".into();
+    let saved = at.keevoro(&["reports", "code", "--save"]);
+    assert_eq!(saved.code, Code::Worked, "{}", saved.err);
+    assert_eq!(saved.out, "A reporting code is kept on this computer.\n");
+    assert!(!saved.out.contains("TESTER") && !saved.err.contains("TESTER"));
+    at.stdin = "TESTER 1234\n".into();
+    let bad = at.keevoro(&["reports", "code", "--save"]);
+    assert_ne!(bad.code, Code::Worked);
+    assert!(
+        bad.err
+            .contains("A reporting code has only letters, digits and hyphens in it."),
+        "{}",
+        bad.err
+    );
+    assert!(!bad.err.contains("TESTER"), "{}", bad.err);
+    let forgot = at.keevoro(&["reports", "code", "--forget"]);
+    assert_eq!(forgot.out, "No reporting code is kept on this computer.\n");
+
+    // Sent with one report, read from standard input and not kept.
+    let (address, heard) = reports_service("K-1043");
+    at.env.push(("KEEVORO_REPORTS_URL", address));
+    at.stdin = "TESTER-1234\n".into();
+    let sent = at.keevoro(&["report", "--idea", "A calmer map", "--code-from-stdin"]);
+    assert_eq!(sent.code, Code::Worked, "{}", sent.err);
+    assert_eq!(sent.out, "Thank you. Your reference is K-1043.\n");
+    let body: Value = serde_json::from_str(&heard.recv().unwrap()).unwrap();
+    assert_eq!(body["code"], "TESTER-1234");
+    assert_eq!(body["message"], "A calmer map");
+    // What would go says only that a code goes with it.
+    at.stdin = "TESTER-1234\n".into();
+    let shown = at.keevoro(&["report", "--idea", "A calmer map", "--code-from-stdin", "--dry-run"]);
+    assert!(shown.out.ends_with("}\nYour reporting code\n"), "{}", shown.out);
+    assert!(!shown.out.contains("TESTER"), "{}", shown.out);
+}
+
+#[test]
 fn a_backup_is_opened_on_a_new_computer_from_the_command_line_and_its_card_connected_again() {
     let _turn = one_at_a_time();
     let dir = tempfile::tempdir().unwrap();

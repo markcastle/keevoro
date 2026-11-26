@@ -341,6 +341,9 @@ register! {
     ReportsHeard = "reports.heard",
         "Notes how each report is getting on, as the app's window heard when Keevoro could not ask",
         changes: Always, job: false, command_line: false, agents: Agents::No, implemented: true;
+    ReportsCode = "reports.code",
+        "Whether a reporting code is kept in the keychain, and keeping or forgetting one, never reading it",
+        changes: OnlyWhenAsked, job: false, command_line: true, agents: Agents::Yes, implemented: true;
 
     // The kinds of file looked for
     FileKindsList = "file_kinds.list",
@@ -423,6 +426,7 @@ impl Op {
                 | Op::ReportsNote
                 | Op::ReportsAsking
                 | Op::ReportsHeard
+                | Op::ReportsCode
                 | Op::DestinationsTidy
                 | Op::FileKindsList
                 | Op::FileKindsAdd
@@ -465,6 +469,9 @@ impl Op {
                     request.get("dryRun").and_then(serde_json::Value::as_bool) != Some(true)
                 }
                 Op::AgentsAccess => given("lookIn") || given("backUpTo") || given("mayChange"),
+                Op::ReportsCode => {
+                    given("code") || request.get("forget").and_then(serde_json::Value::as_bool) == Some(true)
+                }
                 // Through the API, only the check: installing is the app's.
                 Op::KeevoroUpdate => false,
                 // Anything else that may change is taken to change.
@@ -516,6 +523,7 @@ impl Op {
             Op::ReportsSend => schema::<crate::reports::SendReportRequest>(),
             Op::ReportsNote => schema::<crate::reports::NoteReportRequest>(),
             Op::ReportsHeard => schema::<crate::reports::HeardRequest>(),
+            Op::ReportsCode => schema::<crate::reports::ReportingCodeRequest>(),
             Op::KeevoroSettings => schema::<SettingsRequest>(),
             Op::AgentsAccess => schema::<Agents>(),
             Op::BackupHistory => schema::<HistoryRequest>(),
@@ -884,6 +892,13 @@ impl Op {
                 "Says which folders you may look through and back up to, and whether you may make changes. If \
                  something is refused, this explains why; only the person can change it.",
             ),
+            Op::ReportsCode => (
+                "reporting_code",
+                "Says whether a reporting code is kept in this computer's keychain (hasCode). If Keevoro's maker gave \
+                 the person one, their reports are recognised as theirs. Give code to keep one the person gives you, \
+                 or forget as true to forget it; either is a change. The code is never given back, to you or anyone. \
+                 You cannot send a report; the person can.",
+            ),
             Op::FileKindsList => (
                 "list_file_kinds",
                 "Lists the kinds of file Keevoro looks for on every source, by ending (such as jpg or mov): whether \
@@ -987,7 +1002,7 @@ mod tests {
 
     #[test]
     fn the_register_has_every_operation_in_the_plan() {
-        assert_eq!(Op::ALL.len(), 81);
+        assert_eq!(Op::ALL.len(), 82);
         // Each entry is the one for its own operation.
         for op in Op::ALL {
             assert_eq!(op.entry().op, *op);
@@ -1198,6 +1213,7 @@ mod tests {
         "read_settings",
         "check_for_update",
         "my_access",
+        "reporting_code",
         "list_file_kinds",
     ];
 

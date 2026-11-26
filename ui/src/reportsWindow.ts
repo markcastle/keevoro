@@ -7,6 +7,12 @@
 // Keevoro says the service could not be reached at all, the window sends
 // the very same text, and Keevoro keeps the answer (`noteReport`). It
 // sends nothing of the window's own: no cookies, and no page it came from.
+//
+// A reporting code is kept by Keevoro in the keychain and never given to
+// the window, except here: when Keevoro cannot reach the service and a code
+// is to go, it hands over the report with the code in (`sendAs`), because
+// the window must send exactly that. It passes through once, straight to
+// `fetch`, and is kept out of everything that is rendered or logged.
 
 /** How long the window waits for the reports service, in milliseconds. */
 const WAIT = 20_000
@@ -18,18 +24,42 @@ export class ReportNotSent extends Error {
   readonly unreachable: boolean
   /** Why it could not be reached, in plain words, when that is known. */
   readonly why?: string
-  constructor(message: string, unreachable: boolean, why?: string) {
+  /**
+   * When a reporting code was to go: the report with it in, for the window
+   * to send in place of the one shown. Not enumerable, so printing the
+   * error, or putting it in state that is shown, never carries the code.
+   */
+  declare readonly sendAs?: string
+  constructor(message: string, unreachable: boolean, why?: string, sendAs?: string) {
     super(message)
     this.unreachable = unreachable
     this.why = why
+    Object.defineProperty(this, 'sendAs', { value: sendAs, enumerable: false })
   }
+}
+
+/** The most a reporting code may be, in letters. */
+export const CODE_MOST = 64
+
+/** A reporting code as typed, trimmed, or why it cannot be one, in Keevoro's own words. */
+export function checkedCode(typed: string): { code: string } | { why: string } {
+  const code = typed.trim()
+  if (!code) return { why: 'Type the reporting code first.' }
+  if (!/^[A-Za-z0-9-]+$/.test(code)) return { why: 'A reporting code has only letters, digits and hyphens in it. Check it and try again.' }
+  if (code.length > CODE_MOST) return { why: `A reporting code is at most ${CODE_MOST} letters, digits and hyphens. That one is longer.` }
+  return { code }
 }
 
 /** What the app said when a report did not go, as an error with its parts. */
 export function notSent(said: unknown): ReportNotSent {
   if (said && typeof said === 'object' && 'message' in said) {
-    const { kind, message, cause } = said as { kind?: string; message: unknown; cause?: unknown }
-    return new ReportNotSent(String(message), kind === 'unreachable', typeof cause === 'string' ? cause : undefined)
+    const { kind, message, cause, sendAs } = said as { kind?: string; message: unknown; cause?: unknown; sendAs?: unknown }
+    return new ReportNotSent(
+      String(message),
+      kind === 'unreachable',
+      typeof cause === 'string' ? cause : undefined,
+      typeof sendAs === 'string' ? sendAs : undefined,
+    )
   }
   return new ReportNotSent(said instanceof Error ? said.message : String(said), false)
 }
@@ -65,7 +95,7 @@ export async function sendThroughWindow(
   body: string,
   fetcher: Fetcher = fetch,
   wait = WAIT,
-): Promise<{ reference: string; token: string } | { why: string } | null> {
+): Promise<{ reference: string; token: string; recognised?: boolean } | { why: string } | null> {
   const response = await ask(
     fetcher,
     `${sendTo}/v1/reports`,
@@ -75,7 +105,10 @@ export async function sendThroughWindow(
   if (!response) return null
   const answer = await answerOf(response)
   if (response.ok && answer.ok === true && typeof answer.reference === 'string' && typeof answer.token === 'string') {
-    return { reference: answer.reference, token: answer.token }
+    // Whether a reporting code sent with it was recognised; an older
+    // service says nothing, and so does Keevoro.
+    const recognised = typeof answer.recognised === 'boolean' ? { recognised: answer.recognised } : {}
+    return { reference: answer.reference, token: answer.token, ...recognised }
   }
   const why = typeof answer.why === 'string' ? answer.why.replace(/\p{Cc}/gu, '').trim().slice(0, 300) : ''
   return { why: why || `Keevoro’s reports service didn’t answer as expected (it said ${response.status}). Try again later.` }

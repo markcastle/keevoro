@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { askThroughWindow, notSent, ReportNotSent, sendThroughWindow } from './reportsWindow.ts'
+import { askThroughWindow, checkedCode, notSent, ReportNotSent, sendThroughWindow } from './reportsWindow.ts'
 
 const TOKEN = '0123456789abcdef0123456789abcdef01234567'
 type Asked = { url: string; init: RequestInit }
@@ -75,4 +75,31 @@ test('what the app says when a report did not go is read into a plain error', ()
   const refused = notSent({ kind: 'refused', message: 'Too many.' })
   assert.deepEqual([refused.message, refused.unreachable, refused.why], ['Too many.', false, undefined])
   assert.equal(notSent('Plain words').message, 'Plain words')
+})
+
+test('whether the service recognised a reporting code is read back, and said only when it said', async () => {
+  const yes = service([json(201, { ok: true, reference: 'K-7', token: TOKEN, recognised: true })])
+  assert.deepEqual(await sendThroughWindow('https://r', '{}', yes.fetcher), { reference: 'K-7', token: TOKEN, recognised: true })
+  const no = service([json(201, { ok: true, reference: 'K-8', token: TOKEN, recognised: false })])
+  assert.deepEqual(await sendThroughWindow('https://r', '{}', no.fetcher), { reference: 'K-8', token: TOKEN, recognised: false })
+  const odd = service([json(201, { ok: true, reference: 'K-9', token: TOKEN, recognised: 'yes' })])
+  assert.deepEqual(await sendThroughWindow('https://r', '{}', odd.fetcher), { reference: 'K-9', token: TOKEN })
+})
+
+test('the report with its reporting code, for the window to send, is never in what is printed of the error', () => {
+  const unreached = notSent({ kind: 'unreachable', message: 'Couldn’t reach it.', sendAs: '{"code": "TESTER-1234"}' })
+  assert.equal(unreached.sendAs, '{"code": "TESTER-1234"}')
+  assert.ok(!Object.keys(unreached).includes('sendAs'))
+  assert.doesNotMatch(JSON.stringify(unreached), /TESTER/)
+  assert.equal(notSent({ kind: 'unreachable', message: 'x' }).sendAs, undefined)
+})
+
+test('a reporting code is letters, digits and hyphens, trimmed, at most 64, and refused in plain words otherwise', () => {
+  assert.deepEqual(checkedCode('  TESTER-1234 '), { code: 'TESTER-1234' })
+  assert.deepEqual(checkedCode(' '), { why: 'Type the reporting code first.' })
+  for (const bad of ['TESTER 1234', 'tester_1', 'café', 'a;b']) {
+    assert.deepEqual(checkedCode(bad), { why: 'A reporting code has only letters, digits and hyphens in it. Check it and try again.' }, bad)
+  }
+  assert.deepEqual(checkedCode('a'.repeat(64)), { code: 'a'.repeat(64) })
+  assert.deepEqual(checkedCode('a'.repeat(65)), { why: 'A reporting code is at most 64 letters, digits and hyphens. That one is longer.' })
 })

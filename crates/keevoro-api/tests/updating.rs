@@ -645,6 +645,104 @@ fn keevoro_0_37_1_left_has_no_reports_and_sending_one_leaves_the_settings_file_a
     assert_eq!(names(&backups), ["Family photos", "Holiday videos"]);
 }
 
+/// A reporting code (0.57) is kept in the keychain, never in a file, and
+/// each report sent with one may note whether it was recognised, as a new
+/// optional field in `reports.json`. A list 0.46 wrote, without it, reads
+/// as it did, none of it marked recognised, and a report sent with a code
+/// afterwards leaves every report before it exactly as it was written.
+#[test]
+fn reports_kept_before_reporting_codes_read_as_before_and_a_report_with_a_code_leaves_them_alone() {
+    use std::io::{BufRead, BufReader, Read, Write};
+    let dir = tempfile::tempdir().unwrap();
+    let (keevoro, places) = as_0_37_1_left_it(dir.path());
+    let config = &places.folders.config;
+    // Two reports, as 0.46 wrote them.
+    let older = json!({
+        "v": 1,
+        "reports": [
+            { "reference": "K-1040", "token": "0123456789abcdef0123456789abcdef01234567", "kind": "problem",
+              "firstLine": "It stopped half way", "sentAt": 1_794_000_000, "status": "in_progress" },
+            { "reference": "K-1041", "token": "89abcdef0123456789abcdef0123456789abcdef", "kind": "idea",
+              "firstLine": "A calmer map", "sentAt": 1_794_100_000, "status": "shipped",
+              "note": "Thank you. The map is quieter now.", "shippedIn": "0.47.0",
+              "updatedAt": "2026-11-20T10:00:00Z" }
+        ]
+    });
+    std::fs::write(
+        config.join("reports.json"),
+        serde_json::to_string_pretty(&older).unwrap(),
+    )
+    .unwrap();
+    let listed = ask(&keevoro, Op::ReportsList, None, Value::Null);
+    assert_eq!(
+        listed["reports"],
+        json!([
+            { "reference": "K-1041", "kind": "idea", "firstLine": "A calmer map", "sentAt": 1_794_100_000,
+              "status": "shipped", "statusSaid": "Done in version 0.47.0",
+              "note": "Thank you. The map is quieter now.", "shippedIn": "0.47.0" },
+            { "reference": "K-1040", "kind": "problem", "firstLine": "It stopped half way", "sentAt": 1_794_000_000,
+              "status": "in_progress", "statusSaid": "Being worked on" }
+        ]),
+        "read as before, with nothing marked recognised"
+    );
+    assert!(!config.join("reports that could not be read.json").exists());
+
+    // A stand-in for the reports service, which recognises the code.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = format!("http://{}", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut length = 0;
+        loop {
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            if line.trim().is_empty() {
+                break;
+            }
+            if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                length = value.trim().parse().unwrap();
+            }
+        }
+        reader.read_exact(&mut vec![0; length]).unwrap();
+        let answer = r#"{"ok":true,"reference":"K-1042","token":"abc123","recognised":true}"#;
+        write!(
+            stream,
+            "HTTP/1.1 201 Created\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{answer}",
+            answer.len()
+        )
+        .unwrap();
+    });
+    let keevoro = keevoro.with_environment(move |name| (name == "KEEVORO_REPORTS_URL").then(|| address.clone()));
+    let settings = config.join("settings.json");
+    let before = std::fs::read_to_string(&settings).unwrap();
+    ask(&keevoro, Op::ReportsCode, None, json!({ "code": "TESTER-1234" }));
+    let prepared = ask(
+        &keevoro,
+        Op::ReportsPrepare,
+        None,
+        json!({ "kind": "idea", "message": "Thank you" }),
+    );
+    let sent = ask(&keevoro, Op::ReportsSend, None, json!({ "prepared": prepared["body"] }));
+    assert_eq!(sent["codeSaid"], "Your reporting code was recognised.");
+
+    let kept: Value = serde_json::from_str(&std::fs::read_to_string(config.join("reports.json")).unwrap()).unwrap();
+    let reports = kept["reports"].as_array().unwrap();
+    assert_eq!(reports.len(), 3);
+    assert_eq!(
+        &reports[..2],
+        older["reports"].as_array().unwrap().as_slice(),
+        "nothing else changed"
+    );
+    assert_eq!(reports[2]["reference"], "K-1042");
+    assert_eq!(reports[2]["recognised"], true);
+    assert!(
+        !kept.to_string().contains("TESTER-1234"),
+        "the code is never in the file"
+    );
+    assert_eq!(std::fs::read_to_string(&settings).unwrap(), before);
+}
+
 /// Looking again quickly (0.49) keeps when each file last changed, in a
 /// new column of the catalog. What 0.37.1 found has none, so each of
 /// those files is read as ever by the next look, which fills it in.

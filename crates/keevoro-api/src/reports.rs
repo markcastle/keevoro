@@ -21,6 +21,13 @@
 //! and `reports.heard`). Why it could not be reached is logged and said in
 //! plain words; a report and its token never are.
 //!
+//! A person may also have a reporting code from Keevoro's maker. It is
+//! kept like a key, in this computer's keychain (`reports.code`), never in
+//! a file, a log or anything an operation answers, and goes with each
+//! report as its last field once the person has seen the rest. The preview
+//! says only that it will go (`withCode`). The service may say whether it
+//! recognised it; an older one says nothing, and so does Keevoro.
+//!
 //! The reports sent from this computer are kept in a file of their own,
 //! `reports.json` in Keevoro's config folder, never in `settings.json`
 //! (older versions write that back without parts they do not know). Each
@@ -36,6 +43,10 @@ use keevoro_core::report::{self, Draft, Facts, ReportKind};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::time::Duration;
+
+/// Whether a reporting code as typed is one, for a program to check before
+/// it asks anything.
+pub use keevoro_core::report::checked_code;
 
 /// The file, in Keevoro's config folder.
 pub const FILE: &str = "reports.json";
@@ -58,6 +69,11 @@ const LOG_LINES: usize = 3_000;
 const ASKED_AFTER: usize = 50;
 /// The most of an answer that is read.
 const ANSWER_MOST: u64 = 64 * 1024;
+/// The name the reporting code is kept under in this computer's keychain.
+pub(crate) const CODE_ENTRY: &str = "reporting code";
+const CODE_RECOGNISED: &str = "Your reporting code was recognised.";
+const CODE_NOT_RECOGNISED: &str = "That reporting code was not recognised, so this was sent as an ordinary report. \
+     Check the code with whoever gave it to you.";
 
 /// `problem` or `idea`, as a request names it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -99,11 +115,56 @@ pub struct PrepareReportRequest {
 }
 
 /// `reports.send`
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SendReportRequest {
     /// The report exactly as `reports.prepare` gave it, as `body`.
     pub prepared: String,
+    /// A reporting code to send with this report alone, not kept. Left
+    /// out, the one kept on this computer goes, if there is one.
+    #[serde(default)]
+    pub code: Option<String>,
+}
+
+// Written out by hand so a reporting code is never printed.
+impl std::fmt::Debug for SendReportRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SendReportRequest")
+            .field("prepared", &self.prepared)
+            .field("code", &self.code.as_ref().map(|_| report::HIDDEN))
+            .finish()
+    }
+}
+
+/// `reports.code`: whether a reporting code is kept, and keeping or
+/// forgetting one. Nothing here ever gives it back.
+#[derive(Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ReportingCodeRequest {
+    /// The code to keep in this computer's keychain, in place of any kept
+    /// before: letters, digits and hyphens, at most 64.
+    #[serde(default)]
+    pub code: Option<String>,
+    /// True to forget the code kept on this computer.
+    #[serde(default)]
+    pub forget: Option<bool>,
+}
+
+// Written out by hand so a reporting code is never printed.
+impl std::fmt::Debug for ReportingCodeRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ReportingCodeRequest")
+            .field("code", &self.code.as_ref().map(|_| report::HIDDEN))
+            .field("forget", &self.forget)
+            .finish()
+    }
+}
+
+/// What `reports.code` answers: only whether one is kept.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeView {
+    pub has_code: bool,
 }
 
 /// What `reports.prepare` made: the exact text that would be sent.
@@ -114,6 +175,9 @@ pub struct Prepared {
     /// Where it goes, for the window to send it itself when Keevoro
     /// cannot reach it.
     pub send_to: String,
+    /// True when a reporting code kept on this computer will go with it,
+    /// after `body`. The code itself is never shown.
+    pub with_code: bool,
 }
 
 /// `reports.note`: a report the app's window sent itself, with what the
@@ -127,6 +191,10 @@ pub struct NoteReportRequest {
     pub reference: String,
     /// The token the service gave with it.
     pub token: String,
+    /// Whether the service recognised the reporting code sent with it, if
+    /// one was and it said.
+    #[serde(default)]
+    pub recognised: Option<bool>,
 }
 
 /// `reports.heard`: what the app's window heard of the reports
@@ -176,6 +244,23 @@ pub struct NotSent {
     pub error: Error,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cause: Option<String>,
+    /// When the service could not be reached and a reporting code was to
+    /// go: the report with it, for the window to send instead. This is the
+    /// one time the code leaves Keevoro other than to the service, and only
+    /// to the app's own window.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub send_as: Option<SendAs>,
+}
+
+/// A report with its reporting code in it, as it is sent. Never printed.
+#[derive(Clone, PartialEq, Eq, Serialize)]
+#[serde(transparent)]
+pub struct SendAs(pub String);
+
+impl std::fmt::Debug for SendAs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("SendAs(with a reporting code, not shown)")
+    }
 }
 
 /// What `reports.send` answers once a report has gone.
@@ -185,6 +270,13 @@ pub struct Sent {
     /// Such as `K-1042`.
     pub reference: String,
     pub said: String,
+    /// Whether the service recognised the reporting code sent with it,
+    /// when one was and it said.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recognised: Option<bool>,
+    /// That, in a sentence, to say quietly after `said`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code_said: Option<String>,
 }
 
 /// One report sent from this computer, as the list shows it.
@@ -206,6 +298,9 @@ pub struct ReportView {
     pub note: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub shipped_in: Option<String>,
+    /// True when it went with a reporting code the service recognised.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub recognised: bool,
 }
 
 /// `reports.list`, `reports.refresh`
@@ -239,6 +334,10 @@ struct Kept {
     shipped_in: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     updated_at: Option<String>,
+    /// Whether the reporting code sent with it was recognised, when one
+    /// was and the service said (from 0.57). Not a secret.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    recognised: Option<bool>,
 }
 
 impl Kept {
@@ -252,6 +351,7 @@ impl Kept {
             status_said: report::status_said(self.status.as_deref(), self.shipped_in.as_deref()),
             note: self.note.clone(),
             shipped_in: self.shipped_in.clone(),
+            recognised: self.recognised == Some(true),
         }
     }
 }
@@ -365,6 +465,8 @@ struct Answer {
     shipped_in: Option<String>,
     #[serde(default)]
     updated_at: Option<serde_json::Value>,
+    #[serde(default)]
+    recognised: Option<bool>,
 }
 
 const UNREACHABLE: &str =
@@ -526,7 +628,9 @@ impl Service {
         Ok((status, serde_json::from_str(&text).unwrap_or_default()))
     }
 
-    fn send(&self, body: &str) -> std::result::Result<(String, String), Failure> {
+    /// Sends `body`: the reference, the token and, if it said, whether the
+    /// service recognised a reporting code in it.
+    fn send(&self, body: &str) -> std::result::Result<(String, String, Option<bool>), Failure> {
         let response = self
             .agent
             .post(format!("{}/v1/reports", self.base))
@@ -538,7 +642,7 @@ impl Service {
             let reference = answer.reference.unwrap_or_default();
             let token = answer.token.unwrap_or_default();
             if plain_word(&reference, 40) && plain_word(&token, 128) {
-                return Ok((reference, token));
+                return Ok((reference, token, answer.recognised));
             }
         }
         Err(Failure::Answered(
@@ -645,33 +749,106 @@ impl Keevoro {
         Ok(Prepared {
             body,
             send_to: self.reports_address().trim_end_matches('/').to_string(),
+            with_code: self.saved_code().is_some(),
+        })
+    }
+
+    /// The reporting code kept on this computer, if there is one that is
+    /// still a code. A keychain that cannot be read counts as none.
+    fn saved_code(&self) -> Option<String> {
+        self.saved_code_or_why().ok().flatten()
+    }
+
+    /// The reporting code kept, or that the keychain could not be read.
+    fn saved_code_or_why(&self) -> std::result::Result<Option<String>, ()> {
+        self.secrets()
+            .get(CODE_ENTRY)
+            .map(|code| code.and_then(|c| report::checked_code(&c).ok()))
+            .map_err(|_| ())
+    }
+
+    /// `reports.code`: whether a reporting code is kept on this computer,
+    /// keeping one given in place of any before, or forgetting it. It is
+    /// never given back.
+    pub fn reporting_code(&self, request: &ReportingCodeRequest) -> Result<CodeView> {
+        let forget = request.forget == Some(true);
+        match (&request.code, forget) {
+            (Some(_), true) => {
+                return Err(Error::not_understood(
+                    "it gives a code to keep and asks to forget one: ask for one or the other",
+                ))
+            }
+            (Some(code), false) => {
+                let code = report::checked_code(code).map_err(Error::refused)?;
+                self.secrets().set(CODE_ENTRY, &code).map_err(|_| {
+                    Error::failed(
+                        "Couldn't keep the reporting code in this computer's keychain, so it isn't saved.".into(),
+                    )
+                })?;
+                self.log().say("Kept a reporting code in this computer's keychain");
+            }
+            (None, true) => {
+                self.secrets().delete(CODE_ENTRY).map_err(|_| {
+                    Error::failed("Couldn't take the reporting code out of this computer's keychain. Try again.".into())
+                })?;
+                self.log().say("Forgot the reporting code kept on this computer");
+            }
+            (None, false) => {}
+        }
+        Ok(CodeView {
+            has_code: self.saved_code().is_some(),
         })
     }
 
     /// `reports.send`: sends a report exactly as `reports.prepare` made it,
-    /// and keeps a note of it on this computer. Not reached, it says why
-    /// after the sentence, if that can be told.
-    pub fn send_report(&self, prepared: &str) -> Result<Sent> {
-        self.send_report_saying_why(prepared).map_err(|not| match not.cause {
-            Some(cause) => Error::unreachable(format!("{} {cause}", not.error.message)),
-            None => not.error,
-        })
+    /// with the reporting code `typed`, or else the one kept, if any, and
+    /// keeps a note of it on this computer. Not reached, it says why after
+    /// the sentence, if that can be told.
+    pub fn send_report(&self, prepared: &str, typed: Option<&str>) -> Result<Sent> {
+        self.send_report_saying_why(prepared, typed)
+            .map_err(|not| match not.cause {
+                Some(cause) => Error::unreachable(format!("{} {cause}", not.error.message)),
+                None => not.error,
+            })
     }
 
     /// [`Keevoro::send_report`], for the app: whether the service could
     /// not be reached at all, when the window can try, and why apart from
-    /// the sentence.
-    pub fn send_report_saying_why(&self, prepared: &str) -> std::result::Result<Sent, NotSent> {
-        let plain = |error: Error| NotSent { error, cause: None };
+    /// the sentence. Then, with a reporting code, the report with it in, for
+    /// the window to send, as it cannot read the code any other way.
+    pub fn send_report_saying_why(&self, prepared: &str, typed: Option<&str>) -> std::result::Result<Sent, NotSent> {
+        let plain = |error: Error| NotSent {
+            error,
+            cause: None,
+            send_as: None,
+        };
+        let code = match typed {
+            Some(typed) => Some(report::checked_code(typed).map_err(|e| plain(Error::refused(e)))?),
+            None => self.saved_code_or_why().unwrap_or_else(|()| {
+                // Said once a report goes, without the code, so the person
+                // can be told why it was not recognised.
+                self.log().say(
+                    "Couldn't read the reporting code from this computer's keychain, so the report went without it",
+                );
+                None
+            }),
+        };
         let report = self.checked(prepared).map_err(plain)?;
+        let body = match &code {
+            Some(code) => report::with_code(prepared, code),
+            None => prepared.to_string(),
+        };
         let service = Service::at(&self.reports_address());
-        let (reference, token) = service.send(prepared).map_err(|failure| match failure {
+        let (reference, token, recognised) = service.send(&body).map_err(|failure| match failure {
             Failure::Unreached(e) => {
-                self.log()
-                    .say(&format!("Couldn't send a report: {}", Unreached::logged(&e, None)));
+                self.log().say(&format!(
+                    "Couldn't send a report: {}",
+                    Unreached::logged(&e, code.as_deref())
+                ));
                 NotSent {
                     error: Error::unreachable(UNREACHABLE.to_string()),
                     cause: Unreached::of(&e).said().map(str::to_string),
+                    send_as: code.is_some().then(|| SendAs(body.clone())),
                 }
             }
             Failure::Answered(error) => {
@@ -680,7 +857,8 @@ impl Keevoro {
             }
         })?;
         self.log().say(&format!("Sent a report, {reference}"));
-        Ok(self.keep_sent(&report, reference, token))
+        // Only a code that went can have been recognised.
+        Ok(self.keep_sent(&report, reference, token, recognised.filter(|_| code.is_some())))
     }
 
     /// The report as it was made and shown, or why it cannot go.
@@ -701,11 +879,17 @@ impl Keevoro {
         let report = self.checked(&request.prepared)?;
         self.log()
             .say(&format!("Sent a report through the window, {}", request.reference));
-        Ok(self.keep_sent(&report, request.reference.clone(), request.token.clone()))
+        Ok(self.keep_sent(
+            &report,
+            request.reference.clone(),
+            request.token.clone(),
+            request.recognised,
+        ))
     }
 
-    /// Notes a report that has gone, and says thank you.
-    fn keep_sent(&self, report: &report::Report, reference: String, token: String) -> Sent {
+    /// Notes a report that has gone, and says thank you, and whether its
+    /// reporting code was recognised when the service said.
+    fn keep_sent(&self, report: &report::Report, reference: String, token: String, recognised: Option<bool>) -> Sent {
         let kept = Kept {
             reference: reference.clone(),
             token,
@@ -716,6 +900,7 @@ impl Keevoro {
             note: None,
             shipped_in: None,
             updated_at: None,
+            recognised,
         };
         // It has gone, whatever happens here: failing to note it down only
         // means it cannot be asked after from this computer.
@@ -727,6 +912,8 @@ impl Keevoro {
         Sent {
             said: format!("Thank you. Your reference is {reference}."),
             reference,
+            recognised,
+            code_said: recognised.map(|yes| if yes { CODE_RECOGNISED } else { CODE_NOT_RECOGNISED }.to_string()),
         }
     }
 
