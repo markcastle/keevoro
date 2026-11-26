@@ -417,6 +417,12 @@ export function App() {
     setHomeAsked((n) => n + 1)
     go(found ? nextToDo(found, sendingTo ?? null) : 'find')
   }
+  // The same logo, and the same way home, on Settings, Help and the report form.
+  const homeLogo = (
+    <button className="brand home" onClick={goHome} aria-label="Keevoro: back to this backup" title="Back to this backup">
+      <Logo />
+    </button>
+  )
   const keep = (collection: Collection, isKept: boolean) => {
     // Show the choice at once; the engine's answer follows.
     setFound((d) => d && { ...d, collections: d.collections.map((c) => (c.key === collection.key ? { ...c, kept: isKept } : c)) })
@@ -664,6 +670,7 @@ export function App() {
           onProblem={report}
           banner={banner}
           foot={foot}
+          logo={homeLogo}
           reportFrom={reportFrom}
         />
       </div>
@@ -728,9 +735,7 @@ export function App() {
     <div className="app">
       {asks}
       <aside className="sidebar">
-        <button className="brand home" onClick={goHome} aria-label="Keevoro: back to this backup" title="Back to this backup">
-          <Logo />
-        </button>
+        {homeLogo}
         <BackupPicker
           backup={state.backup}
           backups={state.backups}
@@ -1662,18 +1667,19 @@ function FindScreen(props: {
                 onClick={() => choose(place)}
               />
             ))}
-            {synced.map((place) => (
-              <SyncedCard key={place.path} place={place} added={done.has(place.path.replace(/[\\/]+$/, ''))} onClick={() => choose(place)} />
+            {/* After anything just plugged in: this computer's own disks, any folder, the synced folders, then cloud storage. */}
+            {fixed.map((place) => (
+              <PlaceCard key={place.path} place={place} added={done.has(place.path.replace(/[\\/]+$/, ''))} onClick={() => choose(place)} />
             ))}
             <button className="place" onClick={() => pick()}>
               <FolderIcon large />
               <b>Choose a folder…</b>
               <span>Anywhere on this computer or a network</span>
             </button>
-            <AddBucketSource api={api} onAdded={start} />
-            {fixed.map((place) => (
-              <PlaceCard key={place.path} place={place} added={done.has(place.path.replace(/[\\/]+$/, ''))} onClick={() => choose(place)} />
+            {synced.map((place) => (
+              <SyncedCard key={place.path} place={place} added={done.has(place.path.replace(/[\\/]+$/, ''))} onClick={() => choose(place)} />
             ))}
+            <AddBucketSource api={api} onAdded={start} />
           </div>
           <Explained
             className="drives-said"
