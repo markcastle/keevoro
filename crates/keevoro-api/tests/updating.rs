@@ -540,6 +540,47 @@ fn keevoro_0_37_1_left_has_no_window_choices_and_making_them_leaves_the_settings
     assert_eq!(names(&listed), ["Family photos", "Holiday videos"]);
 }
 
+/// Where the window was (0.56) is kept in a file of its own,
+/// `window place.json`. A Keevoro 0.37.1 left has none: nothing is
+/// remembered, so the window opens as it did the first time, and
+/// remembering it leaves the settings file exactly as it was.
+#[test]
+fn keevoro_0_37_1_left_remembers_no_window_place_and_keeping_one_leaves_the_settings_file_alone() {
+    use keevoro_api::window_place::{opening, Rect, Screen, WindowPlace};
+    let dir = tempfile::tempdir().unwrap();
+    let (keevoro, places) = as_0_37_1_left_it(dir.path());
+    assert_eq!(keevoro.window_place(), None);
+    let screen = Screen {
+        work_area: Rect {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1040,
+        },
+        scale: 1.0,
+        primary: true,
+    };
+    let first = opening(keevoro.window_place(), 1280.0, 860.0, &[screen]).unwrap();
+    assert_eq!(
+        (first.rect.width, first.rect.height, first.maximised),
+        (1280, 860, false)
+    );
+    let settings = places.folders.config.join("settings.json");
+    let before = std::fs::read_to_string(&settings).unwrap();
+    let kept = WindowPlace {
+        rect: Rect {
+            x: 40,
+            y: 30,
+            width: 1400,
+            height: 900,
+        },
+        maximised: true,
+    };
+    keevoro.keep_window_place(&kept).unwrap();
+    assert_eq!(keevoro.window_place(), Some(kept));
+    assert_eq!(std::fs::read_to_string(&settings).unwrap(), before);
+}
+
 /// Putting a backup right (0.43) writes down when each copy was proved by
 /// reading it back in full (catalog step 15, `proved_at`). A backup 0.37.1
 /// kept has none: nothing counts as proved, every record still counts as
