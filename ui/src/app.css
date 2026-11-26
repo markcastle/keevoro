@@ -80,7 +80,7 @@ button:focus-visible {
   display: grid;
   /* The page column may shrink below its content's natural width, so a
      wide table scrolls inside itself and never pushes the page sideways. */
-  grid-template-columns: 288px minmax(0, 1fr);
+  grid-template-columns: 300px minmax(0, 1fr);
   height: 100%;
 }
 
@@ -5481,7 +5481,7 @@ main.settings-main {
 
 .kv-settings {
   display: grid;
-  grid-template-columns: 288px minmax(0, 1fr);
+  grid-template-columns: 300px minmax(0, 1fr);
   height: 100%;
 }
 
@@ -7186,4 +7186,11 @@ button.brand.home:hover {
 /* A step's name that needs two rows breaks where it reads best. */
 .steps button > span:last-child {
   text-wrap: balance;
+}
+
+/* A touch less air beside a step's number, so its name has the room. */
+.steps button {
+  gap: 10px;
+  padding-left: 10px;
+  padding-right: 10px;
 }
