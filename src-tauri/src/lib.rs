@@ -352,6 +352,7 @@ fn app<R: Runtime>(
             commands::note_report,
             commands::reports_asking,
             commands::reports_heard,
+            commands::reporting_code,
             commands::open_release_page,
             commands::open_web_page,
             commands::install_update,

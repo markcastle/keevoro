@@ -187,6 +187,37 @@ fn short(text: Option<&str>) -> Option<String> {
     (!text.is_empty()).then(|| text.chars().take(SHORT_MOST).collect())
 }
 
+/// The most a reporting code may be, in letters.
+pub const CODE_MOST: usize = 64;
+
+/// A reporting code as typed, trimmed, or why it cannot be one: letters,
+/// digits and hyphens only, and at most [`CODE_MOST`] of them. So it needs
+/// no escaping wherever it goes.
+pub fn checked_code(code: &str) -> Result<String, String> {
+    let code = code.trim();
+    if code.is_empty() {
+        return Err("Type the reporting code first.".into());
+    }
+    if !code.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        return Err("A reporting code has only letters, digits and hyphens in it. Check it and try again.".into());
+    }
+    if code.len() > CODE_MOST {
+        return Err(format!(
+            "A reporting code is at most {CODE_MOST} letters, digits and hyphens. That one is longer."
+        ));
+    }
+    Ok(code.to_string())
+}
+
+/// A report [`prepare`] made, with a reporting code added as its last
+/// field, and everything before it exactly as it was. `code` must have
+/// passed [`checked_code`], so it needs no escaping.
+pub fn with_code(body: &str, code: &str) -> String {
+    let open = body.trim_end();
+    let open = open.strip_suffix('}').unwrap_or(open).trim_end();
+    format!("{open},\n  \"code\": \"{code}\"\n}}")
+}
+
 /// The end of `text`, at most `most` bytes, starting at a whole line where
 /// it can.
 pub fn keep_the_end(text: &str, most: usize) -> &str {
@@ -592,5 +623,36 @@ mod tests {
         assert_eq!(status_said(Some("shipped"), Some(" ")), "Done");
         assert_eq!(status_said(Some("declined"), None), "Not planned");
         assert_eq!(status_said(Some("merged_elsewhere"), None), "Received");
+    }
+
+    #[test]
+    fn a_reporting_code_is_letters_digits_and_hyphens_and_refused_in_plain_words_otherwise() {
+        assert_eq!(checked_code("  TESTER-1234 ").unwrap(), "TESTER-1234");
+        assert_eq!(checked_code(&"a".repeat(CODE_MOST)).unwrap().len(), CODE_MOST);
+        assert_eq!(checked_code("   ").unwrap_err(), "Type the reporting code first.");
+        for bad in ["TESTER 1234", "tester_1", "code!", "café", "a/b", "\"x\""] {
+            assert_eq!(
+                checked_code(bad).unwrap_err(),
+                "A reporting code has only letters, digits and hyphens in it. Check it and try again.",
+                "{bad}"
+            );
+        }
+        assert_eq!(
+            checked_code(&"a".repeat(CODE_MOST + 1)).unwrap_err(),
+            "A reporting code is at most 64 letters, digits and hyphens. That one is longer."
+        );
+    }
+
+    #[test]
+    fn a_code_goes_on_the_end_of_the_report_with_the_rest_exactly_as_it_was() {
+        let body = prepare(&draft(ReportKind::Idea, "A dark map"), &facts("")).unwrap();
+        let sent = with_code(&body, "TESTER-1234");
+        let open = body.strip_suffix("\n}").unwrap();
+        assert_eq!(sent, format!("{open},\n  \"code\": \"TESTER-1234\"\n}}"));
+        let value: serde_json::Value = serde_json::from_str(&sent).unwrap();
+        assert_eq!(value["code"], "TESTER-1234");
+        let mut without: serde_json::Value = value.clone();
+        without.as_object_mut().unwrap().remove("code");
+        assert_eq!(without, serde_json::from_str::<serde_json::Value>(&body).unwrap());
     }
 }

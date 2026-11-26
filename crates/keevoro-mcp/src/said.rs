@@ -221,6 +221,12 @@ pub fn summary(op: Op, answer: &Value) -> String {
         Op::AgentsAccess => access(answer),
         Op::FileKindsList => file_kinds(answer),
         Op::BackupHistory => history(answer),
+        Op::ReportsCode => if answer.get("hasCode").and_then(Value::as_bool) == Some(true) {
+            "A reporting code is kept on this computer."
+        } else {
+            "No reporting code is kept on this computer."
+        }
+        .to_string(),
         _ => match answer {
             Value::Array(all) => format!("{}.", count(all.len(), "item")),
             _ => "Done.".to_string(),

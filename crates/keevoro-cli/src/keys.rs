@@ -234,6 +234,21 @@ fn keys(m: &ArgMatches, io: &mut Io<'_>) -> Result<Option<(String, String)>, Fai
     some(Some(access)).zip(some(secret)).map(Some).ok_or_else(missing)
 }
 
+/// A reporting code: asked for at the keyboard without being shown, when
+/// `at_keyboard` and a person is there, or else one line of standard
+/// input. Checked here, so a code that cannot be one is refused before
+/// anything is asked of Keevoro. Like a key, it is never printed.
+pub fn reporting_code(io: &mut Io<'_>, at_keyboard: bool) -> Result<String, Failure> {
+    let typed = if at_keyboard && io.keyboard {
+        (io.ask_hidden)("Reporting code (it won't be shown): ").unwrap_or_default()
+    } else {
+        let mut line = String::new();
+        io.input.read_line(&mut line)?;
+        line
+    };
+    keevoro_api::reports::checked_code(&typed).map_err(|why| Failure::new(Code::Refused, why))
+}
+
 /// Asks before something that cannot be undone, unless `--yes` was given.
 /// Without a keyboard to ask at, `--yes` is the only way to say so.
 pub fn sure(yes: bool, io: &mut Io<'_>) -> Result<(), Failure> {

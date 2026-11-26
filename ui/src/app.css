@@ -2697,7 +2697,7 @@ main > section > :nth-last-child(2) {
 }
 
 .duplicates .copy .where {
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-mono);
   font-size: 13px;
   text-align: left;
   overflow-wrap: anywhere;
@@ -2864,7 +2864,7 @@ main > section > :nth-last-child(2) {
 }
 
 .panel.survey .hints .where {
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-mono);
   font-size: 13px;
   overflow-wrap: anywhere;
 }
@@ -2885,7 +2885,7 @@ main > section > :nth-last-child(2) {
 }
 
 .photos .from .where {
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-mono);
   font-size: 12px;
   font-weight: 400;
   overflow-wrap: anywhere;
@@ -2944,7 +2944,7 @@ main > section > :nth-last-child(2) {
 }
 
 .send .latest .where {
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 
@@ -3143,7 +3143,7 @@ main > section > :nth-last-child(2) {
 .kept li.source .what .folder {
   justify-self: start;
   max-width: 100%;
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-mono);
   font-size: 12px;
   color: var(--ink-muted);
   text-align: left;
@@ -6150,6 +6150,63 @@ h3.kv-group-title {
   .report-status {
     text-align: left;
   }
+}
+
+/* A reporting code: a quiet link until opened, and small once saved. */
+.report-code {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+  min-width: 0;
+}
+
+.report-code p {
+  margin: 0;
+  max-width: 34em;
+}
+
+.report-code .quiet-link {
+  color: var(--ink-muted);
+  font-size: 13px;
+}
+
+.report-code-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 14px;
+  font-weight: 500;
+  max-width: 100%;
+}
+
+.report-code-field input {
+  width: min(100%, 260px);
+}
+
+.report-code-why {
+  color: var(--danger);
+}
+
+.report-code-line {
+  margin: var(--space-2) 0 0;
+  font-family: var(--font-mono);
+  color: var(--ink-muted);
+}
+
+.report-code-said {
+  color: var(--ink-muted);
+}
+
+.report-recognised {
+  display: inline-block;
+  margin-left: var(--space-2);
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--ink-muted);
+  vertical-align: 1px;
 }
 
 /* ---------- a narrow window: the list, then a section, a page each ---------- */

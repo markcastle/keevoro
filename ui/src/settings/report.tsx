@@ -12,11 +12,16 @@
 // proxy, say), the window sends the same text itself, through the
 // system's own network settings, and Keevoro keeps the answer; it asks
 // after reports the same way.
+//
+// A reporting code, if the person has one, is behind a quiet link. It is
+// kept in the keychain by Keevoro and never comes back to the window: the
+// page knows only whether one is kept. What is typed is kept only while it
+// is typed, never in `kept`, and goes to the keychain before sending.
 
 import { useCallback, useEffect, useId, useState } from 'react'
 import type { Backend, ReportKind, ReportRequest, ReportsView, SentReport } from '../backend'
 import { Toggle } from '../toggle'
-import { askThroughWindow, ReportNotSent, sendThroughWindow } from '../reportsWindow'
+import { askThroughWindow, checkedCode, ReportNotSent, sendThroughWindow } from '../reportsWindow'
 import { Group, Intro } from './parts'
 
 /** What was being written, kept while Keevoro is open so leaving the page loses nothing. */
@@ -81,6 +86,53 @@ export function ReportPage(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api, asked, seeing])
 
+  // Whether a reporting code is kept; what is being typed, if the field is
+  // open; and why a code typed cannot be one.
+  const [hasCode, setHasCode] = useState(false)
+  const [codeOpen, setCodeOpen] = useState(false)
+  const [code, setCode] = useState('')
+  const [codeWhy, setCodeWhy] = useState<string | null>(null)
+  useEffect(() => {
+    let open = true
+    api
+      .reportingCode()
+      .then((c) => open && setHasCode(c.hasCode))
+      .catch(() => {})
+    return () => {
+      open = false
+    }
+  }, [api])
+  const codeTyped = !hasCode && codeOpen && code.trim() !== ''
+  /** Keeps the code typed, if one is; false when it cannot be one, said under the field. */
+  const saveCode = async (): Promise<boolean> => {
+    if (!codeTyped) return true
+    const checked = checkedCode(code)
+    if ('why' in checked) {
+      setCodeWhy(checked.why)
+      return false
+    }
+    try {
+      const kept = await api.reportingCode({ code: checked.code })
+      setHasCode(kept.hasCode)
+      setCode('')
+      setCodeWhy(null)
+      return true
+    } catch (e) {
+      setCodeWhy(sentence(e))
+      return false
+    }
+  }
+  const forgetCode = async () => {
+    try {
+      const kept = await api.reportingCode({ forget: true })
+      setHasCode(kept.hasCode)
+      setCodeOpen(false)
+      setCodeWhy(null)
+    } catch (e) {
+      setCodeWhy(sentence(e))
+    }
+  }
+
   const [sending, setSending] = useState(false)
   // Why it was not sent, and, when the service could not be reached at
   // all either way, why not in plain words if that is known.
@@ -117,6 +169,8 @@ export function ReportPage(props: {
   useEffect(() => refresh(), [refresh])
 
   const send = async () => {
+    // A code typed that cannot be one is refused before anything is sent.
+    if (!(await saveCode())) return
     setSending(true)
     setFailed(null)
     try {
@@ -150,15 +204,20 @@ export function ReportPage(props: {
       return await api.sendReport(body)
     } catch (e) {
       if (!(e instanceof ReportNotSent) || !e.unreachable) throw e
-      const answer = await sendThroughWindow(sendTo, body)
+      // With a reporting code, Keevoro hands over the report with it in.
+      // It goes straight to the service from here and is never put in
+      // state, shown or logged; Keevoro is told only the text shown.
+      const answer = await sendThroughWindow(sendTo, e.sendAs ?? body)
       if (answer === null) throw e
       if ('why' in answer) throw new Error(answer.why)
-      return api.noteReport(body, answer.reference, answer.token)
+      return api.noteReport(body, answer.reference, answer.token, answer.recognised)
     }
   }
 
   const words = useId()
   const reach = useId()
+  const codeField = useId()
+  const codeHelp = useId()
   const letters = [...message].length
   const choices: { value: ReportKind; words: string }[] = [
     { value: 'problem', words: 'Something went wrong' },
@@ -177,6 +236,7 @@ export function ReportPage(props: {
           <p>
             <b>{sent.said}</b>
           </p>
+          {sent.codeSaid && <p className="small report-code-said">{sent.codeSaid}</p>}
           <p className="quiet small">How it is getting on is under Your reports, below.</p>
           <p className="choices">
             <button type="button" className="button small" onClick={() => setSent(null)}>
@@ -252,6 +312,59 @@ export function ReportPage(props: {
             </div>
           </div>
 
+          <div className="report-code">
+            {hasCode ? (
+              <p className="small">
+                <b>Reporting code</b> <span>saved on this computer.</span>{' '}
+                <button type="button" className="link" onClick={() => void forgetCode()}>
+                  Forget it
+                </button>
+              </p>
+            ) : codeOpen ? (
+              <div className="report-code-field">
+                <label htmlFor={codeField}>Reporting code</label>
+                <input
+                  id={codeField}
+                  type="password"
+                  value={code}
+                  autoComplete="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  aria-describedby={codeHelp}
+                  aria-invalid={codeWhy !== null}
+                  onChange={(e) => {
+                    setCode(e.target.value)
+                    setCodeWhy(null)
+                  }}
+                  onKeyDown={(e) => {
+                    // Return saves the code, rather than sending the report.
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      void saveCode()
+                    }
+                  }}
+                />
+                <button type="button" className="button small" disabled={code.trim() === ''} onClick={() => void saveCode()}>
+                  Save
+                </button>
+              </div>
+            ) : (
+              <button type="button" className="link quiet-link" onClick={() => setCodeOpen(true)}>
+                I have a reporting code
+              </button>
+            )}
+            {(hasCode || codeOpen) && (
+              <p className="quiet small" id={codeHelp}>
+                Optional. If Keevoro’s maker gave you one, your reports are recognised as yours.
+              </p>
+            )}
+            {codeWhy && (
+              <p className="small report-code-why" role="alert">
+                {codeWhy}
+              </p>
+            )}
+          </div>
+
           <p className="quiet small">
             Always sent with it: your words, Keevoro’s version, which system this computer runs, and the screen you were
             on ({props.from}). Nothing else.
@@ -262,9 +375,13 @@ export function ReportPage(props: {
             {prepared && prepared.asked === asked && 'why' in prepared ? (
               <p className="quiet small">{prepared.why}</p>
             ) : (
-              <pre className="log" tabIndex={0} aria-label="Exactly what will be sent">
-                {prepared && 'body' in prepared ? prepared.body : ''}
-              </pre>
+              <>
+                <pre className="log" tabIndex={0} aria-label="Exactly what will be sent">
+                  {prepared && 'body' in prepared ? prepared.body : ''}
+                </pre>
+                {/* The code itself is never shown: only that it goes. */}
+                {(hasCode || codeTyped) && <p className="small report-code-line">Your reporting code</p>}
+              </>
             )}
           </details>
 
@@ -295,6 +412,7 @@ export function ReportPage(props: {
               <li key={r.reference}>
                 <span className="report-line">
                   <b>{r.reference}</b> <span>{r.firstLine}</span>
+                  {r.recognised && <span className="report-recognised">Recognised</span>}
                 </span>
                 <span className={`report-status ${r.status ?? 'new'}`}>{r.statusSaid}</span>
                 {r.note && <span className="quiet small report-note">{r.note}</span>}

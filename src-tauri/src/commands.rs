@@ -1259,7 +1259,7 @@ pub async fn send_report<R: Runtime>(
     app: AppHandle<R>,
     prepared: String,
 ) -> Result<keevoro_api::reports::Sent, keevoro_api::reports::NotSent> {
-    tauri::async_runtime::spawn_blocking(move || app.state::<Shared>().keevoro.send_report_saying_why(&prepared))
+    tauri::async_runtime::spawn_blocking(move || app.state::<Shared>().keevoro.send_report_saying_why(&prepared, None))
         .await
         .map_err(|e| keevoro_api::reports::NotSent {
             error: keevoro_api::Error {
@@ -1267,7 +1267,18 @@ pub async fn send_report<R: Runtime>(
                 message: say(e),
             },
             cause: None,
+            send_as: None,
         })?
+}
+
+/// Whether a reporting code is kept in this computer's keychain, keeping
+/// one or forgetting it. It is never given back to the window.
+#[tauri::command]
+pub fn reporting_code(
+    shared: State<'_, Shared>,
+    request: keevoro_api::reports::ReportingCodeRequest,
+) -> Said<keevoro_api::reports::CodeView> {
+    shared.keevoro.reporting_code(&request).map_err(say)
 }
 
 /// Keeps a report the window sent itself, with the service's answer.

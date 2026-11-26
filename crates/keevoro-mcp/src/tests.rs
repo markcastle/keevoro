@@ -120,7 +120,7 @@ async fn an_app_sees_every_tool_with_what_it_takes_and_whether_it_changes_things
     let mut app = App::connect(keevoro(dir.path())).await;
     let listed = app.ask("tools/list", json!({})).await;
     let tools = listed["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 52);
+    assert_eq!(tools.len(), 53);
     let kinds = tools.iter().find(|t| t["name"] == "list_file_kinds").unwrap();
     assert_eq!(
         kinds["annotations"]["readOnlyHint"], true,
@@ -190,6 +190,33 @@ async fn answers_are_a_summary_and_the_apis_json_and_problems_say_why() {
     let log = app.ask("resources/read", json!({ "uri": LOG })).await;
     let log = log["result"]["contents"][0]["text"].as_str().unwrap().to_string();
     assert!(log.contains("An AI agent used start_backup: refused."), "{log}");
+    app.close().await;
+}
+
+#[tokio::test]
+async fn an_agent_never_reads_a_reporting_code_and_keeps_one_only_once_allowed_to_make_changes() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = App::connect(keevoro(dir.path())).await;
+    let looked = app.tool("reporting_code", json!({})).await;
+    assert_eq!(looked["isError"], false, "{looked}");
+    assert_eq!(text_of(&looked, 0), "No reporting code is kept on this computer.");
+    let refused = app.tool("reporting_code", json!({ "code": "TESTER-1234" })).await;
+    assert_eq!(text_of(&refused, 0), keevoro_api::for_agents::LOOK_ONLY);
+    // The person allows changes, in the app: read afresh at each call.
+    keevoro(dir.path())
+        .set_agent_access(AgentsAccessRequest {
+            look_in: None,
+            back_up_to: None,
+            may_change: Some(true),
+        })
+        .unwrap();
+    let kept = app.tool("reporting_code", json!({ "code": "TESTER-1234" })).await;
+    assert_eq!(text_of(&kept, 0), "A reporting code is kept on this computer.");
+    assert_eq!(kept["structuredContent"], json!({ "hasCode": true }), "never the code");
+    let forgot = app.tool("reporting_code", json!({ "forget": true })).await;
+    assert_eq!(forgot["structuredContent"], json!({ "hasCode": false }));
+    let log = app.ask("resources/read", json!({ "uri": LOG })).await;
+    assert!(!log.to_string().contains("TESTER-1234"), "{log}");
     app.close().await;
 }
 

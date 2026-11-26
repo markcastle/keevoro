@@ -58,7 +58,7 @@ import type {
 } from './backend'
 import { count, foundNew, size } from './format'
 import { PictureQueue, fileKey } from './pictureQueue'
-import { ReportNotSent } from './reportsWindow'
+import { checkedCode, ReportNotSent } from './reportsWindow'
 
 const SCENES: [string, string, string][] = [
   ['#7ec8e3', '#f6d365', '#2e7d6b'], // beach
@@ -999,6 +999,20 @@ export function demoBackend(): Backend {
   let reportRefused = false
   // The tokens the window was given for reports it sent itself.
   const tokens = new Map<string, string>()
+  // The reporting code kept in this computer's keychain, as Keevoro keeps
+  // it: never given back. The stand-in service recognises the made-up
+  // `TESTER-1234` and no other.
+  let reportingCode: string | null = null
+  const DEMO_CODE = 'TESTER-1234'
+  const codeSaid = (recognised: boolean | undefined) =>
+    recognised === undefined
+      ? {}
+      : {
+          recognised,
+          codeSaid: recognised
+            ? 'Your reporting code was recognised.'
+            : 'That reporting code was not recognised, so this was sent as an ordinary report. Check the code with whoever gave it to you.',
+        }
   const reportsSent: ReportListed[] = [
     {
       reference: 'K-1041',
@@ -1935,15 +1949,28 @@ export function demoBackend(): Backend {
         logTail: request.withLog ? log : undefined,
         contact,
       }
-      return { body: JSON.stringify(report, null, 2), sendTo: 'https://reports.keevoro.com' }
+      return { body: JSON.stringify(report, null, 2), sendTo: 'https://reports.keevoro.com', withCode: reportingCode !== null }
+    },
+    async reportingCode(change) {
+      if (change?.code !== undefined && change.forget) throw new Error('Ask to keep a code or to forget one, not both.')
+      if (change?.code !== undefined) {
+        const checked = checkedCode(change.code)
+        if ('why' in checked) throw new Error(checked.why)
+        reportingCode = checked.code
+      }
+      if (change?.forget) reportingCode = null
+      return { hasCode: reportingCode !== null }
     },
     async sendReport(prepared) {
       await later(300 * pace)
       if (opening.has('reportUnreachable')) {
+        // As Keevoro does, the report with the code in, for the window alone.
+        const sendAs = reportingCode === null ? undefined : `${prepared.replace(/\s*\}\s*$/, '')},\n  "code": "${reportingCode}"\n}`
         throw new ReportNotSent(
           'Couldn’t reach Keevoro’s reports service just now. Check this computer is online, then try again.',
           true,
           'This computer’s network would not let Keevoro connect securely, as some work and school networks do.',
+          sendAs,
         )
       }
       if (opening.has('reportFails') && !reportRefused) {
@@ -1952,6 +1979,7 @@ export function demoBackend(): Backend {
       }
       const report = JSON.parse(prepared) as { kind: 'problem' | 'idea'; message: string }
       const reference = `K-${1042 + reportsSent.length - 2}`
+      const recognised = reportingCode === null ? undefined : reportingCode === DEMO_CODE
       reportsSent.unshift({
         reference,
         kind: report.kind,
@@ -1959,10 +1987,11 @@ export function demoBackend(): Backend {
         sentAt: Math.floor(Date.now() / 1000),
         status: 'new',
         statusSaid: 'Received',
+        ...(recognised ? { recognised } : {}),
       })
-      return { reference, said: `Thank you. Your reference is ${reference}.` }
+      return { reference, said: `Thank you. Your reference is ${reference}.`, ...codeSaid(recognised) }
     },
-    async noteReport(prepared, reference, token) {
+    async noteReport(prepared, reference, token, recognised) {
       if (!/^K-\d{1,12}$/.test(reference) || !/^[0-9a-f]{40}$/.test(token)) {
         throw new Error('That isn’t an answer from Keevoro’s reports service, so the report isn’t noted.')
       }
@@ -1974,9 +2003,10 @@ export function demoBackend(): Backend {
         sentAt: Math.floor(Date.now() / 1000),
         status: 'new',
         statusSaid: 'Received',
+        ...(recognised ? { recognised } : {}),
       })
       tokens.set(reference, token)
-      return { reference, said: `Thank you. Your reference is ${reference}.` }
+      return { reference, said: `Thank you. Your reference is ${reference}.`, ...codeSaid(recognised) }
     },
     reportsAsking: async () => ({
       sendTo: 'https://reports.keevoro.com',

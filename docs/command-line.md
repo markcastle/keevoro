@@ -514,6 +514,7 @@ Without `-b`, `status`, `follow` and `stop` cover every backup; with it, only th
 | `keevoro agents allow-changes on` | Lets an agent make changes; `off` lets it only look. |
 | `keevoro report --problem "WORDS"` | Tells Keevoro's maker something went wrong, in your words; `--idea "WORDS"` for an idea. Only your words, Keevoro's version, the operating system and "The command line" go, unless you add `--with-log` (the end of Keevoro's log, with your home folder and user name taken out; it can name your folders and files) or `--contact "HOW"` (a way to reach you). `--dry-run` shows exactly what would be sent, and sends nothing. Says your reference, such as K-1042. |
 | `keevoro reports` | The reports sent from this computer, each with its reference, how it is getting on ("Received", "Being worked on", "Done in version 0.47.0", "Not planned") and its first line. `--offline` says how they were last heard of, without asking. |
+| `keevoro reports code` | Whether a reporting code is kept on this computer. `--save` keeps one in this computer's keychain, read from standard input or asked for without being shown; `--forget` forgets it. It is never shown again. `keevoro report --code-from-stdin` sends one report with a code without keeping it. |
 | `keevoro mcp` | Starts Keevoro's server for an AI agent, which speaks the Model Context Protocol on standard input and output. An AI app starts it itself; you do not type it. |
 
 ## AI agents

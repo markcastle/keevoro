@@ -78,6 +78,8 @@ const BACKED: &[(&str, &[Op])] = &[
     ("note_report", &[Op::ReportsNote]),
     ("reports_asking", &[Op::ReportsAsking]),
     ("reports_heard", &[Op::ReportsHeard]),
+    // A reporting code: kept or forgotten, never read back.
+    ("reporting_code", &[Op::ReportsCode]),
     ("acceleration", &[Op::KeevoroSettings]),
     ("set_acceleration", &[Op::KeevoroSettings]),
     // What an AI agent may do: for the person, never the agent.

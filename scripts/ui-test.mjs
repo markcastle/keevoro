@@ -3422,6 +3422,92 @@ try {
   // The browser notes the address that did not answer; that was the point.
   problems.splice(beforeOffline, problems.length - beforeOffline, ...problems.slice(beforeOffline).filter((p) => !/ERR_INTERNET_DISCONNECTED|Failed to load resource|reports\.keevoro\.com/.test(p)))
 
+  // --- A reporting code: behind a quiet link, typed without being shown,
+  // kept in the keychain and never shown again. The stand-in recognises
+  // the made-up TESTER-1234 and no other. It is said quietly after the
+  // thank you, and a saved code can be forgotten.
+  await page.goto(`${base}/?fast&page=help/report`)
+  const codeLink = page.getByRole('button', { name: 'I have a reporting code' })
+  await codeLink.waitFor()
+  assert.equal(await page.getByLabel('Reporting code').count(), 0, 'no field until asked for')
+  await codeLink.click()
+  const codeBox = page.getByLabel('Reporting code')
+  assert.equal(await codeBox.getAttribute('type'), 'password', 'not shown as it is typed')
+  assert.equal(await codeBox.getAttribute('autocomplete'), 'off')
+  await page.getByText('Optional. If Keevoro’s maker gave you one, your reports are recognised as yours.').waitFor()
+  await page.getByLabel('What happened?').fill('The map went blank again.')
+  // Anything but letters, digits and hyphens is refused before sending.
+  await codeBox.fill('TESTER 1234')
+  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await page.getByRole('alert').filter({ hasText: 'A reporting code has only letters, digits and hyphens in it. Check it and try again.' }).waitFor()
+  assert.equal(await page.getByLabel('What happened?').inputValue(), 'The map went blank again.', 'nothing was sent')
+  // Saved: shown open, with Forget it, and the preview says only that it goes.
+  await codeBox.fill(' TESTER-1234 ')
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await page.getByRole('button', { name: 'Forget it' }).waitFor()
+  await page.getByText('saved on this computer.').waitFor()
+  await page.getByText('See exactly what will be sent').click()
+  await page.waitForFunction(() => document.querySelector('.report-preview pre')?.textContent.includes('The map went blank again.'))
+  await page.locator('.report-code-line', { hasText: 'Your reporting code' }).waitFor()
+  assert.equal(JSON.parse(await sentText()).code, undefined, 'the code is not in what is shown')
+  assert.doesNotMatch(await page.content(), /TESTER-1234/, 'nor anywhere on the page')
+  await shot('13-report-code-saved')
+  await fitsNarrow('A reporting code saved')
+  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await page.getByText('Thank you. Your reference is K-1042.').waitFor()
+  await page.getByText('Your reporting code was recognised.').waitFor()
+  await page.locator('#setting-yourReports li', { hasText: 'K-1042' }).getByText('Recognised', { exact: true }).waitFor()
+  assert.equal(await page.locator('#setting-yourReports .report-recognised').count(), 1, 'only the one recognised')
+  await shot('13-report-code-recognised')
+  // A code that is not one the maker gave: said plainly, and kept to put right.
+  await page.getByRole('button', { name: 'Write another' }).click()
+  await page.getByRole('button', { name: 'Forget it' }).click()
+  await codeLink.waitFor()
+  await codeLink.click()
+  await page.getByLabel('Reporting code').fill('TESTER-9999')
+  await page.getByLabel('What happened?').fill('It stopped half way.')
+  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await page
+    .getByText('That reporting code was not recognised, so this was sent as an ordinary report. Check the code with whoever gave it to you.')
+    .waitFor()
+  assert.equal(await page.locator('#setting-yourReports .report-recognised').count(), 1, 'not marked recognised')
+  await page.getByRole('button', { name: 'Write another' }).click()
+  await page.getByRole('button', { name: 'Forget it' }).waitFor()
+  // Forget it: the quiet link again, and nothing goes with the next one.
+  await page.getByRole('button', { name: 'Forget it' }).click()
+  await codeLink.waitFor()
+  await page.getByText('See exactly what will be sent').click()
+  await page.getByLabel('What happened?').fill('One more.')
+  await page.waitForFunction(() => document.querySelector('.report-preview pre')?.textContent.includes('One more.'))
+  assert.equal(await page.locator('.report-code-line').count(), 0)
+  // Through the window, when Keevoro cannot reach the service, the code
+  // goes with the report the window sends, and is still never shown.
+  reportsService = (request) => ({
+    status: 201,
+    answer: { ok: true, reference: 'K-2002', token: WINDOW_TOKEN, recognised: JSON.parse(request.postData() ?? '{}').code === 'TESTER-1234' },
+  })
+  const postedBefore = reportsAsked.filter((r) => r.method === 'POST').length
+  await page.goto(`${base}/?fast&reportUnreachable&page=help/report`)
+  await page.getByRole('button', { name: 'I have a reporting code' }).click()
+  await page.getByLabel('Reporting code').fill('TESTER-1234')
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await page.getByRole('button', { name: 'Forget it' }).waitFor()
+  await page.getByLabel('What happened?').fill('Sending a report sat on Sending.')
+  await page.getByText('See exactly what will be sent').click()
+  await page.waitForFunction(() => document.querySelector('.report-preview pre')?.textContent.includes('Sending a report'))
+  const shownWithCode = JSON.parse(await sentText())
+  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await page.getByText('Thank you. Your reference is K-2002.').waitFor()
+  await page.getByText('Your reporting code was recognised.').waitFor()
+  const postedWithCode = reportsAsked.filter((r) => r.method === 'POST').slice(postedBefore)
+  assert.equal(postedWithCode.length, 1)
+  const wentWithCode = JSON.parse(postedWithCode[0].body)
+  assert.equal(wentWithCode.code, 'TESTER-1234', 'the window sent the code')
+  delete wentWithCode.code
+  assert.deepEqual(wentWithCode, shownWithCode, 'and otherwise exactly what was shown')
+  assert.doesNotMatch(await page.content(), /TESTER-1234/)
+  reportsService = null
+
   // --- A backup that is already somewhere: picked up on a new computer.
   await page.goto(`${base}/?demo=new&fast`)
   await page.getByRole('heading', { name: 'Let’s find your photos' }).waitFor()

@@ -827,6 +827,8 @@ impl Keevoro {
         // The list of reports sent from this computer goes too. The reports
         // themselves were sent, and stay with Keevoro's maker.
         let _ = std::fs::remove_file(self.backups.config_folder().join(crate::reports::FILE));
+        // And a reporting code kept in the keychain.
+        let _ = self.secrets().delete(crate::reports::CODE_ENTRY);
         self.log.say(&format!(
             "Reset to how Keevoro was when first installed: {} backups removed, {} folders left where they are",
             done.removed.len(),

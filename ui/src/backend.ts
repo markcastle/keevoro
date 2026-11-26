@@ -1182,13 +1182,28 @@ export type ReportRequest = {
 }
 
 /** A report made and not yet sent: `body` is exactly what will go, and `sendTo` where. */
-export type PreparedReport = { body: string; sendTo: string }
+export type PreparedReport = {
+  body: string
+  sendTo: string
+  /** True when a reporting code kept on this computer goes with it, after `body`. The code is never shown. */
+  withCode?: boolean
+}
+
+/** Whether a reporting code is kept in this computer's keychain. The code itself is never given back. */
+export type ReportingCode = { hasCode: boolean }
 
 /** For the window alone: where reports go, and the newest with what lets it ask after them. */
 export type ReportsAsking = { sendTo: string; reports: { reference: string; token: string }[] }
 
 /** A report sent: its reference, and the thank you to say. */
-export type SentReport = { reference: string; said: string }
+export type SentReport = {
+  reference: string
+  said: string
+  /** Whether the reporting code sent with it was recognised, when one was and the service said. */
+  recognised?: boolean
+  /** That, in a sentence, to say quietly after `said`. */
+  codeSaid?: string
+}
 
 /** One report sent from this computer, as last heard of. */
 export type ReportListed = {
@@ -1202,6 +1217,8 @@ export type ReportListed = {
   statusSaid: string
   note?: string
   shippedIn?: string
+  /** True when it went with a reporting code the service recognised. */
+  recognised?: boolean
 }
 
 /** The reports sent from this computer; `checked` when each was asked after just now. */
@@ -1353,7 +1370,13 @@ export interface Backend {
    */
   sendReport(prepared: string): Promise<SentReport>
   /** Keeps a report the window sent itself, with the service's answer, as one sent from here. */
-  noteReport(prepared: string, reference: string, token: string): Promise<SentReport>
+  noteReport(prepared: string, reference: string, token: string, recognised?: boolean): Promise<SentReport>
+  /**
+   * Whether a reporting code is kept in this computer's keychain; with
+   * `code`, keeps that one instead; with `forget`, forgets it. It is never
+   * given back.
+   */
+  reportingCode(change?: { code?: string; forget?: boolean }): Promise<ReportingCode>
   /** For the window to ask after reports itself when Keevoro cannot. */
   reportsAsking(): Promise<ReportsAsking>
   /** Notes what the window heard of each report; `all` when every one asked about answered. */
@@ -1562,7 +1585,9 @@ async function tauriBackend(): Promise<Backend> {
       invoke<SentReport>('send_report', { prepared }).catch((said: unknown) => {
         throw notSent(said)
       }),
-    noteReport: (prepared, reference, token) => invoke('note_report', { request: { prepared, reference, token } }),
+    noteReport: (prepared, reference, token, recognised) =>
+      invoke('note_report', { request: { prepared, reference, token, recognised: recognised ?? null } }),
+    reportingCode: (change) => invoke('reporting_code', { request: change ?? {} }),
     reportsAsking: () => invoke('reports_asking'),
     reportsHeard: (heard, all) => invoke('reports_heard', { request: { heard, all } }),
     reports: () => invoke('reports'),
