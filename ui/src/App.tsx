@@ -597,6 +597,17 @@ export function App() {
       >
         Help
       </button>
+      <button
+        className="link"
+        onClick={() => {
+          // Straight to the form, saying which screen the person was on.
+          const from = screenName()
+          openPlace('help', { where: 'help', section: 'report' })
+          setReportFrom(from)
+        }}
+      >
+        Report a problem or idea
+      </button>
     </div>
   )
 
