@@ -14,7 +14,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 - **Keevoro says it does not send emails.** After you send a report, the thank you now says that Keevoro does not send an email to confirm it, and that the report is listed under Your reports, where you can see how it is getting on. If you gave a way to reach you, it says Keevoro's maker may write to you about it.
 
+## [0.58.1] - 2026-11-26
+
+### Changed
+
 - **No choice where there is none.** Looking inside a place that holds only music no longer offers "Show: All / Music", which were the same thing.
+- **The places to look are in the order you look for them.** On the first step: anything just plugged in, then this computer's own disk, "Choose a folder", folders synced with OneDrive or Dropbox, and cloud storage last.
+- **The logo is on Settings, Help and the report form too**, and takes you home from there the same way.
+- **Room for longer names.** The band down the left is a little wider, so "Find your photos and music" stays on one row, and the sentence under "Where are your photos?" keeps to one row where the window has room.
+- **"Your reports" says whether each one was a problem or an idea.**
+- **The comparison of cloud storage writes "The prices are Stratus’"**, as its maker does, where it said "Stratus’s".
 
 ## [0.58.0] - 2026-11-26
 
@@ -963,7 +972,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.58.0...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.58.1...HEAD
+[0.58.1]: https://github.com/markcastle/keevoro/compare/v0.58.0...v0.58.1
 [0.58.0]: https://github.com/markcastle/keevoro/compare/v0.57.0...v0.58.0
 [0.57.0]: https://github.com/markcastle/keevoro/compare/v0.56.0...v0.57.0
 [0.56.0]: https://github.com/markcastle/keevoro/compare/v0.55.2...v0.56.0

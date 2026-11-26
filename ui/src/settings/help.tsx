@@ -128,7 +128,7 @@ export function CompareSection(props: {
         this backup.
       </Intro>
       <Group
-        footnote={`This loads a comparison page from the internet. Keevoro tells it only the size of this backup, about ${about} GB, and your currency. The prices are Stratus’s, not Keevoro’s.`}
+        footnote={`This loads a comparison page from the internet. Keevoro tells it only the size of this backup, about ${about} GB, and your currency. The prices are Stratus’, not Keevoro’s.`}
       >
         <Row
           id="compare"

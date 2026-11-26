@@ -442,7 +442,8 @@ function SentReportRow({ report: r }: { report: ReportListed }) {
         onClick={() => setOpen((was) => !was)}
       >
         <span className="report-line">
-          <b>{r.reference}</b> <span>{r.firstLine}</span>
+          <b>{r.reference}</b> <span className="report-kind">{r.kind === 'problem' ? 'Problem' : 'Idea'}</span>{' '}
+          <span>{r.firstLine}</span>
           {r.recognised && <span className="report-recognised">Recognised</span>}
         </span>
         <span className={`report-status ${r.status ?? 'new'}`}>{r.statusSaid}</span>
