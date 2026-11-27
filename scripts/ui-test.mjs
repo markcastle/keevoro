@@ -545,6 +545,10 @@ try {
   await compare.waitFor()
   assert.match(await compare.innerText(), /This loads a comparison page from the internet\. Keevoro tells it only the size of this backup, about [\d,]+ GB, and your currency\. The prices are Stratus’, not Keevoro’s/)
   assert.match(await compare.innerText(), /Comparison by Stratus, made by Adam Sparshott\./)
+  // The sheet is as tall as the window allows, so more of the comparison is on screen at once.
+  const sheetAt = await compare.boundingBox()
+  assert.ok(sheetAt.height > page.viewportSize().height - 60, `the comparison fills the window's height (${Math.round(sheetAt.height)} of ${page.viewportSize().height})`)
+  assert.ok((await compare.locator('iframe').boundingBox()).height > page.viewportSize().height * 0.6, 'and most of that is the comparison itself')
   const frame = compare.locator('iframe')
   assert.equal(await frame.getAttribute('sandbox'), 'allow-scripts allow-same-origin', 'no popups, no moving the app away, no forms')
   assert.equal(await frame.getAttribute('referrerpolicy'), 'no-referrer')
@@ -1050,6 +1054,23 @@ try {
   await page.getByRole('button', { name: '‹ About Keevoro' }).click()
   await page.getByRole('heading', { name: 'About Keevoro', level: 2 }).waitFor()
   assert.equal(await page.evaluate(() => document.activeElement?.id), 'setting-licences', 'back on the row that opened it')
+
+  // --- From About, what is new in each version: the changelog, read inside the app.
+  await page.getByRole('button', { name: 'What’s new in each version' }).click()
+  await page.getByRole('heading', { name: 'What’s new in each version', level: 2 }).waitFor()
+  const releases = page.locator('.changelog section')
+  assert.equal(await releases.count(), 8, 'the newest few at first')
+  assert.match(await releases.first().locator('h3').innerText(), /^\d+\.\d+\.\d+\s+\d{1,2} \w+ \d{4}$/, 'a version and the day it came out')
+  assert.ok((await releases.first().locator('li').count()) > 0, 'with what changed in it')
+  assert.match(await releases.first().locator('h4').first().innerText(), /^(Added|Changed|Fixed|Removed)$/)
+  assert.equal(await page.locator('.changelog').getByText('[Unreleased]').count(), 0, 'nothing that is not out yet')
+  await fitsNarrow('What is new in each version')
+  await shot('9r3-whats-new')
+  await page.getByRole('button', { name: /^Show all \d+ versions$/ }).click()
+  assert.ok((await releases.count()) > 50, 'every version, when asked for')
+  await page.getByRole('button', { name: '‹ About Keevoro' }).click()
+  await page.getByRole('heading', { name: 'About Keevoro', level: 2 }).waitFor()
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'setting-changelog', 'back on the row that opened it')
 
   // --- Help, Compare cloud storage providers: the same sheet, said the
   // same way, set to the size of this backup.

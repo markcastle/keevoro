@@ -6409,11 +6409,16 @@ h3.kv-group-title {
   background: rgba(0, 0, 0, 0.35);
 }
 
+/* As tall as the window, less a margin: a comparison is a long page, and
+   more of it on screen is easier to read than a short box to scroll in. */
 .compare-sheet .panel {
-  width: min(960px, 100%);
-  height: min(860px, 100%);
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
-  justify-items: stretch;
+  width: min(1280px, 100%);
+  height: 100%;
+  /* A column whose spare height all goes to the comparison, however many
+     lines sit above it (a choice made, or nothing yet). */
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
   box-shadow: var(--shadow-md);
   outline: none;
   overflow: auto;
@@ -6436,7 +6441,7 @@ h3.kv-group-title {
 
 .compare-frame {
   width: 100%;
-  height: 100%;
+  flex: 1 1 0;
   min-height: 320px;
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -7312,4 +7317,45 @@ button.brand.home:hover {
   gap: 10px;
   padding-left: 10px;
   padding-right: 10px;
+}
+
+/* What's new in each version: the changelog, set as a page to read. */
+.changelog {
+  max-width: 75ch;
+}
+
+.changelog section {
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--line);
+}
+
+.changelog h3 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-2);
+}
+
+.changelog h4 {
+  margin: var(--space-3) 0 var(--space-1);
+  font-size: 14px;
+  color: var(--ink-muted);
+}
+
+.changelog ul {
+  margin: 0;
+  padding-left: 1.2em;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.changelog li {
+  overflow-wrap: anywhere;
+}
+
+.changelog code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
 }

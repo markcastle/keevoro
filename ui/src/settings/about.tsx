@@ -74,6 +74,11 @@ export function AboutSection(props: {
           onUpdate={props.onUpdate}
           onProblem={onProblem}
         />
+        <OpenRow
+          id="changelog"
+          about="Every change you would notice, by version, newest first."
+          onOpen={() => props.onOpen('changelog')}
+        />
       </Group>
 
       <Group
