@@ -14,6 +14,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Changed
 
 - **Keevoro says it does not send emails.** After you send a report, the thank you now says that Keevoro does not send an email to confirm it, and that the report is listed under Your reports, where you can see how it is getting on. If you gave a way to reach you, it says Keevoro's maker may write to you about it. Thanks to Adam Sparshott for reporting this.
+- **"Look inside a folder first" is a button.** On the first step, the sentence about not being sure what is in a folder is now one quiet button, with an "i" beside it that says what it is for. Thanks to Adam Sparshott for the idea.
 
 ## [0.58.1] - 2026-11-26
 
