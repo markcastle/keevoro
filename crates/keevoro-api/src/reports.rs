@@ -21,6 +21,15 @@
 //! and `reports.heard`). Why it could not be reached is logged and said in
 //! plain words; a report and its token never are.
 //!
+//! A picture may go with a report: one the person chose, pasted or
+//! dropped and saw first, never one Keevoro takes. It goes only once the
+//! report has been accepted, as a second request with the report's own
+//! token (`POST /v1/reports/<reference>/picture`), its kind told by its
+//! first bytes: PNG, JPEG or WebP, at most 3 MB. It is held in memory only,
+//! never written to a file or the log; `reports.json` keeps only whether
+//! one went. If the report goes and its picture does not, the report stays
+//! sent and listed, and the person is told why the picture did not go.
+//!
 //! A person may also have a reporting code from Keevoro's maker. It is
 //! kept like a key, in this computer's keychain (`reports.code`), never in
 //! a file, a log or anything an operation answers, and goes with each
@@ -32,7 +41,10 @@
 //! `reports.json` in Keevoro's config folder, never in `settings.json`
 //! (older versions write that back without parts they do not know). Each
 //! has its reference, the token that lets Keevoro ask after it, its first
-//! line and what was last heard of it. The file is read a report at a time,
+//! line and what was last heard of it and, from 0.59, the person's words in
+//! full, the version and screen it was sent from, and only whether the log
+//! and a way to reach them went with it, never either itself, so the person
+//! can read again what they sent. The file is read a report at a time,
 //! so one that cannot be understood costs that one alone, and is changed
 //! under a lock, so the app and the `keevoro` command never undo each
 //! other's changes.
@@ -47,6 +59,15 @@ use std::time::Duration;
 /// Whether a reporting code as typed is one, for a program to check before
 /// it asks anything.
 pub use keevoro_core::report::checked_code;
+
+/// Whether bytes are a picture that can go with a report, and the line
+/// that says one goes, for a program to check and say before it sends.
+pub use keevoro_core::report::{checked_picture, picture_line};
+
+/// A picture's bytes in standard Base64, as `reports.send` takes them.
+pub fn picture_to_base64(bytes: &[u8]) -> String {
+    crate::picture::base64(bytes)
+}
 
 /// The file, in Keevoro's config folder.
 pub const FILE: &str = "reports.json";
@@ -74,6 +95,15 @@ pub(crate) const CODE_ENTRY: &str = "reporting code";
 const CODE_RECOGNISED: &str = "Your reporting code was recognised.";
 const CODE_NOT_RECOGNISED: &str = "That reporting code was not recognised, so this was sent as an ordinary report. \
      Check the code with whoever gave it to you.";
+/// Said after the thank you, as a person may wait for an email that never
+/// comes: Keevoro sends none.
+pub const NO_EMAIL: &str = "Keevoro does not send emails. This report is listed under Your reports below, \
+     where you can see how it is getting on.";
+/// That, when the person gave a way to reach them.
+pub const NO_EMAIL_MAY_WRITE: &str = "Keevoro does not send an email to confirm. This report is listed under Your \
+     reports below, and Keevoro's maker may write to you about it.";
+/// Said under a report sent before its whole message was kept.
+pub const ONLY_FIRST_LINE: &str = "Only the first line was kept for reports sent before this version.";
 
 /// `problem` or `idea`, as a request names it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -124,16 +154,33 @@ pub struct SendReportRequest {
     /// out, the one kept on this computer goes, if there is one.
     #[serde(default)]
     pub code: Option<String>,
+    /// A picture the person added, to send once the report is accepted,
+    /// in standard Base64: PNG, JPEG or WebP, at most 3 MB. Never kept.
+    #[serde(default)]
+    pub picture: Option<String>,
 }
 
-// Written out by hand so a reporting code is never printed.
+// Written out by hand so a reporting code, or a picture, is never printed.
 impl std::fmt::Debug for SendReportRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SendReportRequest")
             .field("prepared", &self.prepared)
             .field("code", &self.code.as_ref().map(|_| report::HIDDEN))
+            .field(
+                "picture",
+                &self
+                    .picture
+                    .as_ref()
+                    .map(|p| report::picture_line(p.len() as u64 / 4 * 3)),
+            )
             .finish()
     }
+}
+
+/// The bytes of a picture sent to an operation in Base64, or why not.
+pub fn picture_from_base64(text: &str) -> Result<Vec<u8>> {
+    crate::picture::from_base64(text.trim())
+        .ok_or_else(|| Error::refused("That picture couldn't be read. Add it again."))
 }
 
 /// `reports.code`: whether a reporting code is kept, and keeping or
@@ -195,6 +242,13 @@ pub struct NoteReportRequest {
     /// one was and it said.
     #[serde(default)]
     pub recognised: Option<bool>,
+    /// True when the window sent a picture after it, and the service took it.
+    #[serde(default)]
+    pub with_picture: bool,
+    /// Why a picture the window tried to send after it did not go, in the
+    /// service's words or a sentence about the connection.
+    #[serde(default)]
+    pub picture_why: Option<String>,
 }
 
 /// `reports.heard`: what the app's window heard of the reports
@@ -277,6 +331,15 @@ pub struct Sent {
     /// That, in a sentence, to say quietly after `said`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code_said: Option<String>,
+    /// That no email comes, and where to see how it is getting on, to say
+    /// quietly after the rest.
+    pub email_said: String,
+    /// True when a picture went with it.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub with_picture: bool,
+    /// When the report went and its picture did not: that, and why.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub picture_said: Option<String>,
 }
 
 /// One report sent from this computer, as the list shows it.
@@ -286,6 +349,26 @@ pub struct ReportView {
     pub reference: String,
     pub kind: ReportKind,
     pub first_line: String,
+    /// The person's words in full, as sent, for reports sent from 0.59.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    /// When only the first line was kept, a sentence saying so.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kept_said: Option<String>,
+    /// The Keevoro it was sent from, and the screen the person was on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub app_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub screen: Option<String>,
+    /// True when it went with the end of the log, and with a way to reach
+    /// the person. Neither is ever kept.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub with_log: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub with_contact: bool,
+    /// True when a picture went with it. The picture is never kept.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub with_picture: bool,
     /// When it was sent, in seconds since 1970.
     pub sent_at: i64,
     /// The service's word for how it is getting on, as last heard.
@@ -325,6 +408,24 @@ struct Kept {
     token: String,
     kind: ReportKind,
     first_line: String,
+    /// The person's words in full, as sent (from 0.59). Older reports kept
+    /// only the first line.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    message: Option<String>,
+    /// The Keevoro it was sent from, and the screen (from 0.59).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    app_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    screen: Option<String>,
+    /// Only whether the log and a way to reach the person went (from
+    /// 0.59), never either of them.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    with_log: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    with_contact: bool,
+    /// Only whether a picture went (from 0.59), never the picture.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    with_picture: bool,
     sent_at: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     status: Option<String>,
@@ -346,6 +447,13 @@ impl Kept {
             reference: self.reference.clone(),
             kind: self.kind,
             first_line: self.first_line.clone(),
+            message: self.message.clone(),
+            kept_said: self.message.is_none().then(|| ONLY_FIRST_LINE.to_string()),
+            app_version: self.app_version.clone(),
+            screen: self.screen.clone(),
+            with_log: self.with_log,
+            with_contact: self.with_contact,
+            with_picture: self.with_picture,
             sent_at: self.sent_at,
             status: self.status.clone(),
             status_said: report::status_said(self.status.as_deref(), self.shipped_in.as_deref()),
@@ -468,6 +576,19 @@ struct Answer {
     #[serde(default)]
     recognised: Option<bool>,
 }
+
+/// Whether a picture went with a report, and if one was to and did not,
+/// why not.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Pictured {
+    None,
+    Went,
+    NotSent(String),
+}
+
+/// Why a picture did not go, when the service could not be reached for it
+/// and why cannot be told.
+const PICTURE_UNREACHED: &str = "This computer couldn't reach Keevoro's reports service to send it.";
 
 const UNREACHABLE: &str =
     "Couldn't reach Keevoro's reports service just now. Check this computer is online, then try again.";
@@ -656,6 +777,30 @@ impl Service {
         ))
     }
 
+    /// Sends a picture after the report `reference`, which the service has
+    /// taken: nothing when it took it, or why not in its words.
+    fn send_picture(
+        &self,
+        reference: &str,
+        token: &str,
+        picture: &[u8],
+        kind: &str,
+    ) -> std::result::Result<(), Failure> {
+        let response = self
+            .agent
+            .post(format!("{}/v1/reports/{reference}/picture", self.base))
+            .query("token", token)
+            .header("Content-Type", kind)
+            .header("User-Agent", concat!("Keevoro/", env!("CARGO_PKG_VERSION")))
+            .send(picture);
+        let (status, answer) = Self::read(response).map_err(Failure::Unreached)?;
+        if (200..300).contains(&status) && answer.ok == Some(true) {
+            return Ok(());
+        }
+        let why = answer.why.as_deref().map(shown).unwrap_or_default();
+        Err(Failure::Answered(Error::refused(why)))
+    }
+
     /// How one report is getting on, or why the service could not be
     /// reached. An answer that is not about the report changes nothing.
     fn ask_after(&self, kept: &Kept) -> std::result::Result<Option<Answer>, ureq::Error> {
@@ -805,7 +950,19 @@ impl Keevoro {
     /// keeps a note of it on this computer. Not reached, it says why after
     /// the sentence, if that can be told.
     pub fn send_report(&self, prepared: &str, typed: Option<&str>) -> Result<Sent> {
-        self.send_report_saying_why(prepared, typed)
+        self.send_report_with_picture(prepared, typed, None)
+    }
+
+    /// [`Keevoro::send_report`], with a picture to follow the report once
+    /// it is accepted. A picture that is not one, or is too big, is refused
+    /// before anything is sent.
+    pub fn send_report_with_picture(
+        &self,
+        prepared: &str,
+        typed: Option<&str>,
+        picture: Option<&[u8]>,
+    ) -> Result<Sent> {
+        self.send_report_saying_why(prepared, typed, picture)
             .map_err(|not| match not.cause {
                 Some(cause) => Error::unreachable(format!("{} {cause}", not.error.message)),
                 None => not.error,
@@ -816,11 +973,23 @@ impl Keevoro {
     /// not be reached at all, when the window can try, and why apart from
     /// the sentence. Then, with a reporting code, the report with it in, for
     /// the window to send, as it cannot read the code any other way.
-    pub fn send_report_saying_why(&self, prepared: &str, typed: Option<&str>) -> std::result::Result<Sent, NotSent> {
+    pub fn send_report_saying_why(
+        &self,
+        prepared: &str,
+        typed: Option<&str>,
+        picture: Option<&[u8]>,
+    ) -> std::result::Result<Sent, NotSent> {
         let plain = |error: Error| NotSent {
             error,
             cause: None,
             send_as: None,
+        };
+        let picture = match picture {
+            Some(bytes) => Some((
+                bytes,
+                report::checked_picture(bytes).map_err(|e| plain(Error::refused(e)))?,
+            )),
+            None => None,
         };
         let code = match typed {
             Some(typed) => Some(report::checked_code(typed).map_err(|e| plain(Error::refused(e)))?),
@@ -857,8 +1026,47 @@ impl Keevoro {
             }
         })?;
         self.log().say(&format!("Sent a report, {reference}"));
+        // The report has gone, whatever happens to its picture.
+        let pictured = match picture {
+            Some((bytes, kind)) => match service.send_picture(&reference, &token, bytes, kind) {
+                Ok(()) => {
+                    self.log().say(&format!("Sent the picture with report {reference}"));
+                    Pictured::Went
+                }
+                Err(failure) => {
+                    let why = match failure {
+                        Failure::Unreached(e) => {
+                            self.log().say(&format!(
+                                "Couldn't send the picture with report {reference}: {}",
+                                Unreached::logged(&e, Some(&token))
+                            ));
+                            Unreached::of(&e).said().unwrap_or(PICTURE_UNREACHED).to_string()
+                        }
+                        Failure::Answered(error) => {
+                            self.log().say(&format!(
+                                "Couldn't send the picture with report {reference}: {}",
+                                if error.message.is_empty() {
+                                    "the service didn't take it"
+                                } else {
+                                    &error.message
+                                }
+                            ));
+                            error.message
+                        }
+                    };
+                    Pictured::NotSent(why)
+                }
+            },
+            None => Pictured::None,
+        };
         // Only a code that went can have been recognised.
-        Ok(self.keep_sent(&report, reference, token, recognised.filter(|_| code.is_some())))
+        Ok(self.keep_sent(
+            &report,
+            reference,
+            token,
+            recognised.filter(|_| code.is_some()),
+            pictured,
+        ))
     }
 
     /// The report as it was made and shown, or why it cannot go.
@@ -879,22 +1087,48 @@ impl Keevoro {
         let report = self.checked(&request.prepared)?;
         self.log()
             .say(&format!("Sent a report through the window, {}", request.reference));
+        let pictured = match (&request.picture_why, request.with_picture) {
+            (Some(why), _) => {
+                let why = shown(why);
+                self.log().say(&format!(
+                    "Couldn't send the picture with report {} through the window: {why}",
+                    request.reference
+                ));
+                Pictured::NotSent(why)
+            }
+            (None, true) => Pictured::Went,
+            (None, false) => Pictured::None,
+        };
         Ok(self.keep_sent(
             &report,
             request.reference.clone(),
             request.token.clone(),
             request.recognised,
+            pictured,
         ))
     }
 
     /// Notes a report that has gone, and says thank you, and whether its
     /// reporting code was recognised when the service said.
-    fn keep_sent(&self, report: &report::Report, reference: String, token: String, recognised: Option<bool>) -> Sent {
+    fn keep_sent(
+        &self,
+        report: &report::Report,
+        reference: String,
+        token: String,
+        recognised: Option<bool>,
+        pictured: Pictured,
+    ) -> Sent {
         let kept = Kept {
             reference: reference.clone(),
             token,
             kind: report.kind,
             first_line: report::first_line(&report.message),
+            message: Some(report.message.clone()),
+            app_version: Some(report.app_version.clone()),
+            screen: report.screen.clone(),
+            with_log: report.log_tail.is_some(),
+            with_contact: report.contact.is_some(),
+            with_picture: pictured == Pictured::Went,
             sent_at: now(),
             status: Some("new".into()),
             note: None,
@@ -914,6 +1148,17 @@ impl Keevoro {
             reference,
             recognised,
             code_said: recognised.map(|yes| if yes { CODE_RECOGNISED } else { CODE_NOT_RECOGNISED }.to_string()),
+            email_said: if report.contact.is_some() {
+                NO_EMAIL_MAY_WRITE
+            } else {
+                NO_EMAIL
+            }
+            .to_string(),
+            with_picture: pictured == Pictured::Went,
+            picture_said: match pictured {
+                Pictured::NotSent(why) => Some(report::picture_not_sent(&why)),
+                _ => None,
+            },
         }
     }
 

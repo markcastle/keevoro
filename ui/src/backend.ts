@@ -11,6 +11,8 @@
 
 import { demoBackend } from './demo'
 import { PictureQueue, fileKey, photoKey } from './pictureQueue'
+import type { Picture } from './reportPicture'
+import { toBase64 } from './reportPicture'
 import { notSent } from './reportsWindow'
 
 export type Photo = {
@@ -1203,6 +1205,12 @@ export type SentReport = {
   recognised?: boolean
   /** That, in a sentence, to say quietly after `said`. */
   codeSaid?: string
+  /** That Keevoro sends no email, and where to see how it is getting on, said quietly after the rest. */
+  emailSaid: string
+  /** True when a picture went with it. */
+  withPicture?: boolean
+  /** When the report went and its picture did not: that, and why. */
+  pictureSaid?: string
 }
 
 /** One report sent from this computer, as last heard of. */
@@ -1210,6 +1218,18 @@ export type ReportListed = {
   reference: string
   kind: ReportKind
   firstLine: string
+  /** The person's words in full, as sent, for reports sent from 0.59. */
+  message?: string
+  /** For a report sent before then: that only its first line was kept. */
+  keptSaid?: string
+  /** The Keevoro it was sent from, and the screen the person was on. */
+  appVersion?: string
+  screen?: string
+  /** Only whether the log and a way to reach the person went with it; neither is kept. */
+  withLog?: boolean
+  withContact?: boolean
+  /** Only whether a picture went with it; the picture is never kept. */
+  withPicture?: boolean
   /** When it was sent, in seconds since 1970. */
   sentAt: number
   status?: string
@@ -1364,13 +1384,25 @@ export interface Backend {
   /** A report of a problem or an idea, made exactly as it would be sent. Nothing is sent. */
   prepareReport(request: ReportRequest): Promise<PreparedReport>
   /**
-   * Sends a report exactly as `prepareReport` made it. Not sent, it fails
-   * with a `ReportNotSent`, which says whether the service could not be
-   * reached at all, and why.
+   * Sends a report exactly as `prepareReport` made it, and then `picture`,
+   * if the person added one, once the report is accepted. Not sent, it
+   * fails with a `ReportNotSent`, which says whether the service could not
+   * be reached at all, and why. Sent without its picture, it says why in
+   * `pictureSaid`.
    */
-  sendReport(prepared: string): Promise<SentReport>
-  /** Keeps a report the window sent itself, with the service's answer, as one sent from here. */
-  noteReport(prepared: string, reference: string, token: string, recognised?: boolean): Promise<SentReport>
+  sendReport(prepared: string, picture?: Picture): Promise<SentReport>
+  /**
+   * Keeps a report the window sent itself, with the service's answer, as
+   * one sent from here; with whether the window sent its picture after it,
+   * and if not why.
+   */
+  noteReport(
+    prepared: string,
+    reference: string,
+    token: string,
+    recognised?: boolean,
+    picture?: { sent: true } | { sent: false; why: string },
+  ): Promise<SentReport>
   /**
    * Whether a reporting code is kept in this computer's keychain; with
    * `code`, keeps that one instead; with `forget`, forgets it. It is never
@@ -1581,12 +1613,21 @@ async function tauriBackend(): Promise<Backend> {
     logTail: () => invoke('log_tail'),
     openLog: () => invoke('open_log'),
     prepareReport: (request) => invoke('prepare_report', { request }),
-    sendReport: (prepared) =>
-      invoke<SentReport>('send_report', { prepared }).catch((said: unknown) => {
+    sendReport: (prepared, picture) =>
+      invoke<SentReport>('send_report', { prepared, picture: picture ? toBase64(picture.bytes) : null }).catch((said: unknown) => {
         throw notSent(said)
       }),
-    noteReport: (prepared, reference, token, recognised) =>
-      invoke('note_report', { request: { prepared, reference, token, recognised: recognised ?? null } }),
+    noteReport: (prepared, reference, token, recognised, picture) =>
+      invoke('note_report', {
+        request: {
+          prepared,
+          reference,
+          token,
+          recognised: recognised ?? null,
+          withPicture: picture?.sent === true,
+          pictureWhy: picture && !picture.sent ? picture.why : null,
+        },
+      }),
     reportingCode: (change) => invoke('reporting_code', { request: change ?? {} }),
     reportsAsking: () => invoke('reports_asking'),
     reportsHeard: (heard, all) => invoke('reports_heard', { request: { heard, all } }),

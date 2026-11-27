@@ -4,7 +4,7 @@
 //
 // Only the person's words, Keevoro's version, the operating system and the
 // screen they were on go, unless they switch on the end of the log or a way
-// to reach them. "See exactly what will be sent" shows the report as
+// to reach them, or add a picture. "See exactly what will be sent" shows the report as
 // Keevoro made it, and that same text is what is sent. If sending fails,
 // their words stay, with why and Try again.
 //
@@ -13,15 +13,34 @@
 // system's own network settings, and Keevoro keeps the answer; it asks
 // after reports the same way.
 //
+// Each report under Your reports opens in place to read again what was
+// sent: the whole message, what kind it was, when, the Keevoro and screen
+// it went from, and whether the log and a way to reach them went with it
+// (never either itself, which Keevoro does not keep). A report sent before
+// whole messages were kept shows its first line and says so.
+//
+// A picture may go too, such as a screenshot, under "Add a picture": chosen,
+// pasted while the form has the focus (the usual way, after taking a
+// screenshot) or dropped on the form. The person sees it, its size and
+// Remove, and "what will be sent" lists it. Keevoro never adds one by
+// itself and never takes a screenshot. One too big is made smaller here
+// first (`reportPicture.ts`). It is held only in this page's memory, and
+// goes after the report once that is accepted; if it cannot, the report
+// is still sent, and the thank you says why the picture did not go.
+//
+// Keevoro sends no email, so the thank you says that, and where to look.
+//
 // A reporting code, if the person has one, is behind a quiet link. It is
 // kept in the keychain by Keevoro and never comes back to the window: the
 // page knows only whether one is kept. What is typed is kept only while it
 // is typed, never in `kept`, and goes to the keychain before sending.
 
-import { useCallback, useEffect, useId, useState } from 'react'
-import type { Backend, ReportKind, ReportRequest, ReportsView, SentReport } from '../backend'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import type { Backend, ReportKind, ReportListed, ReportRequest, ReportsView, SentReport } from '../backend'
+import { reportFacts } from '../reportFacts'
+import { type Picture, pictureFrom, pictureLine, pictureSize, smallerSaid } from '../reportPicture'
 import { Toggle } from '../toggle'
-import { askThroughWindow, checkedCode, ReportNotSent, sendThroughWindow } from '../reportsWindow'
+import { askThroughWindow, checkedCode, ReportNotSent, sendPictureThroughWindow, sendThroughWindow } from '../reportsWindow'
 import { Group, Intro } from './parts'
 
 /** What was being written, kept while Keevoro is open so leaving the page loses nothing. */
@@ -133,6 +152,40 @@ export function ReportPage(props: {
     }
   }
 
+  // The picture the person added, if any: held only here, in memory, as
+  // it will be sent; and why one could not be added.
+  const [picture, setPicture] = useState<Picture | null>(null)
+  const [pictureWhy, setPictureWhy] = useState<string | null>(null)
+  const [adding, setAdding] = useState(false)
+  const [dropping, setDropping] = useState(false)
+  const [pictureUrl, setPictureUrl] = useState<string | null>(null)
+  const chooser = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (!picture) {
+      setPictureUrl(null)
+      return
+    }
+    const url = URL.createObjectURL(new Blob([picture.bytes as BlobPart], { type: picture.type }))
+    setPictureUrl(url)
+    return () => URL.revokeObjectURL(url)
+  }, [picture])
+  /** Adds a picture, in place of any added before, or says why it cannot go. */
+  const addPicture = async (file: Blob) => {
+    setAdding(true)
+    setPictureWhy(null)
+    try {
+      const made = await pictureFrom(file)
+      if ('why' in made) setPictureWhy(made.why)
+      else setPicture(made)
+    } finally {
+      setAdding(false)
+    }
+  }
+  const removePicture = () => {
+    setPicture(null)
+    setPictureWhy(null)
+  }
+
   const [sending, setSending] = useState(false)
   // Why it was not sent, and, when the service could not be reached at
   // all either way, why not in plain words if that is known.
@@ -182,8 +235,9 @@ export function ReportPage(props: {
         made = { asked, body: fresh.body, sendTo: fresh.sendTo }
         setPrepared(made)
       }
-      const done = await sendEitherWay(made.body, made.sendTo)
+      const done = await sendEitherWay(made.body, made.sendTo, picture)
       setSent(done)
+      setPicture(null)
       kept = { kind, message: '', withLog: false, withContact, contact }
       setMessage('')
       setWithLog(false)
@@ -199,9 +253,10 @@ export function ReportPage(props: {
 
   // Keevoro sends it; when it cannot reach the service at all, the window
   // sends the very same text, and Keevoro keeps the answer.
-  const sendEitherWay = async (body: string, sendTo: string): Promise<SentReport> => {
+  // A picture follows the report either way, once the report is accepted.
+  const sendEitherWay = async (body: string, sendTo: string, picture: Picture | null): Promise<SentReport> => {
     try {
-      return await api.sendReport(body)
+      return await api.sendReport(body, picture ?? undefined)
     } catch (e) {
       if (!(e instanceof ReportNotSent) || !e.unreachable) throw e
       // With a reporting code, Keevoro hands over the report with it in.
@@ -210,7 +265,8 @@ export function ReportPage(props: {
       const answer = await sendThroughWindow(sendTo, e.sendAs ?? body)
       if (answer === null) throw e
       if ('why' in answer) throw new Error(answer.why)
-      return api.noteReport(body, answer.reference, answer.token, answer.recognised)
+      const pictured = picture ? await sendPictureThroughWindow(sendTo, answer.reference, answer.token, picture) : undefined
+      return api.noteReport(body, answer.reference, answer.token, answer.recognised, pictured)
     }
   }
 
@@ -236,8 +292,9 @@ export function ReportPage(props: {
           <p>
             <b>{sent.said}</b>
           </p>
+          {sent.pictureSaid && <p className="small report-picture-said">{sent.pictureSaid}</p>}
           {sent.codeSaid && <p className="small report-code-said">{sent.codeSaid}</p>}
-          <p className="quiet small">How it is getting on is under Your reports, below.</p>
+          <p className="quiet small report-email-said">{sent.emailSaid}</p>
           <p className="choices">
             <button type="button" className="button small" onClick={() => setSent(null)}>
               Write another
@@ -246,10 +303,37 @@ export function ReportPage(props: {
         </div>
       ) : (
         <form
-          className="report-form"
+          className={dropping ? 'report-form dropping' : 'report-form'}
           onSubmit={(e) => {
             e.preventDefault()
             void send()
+          }}
+          onPaste={(e) => {
+            // A picture pasted anywhere in the form is added; words pasted
+            // into a box stay words, even when a picture came with them.
+            const items = [...e.clipboardData.items]
+            const file = items.find((i) => i.kind === 'file' && i.type.startsWith('image/'))?.getAsFile()
+            if (!file) return
+            const typing = e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLInputElement
+            if (typing && items.some((i) => i.type === 'text/plain')) return
+            e.preventDefault()
+            void addPicture(file)
+          }}
+          onDragOver={(e) => {
+            if (!e.dataTransfer.types.includes('Files')) return
+            e.preventDefault()
+            e.dataTransfer.dropEffect = 'copy'
+            setDropping(true)
+          }}
+          onDragLeave={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropping(false)
+          }}
+          onDrop={(e) => {
+            setDropping(false)
+            const file = e.dataTransfer.files[0]
+            if (!file) return
+            e.preventDefault()
+            void addPicture(file)
           }}
         >
           <div className="segmented" role="radiogroup" aria-label="What is it?">
@@ -286,6 +370,55 @@ export function ReportPage(props: {
               </small>
             )}
           </label>
+
+          <div className="report-picture">
+            {picture && pictureUrl ? (
+              <>
+                <img className="report-picture-shown" src={pictureUrl} alt="The picture that will be sent" />
+                <p className="small report-picture-about">
+                  <span className="report-picture-size">
+                    {picture.wasSize ? smallerSaid(picture.bytes.length) : pictureSize(picture.bytes.length)}
+                  </span>{' '}
+                  <button type="button" className="link" onClick={() => chooser.current?.click()}>
+                    Choose another
+                  </button>{' '}
+                  <button type="button" className="link" onClick={removePicture}>
+                    Remove
+                  </button>
+                </p>
+                <p className="quiet small">Only Keevoro’s maker can see it. Look at it first: it is sent as it is.</p>
+              </>
+            ) : (
+              <>
+                <p className="small">
+                  <button type="button" className="link quiet-link" disabled={adding} onClick={() => chooser.current?.click()}>
+                    Add a picture
+                  </button>{' '}
+                  <span className="quiet">(optional)</span>
+                </p>
+                <p className="quiet small">A PNG, JPEG or WebP picture, such as a screenshot. Choose one, paste one, or drop one here.</p>
+              </>
+            )}
+            <input
+              ref={chooser}
+              className="visually-hidden"
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              tabIndex={-1}
+              aria-label="Choose a picture"
+              onChange={(e) => {
+                const file = e.currentTarget.files?.[0]
+                e.currentTarget.value = ''
+                if (file) void addPicture(file)
+              }}
+            />
+            {adding && <p className="quiet small" role="status">Adding the picture…</p>}
+            {pictureWhy && (
+              <p className="small report-picture-why" role="alert">
+                {pictureWhy}
+              </p>
+            )}
+          </div>
 
           <div className="kv-panel report-switches">
             <div>
@@ -381,6 +514,7 @@ export function ReportPage(props: {
                 </pre>
                 {/* The code itself is never shown: only that it goes. */}
                 {(hasCode || codeTyped) && <p className="small report-code-line">Your reporting code</p>}
+                {picture && <p className="small report-picture-line">{pictureLine(picture.bytes.length)}</p>}
               </>
             )}
           </details>
@@ -409,15 +543,7 @@ export function ReportPage(props: {
         >
           <ul id="setting-yourReports" className="report-list" tabIndex={-1}>
             {reports.reports.map((r) => (
-              <li key={r.reference}>
-                <span className="report-line">
-                  <b>{r.reference}</b> <span className="report-kind">{r.kind === 'problem' ? 'Problem' : 'Idea'}</span>{' '}
-                  <span>{r.firstLine}</span>
-                  {r.recognised && <span className="report-recognised">Recognised</span>}
-                </span>
-                <span className={`report-status ${r.status ?? 'new'}`}>{r.statusSaid}</span>
-                {r.note && <span className="quiet small report-note">{r.note}</span>}
-              </li>
+              <SentReportRow key={r.reference} report={r} />
             ))}
           </ul>
         </Group>
@@ -426,3 +552,33 @@ export function ReportPage(props: {
   )
 }
 
+
+/** One report sent from this computer: a row that opens in place to read again what was sent. */
+function SentReportRow({ report: r }: { report: ReportListed }) {
+  const [open, setOpen] = useState(false)
+  const shown = useId()
+  return (
+    <li className={open ? 'open' : undefined}>
+      <button
+        type="button"
+        className="report-open"
+        aria-expanded={open}
+        aria-controls={shown}
+        onClick={() => setOpen((was) => !was)}
+      >
+        <span className="report-line">
+          <b>{r.reference}</b> <span className="report-kind">{r.kind === 'problem' ? 'Problem' : 'Idea'}</span>{' '}
+          <span>{r.firstLine}</span>
+          {r.recognised && <span className="report-recognised">Recognised</span>}
+        </span>
+        <span className={`report-status ${r.status ?? 'new'}`}>{r.statusSaid}</span>
+      </button>
+      {r.note && <span className="quiet small report-note">{r.note}</span>}
+      <div className="report-sent" id={shown} hidden={!open}>
+        <p className="report-message">{r.message ?? r.firstLine}</p>
+        {r.keptSaid && <p className="quiet small report-kept-said">{r.keptSaid}</p>}
+        <p className="quiet small report-facts">{reportFacts(r).join(' ')}</p>
+      </div>
+    </li>
+  )
+}
