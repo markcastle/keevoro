@@ -6142,14 +6142,133 @@ h3.kv-group-title {
   grid-column: 1 / -1;
 }
 
+/* Each report is a row that opens in place, with a small chevron that
+   turns, to read again what was sent. */
+.report-open {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px var(--space-3);
+  align-items: baseline;
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+  border-radius: 6px;
+}
+
+.report-open .report-line::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin: 0 8px 2px 0;
+  border-right: 1.5px solid var(--ink-muted);
+  border-bottom: 1.5px solid var(--ink-muted);
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+
+.report-open[aria-expanded='true'] .report-line::before {
+  transform: rotate(45deg);
+}
+
+.report-sent {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 6px;
+  margin-top: 6px;
+  padding-left: 14px;
+  min-width: 0;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.report-sent[hidden] {
+  display: none;
+}
+
+.report-open + .report-note {
+  padding-left: 14px;
+}
+
+.report-message {
+  color: var(--ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .report-open .report-line::before {
+    transition: none;
+  }
+}
+
 @media (max-width: 480px) {
-  .report-list li {
+  .report-list li,
+  .report-open {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .report-open .report-status {
+    padding-left: 14px;
   }
 
   .report-status {
     text-align: left;
   }
+}
+
+/* A picture added to a report: a quiet link until one is added, then the
+   picture itself, never wider than the form, with its size and Remove. */
+.report-picture {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+  min-width: 0;
+}
+
+.report-picture p {
+  margin: 0;
+  max-width: 34em;
+}
+
+.report-picture .quiet-link {
+  color: var(--ink-muted);
+  font-size: 13px;
+}
+
+.report-picture-shown {
+  display: block;
+  max-width: 100%;
+  max-height: 320px;
+  height: auto;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  background: var(--surface-raised);
+}
+
+.report-picture-about {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px var(--space-3);
+}
+
+.report-picture-why {
+  color: var(--danger);
+}
+
+.report-picture-line {
+  margin: var(--space-2) 0 0;
+  font-family: var(--font-mono);
+  color: var(--ink-muted);
+}
+
+/* A picture dragged over the form: the form says it can take it. */
+.report-form.dropping {
+  outline: 2px dashed var(--focus-ring);
+  outline-offset: 6px;
+  border-radius: var(--radius-md);
 }
 
 /* A reporting code: a quiet link until opened, and small once saved. */

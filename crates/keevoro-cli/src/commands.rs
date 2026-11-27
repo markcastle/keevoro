@@ -1214,7 +1214,7 @@ pub static ROWS: &[Row] = &[
         words: &["report"],
         ops: &[Op::ReportsSend, Op::ReportsPrepare],
         about: Some(
-            "Tells Keevoro's maker about a problem or an idea, in your words. Only Keevoro's version, the operating system and your words go, unless you add the end of the log or a way to reach you. --dry-run shows exactly what would go, and sends nothing.",
+            "Tells Keevoro's maker about a problem or an idea, in your words. Only Keevoro's version, the operating system and your words go, unless you add the end of the log, a way to reach you or a picture. --dry-run shows exactly what would go, and sends nothing.",
         ),
         args: |c| {
             c.arg(
@@ -1241,6 +1241,13 @@ pub static ROWS: &[Row] = &[
                     .value_name("HOW")
                     .help("A way to reach you, such as an email address"),
             )
+            .arg(
+                Arg::new("picture")
+                    .long("picture")
+                    .value_name("FILE")
+                    .value_parser(clap::value_parser!(std::path::PathBuf))
+                    .help("Send a picture after the report, such as a screenshot: a PNG, JPEG or WebP file of at most 3 MB. Only Keevoro's maker can see it"),
+            )
             .arg(flag("dry-run", "Only show exactly what would be sent, and send nothing"))
             .arg(flag(
                 "code-from-stdin",
@@ -1264,12 +1271,29 @@ pub static ROWS: &[Row] = &[
             } else {
                 None
             };
+            // Read and checked before anything is sent, by what is in it.
+            let picture = match m.get_one::<std::path::PathBuf>("picture") {
+                Some(path) => {
+                    let bytes = std::fs::read(path).map_err(|_| {
+                        Failure::new(
+                            Code::Refused,
+                            format!("Couldn't read that picture, {}. Check it is there and try again.", path.display()),
+                        )
+                    })?;
+                    keevoro_api::reports::checked_picture(&bytes).map_err(|why| Failure::new(Code::Refused, why))?;
+                    Some(keevoro_api::reports::picture_to_base64(&bytes))
+                }
+                None => None,
+            };
             if m.get_flag("dry-run") {
                 return Ok((Op::ReportsPrepare, request));
             }
             // What is sent is exactly what was made, as in the app.
             let prepared = c.ask(Op::ReportsPrepare, request)?;
-            Ok((Op::ReportsSend, json!({ "prepared": prepared["body"], "code": code })))
+            Ok((
+                Op::ReportsSend,
+                json!({ "prepared": prepared["body"], "code": code, "picture": picture }),
+            ))
         },
         show: show::report,
     },

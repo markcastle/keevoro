@@ -58,6 +58,7 @@ import type {
 } from './backend'
 import { count, foundNew, size } from './format'
 import { PictureQueue, fileKey } from './pictureQueue'
+import { pictureCheck, pictureNotSent, PICTURE_MOST } from './reportPicture'
 import { checkedCode, ReportNotSent } from './reportsWindow'
 
 const SCENES: [string, string, string][] = [
@@ -1014,25 +1015,65 @@ export function demoBackend(): Backend {
             : 'That reporting code was not recognised, so this was sent as an ordinary report. Check the code with whoever gave it to you.',
         }
   const reportsSent: ReportListed[] = [
+    // Sent from a version that keeps the whole message, to open and read again.
     {
       reference: 'K-1041',
       kind: 'idea',
       firstLine: 'Could the map of where the space goes be calmer?',
-      sentAt: 1_794_000_000,
+      message:
+        'Could the map of where the space goes be calmer?\nThe bright colours make it hard to read.\n\nSofter ones would suit it better.',
+      appVersion: '9.7.0',
+      screen: 'Where the space goes',
+      withContact: true,
+      sentAt: 1_794_657_600,
       status: 'shipped',
       statusSaid: 'Done in version 0.47.0',
       shippedIn: '0.47.0',
       note: 'Thank you. The map is quieter now.',
     },
+    // Sent before whole messages were kept: only its first line.
     {
       reference: 'K-1040',
       kind: 'problem',
       firstLine: 'The previews of Family photos were very slow',
-      sentAt: 1_793_000_000,
+      keptSaid: 'Only the first line was kept for reports sent before this version.',
+      sentAt: 1_793_620_800,
       status: 'in_progress',
       statusSaid: 'Being worked on',
     },
   ]
+  // A report as Keevoro keeps it once sent: the whole message and the few
+  // facts about it, only whether the log and a way to reach them went; and
+  // the thank you's last sentence, that no email comes.
+  const keptReport = (prepared: string, reference: string, recognised: boolean | undefined, withPicture = false): ReportListed => {
+    const report = JSON.parse(prepared) as {
+      kind: 'problem' | 'idea'
+      message: string
+      appVersion: string
+      screen?: string
+      logTail?: string
+      contact?: string
+    }
+    return {
+      reference,
+      kind: report.kind,
+      firstLine: report.message.split('\n')[0].slice(0, 80),
+      message: report.message,
+      appVersion: report.appVersion,
+      ...(report.screen ? { screen: report.screen } : {}),
+      ...(report.logTail ? { withLog: true } : {}),
+      ...(report.contact ? { withContact: true } : {}),
+      ...(withPicture ? { withPicture } : {}),
+      sentAt: Math.floor(Date.now() / 1000),
+      status: 'new',
+      statusSaid: 'Received',
+      ...(recognised ? { recognised } : {}),
+    }
+  }
+  const emailSaid = (prepared: string) =>
+    (JSON.parse(prepared) as { contact?: string }).contact
+      ? "Keevoro does not send an email to confirm. This report is listed under Your reports below, and Keevoro's maker may write to you about it."
+      : 'Keevoro does not send emails. This report is listed under Your reports below, where you can see how it is getting on.'
   // Tests can ask for everything to happen at once.
   const pace = mode === 'fast' || new URLSearchParams(window.location.search).has('fast') ? 0 : 1
 
@@ -1927,6 +1968,8 @@ export function demoBackend(): Backend {
     // reach the service at all, as on a work computer whose proxy Keevoro
     // cannot use, so the window sends it and asks after them itself (the UI
     // test stands in for the service; nothing is sent anywhere real).
+    // `?pictureRefused` takes the report and not its picture, as the
+    // service does when it cannot take pictures just then.
     async prepareReport(request) {
       const message = request.message.trim()
       if (!message) throw new Error(request.kind === 'problem' ? 'Say what went wrong first.' : 'Say what your idea is first.')
@@ -1961,7 +2004,14 @@ export function demoBackend(): Backend {
       if (change?.forget) reportingCode = null
       return { hasCode: reportingCode !== null }
     },
-    async sendReport(prepared) {
+    async sendReport(prepared, picture) {
+      // As Keevoro does: a picture is checked by its first bytes before
+      // anything is sent.
+      if (picture) {
+        const checked = pictureCheck(picture.bytes)
+        if ('why' in checked) throw new Error(checked.why)
+        if (picture.bytes.length > PICTURE_MOST) throw new Error('That picture is too big to send. Try a smaller one, or crop it first.')
+      }
       await later(300 * pace)
       if (opening.has('reportUnreachable')) {
         // As Keevoro does, the report with the code in, for the window alone.
@@ -1977,36 +2027,21 @@ export function demoBackend(): Backend {
         reportRefused = true
         throw new Error('That’s a lot of reports from one computer today. Please try again tomorrow.')
       }
-      const report = JSON.parse(prepared) as { kind: 'problem' | 'idea'; message: string }
       const reference = `K-${1042 + reportsSent.length - 2}`
       const recognised = reportingCode === null ? undefined : reportingCode === DEMO_CODE
-      reportsSent.unshift({
-        reference,
-        kind: report.kind,
-        firstLine: report.message.split('\n')[0].slice(0, 80),
-        sentAt: Math.floor(Date.now() / 1000),
-        status: 'new',
-        statusSaid: 'Received',
-        ...(recognised ? { recognised } : {}),
-      })
-      return { reference, said: `Thank you. Your reference is ${reference}.`, ...codeSaid(recognised) }
+      // The picture follows the report once it is accepted.
+      const pictured = !picture ? {} : opening.has('pictureRefused') ? { pictureSaid: pictureNotSent('Pictures can’t be taken just now. Please try again later.') } : { withPicture: true }
+      reportsSent.unshift(keptReport(prepared, reference, recognised, 'withPicture' in pictured))
+      return { reference, said: `Thank you. Your reference is ${reference}.`, ...codeSaid(recognised), emailSaid: emailSaid(prepared), ...pictured }
     },
-    async noteReport(prepared, reference, token, recognised) {
+    async noteReport(prepared, reference, token, recognised, picture) {
       if (!/^K-\d{1,12}$/.test(reference) || !/^[0-9a-f]{40}$/.test(token)) {
         throw new Error('That isn’t an answer from Keevoro’s reports service, so the report isn’t noted.')
       }
-      const report = JSON.parse(prepared) as { kind: 'problem' | 'idea'; message: string }
-      reportsSent.unshift({
-        reference,
-        kind: report.kind,
-        firstLine: report.message.split('\n')[0].slice(0, 80),
-        sentAt: Math.floor(Date.now() / 1000),
-        status: 'new',
-        statusSaid: 'Received',
-        ...(recognised ? { recognised } : {}),
-      })
+      reportsSent.unshift(keptReport(prepared, reference, recognised, picture?.sent === true))
       tokens.set(reference, token)
-      return { reference, said: `Thank you. Your reference is ${reference}.`, ...codeSaid(recognised) }
+      const pictured = !picture ? {} : picture.sent ? { withPicture: true } : { pictureSaid: pictureNotSent(picture.why) }
+      return { reference, said: `Thank you. Your reference is ${reference}.`, ...codeSaid(recognised), emailSaid: emailSaid(prepared), ...pictured }
     },
     reportsAsking: async () => ({
       sendTo: 'https://reports.keevoro.com',

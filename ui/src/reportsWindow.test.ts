@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { askThroughWindow, checkedCode, notSent, ReportNotSent, sendThroughWindow } from './reportsWindow.ts'
+import { askThroughWindow, checkedCode, notSent, PICTURE_UNREACHED, ReportNotSent, sendPictureThroughWindow, sendThroughWindow } from './reportsWindow.ts'
 
 const TOKEN = '0123456789abcdef0123456789abcdef01234567'
 type Asked = { url: string; init: RequestInit }
@@ -102,4 +102,25 @@ test('a reporting code is letters, digits and hyphens, trimmed, at most 64, and 
   }
   assert.deepEqual(checkedCode('a'.repeat(64)), { code: 'a'.repeat(64) })
   assert.deepEqual(checkedCode('a'.repeat(65)), { why: 'A reporting code is at most 64 letters, digits and hyphens. That one is longer.' })
+})
+
+test('a picture goes through the window after its report, as it is, with its kind and nothing of the window’s own', async () => {
+  const { asked, fetcher } = service([json(201, { ok: true })])
+  const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3])
+  assert.deepEqual(await sendPictureThroughWindow('https://r', 'K-1042', TOKEN, { bytes, type: 'image/png' }, fetcher), { sent: true })
+  assert.equal(asked[0].url, `https://r/v1/reports/K-1042/picture?token=${TOKEN}`)
+  assert.equal(asked[0].init.method, 'POST')
+  assert.equal(asked[0].init.body, bytes)
+  assert.deepEqual(asked[0].init.headers, { 'content-type': 'image/png' })
+  assert.equal(asked[0].init.credentials, 'omit')
+  assert.equal(asked[0].init.referrerPolicy, 'no-referrer')
+})
+
+test('a picture refused, or not reached, says why in the service’s words or plainly', async () => {
+  const picture = { bytes: new Uint8Array([0xff, 0xd8, 0xff]), type: 'image/jpeg' as const }
+  const why = 'That report already has a picture.'
+  assert.deepEqual(await sendPictureThroughWindow('https://r', 'K-1', TOKEN, picture, service([json(409, { ok: false, why })]).fetcher), { sent: false, why })
+  assert.deepEqual(await sendPictureThroughWindow('https://r', 'K-1', TOKEN, picture, service([json(503, 'not json')]).fetcher), { sent: false, why: '' })
+  assert.deepEqual(await sendPictureThroughWindow('https://r', 'K-1', TOKEN, picture, service([offline]).fetcher), { sent: false, why: PICTURE_UNREACHED })
+  assert.equal(PICTURE_UNREACHED, 'This computer couldn’t reach Keevoro’s reports service to send it.')
 })

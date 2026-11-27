@@ -16,6 +16,10 @@
 //! shown that text, and that same text is what is sent, so what they saw
 //! is exactly what went. Everything here is pure: no file is read and
 //! nothing is sent.
+//!
+//! A picture may follow a report, sent apart from it. What kind it is is
+//! told by its first bytes ([`picture_type`], [`checked_picture`]), as the
+//! reports service tells it, and its size is said as a person would.
 
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -216,6 +220,71 @@ pub fn with_code(body: &str, code: &str) -> String {
     let open = body.trim_end();
     let open = open.strip_suffix('}').unwrap_or(open).trim_end();
     format!("{open},\n  \"code\": \"{code}\"\n}}")
+}
+
+/// The most a picture sent with a report may be: 3 MB, as the reports
+/// service takes.
+pub const PICTURE_MOST: usize = 3 * 1024 * 1024;
+
+/// What kind of picture `bytes` is, by its first bytes, as the reports
+/// service checks: `image/png`, `image/jpeg` or `image/webp`. Never by a
+/// file's name.
+pub fn picture_type(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("image/png")
+    } else if bytes.starts_with(b"\xff\xd8\xff") {
+        Some("image/jpeg")
+    } else if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
+        Some("image/webp")
+    } else {
+        None
+    }
+}
+
+/// The kind of picture `bytes` is, or why it cannot go with a report.
+pub fn checked_picture(bytes: &[u8]) -> Result<&'static str, String> {
+    if bytes.is_empty() {
+        return Err("That picture is empty.".into());
+    }
+    let kind = picture_type(bytes)
+        .ok_or_else(|| "That isn't a picture Keevoro can send. Choose a PNG, JPEG or WebP picture.".to_string())?;
+    if bytes.len() > PICTURE_MOST {
+        return Err(format!(
+            "That picture is too big to send: it is {}, and the most is 3 MB. Try a smaller one, or crop it first.",
+            picture_size(bytes.len() as u64)
+        ));
+    }
+    Ok(kind)
+}
+
+/// A picture's size as a person would say it: "412 KB", "1.8 MB".
+pub fn picture_size(bytes: u64) -> String {
+    if bytes < 1024 {
+        return format!("{bytes} bytes");
+    }
+    let kb = (bytes as f64 / 1024.0).round();
+    if kb < 1024.0 {
+        return format!("{kb} KB");
+    }
+    format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
+}
+
+/// The line that says a picture goes with a report: "A picture, 412 KB".
+pub fn picture_line(bytes: u64) -> String {
+    format!("A picture, {}", picture_size(bytes))
+}
+
+/// Said when a report went and its picture did not: why, in the service's
+/// words or a sentence about the connection.
+pub fn picture_not_sent(why: &str) -> String {
+    let why = why.trim();
+    let why = if why.is_empty() {
+        "Keevoro's reports service didn't take it."
+    } else {
+        why
+    };
+    let stop = if why.ends_with(['.', '!', '?']) { "" } else { "." };
+    format!("Your report was sent, but its picture could not be: {why}{stop}")
 }
 
 /// The end of `text`, at most `most` bytes, starting at a whole line where
@@ -654,5 +723,71 @@ mod tests {
         let mut without: serde_json::Value = value.clone();
         without.as_object_mut().unwrap().remove("code");
         assert_eq!(without, serde_json::from_str::<serde_json::Value>(&body).unwrap());
+    }
+
+    const PNG: &[u8] = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR";
+    const JPEG: &[u8] = b"\xff\xd8\xff\xe0\0\x10JFIF\0";
+    const WEBP: &[u8] = b"RIFF\x24\0\0\0WEBPVP8 ";
+
+    #[test]
+    fn a_picture_is_known_by_its_first_bytes_never_its_name() {
+        assert_eq!(picture_type(PNG), Some("image/png"));
+        assert_eq!(picture_type(JPEG), Some("image/jpeg"));
+        assert_eq!(picture_type(WEBP), Some("image/webp"));
+        for not in [
+            &b""[..],
+            b"\x89PN",
+            b"GIF89a\x01\0\x01\0",
+            b"RIFF\x24\0\0\0WAVEfmt ",
+            b"%PDF-1.7",
+            b"IMG_0048.jpg",
+        ] {
+            assert_eq!(picture_type(not), None, "{not:?}");
+        }
+    }
+
+    #[test]
+    fn a_picture_that_is_not_one_or_too_big_is_refused_in_plain_words() {
+        assert_eq!(checked_picture(PNG), Ok("image/png"));
+        assert_eq!(
+            checked_picture(b"%PDF-1.7").unwrap_err(),
+            "That isn't a picture Keevoro can send. Choose a PNG, JPEG or WebP picture."
+        );
+        assert_eq!(checked_picture(b"").unwrap_err(), "That picture is empty.");
+        let mut big = PNG.to_vec();
+        big.resize(PICTURE_MOST, 0);
+        assert_eq!(checked_picture(&big), Ok("image/png"), "3 MB exactly is allowed");
+        big.push(0);
+        assert_eq!(
+            checked_picture(&big).unwrap_err(),
+            "That picture is too big to send: it is 3.0 MB, and the most is 3 MB. Try a smaller one, or crop it first."
+        );
+        assert_eq!(PICTURE_MOST, 3 * 1024 * 1024);
+    }
+
+    #[test]
+    fn a_pictures_size_is_said_as_a_person_would() {
+        assert_eq!(picture_size(800), "800 bytes");
+        assert_eq!(picture_size(412 * 1024), "412 KB");
+        assert_eq!(picture_size(412 * 1024 + 700), "413 KB");
+        assert_eq!(picture_size(1024 * 1024 - 1), "1.0 MB");
+        assert_eq!(picture_size(1_887_437), "1.8 MB");
+        assert_eq!(picture_line(412 * 1024), "A picture, 412 KB");
+    }
+
+    #[test]
+    fn a_picture_that_could_not_follow_its_report_says_the_report_went() {
+        assert_eq!(
+            picture_not_sent("That report already has a picture."),
+            "Your report was sent, but its picture could not be: That report already has a picture."
+        );
+        assert_eq!(
+            picture_not_sent(" Pictures can't be taken just now "),
+            "Your report was sent, but its picture could not be: Pictures can't be taken just now."
+        );
+        assert_eq!(
+            picture_not_sent(""),
+            "Your report was sent, but its picture could not be: Keevoro's reports service didn't take it."
+        );
     }
 }

@@ -1458,6 +1458,118 @@ fn a_reporting_code_is_kept_and_forgotten_never_shown_and_sent_with_a_report_fro
     assert!(!shown.out.contains("TESTER"), "{}", shown.out);
 }
 
+/// A stand-in for the reports service, which gives these answers in turn,
+/// one to each request, and hands back each request's first line and body.
+fn reports_service_answering(
+    answers: Vec<(u16, &'static str)>,
+) -> (String, std::sync::mpsc::Receiver<(String, Vec<u8>)>) {
+    use std::io::{BufRead, BufReader, Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = format!("http://{}", listener.local_addr().unwrap());
+    let (tell, heard) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        for (status, answer) in answers {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut first = String::new();
+            reader.read_line(&mut first).unwrap();
+            let mut length = 0;
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                if line.trim().is_empty() {
+                    break;
+                }
+                if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                    length = value.trim().parse().unwrap();
+                }
+            }
+            let mut body = vec![0; length];
+            reader.read_exact(&mut body).unwrap();
+            tell.send((first.trim().to_string(), body)).unwrap();
+            write!(
+                stream,
+                "HTTP/1.1 {status} Answer\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{answer}",
+                answer.len()
+            )
+            .unwrap();
+        }
+    });
+    (address, heard)
+}
+
+#[test]
+fn a_picture_goes_after_a_report_from_the_command_line_and_one_that_is_not_a_picture_is_refused_first() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut at = At::new(dir.path());
+    let nowhere = {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        format!("http://{}", listener.local_addr().unwrap())
+    };
+    at.env.push(("KEEVORO_REPORTS_URL", nowhere));
+    let png = dir.path().join("IMG_0048.png");
+    let bytes = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDRmade-up picture".to_vec();
+    std::fs::write(&png, &bytes).unwrap();
+    // Named as a picture, but not one: known by what is in it.
+    let not = dir.path().join("IMG_0049.png");
+    std::fs::write(&not, "%PDF-1.7").unwrap();
+
+    let shown = at.keevoro(&[
+        "report",
+        "--problem",
+        "It stopped",
+        "--picture",
+        &text(&png),
+        "--dry-run",
+    ]);
+    assert_eq!(shown.code, Code::Worked, "{}", shown.err);
+    assert!(shown.out.ends_with("}\nA picture, 31 bytes\n"), "{}", shown.out);
+    assert!(!shown.out.contains("made-up picture"));
+
+    let refused = at.keevoro(&["report", "--problem", "It stopped", "--picture", &text(&not)]);
+    assert_ne!(refused.code, Code::Worked);
+    assert!(
+        refused
+            .err
+            .contains("That isn't a picture Keevoro can send. Choose a PNG, JPEG or WebP picture."),
+        "{}",
+        refused.err
+    );
+    let missing = at.keevoro(&[
+        "report",
+        "--problem",
+        "It stopped",
+        "--picture",
+        &text(&dir.path().join("IMG_0050.png")),
+    ]);
+    assert_ne!(missing.code, Code::Worked);
+    assert!(missing.err.contains("Couldn't read that picture"), "{}", missing.err);
+
+    let (address, heard) = reports_service_answering(vec![
+        (201, r#"{"ok":true,"reference":"K-1042","token":"abc123"}"#),
+        (201, r#"{"ok":true}"#),
+        (201, r#"{"ok":true,"reference":"K-1043","token":"abc123"}"#),
+        (409, r#"{"ok":false,"why":"That report already has a picture."}"#),
+    ]);
+    at.env[0].1 = address;
+    let sent = at.keevoro(&["report", "--problem", "It stopped", "--picture", &text(&png)]);
+    assert_eq!(sent.code, Code::Worked, "{}", sent.err);
+    assert_eq!(sent.out, "Thank you. Your reference is K-1042.\n");
+    let (first, body) = heard.recv().unwrap();
+    assert_eq!(first, "POST /v1/reports HTTP/1.1");
+    assert!(String::from_utf8(body).unwrap().contains("It stopped"));
+    let (first, body) = heard.recv().unwrap();
+    assert_eq!(first, "POST /v1/reports/K-1042/picture?token=abc123 HTTP/1.1");
+    assert_eq!(body, bytes, "the picture as it is");
+
+    let half = at.keevoro(&["report", "--problem", "It stopped", "--picture", &text(&png)]);
+    assert_eq!(half.code, Code::Worked, "the report went: {}", half.err);
+    assert_eq!(
+        half.out,
+        "Thank you. Your reference is K-1043.\nYour report was sent, but its picture could not be: That report already has a picture.\n"
+    );
+}
+
 #[test]
 fn a_backup_is_opened_on_a_new_computer_from_the_command_line_and_its_card_connected_again() {
     let _turn = one_at_a_time();

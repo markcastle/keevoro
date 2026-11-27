@@ -1073,11 +1073,18 @@ pub fn report(io: &mut Io<'_>, m: &ArgMatches, answer: &Value) -> Said_ {
             if typed || yes(answer, "withCode") {
                 writeln!(io.out, "Your reporting code")?;
             }
+            // The picture was read and checked before this was made.
+            let picture = m.try_get_one::<std::path::PathBuf>("picture").ok().flatten();
+            if let Some(size) = picture.and_then(|p| std::fs::metadata(p).ok()).map(|m| m.len()) {
+                writeln!(io.out, "{}", keevoro_api::reports::picture_line(size))?;
+            }
         }
         None => {
             writeln!(io.out, "{}", s(answer, "said"))?;
-            if let Some(code_said) = answer.get("codeSaid").and_then(Value::as_str) {
-                writeln!(io.out, "{code_said}")?;
+            for quietly in ["codeSaid", "pictureSaid"] {
+                if let Some(said) = answer.get(quietly).and_then(Value::as_str) {
+                    writeln!(io.out, "{said}")?;
+                }
             }
         }
     }

@@ -324,7 +324,7 @@ register! {
         "Makes a report of a problem or an idea, exactly as it would be sent. Changes nothing",
         changes: Never, job: false, command_line: true, agents: Agents::No, implemented: true;
     ReportsSend = "reports.send",
-        "Sends a report of a problem or an idea to Keevoro's maker, exactly as it was made",
+        "Sends a report of a problem or an idea to Keevoro's maker as it was made, and any picture after it",
         changes: Always, job: false, command_line: true, agents: Agents::No, implemented: true;
     ReportsList = "reports.list",
         "The reports sent from this computer, with what was last heard of each",

@@ -1250,25 +1250,40 @@ pub async fn prepare_report<R: Runtime>(
         .map_err(say)
 }
 
-/// Sends a report exactly as it was prepared and shown. It waits on the
-/// network, so never on the window's thread. Not sent, it says whether
-/// the service could not be reached at all, so the window can send it
-/// itself, and why in plain words.
+/// Sends a report exactly as it was prepared and shown, and then the
+/// picture the person added, if any (in Base64, held only in memory). It
+/// waits on the network, so never on the window's thread. Not sent, it says
+/// whether the service could not be reached at all, so the window can send
+/// it itself, and why in plain words.
 #[tauri::command]
 pub async fn send_report<R: Runtime>(
     app: AppHandle<R>,
     prepared: String,
+    picture: Option<String>,
 ) -> Result<keevoro_api::reports::Sent, keevoro_api::reports::NotSent> {
-    tauri::async_runtime::spawn_blocking(move || app.state::<Shared>().keevoro.send_report_saying_why(&prepared, None))
-        .await
-        .map_err(|e| keevoro_api::reports::NotSent {
-            error: keevoro_api::Error {
-                kind: keevoro_api::Kind::Failed,
-                message: say(e),
-            },
+    let picture = picture
+        .as_deref()
+        .map(keevoro_api::reports::picture_from_base64)
+        .transpose()
+        .map_err(|error| keevoro_api::reports::NotSent {
+            error,
             cause: None,
             send_as: None,
-        })?
+        })?;
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<Shared>()
+            .keevoro
+            .send_report_saying_why(&prepared, None, picture.as_deref())
+    })
+    .await
+    .map_err(|e| keevoro_api::reports::NotSent {
+        error: keevoro_api::Error {
+            kind: keevoro_api::Kind::Failed,
+            message: say(e),
+        },
+        cause: None,
+        send_as: None,
+    })?
 }
 
 /// Whether a reporting code is kept in this computer's keychain, keeping
