@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.59.0] - 2026-11-27
+
 ### Added
 
 - **Read again what you sent.** Under Help, Report a problem or suggest an idea, each report in Your reports now opens when you click it, or press Return or Space on it, to show your whole message, whether it was a problem or an idea, when you sent it, which version of Keevoro and which screen it came from, and whether it went with your log or your contact details (never the log or the details themselves). Reports sent before this version kept only their first line, so they show that line and say so. Thanks to Adam Sparshott for the idea.
@@ -975,7 +979,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.58.1...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.59.0...HEAD
+[0.59.0]: https://github.com/markcastle/keevoro/compare/v0.58.1...v0.59.0
 [0.58.1]: https://github.com/markcastle/keevoro/compare/v0.58.0...v0.58.1
 [0.58.0]: https://github.com/markcastle/keevoro/compare/v0.57.0...v0.58.0
 [0.57.0]: https://github.com/markcastle/keevoro/compare/v0.56.0...v0.57.0
