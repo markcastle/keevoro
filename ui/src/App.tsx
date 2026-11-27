@@ -1693,12 +1693,14 @@ function FindScreen(props: {
               ? 'No USB or external drive is plugged in. One appears here by itself when plugged in.'
               : 'A drive or card appears here by itself when you plug it in.'}
           </Explained>
-          <p className="quiet small look-first">
-            Not sure what is in a folder?{' '}
-            <button className="link" onClick={pickToLookInside}>
-              Look inside one first
+          {/* The way in stays in plain sight; what it is for waits behind the "i". */}
+          <p className="look-first">
+            <button className="button small" onClick={pickToLookInside}>
+              Look inside a folder first
             </button>
-            . Nothing is added until you choose.
+            <InfoTip about="looking inside a folder first">
+              Not sure what is in a folder? See what it holds before you add it. Nothing is added until you choose.
+            </InfoTip>
           </p>
         </>
       )}

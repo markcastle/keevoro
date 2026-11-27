@@ -2613,7 +2613,9 @@ try {
   // --- Any folder can be looked inside: a source, surveyed first when
   // Keevoro has not seen inside it, and one picked from the first step.
   await page.goto(`${base}/?demo=empty&fast`)
-  await page.getByRole('button', { name: 'Look inside one first' }).click()
+  // The way to look inside a folder first is a button in plain sight; what it is for is behind its "i".
+  assert.match(await tipSays('looking inside a folder first'), /^Not sure what is in a folder\? See what it holds before you add it\. Nothing is added until you choose\.$/)
+  await page.getByRole('button', { name: 'Look inside a folder first', exact: true }).click()
   await page.getByRole('heading', { name: 'Inside Photos', level: 1 }).waitFor()
   await page.locator('.inside .tile').first().waitFor()
   assert.equal(await page.locator('.kept li.source').count(), 0, 'looking inside added nothing')
