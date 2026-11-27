@@ -21,6 +21,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent, ReactNode } from 'react'
 import type { AppState, ArrangeView, Backend, Update, WantsView } from '../backend'
 import { LicencesList } from '../licences'
+import { ChangelogPage } from './changelogPage'
 import type { SetUp } from '../stratus'
 import { AboutSection } from './about'
 import { AdvancedSection } from './advanced'
@@ -221,6 +222,8 @@ export function PlaceScreen(props: {
         return <AgentsPage api={api} onProblem={onProblem} />
       case 'licences':
         return <LicencesList withThanks />
+      case 'changelog':
+        return <ChangelogPage version={state.version} />
     }
     switch (section) {
       case 'backup':

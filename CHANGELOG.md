@@ -6,26 +6,33 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Changed
+
+- **"Look inside a folder first" is a button.** On the first step, the sentence about not being sure what is in a folder is now one quiet button, with an "i" beside it that says what it is for. Thanks to Adam Sparshott for the idea.
+
+## [0.59.0] - 2026-11-27
+
 ### Added
 
 - **Read again what you sent.** Under Help, Report a problem or suggest an idea, each report in Your reports now opens when you click it, or press Return or Space on it, to show your whole message, whether it was a problem or an idea, when you sent it, which version of Keevoro and which screen it came from, and whether it went with your log or your contact details (never the log or the details themselves). Reports sent before this version kept only their first line, so they show that line and say so. Thanks to Adam Sparshott for the idea.
 - **Add a picture to a report.** When you report a problem or suggest an idea, you can now add a picture, such as a screenshot: choose one, paste one (take a screenshot, then press Ctrl+V on the form), or drop one on the form. You see it, its size and Remove before anything is sent, and "See exactly what will be sent" lists it. Only Keevoro's maker can see it. A picture over 3 MB is made smaller first, and Keevoro says so. If your report goes but its picture cannot, your report is still sent and Keevoro says why the picture did not go. On the command line, `keevoro report --picture` does the same. Keevoro keeps only that a picture went, never the picture. Thanks to Adam Sparshott for the idea.
+- **What's new, inside Keevoro.** Help, About Keevoro now has "What's new in each version": every change you would notice, newest first, without leaving the app or needing the internet.
 
 ### Changed
 
 - **Keevoro says it does not send emails.** After you send a report, the thank you now says that Keevoro does not send an email to confirm it, and that the report is listed under Your reports, where you can see how it is getting on. If you gave a way to reach you, it says Keevoro's maker may write to you about it. Thanks to Adam Sparshott for reporting this.
-- **"Look inside a folder first" is a button.** On the first step, the sentence about not being sure what is in a folder is now one quiet button, with an "i" beside it that says what it is for. Thanks to Adam Sparshott for the idea.
+- **The comparison of cloud storage fills the window.** The panel that shows Stratus is now as tall as the window, and wider, where it stopped at a fixed height.
 
 ## [0.58.1] - 2026-11-26
 
 ### Changed
 
 - **No choice where there is none.** Looking inside a place that holds only music no longer offers "Show: All / Music", which were the same thing.
-- **The places to look are in the order you look for them.** On the first step: anything just plugged in, then this computer's own disk, "Choose a folder", folders synced with OneDrive or Dropbox, and cloud storage last.
-- **The logo is on Settings, Help and the report form too**, and takes you home from there the same way.
-- **Room for longer names.** The band down the left is a little wider, so "Find your photos and music" stays on one row, and the sentence under "Where are your photos?" keeps to one row where the window has room.
-- **"Your reports" says whether each one was a problem or an idea.**
-- **The comparison of cloud storage writes "The prices are Stratus’"**, as its maker does, where it said "Stratus’s".
+- **The places to look are in the order you look for them.** On the first step: anything just plugged in, then this computer's own disk, "Choose a folder", folders synced with OneDrive or Dropbox, and cloud storage last. Thanks to Adam Sparshott for the idea.
+- **The logo is on Settings, Help and the report form too**, and takes you home from there the same way. Thanks to Adam Sparshott for the idea.
+- **Room for longer names.** The band down the left is a little wider, so "Find your photos and music" stays on one row, and the sentence under "Where are your photos?" keeps to one row where the window has room. Thanks to Adam Sparshott for the idea.
+- **"Your reports" says whether each one was a problem or an idea.** Thanks to Adam Sparshott for the idea.
+- **The comparison of cloud storage writes "The prices are Stratus’"**, as its maker does, where it said "Stratus’s". Thanks to Adam Sparshott for reporting this.
 
 ## [0.58.0] - 2026-11-26
 
@@ -974,7 +981,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.58.1...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.59.0...HEAD
+[0.59.0]: https://github.com/markcastle/keevoro/compare/v0.58.1...v0.59.0
 [0.58.1]: https://github.com/markcastle/keevoro/compare/v0.58.0...v0.58.1
 [0.58.0]: https://github.com/markcastle/keevoro/compare/v0.57.0...v0.58.0
 [0.57.0]: https://github.com/markcastle/keevoro/compare/v0.56.0...v0.57.0
