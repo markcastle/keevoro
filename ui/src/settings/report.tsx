@@ -52,6 +52,10 @@ let kept: { kind: ReportKind; message: string; withLog: boolean; withContact: bo
   contact: '',
 }
 
+// The picture is kept the same way while Keevoro is open, so going to look
+// again at the screen being reported does not lose it. Only ever in memory.
+let keptPicture: Picture | null = null
+
 const MOST = 5000
 
 const sentence = (error: unknown) => (error instanceof Error ? error.message : String(error))
@@ -154,7 +158,10 @@ export function ReportPage(props: {
 
   // The picture the person added, if any: held only here, in memory, as
   // it will be sent; and why one could not be added.
-  const [picture, setPicture] = useState<Picture | null>(null)
+  const [picture, setPicture] = useState<Picture | null>(keptPicture)
+  useEffect(() => {
+    keptPicture = picture
+  }, [picture])
   const [pictureWhy, setPictureWhy] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
   const [dropping, setDropping] = useState(false)

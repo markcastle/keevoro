@@ -6,7 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **A Close button on a source's file types.** Opening "File types" on a source now shows a Close button at its top right. Pressing "File types" again still closes it too. Thanks to Adam Sparshott for the idea.
+
+### Fixed
+
+- **"Where the space goes" no longer scrolls by itself.** Moving the mouse over the map could scroll the page down, away from the map, to show the matching row in the list. The row is still lit, but the page stays where it is. Thanks to Adam Sparshott for reporting this.
+- **Help opens Help.** After using "Report a problem or idea", the Help link could open the report form instead of Help. Thanks to Adam Sparshott for reporting this.
+- **A picture added to a report is kept while you look elsewhere.** Leaving the report form to look again at the screen you are reporting lost the picture you had added, though it kept your words. It keeps both now, until the report is sent or Keevoro is closed. Thanks to Adam Sparshott for reporting this.
 
 ## [0.59.1] - 2026-11-27
 
