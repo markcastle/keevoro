@@ -10,6 +10,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 - **A Close button on a source's file types.** Opening "File types" on a source now shows a Close button at its top right. Pressing "File types" again still closes it too. Thanks to Adam Sparshott for the idea.
 
+### Changed
+
+- **Two buttons on one row.** On the first step, "Refresh the list" and "Look inside a folder first" now sit side by side under the sentence about drives. Thanks to Adam Sparshott for the idea.
+- **"Report a problem or idea" moved up.** At the bottom left of every screen it now comes straight after "What Keevoro is doing", above Settings and Help. Thanks to Adam Sparshott for the idea.
+
 ### Fixed
 
 - **"Where the space goes" no longer scrolls by itself.** Moving the mouse over the map could scroll the page down, away from the map, to show the matching row in the list. The row is still lit, but the page stays where it is. Thanks to Adam Sparshott for reporting this.

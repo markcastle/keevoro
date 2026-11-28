@@ -589,6 +589,17 @@ export function App() {
           </span>
         )}
       </button>
+      <button
+        className="link"
+        onClick={() => {
+          // Straight to the form, saying which screen the person was on.
+          const from = screenName()
+          openPlace('help', { where: 'help', section: 'report' })
+          setReportFrom(from)
+        }}
+      >
+        Report a problem or idea
+      </button>
       <button className="link" onClick={() => openSettings()}>
         Settings
       </button>
@@ -604,17 +615,6 @@ export function App() {
         }}
       >
         Help
-      </button>
-      <button
-        className="link"
-        onClick={() => {
-          // Straight to the form, saying which screen the person was on.
-          const from = screenName()
-          openPlace('help', { where: 'help', section: 'report' })
-          setReportFrom(from)
-        }}
-      >
-        Report a problem or idea
       </button>
     </div>
   )
@@ -1683,20 +1683,22 @@ function FindScreen(props: {
             ))}
             <AddBucketSource api={api} onAdded={start} />
           </div>
-          <Explained
-            className="drives-said"
-            action={
-              <button className="button small" onClick={() => look(true)} aria-label="Refresh the list of drives">
-                Refresh the list
-              </button>
-            }
-          >
+          {/* The sentence, then the two things a person can do about it, side by side. */}
+          <p className="quiet small drives-said" id="drives-said">
             {places && removable.length === 0
               ? 'No USB or external drive is plugged in. One appears here by itself when plugged in.'
               : 'A drive or card appears here by itself when you plug it in.'}
-          </Explained>
-          {/* The way in stays in plain sight; what it is for waits behind the "i". */}
+          </p>
           <p className="look-first">
+            <button
+              className="button small"
+              onClick={() => look(true)}
+              aria-label="Refresh the list of drives"
+              aria-describedby="drives-said"
+            >
+              Refresh the list
+            </button>
+            {/* The way in stays in plain sight; what it is for waits behind the "i". */}
             <button className="button small" onClick={pickToLookInside}>
               Look inside a folder first
             </button>
