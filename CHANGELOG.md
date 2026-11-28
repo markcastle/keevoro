@@ -9,6 +9,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Added
 
 - **A Close button on a source's file types.** Opening "File types" on a source now shows a Close button at its top right. Pressing "File types" again still closes it too. Thanks to Adam Sparshott for the idea.
+- **Plugged-in drives on "Where should they go?".** A USB drive or card now shows there as a place to back up to, and choosing it opens the folder chooser on that drive. It appears by itself when plugged in and goes when pulled out, as on the first step. The drive a source is on is not offered, as a copy on the same drive is lost with it. Thanks to Adam Sparshott for reporting this.
 
 ### Changed
 

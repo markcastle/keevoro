@@ -1473,7 +1473,8 @@ export interface Backend {
   /** Where this backup goes, in words, or null if nowhere yet. */
   destination(): Promise<string | null>
   /** Asks for a folder to back up to. Null if they cancel. */
-  chooseDestinationFolder(): Promise<string | null>
+  /** Asks for a folder to back up to, opening at `startAt` (a drive) when given. */
+  chooseDestinationFolder(startAt?: string): Promise<string | null>
   /** Checks a destination works, then remembers it. Returns it in words. */
   connectDestination(request: ConnectRequest): Promise<string>
   /** Looks for a Keevoro backup at a folder or in cloud storage, from its notes there. Changes nothing. */
@@ -1659,7 +1660,7 @@ async function tauriBackend(): Promise<Backend> {
       pictures.want(fileKey(path), () => invoke<ArrayBuffer>('file_picture', { path, large: false }).then(webp)),
     closerLookAtFile: (path) => invoke<ArrayBuffer>('file_picture', { path, large: true }).then(webp),
     destination: () => invoke('destination'),
-    chooseDestinationFolder: () => pickFolder('Choose a folder to back up to'),
+    chooseDestinationFolder: (startAt) => pickFolder('Choose a folder to back up to', startAt),
     connectDestination: (request) => invoke('connect_destination', { request }),
     findBackupAt: (request) => invoke('find_backup_at', { request }),
     openBackupFrom: (request) => invoke('open_backup_from', { request }),

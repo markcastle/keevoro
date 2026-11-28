@@ -1876,6 +1876,28 @@ try {
   await page.getByRole('button', { name: 'Refresh the list of drives' }).click()
   await page.locator('.place').filter({ hasText: 'SanDisk Ultra (F:)' }).waitFor()
 
+  // --- "Where should they go?" follows the drives too: one plugged in appears by
+  // itself, brought to notice, and one pulled out goes. The drive a source is on is never offered.
+  await page.goto(`${base}/?demo=empty&fast&plugin&pullout`)
+  await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
+  await page.getByRole('button', { name: 'Choose a folder…' }).click()
+  await page.getByRole('button', { name: 'See what was found' }).click()
+  await page.getByRole('button', { name: 'Choose where they go' }).click()
+  await page.getByRole('heading', { name: 'Where should they go?', level: 1 }).waitFor()
+  const to = page.locator('.destinations .place')
+  const arrivedTo = to.filter({ hasText: 'SanDisk Ultra (F:)' })
+  await arrivedTo.waitFor()
+  assert.match(await arrivedTo.innerText(), /Just plugged in\s+SanDisk Ultra \(F:\)\s+USB or external drive · 32 GB\s+Choose a folder on it/)
+  assert.match(await to.first().innerText(), /SanDisk Ultra \(F:\)/, 'the drive just plugged in comes first')
+  assert.ok((await to.locator('b').allInnerTexts()).includes('A folder'), 'any folder, and cloud storage, are still offered')
+  await shot('7a-drives-to-back-up-to')
+  await fitsNarrow('Where should they go, with drives')
+  // Pulled out, the other drive goes from the list by itself.
+  await to.filter({ hasText: 'KINGSTON (E:)' }).waitFor({ state: 'detached', timeout: 15000 })
+  // Choosing a drive asks for a folder on it, and backs up there.
+  await arrivedTo.click()
+  await page.getByText(/^Backing up to the folder\s*F:\\Family Backup/).first().waitFor()
+
   // --- A drive pulled out while it is looked through is said plainly, and
   // what was found so far is kept.
   await page.goto(`${base}/?demo=empty&unplug`)
