@@ -6,7 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **Comparing cloud storage looks like the rest of Keevoro.** "Compare providers", on the backup screen and in Help, now shows Keevoro's own list in place of Stratus's web page: the options that fit, cheapest first, with what each costs a month and a year, how much storage it is and what kind of thing it is, and the cheapest Keevoro can use marked. Change the size or the currency and the prices are fetched again. "Set this up" opens Keevoro's form for anything it can back up to. Prices still come from Stratus, fetched each time and never kept, and Stratus is told only the size and your currency. If the prices can't be fetched, Keevoro says why and offers Try again. Thanks to Adam Sparshott for the idea.
 
 ## [0.60.0] - 2026-11-28
 
@@ -19,10 +21,6 @@ Nothing yet.
 
 - **Two buttons on one row.** On the first step, "Refresh the list" and "Look inside a folder first" now sit side by side under the sentence about drives. Thanks to Adam Sparshott for the idea.
 - **"Report a problem or idea" moved up.** At the bottom left of every screen it now comes straight after "What Keevoro is doing", above Settings and Help. Thanks to Adam Sparshott for the idea.
-
-### Changed
-
-- **Comparing cloud storage looks like the rest of Keevoro.** "Compare providers", on the backup screen and in Help, now shows Keevoro's own list in place of Stratus's web page: the options that fit, cheapest first, with what each costs a month and a year, how much storage it is and what kind of thing it is, and the cheapest Keevoro can use marked. Change the size or the currency and the prices are fetched again. "Set this up" opens Keevoro's form for anything it can back up to. Prices still come from Stratus, fetched each time and never kept, and Stratus is told only the size and your currency. If the prices can't be fetched, Keevoro says why and offers Try again. Thanks to Adam Sparshott for the idea.
 
 ### Fixed
 
