@@ -61,7 +61,6 @@ type Look = {
   music: string
   musicEdge: string
   ground: string
-  strip: string
   ink: string
   muted: string
   /** The strong colours, for the box chosen, with the words drawn on each. */
@@ -116,7 +115,6 @@ export function lookOf(ctx: CanvasRenderingContext2D): Look {
     music: token(style, '--map-music'),
     musicEdge: token(style, '--map-music-edge'),
     ground: surface,
-    strip: mix(lineStrong, sunken, 0.18),
     ink,
     muted: token(style, '--ink-muted'),
     strong: {
@@ -131,8 +129,9 @@ export function lookOf(ctx: CanvasRenderingContext2D): Look {
     font: getComputedStyle(document.body).fontFamily,
     // Fine diagonal lines over a video's colour.
     stripes: pattern(ctx, (t) => {
-      t.strokeStyle = mix(token(style, '--map-video-edge'), token(style, '--map-video'), 0.45)
-      t.lineWidth = 1.5
+      // Quiet enough to read as a texture, firm enough to tell a video without its colour.
+      t.strokeStyle = mix(token(style, '--map-video-edge'), token(style, '--map-video'), 0.3)
+      t.lineWidth = 1
       t.beginPath()
       t.moveTo(-2, 10)
       t.lineTo(10, -2)
@@ -151,9 +150,9 @@ export function lookOf(ctx: CanvasRenderingContext2D): Look {
     }),
     // Sparse dots: a folder Keevoro never looks through.
     dots: pattern(ctx, (t) => {
-      t.fillStyle = lineStrong
+      t.fillStyle = mix(lineStrong, sunken, 0.45)
       t.beginPath()
-      t.arc(4, 4, 1.2, 0, Math.PI * 2)
+      t.arc(4, 4, 1, 0, Math.PI * 2)
       t.fill()
     }),
     // A cross-hatch: left out of this backup.
@@ -180,6 +179,60 @@ function fit(ctx: CanvasRenderingContext2D, words: string, width: number) {
 }
 
 /**
+ * The outline of one box: a soft-cornered tile with a sliver of the ground
+ * between it and its neighbours. The gaps do the work heavy outlines used
+ * to, so the map reads as calm blocks of colour. A box too small for a gap
+ * is flat.
+ */
+function tilePath(ctx: CanvasRenderingContext2D, b: Rect, h = b.h) {
+  const gap = Math.min(b.w, h) >= 8 ? 1 : 0
+  const [w, tall] = [Math.max(0, b.w - gap * 2), Math.max(0, h - gap * 2)]
+  ctx.beginPath()
+  ctx.roundRect(b.x + gap, b.y + gap, w, tall, Math.max(0, Math.min(4, w / 4, tall / 4)))
+}
+
+/**
+ * The name of a box and, with room, its size. A name is said, or shortened
+ * to something still readable, or left to the tip and the list: never a
+ * stub such as "MO…". Over a texture the words sit on a plain plate, so
+ * they are as easy to read as anywhere else.
+ */
+function words(
+  ctx: CanvasRenderingContext2D,
+  b: Laid<MapNode>,
+  opened: boolean,
+  look: Look,
+  ink: { name: string; size: string; plate: string | null },
+) {
+  if (b.w < 44 || b.h < 18) return
+  ctx.textBaseline = 'top'
+  const room = b.w - 16
+  ctx.font = `${opened ? 600 : 500} 12px ${look.font}`
+  const whole = called(b.item)
+  const name = fit(ctx, whole, room)
+  if (!name || (name !== whole && name.length < 7)) return
+  const wide = ctx.measureText(name).width
+  ctx.font = `400 11px ${look.font}`
+  const much = size(b.item.bytes)
+  // The size is said whole or not at all.
+  const sized = !opened && b.h >= 40 && ctx.measureText(much).width <= room
+  if (ink.plate) {
+    ctx.fillStyle = ink.plate
+    ctx.beginPath()
+    ctx.roundRect(b.x + 4, b.y + 4, Math.max(wide, sized ? ctx.measureText(much).width : 0) + 8, sized ? 33 : 17, 3)
+    ctx.fill()
+  }
+  ctx.font = `${opened ? 600 : 500} 12px ${look.font}`
+  ctx.fillStyle = ink.name
+  ctx.fillText(name, b.x + 8, b.y + (opened ? 5 : 6))
+  if (sized) {
+    ctx.font = `400 11px ${look.font}`
+    ctx.fillStyle = ink.size
+    ctx.fillText(much, b.x + 8, b.y + 22)
+  }
+}
+
+/**
  * Draws every box of a layout. With a kind of file picked, every box that
  * holds none of it is faded, as WinDirStat does; how many is given back.
  */
@@ -187,11 +240,13 @@ export function draw(ctx: CanvasRenderingContext2D, top: Laid<MapNode>, look: Lo
   ctx.fillStyle = look.ground
   ctx.fillRect(top.x, top.y, top.w, top.h)
   let faded = 0
+  const tile = (b: Laid<MapNode>, h = b.h) => tilePath(ctx, b, h)
   const fade = (b: Laid<MapNode>, h: number) => {
     ctx.save()
     ctx.globalAlpha = 0.78
     ctx.fillStyle = look.ground
-    ctx.fillRect(b.x, b.y, b.w, h)
+    tile(b, h)
+    ctx.fill()
     ctx.restore()
   }
   const box = (b: Laid<MapNode>, passedBy: boolean, leftOut: boolean) => {
@@ -212,28 +267,30 @@ export function draw(ctx: CanvasRenderingContext2D, top: Laid<MapNode>, look: Lo
               ? look.musicEdge
               : look.otherEdge
     const opened = Boolean(b.inner && b.children.length > 0)
-    ctx.fillStyle = opened ? mix(fill, look.ground, 0.35) : fill
-    ctx.fillRect(b.x, b.y, b.w, b.h)
+    // An opened folder is a pale tray in its own colour that holds its boxes; its name sits on the tray.
+    ctx.fillStyle = opened ? mix(fill, look.ground, 0.62) : fill
+    tile(b)
+    ctx.fill()
     if (!opened && kind === 'video' && look.stripes) {
       ctx.fillStyle = look.stripes
-      ctx.fillRect(b.x, b.y, b.w, b.h)
+      tile(b)
+      ctx.fill()
     }
     if (!opened && kind === 'carried' && look.rows) {
       ctx.fillStyle = look.rows
-      ctx.fillRect(b.x, b.y, b.w, b.h)
+      tile(b)
+      ctx.fill()
     }
     if (never && look.dots) {
       ctx.fillStyle = look.dots
-      ctx.fillRect(b.x, b.y, b.w, b.h)
+      tile(b)
+      ctx.fill()
     }
-    if (opened) {
-      ctx.fillStyle = look.strip
-      ctx.fillRect(b.x, b.y, b.w, Math.min(b.h, (b.inner?.y ?? b.y) - b.y))
-      b.children.forEach((c) => box(c, never, out))
-    }
+    if (opened) b.children.forEach((c) => box(c, never, out))
     if (out && look.hatch) {
       ctx.fillStyle = look.hatch
-      ctx.fillRect(b.x, b.y, b.w, b.h)
+      tile(b)
+      ctx.fill()
     }
     // Faded when it holds none of the kind picked; an opened folder's own
     // boxes fade for themselves, and only its strip here.
@@ -242,18 +299,31 @@ export function draw(ctx: CanvasRenderingContext2D, top: Laid<MapNode>, look: Lo
       faded += 1
       if (!opened) fade(b, b.h)
     }
-    ctx.strokeStyle = edge
-    ctx.lineWidth = 1
-    ctx.setLineDash(n.onlineOnlyBytes ? [4, 3] : [])
-    ctx.strokeRect(b.x + 0.5, b.y + 0.5, Math.max(0, b.w - 1), Math.max(0, b.h - 1))
-    ctx.setLineDash([])
+    // No outline by default: the gap tells one box from the next. Only
+    // what an edge has to say is drawn: a dashed one for what is partly in
+    // online storage only, a hairline for boxes too small to have a gap.
+    if (n.onlineOnlyBytes) {
+      ctx.strokeStyle = edge
+      ctx.lineWidth = 1
+      ctx.setLineDash([4, 3])
+      tile(b)
+      ctx.stroke()
+      ctx.setLineDash([])
+    } else if (Math.min(b.w, b.h) < 8) {
+      ctx.strokeStyle = mix(edge, fill, 0.6)
+      ctx.lineWidth = 1
+      ctx.strokeRect(b.x + 0.5, b.y + 0.5, Math.max(0, b.w - 1), Math.max(0, b.h - 1))
+    }
     // A source of this backup: a firm outline in the colour of safety.
     if (n.source) {
       ctx.strokeStyle = look.success
       ctx.lineWidth = 2
-      ctx.strokeRect(b.x + 1, b.y + 1, Math.max(0, b.w - 2), Math.max(0, b.h - 2))
+      tile(b)
+      ctx.stroke()
     }
-    label(b, opened)
+    // Over a texture the words get a plate of the box's own plain colour.
+    const textured = !opened && (kind === 'video' || kind === 'carried' || never || out)
+    words(ctx, b, opened, look, { name: look.ink, size: look.muted, plate: textured ? fill : null })
     // All of it safely backed up: a tick in the corner, where there is room.
     if (allBackedUp(n) && b.w >= 24 && b.h >= 16) tick(b)
     if (without && opened) fade(b, Math.min(b.h, (b.inner?.y ?? b.y) - b.y))
@@ -274,20 +344,6 @@ export function draw(ctx: CanvasRenderingContext2D, top: Laid<MapNode>, look: Lo
     ctx.lineTo(x + 8.5, y + 2.5)
     ctx.stroke()
     ctx.restore()
-  }
-  const label = (b: Laid<MapNode>, opened: boolean) => {
-    if (b.w < 36 || b.h < 14) return
-    ctx.textBaseline = 'top'
-    // Every soft tint is light enough, or dark enough, for the ink.
-    ctx.fillStyle = look.ink
-    ctx.font = `${opened ? 600 : 400} 12px ${look.font}`
-    const name = fit(ctx, called(b.item), b.w - 8)
-    if (!name) return
-    ctx.fillText(name, b.x + 4, b.y + 3)
-    if (!opened && b.h >= 32) {
-      ctx.font = `400 11px ${look.font}`
-      ctx.fillText(fit(ctx, size(b.item.bytes), b.w - 8), b.x + 4, b.y + 18)
-    }
   }
   top.children.forEach((c) => box(c, Boolean(top.item.skipped), Boolean(top.item.leftOut) && !top.item.skipped))
   return faded
@@ -409,7 +465,8 @@ export function MapCanvas(props: {
       ctx.strokeStyle = look.focus
       ctx.lineWidth = width
       ctx.setLineDash(dashed ? [5, 3] : [])
-      ctx.strokeRect(b.x + width / 2, b.y + width / 2, Math.max(0, b.w - width), Math.max(0, b.h - width))
+      tilePath(ctx, b)
+      ctx.stroke()
     }
     // The box chosen, in its kind's strong colour: the one place it is used.
     const chosen = boxOf(now.laid, now.keys, marks.current.chosen)
@@ -418,22 +475,10 @@ export function MapCanvas(props: {
       const opened = Boolean(chosen.inner && chosen.children.length > 0)
       const h = opened ? Math.min(chosen.h, (chosen.inner?.y ?? chosen.y) - chosen.y) : chosen.h
       ctx.fillStyle = look.strong[kind].fill
-      ctx.fillRect(chosen.x, chosen.y, chosen.w, h)
-      if (!opened && kind === 'video' && look.stripes) {
-        ctx.fillStyle = look.stripes
-        ctx.fillRect(chosen.x, chosen.y, chosen.w, h)
-      }
-      if (chosen.w >= 36 && chosen.h >= 14) {
-        ctx.textBaseline = 'top'
-        ctx.fillStyle = look.strong[kind].on
-        ctx.font = `600 12px ${look.font}`
-        const name = fit(ctx, called(chosen.item), chosen.w - 8)
-        if (name) ctx.fillText(name, chosen.x + 4, chosen.y + 3)
-        if (!opened && chosen.h >= 32) {
-          ctx.font = `400 11px ${look.font}`
-          ctx.fillText(fit(ctx, size(chosen.item.bytes), chosen.w - 8), chosen.x + 4, chosen.y + 18)
-        }
-      }
+      tilePath(ctx, chosen, h)
+      ctx.fill()
+      const on = look.strong[kind].on
+      words(ctx, chosen, opened, look, { name: on, size: on, plate: null })
     }
     outline(marks.current.lit, 2, true)
     outline(pointed.current, 2, true)

@@ -4144,10 +4144,11 @@ tr[aria-selected='true'] .share-bar .carried {
 }
 
 .key {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1) var(--space-4);
-  margin: var(--space-2) 0 0;
+  /* Columns, so every swatch and every word lines up with the one above. */
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: var(--space-2) var(--space-4);
+  margin: var(--space-3) 0 0;
   padding: 0;
   list-style: none;
   font-size: 13px;
@@ -4161,6 +4162,13 @@ tr[aria-selected='true'] .share-bar .carried {
 }
 
 .key .swatch {
+  flex: none;
+  /* Some swatches share a class name with other parts of the app: nothing
+     from those may change a swatch's size or place. */
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  gap: 0;
   display: inline-block;
   width: 14px;
   height: 14px;
@@ -4916,16 +4924,27 @@ tr[aria-selected='true'] .share-bar .carried {
 }
 
 .summary-ring ul {
+  /* Three columns shared by every row: the kind, its size, its share. The
+     names start on one line down the page and the figures end on one. */
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, auto));
-  gap: var(--space-1) var(--space-5);
+  grid-template-columns: auto auto auto;
+  gap: var(--space-1) var(--space-4);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .summary-ring li {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  align-items: center;
   white-space: nowrap;
+  line-height: 1.4;
+}
+
+.summary-ring li .figure {
+  text-align: right;
 }
 
 .summary-ring .link {
@@ -7389,4 +7408,18 @@ p.drives-said {
 
 .look-first {
   flex-wrap: wrap;
+}
+
+/* Where the space goes: its two choices share one row above the list, level with each other. */
+.space-side .list-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.space-side .list-controls .list-tabs {
+  margin-bottom: 0;
 }

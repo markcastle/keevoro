@@ -63,10 +63,9 @@ export function SummaryRing(props: { top: MapNode; picked: MapKind | null; onPic
               >
                 <span className={`swatch ${p.kind}`} aria-hidden />
                 {KIND_NAMES[p.kind]}
-              </button>{' '}
-              <span className="figure">
-                {size(p.bytes)} · {share(p.bytes, props.top.bytes)}
-              </span>
+              </button>
+              <span className="figure">{size(p.bytes)}</span>
+              <span className="figure">{share(p.bytes, props.top.bytes)}</span>
             </li>
           ))}
         </ul>

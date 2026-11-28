@@ -2,7 +2,7 @@
 
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { everyBox, gatherShare, gathered, hit, layout, squarify, GATHER_LEAST, GATHER_MOST } from './treemap.ts'
+import { SPACING, everyBox, gatherShare, gathered, hit, layout, squarify, GATHER_LEAST, GATHER_MOST } from './treemap.ts'
 import type { Laid, Rect } from './treemap.ts'
 
 type Item = { name: string; size: number; children?: Item[] }
@@ -97,7 +97,7 @@ test('folders big enough are opened up, with a strip for the name and their cont
   const laid = layout(pictures, canvas, read, 3)
   const packs = laid.children.find((b) => b.item.name === 'Texture packs') as Laid<Item>
   assert.ok(packs.inner, 'opened up')
-  assert.equal(packs.inner.y - packs.y, 18, 'below its name strip')
+  assert.equal(packs.inner.y - packs.y, SPACING.strip, 'below its name strip')
   assert.equal(packs.children.length, 3)
   for (const box of everyBox(laid)) {
     for (const child of box.children) assert.ok(insideOf(child, box.inner as Rect), `${child.item.name} is inside ${box.item.name}`)
