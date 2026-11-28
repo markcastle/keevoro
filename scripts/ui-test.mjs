@@ -215,7 +215,7 @@ const footHere = async (where, band = '.sidebar') => {
   assert.equal(await foot.count(), 1, `${where}: the side band has its foot`)
   assert.ok(await foot.isVisible(), `${where}: the foot can be seen`)
   const links = await foot.locator(':scope > button.link').evaluateAll((all) => all.map((b) => b.firstChild?.textContent?.trim()))
-  assert.deepEqual(links, ['What Keevoro is doing', 'Settings', 'Help', 'Report a problem or idea'], `${where}: the foot holds what Keevoro is doing, Settings, Help and reporting`)
+  assert.deepEqual(links, ['What Keevoro is doing', 'Report a problem or idea', 'Settings', 'Help'], `${where}: the foot holds what Keevoro is doing, reporting, Settings and Help`)
   const side = await page.locator(band).boundingBox()
   const box = await foot.boundingBox()
   assert.ok(side && box && box.x >= side.x && box.x + box.width <= side.x + side.width + 1, `${where}: the foot is inside the side band`)
@@ -1890,6 +1890,28 @@ try {
   await page.getByRole('button', { name: 'Refresh the list of drives' }).click()
   await page.locator('.place').filter({ hasText: 'SanDisk Ultra (F:)' }).waitFor()
 
+  // --- "Where should they go?" follows the drives too: one plugged in appears by
+  // itself, brought to notice, and one pulled out goes. The drive a source is on is never offered.
+  await page.goto(`${base}/?demo=empty&fast&plugin&pullout`)
+  await page.getByRole('heading', { name: 'Where are your photos?', level: 1 }).waitFor()
+  await page.getByRole('button', { name: 'Choose a folder…' }).click()
+  await page.getByRole('button', { name: 'See what was found' }).click()
+  await page.getByRole('button', { name: 'Choose where they go' }).click()
+  await page.getByRole('heading', { name: 'Where should they go?', level: 1 }).waitFor()
+  const to = page.locator('.destinations .place')
+  const arrivedTo = to.filter({ hasText: 'SanDisk Ultra (F:)' })
+  await arrivedTo.waitFor()
+  assert.match(await arrivedTo.innerText(), /Just plugged in\s+SanDisk Ultra \(F:\)\s+USB or external drive · 32 GB\s+Choose a folder on it/)
+  assert.match(await to.first().innerText(), /SanDisk Ultra \(F:\)/, 'the drive just plugged in comes first')
+  assert.ok((await to.locator('b').allInnerTexts()).includes('A folder'), 'any folder, and cloud storage, are still offered')
+  await shot('7a-drives-to-back-up-to')
+  await fitsNarrow('Where should they go, with drives')
+  // Pulled out, the other drive goes from the list by itself.
+  await to.filter({ hasText: 'KINGSTON (E:)' }).waitFor({ state: 'detached', timeout: 15000 })
+  // Choosing a drive asks for a folder on it, and backs up there.
+  await arrivedTo.click()
+  await page.getByText(/^Backing up to the folder\s*F:\\Family Backup/).first().waitFor()
+
   // --- A drive pulled out while it is looked through is said plainly, and
   // what was found so far is kept.
   await page.goto(`${base}/?demo=empty&unplug`)
@@ -2635,6 +2657,10 @@ try {
   // Keevoro has not seen inside it, and one picked from the first step.
   await page.goto(`${base}/?demo=empty&fast`)
   // The way to look inside a folder first is a button in plain sight; what it is for is behind its "i".
+  // Under the sentence about drives, its two buttons share one row.
+  const rowOf = async (name) => Math.round((await page.getByRole('button', { name, exact: true }).boundingBox()).y)
+  assert.equal(await rowOf('Refresh the list of drives'), await rowOf('Look inside a folder first'), 'Refresh the list and Look inside a folder first are on one row')
+  assert.ok((await page.locator('#drives-said').boundingBox()).y < (await rowOf('Refresh the list of drives')), 'under the sentence')
   assert.match(await tipSays('looking inside a folder first'), /^Not sure what is in a folder\? See what it holds before you add it\. Nothing is added until you choose\.$/)
   await page.getByRole('button', { name: 'Look inside a folder first', exact: true }).click()
   await page.getByRole('heading', { name: 'Inside Photos', level: 1 }).waitFor()

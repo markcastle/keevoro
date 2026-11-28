@@ -93,6 +93,7 @@ import { GoogleClassNote, StorageFields } from './storageForm'
 import { CompareSheet, CompareStorage } from './compare'
 import { AddBucketSource, CloudCost, CloudSourceIcon } from './bucketSource'
 import { Explained } from './explained'
+import { onDrive, useDrives } from './drives'
 import { WholeDiskAsked } from './wholeDisk'
 import { SurveyHints } from './surveyHints'
 import { groupHints, outBy } from './surveyGroups'
@@ -589,6 +590,17 @@ export function App() {
           </span>
         )}
       </button>
+      <button
+        className="link"
+        onClick={() => {
+          // Straight to the form, saying which screen the person was on.
+          const from = screenName()
+          openPlace('help', { where: 'help', section: 'report' })
+          setReportFrom(from)
+        }}
+      >
+        Report a problem or idea
+      </button>
       <button className="link" onClick={() => openSettings()}>
         Settings
       </button>
@@ -604,17 +616,6 @@ export function App() {
         }}
       >
         Help
-      </button>
-      <button
-        className="link"
-        onClick={() => {
-          // Straight to the form, saying which screen the person was on.
-          const from = screenName()
-          openPlace('help', { where: 'help', section: 'report' })
-          setReportFrom(from)
-        }}
-      >
-        Report a problem or idea
       </button>
     </div>
   )
@@ -1190,7 +1191,6 @@ function FindScreen(props: {
   // A search passes through folders far faster than anyone can read, so the
   // one named on screen changes only every second and a half.
   const folder = useSteady(scan?.folder, 1500)
-  const [places, setPlaces] = useState<Place[] | null>(null)
   // The source the person has asked to remove, until they confirm.
   const [removing, setRemoving] = useState<number | null>(null)
   // A whole disk the person picked, until they say they mean all of it.
@@ -1235,52 +1235,9 @@ function FindScreen(props: {
     [api],
   )
 
-  // The quick list of drives last given, to ask whether anything changed.
-  const mounts = useRef<string[] | null>(null)
-  // Drives that have just arrived, brought to notice for a little while.
-  const [arrived, setArrived] = useState<Set<string>>(new Set())
-  const look = useCallback(
-    (asked: boolean) => {
-      api
-        .placesIfChanged(mounts.current, asked)
-        .then((now) => {
-          if (!now) return
-          mounts.current = now.mounts
-          setPlaces(now.places)
-          if (now.arrived.length > 0) setArrived(new Set(now.arrived))
-        })
-        .catch(onProblem)
-    },
-    [api, onProblem],
-  )
-  useEffect(() => {
-    if (arrived.size === 0) return
-    const timer = window.setTimeout(() => setArrived(new Set()), ARRIVED_FOR)
-    return () => window.clearTimeout(timer)
-  }, [arrived])
-  // Drives come and go. Look when the window is returned to, when the
-  // system says one came or went, and every couple of seconds while the
-  // drives are on screen and the window can be seen. Each look asks only
-  // whether the list the system keeps has changed, and lists the drives in
-  // full only when it has.
+  // Drives come and go, and the list follows them while it is on screen.
   const drivesShowing = !scan && !survey && !asking && !inside && !space
-  useEffect(() => {
-    look(false)
-    const again = () => look(true)
-    window.addEventListener('focus', again)
-    const stopHearing = api.onDrives(again)
-    return () => {
-      window.removeEventListener('focus', again)
-      stopHearing()
-    }
-  }, [api, look])
-  useEffect(() => {
-    if (!drivesShowing) return
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === 'visible') look(false)
-    }, LOOK_FOR_DRIVES_EVERY)
-    return () => window.clearInterval(timer)
-  }, [drivesShowing, look])
+  const { places, arrived, look } = useDrives(api, drivesShowing, onProblem)
 
   const findFolders = (place: { path: string; name: string }) => {
     setAsking(null)
@@ -1683,20 +1640,22 @@ function FindScreen(props: {
             ))}
             <AddBucketSource api={api} onAdded={start} />
           </div>
-          <Explained
-            className="drives-said"
-            action={
-              <button className="button small" onClick={() => look(true)} aria-label="Refresh the list of drives">
-                Refresh the list
-              </button>
-            }
-          >
+          {/* The sentence, then the two things a person can do about it, side by side. */}
+          <p className="quiet small drives-said" id="drives-said">
             {places && removable.length === 0
               ? 'No USB or external drive is plugged in. One appears here by itself when plugged in.'
               : 'A drive or card appears here by itself when you plug it in.'}
-          </Explained>
-          {/* The way in stays in plain sight; what it is for waits behind the "i". */}
+          </p>
           <p className="look-first">
+            <button
+              className="button small"
+              onClick={() => look(true)}
+              aria-label="Refresh the list of drives"
+              aria-describedby="drives-said"
+            >
+              Refresh the list
+            </button>
+            {/* The way in stays in plain sight; what it is for waits behind the "i". */}
             <button className="button small" onClick={pickToLookInside}>
               Look inside a folder first
             </button>
@@ -1865,9 +1824,7 @@ function sourceTitle(source: Source, places: Place[] | null): string {
 }
 
 /** How long a drive that has just arrived is brought to notice, in milliseconds. */
-const ARRIVED_FOR = 8000
 /** How often the first screen asks whether a drive came or went, in milliseconds, while it can be seen. */
-const LOOK_FOR_DRIVES_EVERY = 2000
 
 function PlaceCard(props: { place: Place; added: boolean; arrived?: boolean; onClick: () => void }) {
   const { place } = props
@@ -2446,6 +2403,7 @@ function SendScreen(props: {
         api={props.api}
         name={props.name}
         destinations={props.found?.destinations ?? []}
+        sourceRoots={(props.found?.sources ?? []).map((source) => source.root)}
         withOtherFiles={(props.found?.others ?? 0) > 0}
         withMusic={(props.found?.music ?? 0) > 0}
         waiting={props.waiting}
@@ -2472,6 +2430,8 @@ function SendPanel(props: {
   name: string
   /** Each place this backup goes to, with what has reached it. */
   destinations: Destination[]
+  /** Where each of this backup's sources is, so the drive one is on is not offered to back up to. */
+  sourceRoots: string[]
   /** The backup holds music, so what is in it says where it goes. */
   withMusic?: boolean
   /** The backup holds other files, so what is in it says where they go. */
@@ -2665,6 +2625,13 @@ function SendPanel(props: {
     })
   }, [api, onProblem, onSent])
 
+  // Drives plugged in, to back up to: never one a source of this backup is
+  // on, as a copy on the same drive is lost with it.
+  const { places: drives, arrived } = useDrives(api, true, onProblem)
+  const { sourceRoots } = props
+  const drivesTo = (drives ?? [])
+    .filter((p) => p.removable && !sourceRoots.some((root) => onDrive(root, p.path)))
+    .sort((a, b) => Number(arrived.has(b.path)) - Number(arrived.has(a.path)))
   const connect = (request: ConnectRequest) => {
     setConnecting(true)
     setRefused(null)
@@ -2786,6 +2753,26 @@ function SendPanel(props: {
           )}
           {!form && (
             <div className="places destinations">
+              {/* A drive or card plugged in is a place to back up to, and appears and goes by itself. */}
+              {drivesTo.map((drive) => (
+                <button
+                  key={drive.path}
+                  className={arrived.has(drive.path) ? 'place arrived' : 'place'}
+                  onClick={() =>
+                    api
+                      .chooseDestinationFolder(drive.path)
+                      .then((folder) => folder && connect({ kind: 'folder', place: folder }))
+                      .catch(onProblem)
+                  }
+                  disabled={connecting}
+                >
+                  <DriveIcon large />
+                  {arrived.has(drive.path) && <small className="just-arrived">Just plugged in</small>}
+                  <b>{drive.name}</b>
+                  <span>{drive.detail}</span>
+                  <span>Choose a folder on it</span>
+                </button>
+              ))}
               <button
                 className="place"
                 onClick={() =>

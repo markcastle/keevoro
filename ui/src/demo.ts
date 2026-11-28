@@ -1115,8 +1115,13 @@ export function demoBackend(): Backend {
       new URLSearchParams(window.location.search).has('plugin') && Date.now() - openedAt > 1500
         ? [{ path: 'F:\\', name: 'SanDisk Ultra (F:)', detail: 'USB or external drive \u00b7 32 GB', removable: true, askFirst: false }]
         : []
+    // `?pullout` has the USB drive pulled out a few seconds after the page opens.
+    const usb: Drive[] =
+      new URLSearchParams(window.location.search).has('pullout') && Date.now() - openedAt > 6000
+        ? []
+        : [{ path: 'E:\\', name: 'KINGSTON (E:)', detail: 'USB or external drive \u00b7 32 GB', removable: true, askFirst: false }]
     return [
-      { path: 'E:\\', name: 'KINGSTON (E:)', detail: 'USB or external drive \u00b7 32 GB', removable: true, askFirst: false },
+      ...usb,
       ...card,
       {
         path: 'C:\\Users\\You\\OneDrive',
@@ -2353,7 +2358,8 @@ export function demoBackend(): Backend {
       }),
     closerLookAtFile: async (path) => scene([...path].reduce((n, c) => n + c.charCodeAt(0), 0), /\.mp4$/.test(path)),
     destination: async () => sendingTo,
-    chooseDestinationFolder: async () => 'F:\\Family Backup',
+    // On a drive, a folder on that drive; otherwise the made-up backup folder.
+    chooseDestinationFolder: async (startAt) => (startAt ? `${startAt.replace(/[\\/]+$/, '')}\\Family Backup` : 'F:\\Family Backup'),
     async findBackupAt(request) {
       await later(300 * pace)
       return foundAt(request)
