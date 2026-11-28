@@ -590,20 +590,6 @@ export function App() {
           </span>
         )}
       </button>
-      <button className="link" onClick={() => openSettings()}>
-        Settings
-      </button>
-      <button
-        className="link"
-        onClick={() => {
-          // A report written from Help says which screen the person was on.
-          const from = screenName()
-          openPlace('help')
-          setReportFrom(from)
-        }}
-      >
-        Help
-      </button>
       <button
         className="link"
         onClick={() => {
@@ -614,6 +600,22 @@ export function App() {
         }}
       >
         Report a problem or idea
+      </button>
+      <button className="link" onClick={() => openSettings()}>
+        Settings
+      </button>
+      <button
+        className="link"
+        onClick={() => {
+          // A report written from Help says which screen the person was on.
+          const from = screenName()
+          // Help opens on Help. The report form has its own link, so having
+          // been there last never makes this one lead there.
+          openPlace('help', placesAt.help.section === 'report' ? { where: 'help', section: null } : undefined)
+          setReportFrom(from)
+        }}
+      >
+        Help
       </button>
     </div>
   )
@@ -1638,20 +1640,22 @@ function FindScreen(props: {
             ))}
             <AddBucketSource api={api} onAdded={start} />
           </div>
-          <Explained
-            className="drives-said"
-            action={
-              <button className="button small" onClick={() => look(true)} aria-label="Refresh the list of drives">
-                Refresh the list
-              </button>
-            }
-          >
+          {/* The sentence, then the two things a person can do about it, side by side. */}
+          <p className="quiet small drives-said" id="drives-said">
             {places && removable.length === 0
               ? 'No USB or external drive is plugged in. One appears here by itself when plugged in.'
               : 'A drive or card appears here by itself when you plug it in.'}
-          </Explained>
-          {/* The way in stays in plain sight; what it is for waits behind the "i". */}
+          </p>
           <p className="look-first">
+            <button
+              className="button small"
+              onClick={() => look(true)}
+              aria-label="Refresh the list of drives"
+              aria-describedby="drives-said"
+            >
+              Refresh the list
+            </button>
+            {/* The way in stays in plain sight; what it is for waits behind the "i". */}
             <button className="button small" onClick={pickToLookInside}>
               Look inside a folder first
             </button>
@@ -1780,6 +1784,7 @@ function FindScreen(props: {
                   <FileTypes
                     api={api}
                     source={s}
+                    onClose={() => setTypesOf(null)}
                     backupArrange={props.arrange}
                     onChanged={props.onChanged}
                     onProblem={onProblem}
@@ -1845,6 +1850,8 @@ function FileTypes(props: {
   api: Backend
   source: Source
   backupArrange: Arrange
+  /** Puts this away again. */
+  onClose: () => void
   onChanged: () => void
   onProblem: (error: unknown) => void
 }) {
@@ -1857,6 +1864,10 @@ function FileTypes(props: {
   if (!kinds) return null
   return (
     <div className="types explain">
+      {/* A way out in plain sight: pressing "File types" again also closes it, but nothing says so. */}
+      <button className="button small types-close" onClick={props.onClose} aria-label={`Close the file types on ${source.name}`}>
+        Close
+      </button>
       <SourceArrange
         name={source.name}
         backup={props.backupArrange}

@@ -24,6 +24,7 @@ import type { Picked } from './mapWords'
 import { KindsList } from './mapKinds'
 import { SurveyingPanel, useAfterSurvey } from './surveyFirst'
 import { SummaryRing } from './summaryRing'
+import { scrollerOf } from './scroller'
 import { chooseSpaceView, savedSpaceView } from './spaceView'
 import type { SpaceView } from './spaceView'
 import { gathered, GATHER_LEAST } from './treemap'
@@ -458,10 +459,14 @@ export function SpaceList(props: {
     return [{ node, within: false }, ...members]
   })
   const at = Math.max(0, rows.findIndex((r) => keyOf(r.node) === props.chosen))
-  // The row pointed at on the map is brought into view in the list.
+  // The row pointed at on the map is lit in the list, and brought into view where the list scrolls by itself.
   useEffect(() => {
     if (!props.lit) return
-    body.current?.querySelector<HTMLElement>(`[data-key="${CSS.escape(props.lit)}"]`)?.scrollIntoView({ block: 'nearest' })
+    const row = body.current?.querySelector<HTMLElement>(`[data-key="${CSS.escape(props.lit)}"]`)
+    // Only within a list that scrolls by itself. Pointing at the map must
+    // never move the page: that carried the map away from under the pointer.
+    const box = scrollerOf(row ?? null)
+    if (row && box && body.current?.closest('.space-list')?.contains(box)) row.scrollIntoView({ block: 'nearest' })
   }, [props.lit])
   const focusRow = (i: number) => {
     const row = body.current?.querySelectorAll<HTMLElement>('tr')[i]
