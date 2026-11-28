@@ -2873,6 +2873,13 @@ try {
   await page.getByRole('grid', { name: 'What is in Pictures, the biggest first' }).waitFor()
   // By kind of file: photos, videos and everything else, each opening to
   // its endings; picking one fades every box on the map without it.
+  // The two choices above the list share one row, level with each other: how the list is cut on the left, map or list on the right.
+  {
+    const cut = await page.getByRole('tablist', { name: 'Show the list' }).boundingBox()
+    const as = await page.getByRole('group', { name: 'Show as' }).boundingBox()
+    assert.ok(Math.abs(cut.y + cut.height / 2 - (as.y + as.height / 2)) <= 1, 'By folder / By kind of file and Map / List are level')
+    assert.ok(cut.x + cut.width <= as.x, 'side by side, not one above the other')
+  }
   await page.getByRole('tab', { name: 'By kind of file' }).click()
   const byKindTable = page.getByRole('table', { name: 'What is in Pictures, by kind of file' })
   await byKindTable.waitFor()

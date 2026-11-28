@@ -6,7 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **The two choices on "Where the space goes" line up.** "By folder / By kind of file" and "Map / List" now sit on one row above the list, level with each other, where one sat above the other at opposite sides. Thanks to Adam Sparshott for the idea.
+- **"Where the space goes" opens as a short list.** It now opens as a list by kind of file, with the ring above it, so you see at a glance what takes the room. The map and the list by folder are each one press away, and Keevoro remembers which you chose. Thanks to Adam Sparshott for the idea.
+- **A calmer, clearer map.** The map of where the space goes is drawn as soft-cornered blocks with a little space between them instead of heavy outlines. Names are always easy to read, even over the stripes and dots, and a name that would not fit is left to the list rather than cut to a few letters. The key beneath it lines up in columns. Thanks to Adam Sparshott for the idea.
+- **The figures beside the ring line up.** Each kind of file has its own line, with the sizes in one column and the shares in another. Thanks to Adam Sparshott for the idea.
 
 ## [0.60.0] - 2026-11-28
 
