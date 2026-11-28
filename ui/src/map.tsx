@@ -235,20 +235,6 @@ export function SpaceScreen(props: {
             if (kind) setByKind(true)
           }}
         />
-        <div className="segmented view-switch" role="group" aria-label="Show as">
-          {(['map', 'list'] as const).map((v) => (
-            <button
-              key={v}
-              aria-pressed={shown === v}
-              onClick={() => {
-                setShown(v)
-                chooseSpaceView(v)
-              }}
-            >
-              {v === 'map' ? 'Map' : 'List'}
-            </button>
-          ))}
-        </div>
       </div>
       <p className="visually-hidden" aria-live="polite">
         In {top.name}: {size(top.bytes)}
@@ -279,13 +265,30 @@ export function SpaceScreen(props: {
           </div>
         )}
         <div className="space-side">
-          <div className="segmented list-tabs" role="tablist" aria-label="Show the list">
-            <button role="tab" id="by-folder" aria-selected={!byKind} aria-controls="space-list-panel" onClick={() => setByKind(false)}>
-              By folder
-            </button>
-            <button role="tab" id="by-kind" aria-selected={byKind} aria-controls="space-list-panel" onClick={() => setByKind(true)}>
-              By kind of file
-            </button>
+          {/* How the list is cut, and whether the map shows, side by side on one row. */}
+          <div className="list-controls">
+            <div className="segmented list-tabs" role="tablist" aria-label="Show the list">
+              <button role="tab" id="by-folder" aria-selected={!byKind} aria-controls="space-list-panel" onClick={() => setByKind(false)}>
+                By folder
+              </button>
+              <button role="tab" id="by-kind" aria-selected={byKind} aria-controls="space-list-panel" onClick={() => setByKind(true)}>
+                By kind of file
+              </button>
+            </div>
+            <div className="segmented view-switch" role="group" aria-label="Show as">
+              {(['map', 'list'] as const).map((v) => (
+                <button
+                  key={v}
+                  aria-pressed={shown === v}
+                  onClick={() => {
+                    setShown(v)
+                    chooseSpaceView(v)
+                  }}
+                >
+                  {v === 'map' ? 'Map' : 'List'}
+                </button>
+              ))}
+            </div>
           </div>
           <div id="space-list-panel" role="tabpanel" aria-labelledby={byKind ? 'by-kind' : 'by-folder'}>
             {byKind ? (

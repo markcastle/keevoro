@@ -6,7 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **The two choices on "Where the space goes" line up.** "By folder / By kind of file" and "Map / List" now sit on one row above the list, level with each other, where one sat above the other at opposite sides. Thanks to Adam Sparshott for the idea.
 
 ## [0.59.1] - 2026-11-27
 
