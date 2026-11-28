@@ -6,7 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **Two buttons on one row.** On the first step, "Refresh the list" and "Look inside a folder first" now sit side by side under the sentence about drives. Thanks to Adam Sparshott for the idea.
+- **"Report a problem or idea" moved up.** At the bottom left of every screen it now comes straight after "What Keevoro is doing", above Settings and Help. Thanks to Adam Sparshott for the idea.
 
 ## [0.59.1] - 2026-11-27
 

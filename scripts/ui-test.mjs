@@ -201,7 +201,7 @@ const footHere = async (where, band = '.sidebar') => {
   assert.equal(await foot.count(), 1, `${where}: the side band has its foot`)
   assert.ok(await foot.isVisible(), `${where}: the foot can be seen`)
   const links = await foot.locator(':scope > button.link').evaluateAll((all) => all.map((b) => b.firstChild?.textContent?.trim()))
-  assert.deepEqual(links, ['What Keevoro is doing', 'Settings', 'Help', 'Report a problem or idea'], `${where}: the foot holds what Keevoro is doing, Settings, Help and reporting`)
+  assert.deepEqual(links, ['What Keevoro is doing', 'Report a problem or idea', 'Settings', 'Help'], `${where}: the foot holds what Keevoro is doing, reporting, Settings and Help`)
   const side = await page.locator(band).boundingBox()
   const box = await foot.boundingBox()
   assert.ok(side && box && box.x >= side.x && box.x + box.width <= side.x + side.width + 1, `${where}: the foot is inside the side band`)
@@ -2614,6 +2614,10 @@ try {
   // Keevoro has not seen inside it, and one picked from the first step.
   await page.goto(`${base}/?demo=empty&fast`)
   // The way to look inside a folder first is a button in plain sight; what it is for is behind its "i".
+  // Under the sentence about drives, its two buttons share one row.
+  const rowOf = async (name) => Math.round((await page.getByRole('button', { name, exact: true }).boundingBox()).y)
+  assert.equal(await rowOf('Refresh the list of drives'), await rowOf('Look inside a folder first'), 'Refresh the list and Look inside a folder first are on one row')
+  assert.ok((await page.locator('#drives-said').boundingBox()).y < (await rowOf('Refresh the list of drives')), 'under the sentence')
   assert.match(await tipSays('looking inside a folder first'), /^Not sure what is in a folder\? See what it holds before you add it\. Nothing is added until you choose\.$/)
   await page.getByRole('button', { name: 'Look inside a folder first', exact: true }).click()
   await page.getByRole('heading', { name: 'Inside Photos', level: 1 }).waitFor()
