@@ -1196,7 +1196,7 @@ pub fn open_release_page<R: Runtime>(app: AppHandle<R>, page: String) -> Said<()
 
 /// Is this a plain web page, safe to hand to the person's browser: `https`,
 /// a host name and nothing odd? It is how Stratus, the comparison of cloud
-/// storage the person opened, and a provider's page it named are opened.
+/// storage, and a provider's page it named are opened.
 /// Nobody's name or password, no other kind of address (a file, a
 /// program), no spaces or control characters, and nothing absurdly long.
 fn is_a_web_page(page: &str) -> bool {
@@ -1335,6 +1335,20 @@ pub async fn refresh_reports<R: Runtime>(app: AppHandle<R>) -> Said<keevoro_api:
         .map_err(say)
 }
 
+/// What cloud storage costs for a size, cheapest first, as Stratus prices
+/// it now. Keevoro asks, through this computer's proxy, so the window never
+/// reaches Stratus itself, and nothing is kept.
+#[tauri::command]
+pub async fn compare_storage<R: Runtime>(
+    app: AppHandle<R>,
+    request: keevoro_api::compare::CompareRequest,
+) -> Said<keevoro_api::compare::Comparison> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<Shared>().keevoro.compare_storage(&request))
+        .await
+        .map_err(say)?
+        .map_err(say)
+}
+
 /// A newer Keevoro, if there is one this computer can install.
 #[tauri::command]
 pub async fn check_update<R: Runtime>(app: AppHandle<R>) -> Said<Option<keevoro_api::Offer>> {
@@ -1430,6 +1444,15 @@ mod tests {
             "https://example.com/https://github.com/markcastle/keevoro/"
         ));
         assert!(!is_a_keevoro_page("file:///C:/Windows"));
+    }
+
+    #[test]
+    fn the_window_never_reaches_stratus_itself() {
+        // Keevoro fetches the prices (`compare_storage`), so the window's
+        // rules let it load no page and ask nothing of Stratus.
+        let config = include_str!("../tauri.conf.json");
+        assert!(!config.contains("frame-src"), "the window shows no page from elsewhere");
+        assert!(!config.contains("stratus"), "the window never asks Stratus anything");
     }
 
     #[test]

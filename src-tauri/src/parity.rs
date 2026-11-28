@@ -80,6 +80,8 @@ const BACKED: &[(&str, &[Op])] = &[
     ("reports_heard", &[Op::ReportsHeard]),
     // A reporting code: kept or forgotten, never read back.
     ("reporting_code", &[Op::ReportsCode]),
+    // What cloud storage costs, from Stratus, asked by Keevoro for the window.
+    ("compare_storage", &[Op::StorageCompare]),
     ("acceleration", &[Op::KeevoroSettings]),
     ("set_acceleration", &[Op::KeevoroSettings]),
     // What an AI agent may do: for the person, never the agent.
@@ -168,8 +170,8 @@ const WINDOW_ONLY: &[&str] = &[
     "open_log",
     // Opens one of Keevoro's own web pages in the browser.
     "open_release_page",
-    // Opens the comparison of cloud storage, or a provider's page it
-    // named, in the browser. The command line and an agent have a browser
+    // Opens Stratus, or a provider's page the comparison named, in the
+    // browser. The command line and an agent have a browser
     // of their own.
     "open_web_page",
     // Downloads and starts the app's own installer, then closes the window.

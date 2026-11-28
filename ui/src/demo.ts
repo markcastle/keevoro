@@ -14,6 +14,7 @@
 
 import builtInKindList from './builtInKinds.json'
 import { demoMap } from './demoMap'
+import { demoComparison } from './demoPrices'
 import type {
   KeepRunningView,
   WindowAsk,
@@ -2092,6 +2093,22 @@ export function demoBackend(): Backend {
     openWebPage: async (page) => {
       const opened = window as unknown as { keevoroOpenedPages?: string[] }
       opened.keevoroOpenedPages = [...(opened.keevoroOpenedPages ?? []), page]
+    },
+    // Made-up prices, after a moment. A test sees what was asked, and can
+    // have Stratus unreachable (`keevoroStratusOffline`) or slow
+    // (`keevoroStratusSlow`, in milliseconds).
+    compareStorage: async (gigabytes, currency) => {
+      const stratus = window as unknown as {
+        keevoroStratusAsked?: { gigabytes: number; currency: string }[]
+        keevoroStratusOffline?: boolean
+        keevoroStratusSlow?: number
+      }
+      stratus.keevoroStratusAsked = [...(stratus.keevoroStratusAsked ?? []), { gigabytes, currency }]
+      await later(stratus.keevoroStratusSlow ?? 120 * pace)
+      if (stratus.keevoroStratusOffline) {
+        throw new Error("Couldn't fetch the prices from Stratus just now. This computer's network would not let Keevoro connect to Stratus.")
+      }
+      return demoComparison(gigabytes, currency)
     },
     async keepCollection(key, keep) {
       otherRowsIn(key).forEach((row) => (row.kept = keep))

@@ -355,6 +355,7 @@ fn app<R: Runtime>(
             commands::reporting_code,
             commands::open_release_page,
             commands::open_web_page,
+            commands::compare_storage,
             commands::install_update,
             commands::keep_collection,
             commands::collection_photos,

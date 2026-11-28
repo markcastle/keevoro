@@ -1,21 +1,16 @@
-// Stratus, by Adam Sparshott, compares what cloud storage costs. Keevoro
-// shows it live, inside a sheet, only when the person asks, and never
-// keeps a price or a provider of its own: a price copied into Keevoro goes
-// stale between releases, and a wrong price is worse than none.
+// Stratus, by Adam Sparshott, compares what cloud storage costs. When the
+// person opens the comparison, Keevoro fetches its prices for one size and
+// one currency (`storage.compare`, in keevoro-api), and the sheet in
+// ./compare.tsx shows them. Nothing is kept: a price copied into Keevoro
+// goes stale, and a wrong price is worse than none.
 //
-// This file is the part that can be tested without a browser: what is
-// sent to the page (the size of the backup and a currency, nothing else),
-// how what comes back from it is checked, and which of Keevoro's own kinds
-// of storage a choice made there matches. Everything the page sends is
-// treated as untrusted: only known fields are read, each checked, and only
-// ever shown as text.
+// This file is the part that can be tested without a browser: the size and
+// currency to ask about, how a price and a size are said, and what each
+// option is for a person using Keevoro: the line that says what kind of
+// thing it is, and the form it opens when Keevoro can back up there.
 
-/** The one place the comparison is loaded from. Messages from anywhere else are ignored. */
-export const STRATUS_ORIGIN = 'https://stratus.adam-sparshott.workers.dev'
-/** Its page as it shows itself inside another: the price board alone. */
-export const STRATUS_EMBED = `${STRATUS_ORIGIN}/#embed`
-/** Its page as a person opens it in their own browser. */
-export const STRATUS_PAGE = `${STRATUS_ORIGIN}/`
+/** Stratus as a person opens it in their own browser. */
+export const STRATUS_PAGE = 'https://stratus.adam-sparshott.workers.dev/'
 
 export type Currency = 'GBP' | 'USD' | 'EUR'
 
@@ -60,110 +55,157 @@ export function gigabytesToAsk(bytes: number): number {
   return Math.round(Math.ceil(gb / step - 1e-9) * step)
 }
 
-/**
- * What Keevoro tells the page: the size and a currency, and to show object
- * storage (pay for what you keep), which is what Keevoro can back up to.
- * Nothing else about the person or their backup is ever sent.
- */
-export function setMessage(bytes: number, locale: string | undefined) {
-  return { stratus: 'set', need: gigabytesToAsk(bytes), currency: currencyFor(locale), kind: 'object' } as const
+/** A size in GB as storage is sold: "240 GB", "1 TB", "2.5 TB". */
+export function sizeSaid(gigabytes: number): string {
+  if (gigabytes < 1000) return `${Math.round(gigabytes).toLocaleString('en-GB')} GB`
+  const terabytes = Math.round(gigabytes / 100) / 10
+  return `${terabytes.toLocaleString('en-GB')} TB`
 }
 
-/** A choice made on the page, with only the fields Keevoro uses, each checked. */
-export type Choice = {
-  /** Stratus's own short name for the provider, such as `cloudflare-r2`. */
+/** The usual sizes to choose from, in GB. */
+const STEPS = [100, 250, 500, 1000, 2000, 5000, 10000]
+
+/** The sizes offered, smallest first, with this backup's among them when there is one. */
+export function sizeSteps(backup: number | null): number[] {
+  const all = new Set(STEPS)
+  if (backup !== null && backup > 0) all.add(backup)
+  return [...all].sort((a, b) => a - b)
+}
+
+/** A price in its currency, to the penny or cent: "£1.40", "$1,234.50". */
+export function money(amount: number, currency: Currency): string {
+  const said = (n: number) =>
+    new Intl.NumberFormat('en-GB', { style: 'currency', currency, currencyDisplay: 'narrowSymbol', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
+  return amount > 0 && amount < 0.005 ? `under ${said(0.01)}` : said(amount)
+}
+
+/** When Stratus fetched its prices, as a person would say it: "today at 06:15". */
+export function fetchedSaid(at: string | null, now: Date = new Date()): string {
+  const when = at ? new Date(at) : null
+  if (!when || Number.isNaN(when.getTime())) return 'just now'
+  const day = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  const clock = `${String(when.getHours()).padStart(2, '0')}:${String(when.getMinutes()).padStart(2, '0')}`
+  const daysAgo = Math.round((day(now) - day(when)) / 86_400_000)
+  if (daysAgo === 0) return `today at ${clock}`
+  if (daysAgo === 1) return `yesterday at ${clock}`
+  return `on ${when.getDate()} ${when.toLocaleString('en-GB', { month: 'long' })}`
+}
+
+/** What cloud storage costs for one size, cheapest first, as keevoro-api gives it from Stratus. */
+export type Comparison = {
+  gigabytes: number
+  currency: Currency
+  /** When Stratus last fetched its prices, or null. */
+  fetchedAt: string | null
+  /** Stratus's names for sources of prices it could not refresh, such as `apple`. */
+  notRefreshed: string[]
+  options: StorageOption[]
+}
+
+/** One plan or kind of storage, in Stratus's own words. */
+export type StorageOption = {
+  id: string
+  /** Stratus's short name for the provider, such as `cloudflare-r2`. */
   provider: string
   /** The provider as people know it: "Cloudflare R2". */
   providerName: string
   /** The plan or class: "R2 Standard". */
-  plan: string
-  /** The provider's own page, when it gave a safe one. */
-  url?: string
-  /** The S3-compatible address to use, when Stratus gives one. */
-  endpoint?: string
+  name: string
+  /** `object` for storage rented by the GB, `consumer` for a plan of a fixed size. */
+  kind: string
+  /** How much a plan of a fixed size holds, in GB. */
+  capacityGB: number | null
+  /** Paid for by the amount kept. */
+  metered: boolean
+  /** Paid for once. */
+  lifetime: boolean
+  monthly: number
+  yearly: number | null
+  /** The provider's own page. */
+  url: string | null
 }
 
-export type FromStratus = { type: 'ready' } | { type: 'select'; choice: Choice }
-
-/** A short line of plain text, or nothing: no control characters, and not too long to show. */
-function words(value: unknown, longest: number): string | undefined {
-  if (typeof value !== 'string') return undefined
-  // eslint-disable-next-line no-control-regex
-  const plain = value.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/\s+/g, ' ').trim()
-  return plain.length > 0 && plain.length <= longest ? plain : undefined
-}
-
-/**
- * An address that is safe to open in the person's browser or to fill in as
- * storage: `https`, a real host name, nobody's name or password in it, and
- * not absurdly long. Anything else is dropped.
- */
-export function safeHttps(value: unknown): string | undefined {
-  if (typeof value !== 'string' || value.length > 2000) return undefined
-  let url: URL
-  try {
-    url = new URL(value)
-  } catch {
-    return undefined
-  }
-  if (url.protocol !== 'https:' || url.username || url.password) return undefined
-  if (!/^[a-z0-9.-]+$/i.test(url.hostname) || !url.hostname.includes('.')) return undefined
-  return url.href
-}
-
-/**
- * What a message from the page means, or `null` for anything that is not
- * from Stratus or not understood. `origin` is the sender's, as the browser
- * says it; only Stratus's own is believed.
- */
-export function readMessage(origin: string, data: unknown): FromStratus | null {
-  if (origin !== STRATUS_ORIGIN) return null
-  if (typeof data !== 'object' || data === null || Array.isArray(data)) return null
-  const message = data as Record<string, unknown>
-  if (message.stratus === 'ready') return { type: 'ready' }
-  if (message.stratus !== 'select') return null
-  const option = message.option
-  if (typeof option !== 'object' || option === null || Array.isArray(option)) return null
-  const fields = option as Record<string, unknown>
-  const provider = words(fields.provider, 64)
-  const providerName = words(fields.providerName, 120)
-  if (!provider || !/^[a-z0-9-]+$/.test(provider) || !providerName) return null
-  const choice: Choice = { provider, providerName, plan: words(fields.name, 120) ?? providerName }
-  const url = safeHttps(fields.url)
-  if (url) choice.url = url
-  const endpoint = safeHttps(fields.endpoint)
-  if (endpoint) choice.endpoint = endpoint
-  return { type: 'select', choice }
-}
-
-/** The form a choice opens in Keevoro: its kind, and its address when there is one to fill in. */
+/** The form an option opens in Keevoro: its kind, and its address when there is one to fill in. */
 export type SetUp = { kind: 'r2' | 's3' | 'gcs' | 'endpoint'; place: string }
 
+/** Archive storage that must be restored before a file can be read, which Keevoro's check of every copy cannot wait for. */
+function needsRestoring(option: StorageOption): boolean {
+  return /deep archive|cold archive|glacier(?! instant)/i.test(option.name)
+}
+
+/** Cheaper storage for files rarely read, which costs extra to read back. */
+function rarelyRead(option: StorageOption): boolean {
+  return /infrequent|-ia\b|archive|glacier|coldline|nearline|\bcold\b/i.test(option.name)
+}
+
 /**
- * Which of Keevoro's own kinds of storage a choice is, by Stratus's name
+ * Which of Keevoro's own kinds of storage an option is, by Stratus's name
  * for its provider: Cloudflare R2, Amazon S3 and Google Cloud Storage by
- * name, and those Keevoro knows speak S3 as "another S3-compatible
- * service", with the address only when Stratus gave one. Anything else
- * (a subscription such as iCloud+, or Azure, which does not speak S3) is
- * `null`: Keevoro cannot back up there directly.
+ * name, and those that speak S3 as "Other storage" (with no address, as
+ * Stratus gives none). Anything else (a plan such as iCloud+, Azure, which
+ * does not speak S3, or archive storage that must be restored before it
+ * can be read) is `null`: Keevoro cannot back up there.
  */
-export function setUpFor(choice: Choice): SetUp | null {
-  switch (choice.provider) {
+export function setUpFor(option: StorageOption): SetUp | null {
+  if (needsRestoring(option)) return null
+  switch (option.provider) {
     case 'cloudflare-r2':
       return { kind: 'r2', place: '' }
     case 'aws-s3':
       return { kind: 's3', place: '' }
     case 'gcs':
       return { kind: 'gcs', place: '' }
-    // These speak S3, so Keevoro reaches them as another S3-compatible service.
+    // These speak S3, so Keevoro reaches them as other storage.
     case 'backblaze-b2':
     case 'wasabi':
     case 'digitalocean':
     case 'scaleway':
     case 'ovh':
-      return { kind: 'endpoint', place: choice.endpoint ?? '' }
+      return { kind: 'endpoint', place: '' }
     default:
-      // An address given for something else means it speaks S3 too.
-      return choice.endpoint ? { kind: 'endpoint', place: choice.endpoint } : null
+      return null
   }
+}
+
+/** What kind of thing an option is, in one short plain line. */
+export function kindLine(option: StorageOption): string {
+  if (option.kind !== 'object') {
+    return option.lifetime ? 'A plan you pay for once, shown spread over five years.' : 'A plan for your phone and computer, like iCloud+.'
+  }
+  if (needsRestoring(option)) return 'Archive storage. Files must be restored, which takes hours, before they can be read.'
+  if (!setUpFor(option)) return 'Storage you rent by the GB, of a kind Keevoro doesn’t speak.'
+  if (rarelyRead(option)) return 'Storage you rent by the GB, for files rarely read. Reading them back costs extra.'
+  return 'Storage you rent by the GB, that programs like Keevoro back up to.'
+}
+
+/** One row of the list, with what the sheet shows of it worked out. */
+export type Row = {
+  option: StorageOption
+  /** The form it opens, or null when Keevoro can't back up there. */
+  setUp: SetUp | null
+  /** The cheapest Keevoro can back up to. */
+  cheapest: boolean
+  /** Its price was not refreshed when Stratus last looked. */
+  notRefreshed: boolean
+  /** How much storage it is: the size asked, or the plan's own. */
+  storage: string
+}
+
+/** The rows to show, cheapest first. */
+export function rowsOf(comparison: Comparison): Row[] {
+  const stale = new Set(comparison.notRefreshed)
+  const sorted = [...comparison.options].sort((a, b) => a.monthly - b.monthly)
+  let marked = false
+  return sorted.map((option) => {
+    const setUp = setUpFor(option)
+    const cheapest = setUp !== null && !marked
+    if (cheapest) marked = true
+    return {
+      option,
+      setUp,
+      cheapest,
+      notRefreshed: stale.has(option.provider),
+      storage: sizeSaid(option.metered || option.capacityGB === null ? comparison.gigabytes : option.capacityGB),
+    }
+  })
 }

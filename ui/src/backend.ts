@@ -14,6 +14,7 @@ import { PictureQueue, fileKey, photoKey } from './pictureQueue'
 import type { Picture } from './reportPicture'
 import { toBase64 } from './reportPicture'
 import { notSent } from './reportsWindow'
+import type { Comparison, Currency } from './stratus'
 
 export type Photo = {
   id: string
@@ -1426,6 +1427,8 @@ export interface Backend {
   openReleasePage(page: string): Promise<void>
   /** Opens a page about cloud storage (Stratus, or a provider it named) in the person's browser. Only https pages. */
   openWebPage(page: string): Promise<void>
+  /** What cloud storage costs for a size, cheapest first, fetched from Stratus now by Keevoro. Told only the size and the currency; nothing is kept. */
+  compareStorage(gigabytes: number, currency: Currency): Promise<Comparison>
   keepCollection(key: string, keep: boolean): Promise<void>
   /** Every file in a collection, in date order. */
   collectionPhotos(key: string): Promise<PhotoChoice[]>
@@ -1638,6 +1641,7 @@ async function tauriBackend(): Promise<Backend> {
     installUpdate: (stopFirst) => invoke('install_update', { stopFirst }),
     openReleasePage: (page) => invoke('open_release_page', { page }),
     openWebPage: (page) => invoke('open_web_page', { page }),
+    compareStorage: (gigabytes, currency) => invoke('compare_storage', { request: { gigabytes, currency } }),
     pickPlace: (startAt) => pickFolder('Choose a source: a drive or folder to look through', startAt),
     keepCollection: (key, keep) => invoke('keep_collection', { key, keep }),
     collectionPhotos: (key) => invoke('collection_photos', { key }),

@@ -2696,7 +2696,7 @@ function SendPanel(props: {
     { label: 'Add another destination', onChoose: () => setAdding(true) },
     {
       label: 'Compare providers',
-      title: 'Compares what cloud storage costs, on Stratus, a page from the internet.',
+      title: 'Compares what cloud storage costs, with prices from Stratus.',
       onChoose: () => setComparing(true),
     },
     ...(destinations.length <= 1
