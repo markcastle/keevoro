@@ -266,9 +266,12 @@ try {
   // Reporting is one click from anywhere: the foot's link opens the form itself.
   await page.locator('.sidebar .foot').getByRole('button', { name: 'Report a problem or idea' }).click()
   await page.getByRole('heading', { name: 'Report a problem or suggest an idea' }).waitFor()
-  // Help remembers where you were, so the rest of this walk starts from its first page again.
-  await page.locator('button[data-section="howTo"]').click()
   // Settings, Help and the report form carry the logo too, and it is the same way home.
+  await page.locator('.kv-side').getByRole('button', { name: 'Keevoro: back to this backup' }).click()
+  await page.locator('.kv-side').waitFor({ state: 'detached' })
+  // Help opens on Help: having just been on the report form never makes the Help link lead there.
+  await page.locator('.sidebar .foot').getByRole('button', { name: 'Help', exact: true }).click()
+  await page.getByRole('heading', { name: 'How do I…', level: 2 }).waitFor()
   await page.locator('.kv-side').getByRole('button', { name: 'Keevoro: back to this backup' }).click()
   await page.locator('.kv-side').waitFor({ state: 'detached' })
   assert.equal(await page.getByLabel('What shall we call this backup?').inputValue(), 'My photos', 'with a name already suggested')
@@ -335,6 +338,10 @@ try {
   assert.match(await text('.kept li.source .count'), /^[\d,]+ photos and videos\s*[\d.]+ (MB|GB)$/, 'and how much is on it')
   // Kinds of file are folded away until asked for, then one switch each.
   assert.equal(await page.locator('.types').count(), 0, 'nothing extra until it is asked for')
+  await page.getByRole('button', { name: /^File types on / }).click()
+  // A Close in plain sight puts it away again; so does pressing File types once more.
+  await page.getByRole('button', { name: /^Close the file types on / }).click()
+  assert.equal(await page.locator('.types').count(), 0, 'Close puts the file types away')
   await page.getByRole('button', { name: /^File types on / }).click()
   assert.deepEqual(await page.locator('.types li b').allInnerTexts(), ['JPG', 'DNG', 'MP4', 'PSD'], 'a less common kind found is listed like any other')
   // Each says what it is behind its "i", in the same words as Settings, Kinds of file.
@@ -2722,10 +2729,14 @@ try {
     const box = await map.locator('canvas.over').boundingBox()
     return [box.x + 30, box.y + 8]
   }
+  // Pointing at the map lights its row in the list, and never moves the page under the pointer.
+  const pageAt = () => page.evaluate(() => [...document.querySelectorAll('main, html')].map((el) => Math.round(el.scrollTop)).join(','))
+  const pageBefore = await pageAt()
   await page.mouse.move(...(await mapCorner()))
   await page.locator('.map-tip:not([hidden])').waitFor()
   assert.match(await text('.map-tip'), /^Texture packs: 17\.7 GB, 160 other files$/)
   await page.locator('.space-list tr.lit', { hasText: 'Texture packs' }).waitFor()
+  assert.equal(await pageAt(), pageBefore, 'the page stays where it was while the map is pointed at')
   assert.equal(await map.getAttribute('data-pointed'), 'C:\\Users\\You\\Pictures\\Texture packs')
   await page.locator('.space-list tbody tr', { hasText: 'Captures' }).hover()
   await page.waitForFunction(() => document.querySelector('.map-canvas')?.dataset.lit === 'C:\\Users\\You\\Pictures\\Captures')
@@ -3494,8 +3505,8 @@ try {
   await shot('13-report-sent-through-the-window')
   // Asked after through the window too, next time the page opens.
   await page.getByRole('button', { name: '‹ Back', exact: true }).click()
-  // Help opens again where it was.
-  await page.getByRole('button', { name: 'Help', exact: true }).click()
+  // The report form has its own way in, which opens it again.
+  await page.locator('.sidebar .foot').getByRole('button', { name: 'Report a problem or idea' }).click()
   await page.locator('#setting-yourReports li', { hasText: 'K-2001' }).getByText('Being worked on').waitFor()
   assert.ok(
     reportsAsked.some((r) => r.method === 'GET' && r.url === `https://reports.keevoro.com/v1/reports/K-2001?token=${WINDOW_TOKEN}`),
@@ -3656,6 +3667,15 @@ try {
   assert.equal(JSON.parse(await sentText()).picture, undefined, 'never inside the report itself')
   await shot('13-report-picture')
   await fitsNarrow('A report with a picture')
+  // Going to look again at the screen being reported keeps the picture, as it keeps the words.
+  await page.locator('.kv-side').getByRole('button', { name: 'Keevoro: back to this backup' }).click()
+  await page.locator('.kv-side').waitFor({ state: 'detached' })
+  await page.locator('.sidebar .foot').getByRole('button', { name: 'Report a problem or idea' }).click()
+  await pictureShown.waitFor()
+  assert.equal(await page.getByLabel('What happened?').inputValue(), 'The map went blank. Here is how it looked.', 'the words are kept too')
+  await page.getByText('See exactly what will be sent').click()
+  await page.locator('.report-picture-line').waitFor()
+  assert.equal(await page.locator('.report-picture-line').innerText(), `A picture, ${tinySize}`, 'and it is still listed with what will be sent')
   // Remove, from the keyboard: gone from the form and from what will be sent.
   await page.getByRole('button', { name: 'Remove', exact: true }).focus()
   await page.keyboard.press('Enter')

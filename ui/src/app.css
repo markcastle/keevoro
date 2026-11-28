@@ -7372,6 +7372,16 @@ button.brand.home:hover {
   margin-top: 0;
 }
 
+/* The file types of a source: its Close sits at the top right of the panel. */
+.types.explain {
+  position: relative;
+}
+
+.types .types-close {
+  float: right;
+  margin: 0 0 var(--space-2) var(--space-3);
+}
+
 /* The sentence about drives, with its two buttons on one row beneath it. */
 p.drives-said {
   margin: var(--space-3) 0 0;

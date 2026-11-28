@@ -608,7 +608,9 @@ export function App() {
         onClick={() => {
           // A report written from Help says which screen the person was on.
           const from = screenName()
-          openPlace('help')
+          // Help opens on Help. The report form has its own link, so having
+          // been there last never makes this one lead there.
+          openPlace('help', placesAt.help.section === 'report' ? { where: 'help', section: null } : undefined)
           setReportFrom(from)
         }}
       >
@@ -1825,6 +1827,7 @@ function FindScreen(props: {
                   <FileTypes
                     api={api}
                     source={s}
+                    onClose={() => setTypesOf(null)}
                     backupArrange={props.arrange}
                     onChanged={props.onChanged}
                     onProblem={onProblem}
@@ -1892,6 +1895,8 @@ function FileTypes(props: {
   api: Backend
   source: Source
   backupArrange: Arrange
+  /** Puts this away again. */
+  onClose: () => void
   onChanged: () => void
   onProblem: (error: unknown) => void
 }) {
@@ -1904,6 +1909,10 @@ function FileTypes(props: {
   if (!kinds) return null
   return (
     <div className="types explain">
+      {/* A way out in plain sight: pressing "File types" again also closes it, but nothing says so. */}
+      <button className="button small types-close" onClick={props.onClose} aria-label={`Close the file types on ${source.name}`}>
+        Close
+      </button>
       <SourceArrange
         name={source.name}
         backup={props.backupArrange}
