@@ -345,6 +345,11 @@ register! {
         "Whether a reporting code is kept in the keychain, and keeping or forgetting one, never reading it",
         changes: OnlyWhenAsked, job: false, command_line: true, agents: Agents::Yes, implemented: true;
 
+    // Where to buy cloud storage
+    StorageCompare = "storage.compare",
+        "Fetches what cloud storage costs for a size, cheapest first, from Stratus. Changes nothing",
+        changes: Never, job: false, command_line: false, agents: Agents::No, implemented: true;
+
     // The kinds of file looked for
     FileKindsList = "file_kinds.list",
         "The kinds of file Keevoro looks for by ending: photo, video, music or other, usual or less common",
@@ -427,6 +432,7 @@ impl Op {
                 | Op::ReportsAsking
                 | Op::ReportsHeard
                 | Op::ReportsCode
+                | Op::StorageCompare
                 | Op::DestinationsTidy
                 | Op::FileKindsList
                 | Op::FileKindsAdd
@@ -524,6 +530,7 @@ impl Op {
             Op::ReportsNote => schema::<crate::reports::NoteReportRequest>(),
             Op::ReportsHeard => schema::<crate::reports::HeardRequest>(),
             Op::ReportsCode => schema::<crate::reports::ReportingCodeRequest>(),
+            Op::StorageCompare => schema::<crate::compare::CompareRequest>(),
             Op::KeevoroSettings => schema::<SettingsRequest>(),
             Op::AgentsAccess => schema::<Agents>(),
             Op::BackupHistory => schema::<HistoryRequest>(),
@@ -950,6 +957,7 @@ impl Op {
             | Op::ReportsNote
             | Op::ReportsAsking
             | Op::ReportsHeard
+            | Op::StorageCompare
             | Op::PlacesForgetMaps => return None,
         };
         Some(Tool { name, tells })
@@ -1002,7 +1010,7 @@ mod tests {
 
     #[test]
     fn the_register_has_every_operation_in_the_plan() {
-        assert_eq!(Op::ALL.len(), 82);
+        assert_eq!(Op::ALL.len(), 83);
         // Each entry is the one for its own operation.
         for op in Op::ALL {
             assert_eq!(op.entry().op, *op);
@@ -1102,6 +1110,8 @@ mod tests {
             Op::ReportsNote,
             Op::ReportsAsking,
             Op::ReportsHeard,
+            // The comparison of cloud storage is for a person choosing where to buy.
+            Op::StorageCompare,
         ]
         .into();
         assert_eq!(kept_from_agents, plan);
@@ -1131,8 +1141,9 @@ mod tests {
     fn the_command_line_offers_everything() {
         // Except what only the app's window can do: reaching the reports
         // service through the system's own network settings when Keevoro
-        // cannot. The command line has no window to send through.
-        let window_only = [Op::ReportsNote, Op::ReportsAsking, Op::ReportsHeard];
+        // cannot. The command line has no window to send through. And the
+        // comparison of cloud storage, which is a sheet for a person choosing.
+        let window_only = [Op::ReportsNote, Op::ReportsAsking, Op::ReportsHeard, Op::StorageCompare];
         for entry in entries() {
             assert_eq!(
                 entry.command_line,

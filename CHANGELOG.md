@@ -10,6 +10,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 - **A Close button on a source's file types.** Opening "File types" on a source now shows a Close button at its top right. Pressing "File types" again still closes it too. Thanks to Adam Sparshott for the idea.
 
+### Changed
+
+- **Comparing cloud storage looks like the rest of Keevoro.** "Compare providers", on the backup screen and in Help, now shows Keevoro's own list in place of Stratus's web page: the options that fit, cheapest first, with what each costs a month and a year, how much storage it is and what kind of thing it is, and the cheapest Keevoro can use marked. Change the size or the currency and the prices are fetched again. "Set this up" opens Keevoro's form for anything it can back up to. Prices still come from Stratus, fetched each time and never kept, and Stratus is told only the size and your currency. If the prices can't be fetched, Keevoro says why and offers Try again. Thanks to Adam Sparshott for the idea.
+
 ### Fixed
 
 - **"Where the space goes" no longer scrolls by itself.** Moving the mouse over the map could scroll the page down, away from the map, to show the matching row in the list. The row is still lit, but the page stays where it is. Thanks to Adam Sparshott for reporting this.

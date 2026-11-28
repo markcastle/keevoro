@@ -11,7 +11,7 @@ import { useHolds } from '../holds'
 import { useEffect, useState } from 'react'
 import type { Backend, KeepRunningView } from '../backend'
 import { CompareSheet } from '../compare'
-import { gigabytesToAsk } from '../stratus'
+import { gigabytesToAsk, sizeSaid } from '../stratus'
 import type { SetUp } from '../stratus'
 import { Group, Intro, Row, RowButton } from './parts'
 
@@ -120,20 +120,20 @@ export function CompareSection(props: {
   onProblem: (error: unknown) => void
 }) {
   const [open, setOpen] = useState(false)
-  const about = gigabytesToAsk(props.keptBytes).toLocaleString('en-GB')
+  const size = props.keptBytes > 0 ? `about ${sizeSaid(gigabytesToAsk(props.keptBytes))}` : null
   return (
     <>
       <Intro>
-        Not sure where to buy cloud storage? Stratus, made by Adam Sparshott, compares what it costs, set to the size of
-        this backup.
+        Not sure where to buy cloud storage? Stratus, made by Adam Sparshott, compares what it costs. Keevoro shows its
+        prices, cheapest first, for {size ? 'the size of this backup' : 'the size you choose'}.
       </Intro>
       <Group
-        footnote={`This loads a comparison page from the internet. Keevoro tells it only the size of this backup, about ${about} GB, and your currency. The prices are Stratus’, not Keevoro’s.`}
+        footnote={`Keevoro fetches the prices from Stratus each time, and tells it only the size${size ? `, ${size},` : ''} and your currency. The prices are Stratus’, not Keevoro’s.`}
       >
         <Row
           id="compare"
           title="Stratus"
-          about={`What cloud storage for about ${about} GB costs, provider by provider.`}
+          about={size ? `What cloud storage for ${size} costs, provider by provider.` : 'What cloud storage costs, provider by provider.'}
           control={<RowButton onClick={() => setOpen(true)}>Compare providers</RowButton>}
         />
       </Group>

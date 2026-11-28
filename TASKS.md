@@ -604,6 +604,7 @@ Someone choosing where to back up to often does not have anywhere yet. Stratus, 
 - [x] With no connection, a plain link and a sentence saying prices need one; never stale figures
 - [x] Credit to Stratus and its author where it is shown
 - [x] The page is another site shown inside Keevoro: it must not be able to reach Keevoro's own commands, and nothing about the person's backup is sent to it beyond the size and currency
+- [x] Keevoro's own comparison screen in place of the page: Stratus's prices fetched by Keevoro (through the proxy, with its key lightly hidden, kept nowhere), cheapest first, with the size and currency to change, the cheapest Keevoro can use marked, and "Set this up" for each Keevoro backs up to
 
 Google Cloud Storage
 

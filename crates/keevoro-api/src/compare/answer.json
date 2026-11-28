@@ -1,0 +1,289 @@
+{
+  "version": "0.1.0",
+  "copyright": "© 2026 Adam Sparshott",
+  "meta": {
+    "mode": "live",
+    "fetchedAt": "2026-11-02T06:15:00.000Z",
+    "server": null,
+    "sources": [
+      {
+        "name": "gcs",
+        "ok": false,
+        "fetchedAt": "2026-11-02T06:15:00.000Z",
+        "error": "skipped: set GCP_API_KEY to enable",
+        "source": "Google Cloud Billing Catalog API (needs GCP_API_KEY)"
+      },
+      {
+        "name": "apple",
+        "ok": false,
+        "fetchedAt": "2026-11-02T06:15:00.000Z",
+        "error": "could not find US prices on the Apple page",
+        "source": "Apple Support “iCloud+ plans and pricing” page (support.apple.com/108047)"
+      },
+      {
+        "name": "cloudflare-r2",
+        "ok": true,
+        "fetchedAt": "2026-11-02T06:15:00.000Z",
+        "updated": [
+          "r2-standard",
+          "r2-ia"
+        ],
+        "rates": false,
+        "source": "Cloudflare R2 pricing docs"
+      },
+      {
+        "name": "backblaze-b2",
+        "ok": true,
+        "fetchedAt": "2026-11-02T06:15:00.000Z",
+        "updated": [
+          "b2"
+        ],
+        "rates": false,
+        "source": "Backblaze B2 pricing page"
+      },
+      {
+        "name": "fx",
+        "ok": true,
+        "fetchedAt": "2026-11-02T06:15:00.000Z",
+        "updated": [],
+        "rates": true,
+        "source": "European Central Bank reference rates via Frankfurter (api.frankfurter.dev)"
+      }
+    ],
+    "ratesLive": true,
+    "snapshotDate": "2026-11-01",
+    "livePlans": 12,
+    "totalPlans": 67
+  },
+  "rates": {
+    "USD": 1,
+    "GBP": 0.75,
+    "EUR": 0.9
+  },
+  "data": [
+    {
+      "id": "s3-deep",
+      "provider": "aws-s3",
+      "providerName": "Amazon S3",
+      "badge": {
+        "text": "S3",
+        "color": "#d97100"
+      },
+      "kind": "object",
+      "name": "S3 Glacier Deep Archive",
+      "capacityGB": null,
+      "metered": true,
+      "baseMonthly": null,
+      "includedGB": null,
+      "lifetime": false,
+      "oneOff": null,
+      "lifetimeYears": null,
+      "currency": "GBP",
+      "symbol": "£",
+      "monthly": 0.25,
+      "yearly": 3.0,
+      "perTB": 1.04,
+      "nativePrice": false,
+      "note": "180-day minimum; 12–48h restore; retrieval fee",
+      "url": "https://aws.amazon.com/s3/pricing/",
+      "source": "snapshot",
+      "checkedAt": "2026-11-01"
+    },
+    {
+      "id": "gcs-archive",
+      "provider": "gcs",
+      "providerName": "Google Cloud Storage",
+      "badge": {
+        "text": "GC",
+        "color": "#188038"
+      },
+      "kind": "object",
+      "name": "GCS Archive",
+      "capacityGB": null,
+      "metered": true,
+      "baseMonthly": null,
+      "includedGB": null,
+      "lifetime": false,
+      "oneOff": null,
+      "lifetimeYears": null,
+      "currency": "GBP",
+      "symbol": "£",
+      "monthly": 0.3,
+      "yearly": 3.6,
+      "perTB": 1.25,
+      "nativePrice": false,
+      "note": "365-day minimum; retrieval fee",
+      "url": "https://cloud.google.com/storage/pricing",
+      "source": "snapshot",
+      "checkedAt": "2026-11-01"
+    },
+    {
+      "id": "b2",
+      "provider": "backblaze-b2",
+      "providerName": "Backblaze B2",
+      "badge": {
+        "text": "B2",
+        "color": "#d6312b"
+      },
+      "kind": "object",
+      "name": "B2 Cloud Storage",
+      "capacityGB": null,
+      "metered": true,
+      "baseMonthly": null,
+      "includedGB": null,
+      "lifetime": false,
+      "oneOff": null,
+      "lifetimeYears": null,
+      "currency": "GBP",
+      "symbol": "£",
+      "monthly": 1.4,
+      "yearly": 16.8,
+      "perTB": 5.83,
+      "nativePrice": false,
+      "note": "Free egress up to 3× stored data",
+      "url": "https://www.backblaze.com/cloud-storage/pricing",
+      "source": "live",
+      "checkedAt": "2026-11-01"
+    },
+    {
+      "id": "wasabi",
+      "provider": "wasabi",
+      "providerName": "Wasabi",
+      "badge": {
+        "text": "Wa",
+        "color": "#2f9a4a"
+      },
+      "kind": "object",
+      "name": "Wasabi Hot Cloud Storage",
+      "capacityGB": null,
+      "metered": true,
+      "baseMonthly": null,
+      "includedGB": null,
+      "lifetime": false,
+      "oneOff": null,
+      "lifetimeYears": null,
+      "currency": "GBP",
+      "symbol": "£",
+      "monthly": 1.5,
+      "yearly": 18.0,
+      "perTB": 6.25,
+      "nativePrice": false,
+      "note": "90-day minimum; 1TB minimum charge",
+      "url": "https://wasabi.com/pricing",
+      "source": "snapshot",
+      "checkedAt": "2026-11-01"
+    },
+    {
+      "id": "r2-standard",
+      "provider": "cloudflare-r2",
+      "providerName": "Cloudflare R2",
+      "badge": {
+        "text": "R2",
+        "color": "#e8730c"
+      },
+      "kind": "object",
+      "name": "R2 Standard",
+      "capacityGB": null,
+      "metered": true,
+      "baseMonthly": null,
+      "includedGB": null,
+      "lifetime": false,
+      "oneOff": null,
+      "lifetimeYears": null,
+      "currency": "GBP",
+      "symbol": "£",
+      "monthly": 2.8,
+      "yearly": 33.6,
+      "perTB": 11.67,
+      "nativePrice": false,
+      "note": "Free egress",
+      "url": "https://developers.cloudflare.com/r2/pricing/",
+      "source": "live",
+      "checkedAt": "2026-11-01"
+    },
+    {
+      "id": "pcloud-500-life",
+      "provider": "pcloud",
+      "providerName": "pCloud",
+      "badge": {
+        "text": "pC",
+        "color": "#14a0b8"
+      },
+      "kind": "consumer",
+      "name": "pCloud Lifetime 500GB",
+      "capacityGB": 500,
+      "metered": false,
+      "baseMonthly": null,
+      "includedGB": null,
+      "lifetime": true,
+      "oneOff": 166.9,
+      "lifetimeYears": 5,
+      "currency": "GBP",
+      "symbol": "£",
+      "monthly": 3.0,
+      "yearly": 36.0,
+      "perTB": 12.5,
+      "nativePrice": false,
+      "note": "One-off list price; pCloud often discounts lifetime plans",
+      "url": "https://www.pcloud.com/plans",
+      "source": "snapshot",
+      "checkedAt": "2026-11-01"
+    },
+    {
+      "id": "azure-hot",
+      "provider": "azure",
+      "providerName": "Azure Blob Storage",
+      "badge": {
+        "text": "Az",
+        "color": "#2a6fb0"
+      },
+      "kind": "object",
+      "name": "Azure Blob Hot (LRS)",
+      "capacityGB": null,
+      "metered": true,
+      "baseMonthly": null,
+      "includedGB": null,
+      "lifetime": false,
+      "oneOff": null,
+      "lifetimeYears": null,
+      "currency": "GBP",
+      "symbol": "£",
+      "monthly": 3.9,
+      "yearly": 46.8,
+      "perTB": 16.25,
+      "nativePrice": false,
+      "note": "Egress extra",
+      "url": "https://azure.microsoft.com/pricing/details/storage/blobs/",
+      "source": "live",
+      "checkedAt": "2026-11-01"
+    },
+    {
+      "id": "icloud-2tb",
+      "provider": "apple",
+      "providerName": "Apple iCloud+",
+      "badge": {
+        "text": "iC",
+        "color": "#5b6470"
+      },
+      "kind": "consumer",
+      "name": "iCloud+ 2TB",
+      "capacityGB": 2000,
+      "metered": false,
+      "baseMonthly": null,
+      "includedGB": null,
+      "lifetime": false,
+      "oneOff": null,
+      "lifetimeYears": null,
+      "currency": "GBP",
+      "symbol": "£",
+      "monthly": 8.99,
+      "yearly": 107.88,
+      "perTB": 37.46,
+      "nativePrice": true,
+      "note": "",
+      "url": "https://support.apple.com/en-us/108047",
+      "source": "snapshot",
+      "checkedAt": "2026-11-01"
+    }
+  ]
+}

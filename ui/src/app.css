@@ -6397,8 +6397,9 @@ h3.kv-group-title {
   margin: var(--space-3) 0 0;
 }
 
-/* The sheet over the window that holds Stratus's page. It is as tall as
-   the window allows, so the comparison scrolls inside its own frame. */
+/* The sheet over the window. It is as tall as the window allows, so more
+   of the list is on screen at once; the list scrolls inside it, under its
+   heading and over its foot, which stay put. */
 .compare-sheet {
   position: fixed;
   inset: 0;
@@ -6409,19 +6410,15 @@ h3.kv-group-title {
   background: rgba(0, 0, 0, 0.35);
 }
 
-/* As tall as the window, less a margin: a comparison is a long page, and
-   more of it on screen is easier to read than a short box to scroll in. */
 .compare-sheet .panel {
-  width: min(1280px, 100%);
+  width: min(1040px, 100%);
   height: 100%;
-  /* A column whose spare height all goes to the comparison, however many
-     lines sit above it (a choice made, or nothing yet). */
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
   box-shadow: var(--shadow-md);
   outline: none;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .compare-sheet header {
@@ -6439,32 +6436,204 @@ h3.kv-group-title {
   margin: 0;
 }
 
-.compare-frame {
-  width: 100%;
+/* What it compares for, with the size and currency to change beside it. */
+.compare-asked {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+}
+
+.compare-for {
+  font-size: 17px;
+}
+
+.compare-choose {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.compare-choose label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 14px;
+  color: var(--ink-muted);
+}
+
+.compare-choose select {
+  width: auto;
+  min-width: 0;
+}
+
+/* The list takes the spare height, and scrolls by itself. */
+.compare-list {
   flex: 1 1 0;
-  min-height: 320px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: #fff;
+  min-height: 0;
+  overflow: auto;
+  border-top: 1px solid var(--line);
 }
 
-/* Kept in place but out of sight until the page says it is ready. */
-.compare-frame.waiting {
-  visibility: hidden;
+.compare-fetching,
+.compare-list > .quiet {
+  padding: var(--space-4) 0;
 }
 
-.compare-choice .explained,
-.compare-failed .explained {
-  margin: 0;
+.compare-failed {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: start;
+  padding: var(--space-4) 0;
 }
 
-@media (max-width: 620px) {
+.compare-failed-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.compare-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+/* Older prices stay in sight, faded, while new ones come. */
+.compare-table.stale {
+  opacity: 0.5;
+}
+
+.compare-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-muted);
+  text-align: left;
+}
+
+.compare-table td,
+.compare-table tbody th {
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+  text-align: left;
+  font-weight: normal;
+}
+
+/* Figures right-aligned, in figures of one width, so they line up. */
+.compare-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.compare-table .month b {
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.compare-name b {
+  font-weight: 600;
+}
+
+.compare-name span {
+  color: var(--ink-muted);
+}
+
+.compare-kind {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--ink-muted);
+}
+
+.compare-best {
+  display: inline-block;
+  margin-left: var(--space-2);
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--success-soft);
+  color: var(--success);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.compare-table tr.cheapest > * {
+  background: color-mix(in srgb, var(--success-soft) 40%, transparent);
+}
+
+.compare-act {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.compare-act .quiet {
+  display: block;
+}
+
+.compare-act .link {
+  padding: 0;
+}
+
+.compare-credit {
+  display: grid;
+  gap: 2px;
+}
+
+@media (max-width: 760px) {
   .compare-sheet {
     padding: var(--space-2);
   }
 
   .compare-sheet .panel {
     padding: var(--space-4);
+  }
+
+  /* One option a block: who and what across the top, then the storage
+     and the price a month side by side, then what Keevoro can do. */
+  .compare-table thead,
+  .compare-table .year {
+    display: none;
+  }
+
+  .compare-table,
+  .compare-table tbody {
+    display: block;
+  }
+
+  .compare-table tr {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    border-bottom: 1px solid var(--line);
+    padding: var(--space-3) 0;
+  }
+
+  .compare-table td,
+  .compare-table tbody th {
+    border: 0;
+    padding: 2px 0;
+  }
+
+  .compare-table tbody th,
+  .compare-act {
+    grid-column: 1 / -1;
+  }
+
+  .compare-table td.num:first-of-type {
+    text-align: left;
+  }
+
+  .compare-act {
+    width: auto;
+    white-space: normal;
+    padding-top: var(--space-2) !important;
   }
 }
 

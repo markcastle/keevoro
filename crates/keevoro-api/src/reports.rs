@@ -668,7 +668,7 @@ impl Unreached {
 
     /// The line for the log: what it was, and the error in full, with
     /// `secret` (a token in an address) taken out.
-    fn logged(error: &ureq::Error, secret: Option<&str>) -> String {
+    pub(crate) fn logged(error: &ureq::Error, secret: Option<&str>) -> String {
         let mut text = format!("{}: {error}", Self::of(error).word());
         let mut source = std::error::Error::source(error);
         while let Some(cause) = source {

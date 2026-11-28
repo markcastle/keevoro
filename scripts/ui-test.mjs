@@ -31,32 +31,17 @@ const base = `http://127.0.0.1:${server.address().port}`
 
 const browser = await chromium.launch()
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } })
-// Stratus, the comparison of cloud storage, is never reached for real: a
-// stand-in answers at its address. Like the real page in its embed mode,
-// it says it is ready, shows what it was told, and says what was picked.
-// Set `stratusOffline` to have the address not answer at all.
-const STRATUS = /^https:\/\/stratus\.adam-sparshott\.workers\.dev(\/|$)/
-const stratusAsked = []
-let stratusOffline = false
-const fakeStratus = `<!doctype html><meta charset="utf-8"><title>Stratus stand-in</title>
-<p id="told">Not told anything yet</p>
-<button id="r2">Pick R2 Standard</button> <button id="icloud">Pick iCloud+ 2TB</button>
-<script>
-  const pick = (option) => parent.postMessage({ stratus: 'select', option }, '*')
-  addEventListener('message', (e) => {
-    if (e.data && e.data.stratus === 'set') document.getElementById('told').textContent =
-      'keys=' + Object.keys(e.data).sort().join(',') + ' need=' + e.data.need + ' currency=' + e.data.currency + ' kind=' + e.data.kind + ' from=' + e.origin
-  })
-  document.getElementById('r2').onclick = () => pick({ id: 'r2-standard', provider: 'cloudflare-r2', providerName: 'Cloudflare R2', name: 'R2 Standard', kind: 'object', monthly: 1.5, url: 'https://developers.cloudflare.com/r2/pricing/' })
-  document.getElementById('icloud').onclick = () => pick({ id: 'icloud-2tb', provider: 'apple', providerName: 'Apple iCloud+', name: 'iCloud+ 2TB', kind: 'consumer', monthly: 8.99, url: 'https://support.apple.com/en-us/108047' })
-  parent.postMessage({ stratus: 'ready', version: 'stand-in' }, '*')
-</script>`
+// Stratus, the comparison of cloud storage, is asked by Keevoro itself
+// (`storage.compare`), never by the window: the demo answers in its place
+// with made-up prices. Anything the window asks of Stratus is noted here,
+// and it must stay empty.
+const STRATUS = /^https?:\/\/[^/]*stratus[^/]*\//
+const windowAskedStratus = []
 await page.route(STRATUS, (route) => {
-  stratusAsked.push(route.request().url())
-  if (stratusOffline) return route.abort('internetdisconnected')
-  return route.fulfill({ status: 200, contentType: 'text/html', body: fakeStratus })
+  windowAskedStratus.push(route.request().url())
+  return route.abort('blockedbyclient')
 })
-// Keevoro's reports service is never reached for real either. A stand-in
+// Keevoro's reports service is never reached for real. A stand-in
 // answers at its address as `reportsService` says, as the real one does to
 // the window (any origin may ask), and otherwise the address does not
 // answer at all. What the window asked of it is noted.
@@ -544,59 +529,119 @@ try {
   await shot('7-where-should-they-go')
   await footHere('Where should they go?')
   // Not sure where to buy cloud storage? One quiet line, and nothing is
-  // loaded from the internet until it is chosen.
+  // asked of Stratus until it is chosen.
+  const stratusAsks = () => page.evaluate(() => window.keevoroStratusAsked ?? [])
   assert.equal(await text('.compare-line'), 'Not sure where to buy cloud storage? Compare providers')
-  assert.deepEqual(stratusAsked, [], 'nothing is asked of Stratus before the person opens it')
-  await page.getByRole('button', { name: 'Compare providers' }).click()
+  assert.deepEqual(await stratusAsks(), [], 'nothing is asked of Stratus before the person opens it')
+  const compareOpener = page.locator('.compare-line').getByRole('button', { name: 'Compare providers' })
+  await compareOpener.click()
   const compare = page.getByRole('dialog', { name: 'Compare cloud storage' })
   await compare.waitFor()
-  assert.match(await compare.innerText(), /This loads a comparison page from the internet\. Keevoro tells it only the size of this backup, about [\d,]+ GB, and your currency\. The prices are Stratus’, not Keevoro’s/)
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('role')), 'dialog', 'the focus goes into the sheet')
+  const priceTable = compare.getByRole('table', { name: /^Cloud storage for .+, cheapest first$/ })
+  await priceTable.waitFor()
+  // It says what it compares for, the size of this backup, and asks Stratus that and a currency, nothing else.
+  assert.match(await text('.compare-for'), /^For about [\d.,]+ (GB|TB), the size of this backup\.$/)
+  const firstAsk = await stratusAsks()
+  assert.equal(firstAsk.length, 1)
+  assert.deepEqual(Object.keys(firstAsk[0]).sort(), ['currency', 'gigabytes'])
+  assert.match(firstAsk[0].currency, /^(GBP|USD|EUR)$/)
+  assert.equal(String(firstAsk[0].gigabytes), await compare.getByLabel('Size').inputValue())
+  assert.equal(firstAsk[0].currency, await compare.getByLabel('Currency').inputValue())
+  // A real table with headers, one row an option, cheapest first.
+  assert.deepEqual(await priceTable.locator('thead th').allInnerTexts(), ['Provider and plan', 'Storage', 'A month', 'A year', 'Using it with Keevoro'])
+  const figure = (said) => (said.startsWith('under') ? 0.005 : Number(said.replace(/[^\d.]/g, '')))
+  const months = (await priceTable.locator('tbody td.month').allInnerTexts()).map(figure)
+  assert.ok(months.length >= 8, `${months.length} options`)
+  assert.deepEqual(months, [...months].sort((a, b) => a - b), 'cheapest first')
+  // The figures line up: right-aligned in one column, in figures of one width.
+  const rightEdges = await priceTable.locator('tbody td.month b').evaluateAll((all) => all.map((b) => Math.round(b.getBoundingClientRect().right)))
+  assert.equal(new Set(rightEdges).size, 1, `the prices end at one edge (${[...new Set(rightEdges)]})`)
+  assert.equal(await priceTable.locator('tbody td.month').first().evaluate((td) => getComputedStyle(td).fontVariantNumeric), 'tabular-nums')
+  // The cheapest Keevoro can use is marked, once: archive storage that must be restored first is not one.
+  const cheapest = priceTable.locator('tbody tr.cheapest')
+  assert.equal(await cheapest.count(), 1)
+  assert.match(await cheapest.innerText(), /^Google Cloud Storage GCS Archive\s*Cheapest Keevoro can use/)
+  const rowOf = (plan) => priceTable.locator('tbody tr').filter({ has: page.getByText(plan, { exact: true }) })
+  assert.match(await rowOf('S3 Glacier Deep Archive').innerText(), /Archive storage\. Files must be restored, which takes hours, before they can be read\.[\s\S]*Keevoro can’t back up to this/)
+  assert.equal(await rowOf('S3 Glacier Deep Archive').getByRole('button', { name: /^Set this up/ }).count(), 0)
+  assert.match(await rowOf('B2 Cloud Storage').innerText(), /Storage you rent by the GB, that programs like Keevoro back up to\./)
+  // A price Stratus could not refresh says so, quietly, on its row.
+  assert.match(await cheapest.innerText(), /Price not refreshed today\./)
+  assert.doesNotMatch(await rowOf('B2 Cloud Storage').innerText(), /not refreshed/)
+  // Honest about whose prices they are, and when they were fetched.
+  assert.match(await compare.innerText(), /Prices are Stratus’, fetched (today|yesterday) at \d\d:\d\d\. Check with the provider before you buy\./)
   assert.match(await compare.innerText(), /Comparison by Stratus, made by Adam Sparshott\./)
-  // The sheet is as tall as the window allows, so more of the comparison is on screen at once.
+  // The sheet is as tall as the window allows.
   const sheetAt = await compare.boundingBox()
   assert.ok(sheetAt.height > page.viewportSize().height - 60, `the comparison fills the window's height (${Math.round(sheetAt.height)} of ${page.viewportSize().height})`)
-  assert.ok((await compare.locator('iframe').boundingBox()).height > page.viewportSize().height * 0.6, 'and most of that is the comparison itself')
-  const frame = compare.locator('iframe')
-  assert.equal(await frame.getAttribute('sandbox'), 'allow-scripts allow-same-origin', 'no popups, no moving the app away, no forms')
-  assert.equal(await frame.getAttribute('referrerpolicy'), 'no-referrer')
-  // Told the size of this backup and a currency, and nothing else.
-  const told = page.frameLocator('.compare-sheet iframe').locator('#told')
-  await told.filter({ hasText: /^keys=/ }).waitFor()
-  assert.match(await told.innerText(), /^keys=currency,kind,need,stratus need=\d+ currency=(GBP|USD|EUR) kind=object from=http:\/\/127\.0\.0\.1:\d+$/)
-  assert.ok(stratusAsked.length > 0 && stratusAsked.every((url) => STRATUS.test(url)))
   await shot('7b-compare-storage')
   await fitsNarrow('Comparing cloud storage')
   await narrowShots('7b-compare-storage', compare)
-  // Picking something Keevoro backs up to offers its form, ready to fill in.
-  await page.frameLocator('.compare-sheet iframe').getByRole('button', { name: 'Pick R2 Standard' }).click()
-  const setUp = compare.getByRole('button', { name: 'Set up Cloudflare R2 in Keevoro' })
-  await setUp.waitFor()
-  assert.match(await compare.locator('.compare-choice').innerText(), /You chose R2 Standard\. Once you have a bucket and its keys, Keevoro can back up there\./)
-  await shot('7c-compare-storage-chosen')
-  await setUp.click()
-  await compare.waitFor({ state: 'detached' })
-  assert.equal(await page.locator('form.connect').getByLabel('Storage').inputValue(), 'r2')
-  await page.locator('form.connect').getByLabel('Cloudflare account ID').waitFor()
-  await page.locator('form.connect').getByRole('button', { name: 'Cancel' }).click()
-  // Something Keevoro can't back up to directly is named, with its page.
-  await page.getByRole('button', { name: 'Compare providers' }).click()
-  await page.frameLocator('.compare-sheet iframe').getByRole('button', { name: 'Pick iCloud+ 2TB' }).click()
-  await compare.getByText('Keevoro can’t back up to Apple iCloud+ directly', { exact: false }).waitFor()
-  assert.equal(await compare.getByRole('button', { name: /^Set up / }).count(), 0)
-  await compare.getByRole('button', { name: 'Open Apple iCloud+’s page' }).click()
+  // Changing the size asks again, for that size.
+  await compare.getByLabel('Size').selectOption('2000')
+  await compare.getByText('For 2 TB of storage.', { exact: true }).waitFor()
+  await page.waitForFunction(() => window.keevoroStratusAsked?.length === 2)
+  assert.equal((await stratusAsks())[1].gigabytes, 2000)
+  await priceTable.locator('tbody tr').filter({ hasText: 'iCloud+ 2TB' }).waitFor()
+  assert.equal(await rowOf('iCloud+ 2TB').locator('td.num').first().innerText(), '2 TB')
+  assert.equal(await rowOf('B2 Cloud Storage').locator('td.num').first().innerText(), '2 TB')
+  // And changing the currency, in that currency.
+  await compare.getByLabel('Currency').selectOption('EUR')
+  await page.waitForFunction(() => window.keevoroStratusAsked?.length === 3)
+  assert.deepEqual((await stratusAsks())[2], { gigabytes: 2000, currency: 'EUR' })
+  await page.waitForFunction(() => [...document.querySelectorAll('.compare-table tbody td.month')].every((td) => td.innerText.startsWith('€')))
+  // Something Keevoro can't back up to has no button, says so, and links to its own page.
+  const icloud = rowOf('iCloud+ 2TB')
+  assert.match(await icloud.innerText(), /A plan for your phone and computer, like iCloud\+\.[\s\S]*Keevoro can’t back up to this/)
+  assert.equal(await icloud.getByRole('button', { name: /^Set this up/ }).count(), 0)
+  await icloud.getByRole('button', { name: 'Their website: Apple iCloud+' }).click()
   await page.waitForFunction(() => (window.keevoroOpenedPages ?? []).includes('https://support.apple.com/en-us/108047'))
-  await compare.getByRole('button', { name: 'Close' }).click()
-  await compare.waitFor({ state: 'detached' })
-  // With no connection, it says so after a short wait, and offers the browser.
-  stratusOffline = true
-  await page.getByRole('button', { name: 'Compare providers' }).click()
-  await compare.getByText('Couldn’t load the comparison just now.', { exact: false }).waitFor({ timeout: 30_000 })
-  await shot('7d-compare-storage-offline')
-  await compare.locator('.compare-failed').getByRole('button', { name: 'Open Stratus in your browser' }).click()
-  await page.waitForFunction(() => (window.keevoroOpenedPages ?? []).includes('https://stratus.adam-sparshott.workers.dev/'))
+  // A wait of more than a moment says it is fetching.
+  await page.evaluate(() => (window.keevoroStratusSlow = 1500))
+  await compare.getByLabel('Currency').selectOption('USD')
+  await compare.getByText('Fetching prices…').waitFor()
+  await page.waitForFunction(() => [...document.querySelectorAll('.compare-table tbody td.month')].every((td) => td.innerText.startsWith('$')))
+  assert.equal(await compare.getByText('Fetching prices…').count(), 0)
+  await page.evaluate(() => (window.keevoroStratusSlow = undefined))
+  // Each kind Keevoro backs up to opens its own form, ready to fill in.
+  for (const [plan, kind, field] of [
+    ['R2 Standard', 'r2', 'Cloudflare account ID'],
+    ['S3 Standard', 's3', 'Region'],
+    ['GCS Archive', 'gcs', 'Bucket name'],
+    ['B2 Cloud Storage', 'endpoint', 'Address'],
+  ]) {
+    if (!(await compare.isVisible())) await compareOpener.click()
+    await compare.getByRole('button', { name: `Set this up: ${plan}` }).click()
+    await compare.waitFor({ state: 'detached' })
+    const form = page.locator('form.connect')
+    assert.equal(await form.getByLabel('Storage').inputValue(), kind, plan)
+    await form.getByLabel(field, { exact: false }).first().waitFor()
+    await form.getByRole('button', { name: 'Cancel' }).click()
+  }
+  // Escape closes the sheet and gives the focus back to what opened it.
+  await compareOpener.click()
+  await compare.waitFor()
   await page.keyboard.press('Escape')
   await compare.waitFor({ state: 'detached' })
-  stratusOffline = false
+  assert.equal(await page.evaluate(() => document.activeElement?.textContent), 'Compare providers', 'the focus is back where it was')
+  // When Stratus can't be reached: a plain sentence, Try again, and the browser. Never a blank sheet.
+  await page.evaluate(() => (window.keevoroStratusOffline = true))
+  await compareOpener.click()
+  const failed = compare.getByRole('alert')
+  await failed.waitFor()
+  assert.match(await failed.innerText(), /^Couldn't fetch the prices from Stratus just now\. This computer's network would not let Keevoro connect to Stratus\./)
+  assert.equal(await compare.getByRole('table').count(), 0)
+  await shot('7d-compare-storage-offline')
+  await failed.getByRole('button', { name: 'Open Stratus in your browser' }).click()
+  await page.waitForFunction(() => (window.keevoroOpenedPages ?? []).includes('https://stratus.adam-sparshott.workers.dev/'))
+  await page.evaluate(() => (window.keevoroStratusOffline = false))
+  await failed.getByRole('button', { name: 'Try again' }).click()
+  await priceTable.waitFor()
+  assert.equal(await compare.getByRole('alert').count(), 0)
+  await compare.getByRole('button', { name: 'Close' }).click()
+  await compare.waitFor({ state: 'detached' })
+  assert.deepEqual(windowAskedStratus, [], 'the window itself never asks Stratus anything')
   // Cloud storage asks only what it needs, and hides the secret.
   await page.getByRole('button', { name: /Cloudflare R2/ }).click()
   await page.getByLabel('Cloudflare account ID').fill('0123456789abcdef0123456789abcdef')
@@ -1030,7 +1075,7 @@ try {
   ])
   assert.match(
     await page.locator('#setting-privacy').innerText(),
-    /^Your photos go only where you send them\s+You need no Keevoro account\..*If you choose to compare cloud storage providers, in Help or on the backup screen, it shows Stratus.*tells it only the size of the backup and your currency\. A report of a problem or an idea goes to Keevoro’s maker only when you send one, and you see exactly what it holds first\./s,
+    /^Your photos go only where you send them\s+You need no Keevoro account\..*If you choose to compare cloud storage providers, in Help or on the backup screen, it fetches prices from Stratus.*tells it only the size and your currency\. A report of a problem or an idea goes to Keevoro’s maker only when you send one, and you see exactly what it holds first\./s,
   )
   assert.match(await text('.kv-settings'), /voro, an old Swedish word meaning “were”/)
   assert.match(await text('.kv-settings'), /Copyright 2026 Mark Castle\..*Functional Source License \(FSL-1\.1-MIT\)/s)
@@ -1080,36 +1125,37 @@ try {
   assert.equal(await page.evaluate(() => document.activeElement?.id), 'setting-changelog', 'back on the row that opened it')
 
   // --- Help, Compare cloud storage providers: the same sheet, said the
-  // same way, set to the size of this backup.
+  // same way.
   await helpSection('Compare cloud storage providers')
   assert.match(await text('.kv-page'), /Stratus, made by Adam Sparshott, compares what it costs/)
-  assert.match(await text('.kv-page'), /This loads a comparison page from the internet\. Keevoro tells it only the size of this backup, about 1 GB, and your currency\./)
+  assert.match(await text('.kv-page'), /Keevoro shows its prices, cheapest first, for the size you choose\.[\s\S]*Keevoro fetches the prices from Stratus each time, and tells it only the size and your currency\. The prices are Stratus’, not Keevoro’s\./)
   await shot('9q-help-compare')
   await fitsNarrow('Help, Compare cloud storage providers')
   await page.setViewportSize({ width: 400, height: 800 })
   await shot('9q-help-compare-400')
   await page.setViewportSize({ width: 1440, height: 900 })
-  const askedBefore = stratusAsked.length
+  const askedBefore = (await page.evaluate(() => window.keevoroStratusAsked ?? [])).length
   await page.getByRole('button', { name: 'Compare providers' }).click()
   const helpCompare = page.getByRole('dialog', { name: 'Compare cloud storage' })
   await helpCompare.waitFor()
-  assert.match(await helpCompare.innerText(), /This loads a comparison page from the internet\. Keevoro tells it only the size of this backup, about 1 GB, and your currency\. The prices are Stratus’, not Keevoro’s/)
+  await helpCompare.getByRole('table').waitFor()
+  // With nothing kept yet, it starts at a common size, and says so.
+  assert.match(await helpCompare.innerText(), /For 1 TB of storage\./)
   assert.match(await helpCompare.innerText(), /Comparison by Stratus, made by Adam Sparshott\./)
-  await page.frameLocator('.compare-sheet iframe').getByRole('button', { name: 'Pick R2 Standard' }).click()
-  assert.ok(stratusAsked.length > askedBefore && stratusAsked.every((url) => STRATUS.test(url)), 'only the stand-in is ever asked')
+  assert.equal((await page.evaluate(() => window.keevoroStratusAsked ?? [])).length, askedBefore + 1, 'asked once, as it opened')
   await shot('9q-help-compare-sheet')
   // Escape closes the sheet, and only the sheet.
   await helpCompare.getByRole('heading', { name: 'Compare cloud storage' }).click()
   await page.keyboard.press('Escape')
   await helpCompare.waitFor({ state: 'detached' })
   await page.getByRole('heading', { name: 'Compare cloud storage providers', level: 2 }).waitFor()
-  // A choice Keevoro can back up to opens Keevoro's own form for it, on the backup screen.
+  // An option Keevoro can back up to opens Keevoro's own form for it, on the backup screen.
   await page.getByRole('button', { name: 'Compare providers' }).click()
-  await page.frameLocator('.compare-sheet iframe').getByRole('button', { name: 'Pick R2 Standard' }).click()
-  await helpCompare.getByRole('button', { name: 'Set up Cloudflare R2 in Keevoro' }).click()
+  await helpCompare.getByRole('button', { name: 'Set this up: R2 Standard' }).click()
   await page.getByRole('heading', { name: 'Where should they go?', level: 1 }).waitFor()
   await page.getByLabel('Cloudflare account ID').waitFor()
   await page.getByRole('button', { name: 'Cancel' }).click()
+  assert.deepEqual(windowAskedStratus, [], 'the window itself never asks Stratus anything')
   // How do I… goes to the backup screen ready to add a destination.
   await page.getByRole('button', { name: 'Help', exact: true }).click()
   await helpSection('How do I…')
@@ -1700,8 +1746,7 @@ try {
   await moreChoice('Compare providers')
   const moreCompare = page.getByRole('dialog', { name: 'Compare cloud storage' })
   await moreCompare.waitFor()
-  await page.frameLocator('.compare-sheet iframe').getByRole('button', { name: 'Pick R2 Standard' }).click()
-  await moreCompare.getByRole('button', { name: 'Set up Cloudflare R2 in Keevoro' }).click()
+  await moreCompare.getByRole('button', { name: 'Set this up: R2 Standard' }).click()
   await moreCompare.waitFor({ state: 'detached' })
   await page.getByRole('heading', { name: 'Add another destination' }).waitFor()
   await page.getByLabel('Cloudflare account ID').waitFor()

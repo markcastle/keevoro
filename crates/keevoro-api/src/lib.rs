@@ -33,6 +33,7 @@ pub mod arrival;
 pub mod backup;
 pub mod backups;
 pub mod bucket_sources;
+pub mod compare;
 pub mod destinations;
 pub mod error;
 pub mod file_kinds;
@@ -616,6 +617,10 @@ pub fn call(keevoro: &Keevoro, op: Op, backup: Option<&str>, request: Value) -> 
         Op::ReportsHeard => {
             let r: reports::HeardRequest = read(request)?;
             answer(keevoro.reports_heard(&r))
+        }
+        Op::StorageCompare => {
+            let r: compare::CompareRequest = read(request)?;
+            answer(keevoro.compare_storage(&r)?)
         }
         Op::KeevoroSettings => {
             let r: SettingsRequest = read(request)?;
