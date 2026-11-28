@@ -6,9 +6,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.60.0] - 2026-11-28
+
 ### Added
 
 - **A Close button on a source's file types.** Opening "File types" on a source now shows a Close button at its top right. Pressing "File types" again still closes it too. Thanks to Adam Sparshott for the idea.
+- **Plugged-in drives on "Where should they go?".** A USB drive or card now shows there as a place to back up to, and choosing it opens the folder chooser on that drive. It appears by itself when plugged in and goes when pulled out, as on the first step. The drive a source is on is not offered, as a copy on the same drive is lost with it. Thanks to Adam Sparshott for reporting this.
+
+### Changed
+
+- **Two buttons on one row.** On the first step, "Refresh the list" and "Look inside a folder first" now sit side by side under the sentence about drives. Thanks to Adam Sparshott for the idea.
+- **"Report a problem or idea" moved up.** At the bottom left of every screen it now comes straight after "What Keevoro is doing", above Settings and Help. Thanks to Adam Sparshott for the idea.
 
 ### Changed
 
@@ -997,7 +1007,8 @@ Posters and conversion use ffmpeg, which needs to be installed on the computer. 
 - **An index of every backup.** Each backup ends by writing one file that lists every album and photo, under a long random name that cannot be guessed, plus a `gallery.json` for the existing gallery site.
 - **Install in one line, update in one command.** A one-line installer for Windows, macOS and Linux, and `keevoro update` to move to the newest version. Every download is checked against the release's checksum before it is installed. Keevoro only contacts the internet for this when you ask it to.
 
-[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.59.1...HEAD
+[Unreleased]: https://github.com/markcastle/keevoro/compare/v0.60.0...HEAD
+[0.60.0]: https://github.com/markcastle/keevoro/compare/v0.59.1...v0.60.0
 [0.59.1]: https://github.com/markcastle/keevoro/compare/v0.59.0...v0.59.1
 [0.59.0]: https://github.com/markcastle/keevoro/compare/v0.58.1...v0.59.0
 [0.58.1]: https://github.com/markcastle/keevoro/compare/v0.58.0...v0.58.1
