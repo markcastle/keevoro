@@ -25,7 +25,7 @@ import { KindsList } from './mapKinds'
 import { SurveyingPanel, useAfterSurvey } from './surveyFirst'
 import { SummaryRing } from './summaryRing'
 import { scrollerOf } from './scroller'
-import { chooseSpaceView, savedSpaceView } from './spaceView'
+import { chooseSpaceList, chooseSpaceView, savedSpaceList, savedSpaceView } from './spaceView'
 import type { SpaceView } from './spaceView'
 import { gathered, GATHER_LEAST } from './treemap'
 
@@ -63,7 +63,11 @@ export function SpaceScreen(props: {
   const narrow = useNarrow()
   const [wholeMap, setWholeMap] = useState(false)
   // The list by folder, or by kind of file with what was picked there.
-  const [byKind, setByKind] = useState(false)
+  const [byKind, setByKindNow] = useState(() => savedSpaceList() === 'kind')
+  const setByKind = (kind: boolean) => {
+    setByKindNow(kind)
+    chooseSpaceList(kind ? 'kind' : 'folder')
+  }
   const [picked, setPicked] = useState<Picked | null>(null)
   // The map beside the list, or the list alone, as last chosen here.
   const [shown, setShown] = useState<SpaceView>(savedSpaceView)
@@ -233,7 +237,8 @@ export function SpaceScreen(props: {
           picked={byKind && picked && picked.ending === undefined ? picked.kind : null}
           onPick={(kind) => {
             setPicked(kind ? { kind } : null)
-            if (kind) setByKind(true)
+            // Shown for now, not remembered: it was the ring that was pressed, not the tab.
+            if (kind) setByKindNow(true)
           }}
         />
         <div className="segmented view-switch" role="group" aria-label="Show as">

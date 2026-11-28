@@ -31,6 +31,20 @@ const base = `http://127.0.0.1:${server.address().port}`
 
 const browser = await chromium.launch()
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } })
+// Most of what follows was written when "Where the space goes" opened as
+// the map with the list by folder, so each page starts with that chosen,
+// once. What a person sees with nothing chosen has its own check below.
+const mapByFolder = () => {
+  try {
+    if (sessionStorage.getItem('keevoro-test-seeded')) return
+    sessionStorage.setItem('keevoro-test-seeded', '1')
+    localStorage.setItem('keevoro-space-view', 'map')
+    localStorage.setItem('keevoro-space-list', 'folder')
+  } catch {
+    // A page with no storage of its own, such as a stand-in in a frame.
+  }
+}
+await page.addInitScript(mapByFolder)
 // Stratus, the comparison of cloud storage, is never reached for real: a
 // stand-in answers at its address. Like the real page in its embed mode,
 // it says it is ready, shows what it was told, and says what was picked.
@@ -2921,7 +2935,21 @@ try {
   // Above the map, a ring of what takes the room, with the figures in words;
   // each picks its kind, fading the boxes without it.
   const ringList = page.getByRole('list', { name: 'What takes the room in Family hard drive' })
-  assert.deepEqual(await ringList.locator('li').allInnerTexts(), ['Photos 55.3 GB · 80%', 'Videos 12.6 GB · 18%', 'Everything else 1.1 GB · 2%'])
+  assert.deepEqual(
+    (await ringList.locator('li').allInnerTexts()).map((t) => t.replace(/\s+/g, ' ')),
+    ['Photos 55.3 GB 80%', 'Videos 12.6 GB 18%', 'Everything else 1.1 GB 2%'],
+  )
+  // A trusted tester asked for this to line up: every name starts on one
+  // line down the page, and the sizes and the shares each end on one.
+  const ringRows = await ringList.locator('li').evaluateAll((rows) =>
+    rows.map((li) => {
+      const [name, much, part] = [...li.children].map((c) => c.getBoundingClientRect())
+      return { top: Math.round(li.getBoundingClientRect().top), left: Math.round(name.left), size: Math.round(much.right), share: Math.round(part.right), level: Math.abs(name.top + name.height / 2 - (much.top + much.height / 2)) }
+    }),
+  )
+  assert.equal(new Set(ringRows.map((r) => r.top)).size, ringRows.length, 'one kind to a line')
+  for (const edge of ['left', 'size', 'share']) assert.equal(new Set(ringRows.map((r) => r[edge])).size, 1, `the ${edge} edges line up`)
+  assert.ok(ringRows.every((r) => r.level <= 1.5), 'each figure sits level with its name')
   assert.equal(await page.locator('.summary-ring svg').getAttribute('aria-hidden'), 'true', 'the ring is a picture; the list says it')
   await ringList.getByRole('button', { name: 'Photos' }).click()
   await page.waitForFunction(() => document.querySelector('.map-canvas')?.dataset.picked === 'photo')
@@ -2953,6 +2981,30 @@ try {
   assert.equal(await page.locator('.map-canvas').count(), 0)
   await page.getByRole('group', { name: 'Show as' }).getByRole('button', { name: 'Map' }).click()
   await page.locator('.map-canvas').waitFor()
+
+  // With nothing chosen yet it opens as the list, by kind of file: the
+  // ring and a short list say where the room went, and the map is one
+  // press away. A trusted tester asked for this.
+  await page.evaluate(() => {
+    localStorage.removeItem('keevoro-space-view')
+    localStorage.removeItem('keevoro-space-list')
+  })
+  await page.reload()
+  await page.locator('.steps button').nth(0).click()
+  await page.getByRole('button', { name: 'Where the space goes on Family hard drive' }).click()
+  await page.getByRole('grid', { name: /by kind of file/i }).or(page.locator('.kinds-list')).first().waitFor({ timeout: 15000 })
+  assert.equal(await page.getByRole('group', { name: 'Show as' }).getByRole('button', { name: 'List' }).getAttribute('aria-pressed'), 'true', 'the list first')
+  assert.equal(await page.getByRole('tab', { name: 'By kind of file' }).getAttribute('aria-selected'), 'true', 'by kind of file first')
+  assert.equal(await page.locator('.map-canvas').count(), 0, 'the map waits to be asked for')
+  await shot('9v2c-space-as-it-first-opens')
+  // Each choice is remembered by itself.
+  await page.getByRole('tab', { name: 'By folder' }).click()
+  await page.getByRole('group', { name: 'Show as' }).getByRole('button', { name: 'Map' }).click()
+  await page.locator('.map-canvas').waitFor()
+  assert.deepEqual(
+    await page.evaluate(() => [localStorage.getItem('keevoro-space-view'), localStorage.getItem('keevoro-space-list')]),
+    ['map', 'folder'],
+  )
 
   // Small folders are gathered into one box and row, "Smaller folders",
   // saying why, opening in the list in place, and on the map with a click.
@@ -3205,6 +3257,7 @@ try {
   // --- The narrow window fits even when the typeface cannot be loaded,
   // whose stand-in draws words wider: the bar at the foot wraps instead.
   const plain = await browser.newPage({ viewport: { width: 400, height: 800 } })
+  await plain.addInitScript(mapByFolder)
   await plain.route('**/*.woff2', (route) => route.abort())
   await plain.goto(`${base}/?fast`)
   await plain.getByRole('heading', { name: 'Which of these should we keep?', level: 1 }).waitFor()
@@ -4014,6 +4067,7 @@ try {
   // On a touch screen 400 pixels wide, a tap opens it, inside the gutters, and another tap shuts it.
   const touch = await browser.newContext({ hasTouch: true, isMobile: true, viewport: { width: 400, height: 800 } })
   const phone = await touch.newPage()
+  await phone.addInitScript(mapByFolder)
   await phone.goto(`${base}/?fast&page=settings/byItself`)
   const phoneTip = phone.locator('#setting-minimise').getByRole('button', { name: 'More about Minimise to the icon by the clock' })
   await phoneTip.scrollIntoViewIfNeeded()

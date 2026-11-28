@@ -53,7 +53,7 @@ export type Spacing = {
   readable: number
 }
 
-export const SPACING: Spacing = { strip: 18, pad: 2, open: { w: 48, h: 32 }, least: 12, readable: 96 * 40 }
+export const SPACING: Spacing = { strip: 22, pad: 3, open: { w: 48, h: 32 }, least: 12, readable: 96 * 40 }
 
 /** The least and most of a folder below which folders are gathered. */
 export const GATHER_LEAST = 0.02
